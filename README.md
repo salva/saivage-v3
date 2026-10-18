@@ -36,9 +36,12 @@ screenshots (`scale:'css'`, no filename). See the [pinned browser recipe](docs/r
 Reviewer requires explicit admission; Oversight has no MCP. Independently selected
 registration/removal tools persist connections separately from operator YAML;
 registration does not launch and dynamic connections never autostart. Discover
-`bindingId` before calling; bindings change on stop/start. MCP-managed stdio process
+`bindingId` and `catalogId` before calling; bindings change on stop/start. Opt-in
+`mcp_catalog_refresh` re-lists one ready connection without restarting it and
+publishes a fresh catalog identity; discover again before a new call. See the
+[refresh procedure](docs/runbook/index.md#explicit-mcp-catalog-refresh). MCP-managed stdio process
 association does not grant ordinary process wait/kill; HTTP stop is local only.
-Live catalog refresh, editing and card-tree lifetimes remain deferred. One server shares a
+Notifications/native tool projection, editing and card-tree lifetimes remain deferred. One server shares a
 disposable context, lost on stop/active cancellation. Pixels cannot be certified secret-free.
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.

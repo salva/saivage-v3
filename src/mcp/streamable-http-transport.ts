@@ -19,6 +19,7 @@ import type { McpServerHandle } from './server-registry.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
 import type { NativeMcpResult } from './native-result.js';
 import { beginOutboundHttp } from '../observability/index.js';
+import { decodeMcpListPage } from './catalog-discovery.js';
 
 interface HttpObservationOptions {
   outboundHttp?: OutboundHttpEmitter;
@@ -311,27 +312,52 @@ function sessionHeaders(handle?: McpServerHandle): Record<string, string> {
     : {};
 }
 
-export async function discoverStreamableHttpTools(
-  input: HttpObservationOptions & {
-    serverName: string;
-    config: StreamableHttpMcpServerConfig;
-    handle?: McpServerHandle;
-    ids: MessageIdSource;
-    signal: AbortSignal;
-  },
-): Promise<McpToolDefinition[]> {
-  const { serverName: name, config: cfg, handle, ids, signal } = input;
+type HttpDiscoveryInput = HttpObservationOptions & {
+  serverName: string;
+  config: StreamableHttpMcpServerConfig;
+  handle?: McpServerHandle;
+  ids: MessageIdSource;
+  signal: AbortSignal;
+};
+
+async function withDiscoverySignal<T>(
+  input: HttpDiscoveryInput,
+  consume: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const { handle, signal } = input;
   signal.throwIfAborted();
   const discoveryAbort = new AbortController();
   const serverSignal = handle?.abortController?.signal;
   serverSignal?.throwIfAborted();
-  const onServerAbort = () => discoveryAbort.abort(serverSignal!.reason);
-  const onOperationAbort = () => discoveryAbort.abort(signal.reason);
+  const onServerAbort = () => {
+    throwIfPublicationOutcomeUnknown(serverSignal!.reason);
+    discoveryAbort.abort(serverSignal!.reason);
+  };
+  const onOperationAbort = () => {
+    throwIfPublicationOutcomeUnknown(signal.reason);
+    discoveryAbort.abort(signal.reason);
+  };
   serverSignal?.addEventListener('abort', onServerAbort, { once: true });
   signal.addEventListener('abort', onOperationAbort, { once: true });
-  const tools: McpToolDefinition[] = [];
   let publicationUnknown = false;
   try {
+    return await consume(discoveryAbort.signal);
+  } catch (err) {
+    publicationUnknown = err instanceof PublicationOutcomeUnknownError;
+    throwIfPublicationOutcomeUnknown(err);
+    if (discoveryAbort.signal.aborted) throw discoveryAbort.signal.reason;
+    throw err;
+  } finally {
+    if (!publicationUnknown) {
+      serverSignal?.removeEventListener('abort', onServerAbort);
+      signal.removeEventListener('abort', onOperationAbort);
+    }
+  }
+}
+
+export function initializeStreamableHttp(input: HttpDiscoveryInput): Promise<void> {
+  const { serverName: name, config: cfg, handle, ids } = input;
+  return withDiscoverySignal(input, async (signal) => {
     const initId = ids.next();
     const initReq: McpJsonRpcRequest = {
       jsonrpc: '2.0',
@@ -352,7 +378,7 @@ export async function discoverStreamableHttpTools(
           Accept: 'application/json, text/event-stream',
         },
         body: JSON.stringify(initReq),
-        signal: discoveryAbort.signal,
+        signal,
       },
       input,
       'mcp-initialize',
@@ -367,7 +393,7 @@ export async function discoverStreamableHttpTools(
           serverName: name,
           operation: 'initialize',
           expectedId: initId,
-          signal: discoveryAbort.signal,
+          signal,
           http,
         });
         if (initBody.error) {
@@ -386,7 +412,7 @@ export async function discoverStreamableHttpTools(
           ...sessionHeaders(handle),
         },
         body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
-        signal: discoveryAbort.signal,
+        signal,
       },
       input,
       'mcp-notification',
@@ -397,22 +423,22 @@ export async function discoverStreamableHttpTools(
             name,
             `notifications/initialized HTTP POST returned status ${notificationResp.status}`,
           );
-        await consumeStreamableHttpInitializedNotification(
-          notificationResp,
-          name,
-          discoveryAbort.signal,
-          http,
-        );
+        await consumeStreamableHttpInitializedNotification(notificationResp, name, signal, http);
       },
     );
+  });
+}
 
+export function listStreamableHttpTools(input: HttpDiscoveryInput): Promise<McpToolDefinition[]> {
+  const { serverName: name, config: cfg, handle, ids } = input;
+  return withDiscoverySignal(input, async (signal) => {
+    const tools: McpToolDefinition[] = [];
+    const names = new Set<string>();
     let cursor: string | undefined;
-    let firstPage = true;
     do {
       const listId = ids.next();
       const listReq: McpJsonRpcRequest = { jsonrpc: '2.0', id: listId, method: 'tools/list' };
-      if (!firstPage && cursor) listReq.params = { cursor };
-      firstPage = false;
+      if (cursor) listReq.params = { cursor };
       await consumeMcpHttp(
         cfg.url,
         {
@@ -423,7 +449,7 @@ export async function discoverStreamableHttpTools(
             ...sessionHeaders(handle),
           },
           body: JSON.stringify(listReq),
-          signal: discoveryAbort.signal,
+          signal,
         },
         input,
         'mcp-list',
@@ -438,34 +464,17 @@ export async function discoverStreamableHttpTools(
             serverName: name,
             operation: 'tools/list',
             expectedId: listId,
-            signal: discoveryAbort.signal,
+            signal,
             http,
           });
-          if (listBody.error) {
-            throw discoveryRejection(name, 'tools/list', listBody.error);
-          }
-          const result = listBody.result as
-            | (Record<string, unknown> & { tools?: McpToolDefinition[]; nextCursor?: string })
-            | undefined;
-          if (result && Array.isArray(result.tools)) {
-            tools.push(...result.tools);
-            cursor = result.nextCursor;
-          } else cursor = undefined;
+          const result = decodeMcpListPage(name, listBody, names);
+          tools.push(...result.tools);
+          cursor = result.nextCursor;
         },
       );
     } while (cursor);
     return tools;
-  } catch (err) {
-    publicationUnknown = err instanceof PublicationOutcomeUnknownError;
-    throwIfPublicationOutcomeUnknown(err);
-    if (discoveryAbort.signal.aborted) throw discoveryAbort.signal.reason;
-    throw err;
-  } finally {
-    if (!publicationUnknown) {
-      serverSignal?.removeEventListener('abort', onServerAbort);
-      signal.removeEventListener('abort', onOperationAbort);
-    }
-  }
+  });
 }
 
 export async function invokeStreamableHttpTool(

@@ -11,9 +11,9 @@ import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import { mapToolsCallResponse } from '../../src/mcp/tools-call-response.js';
 
 function invocation(invokeTool: () => Promise<NativeMcpResult>, signal?: AbortSignal) {
-  const manager = { ...unusedMcpToolInvocation, invokeTool, findToolCapability: () => null, getServerTools: () => undefined };
+  const manager = { ...unusedMcpToolInvocation, invokeTool, findToolCapability: () => null };
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
-  return invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }), signal);
+  return invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }), signal);
 }
 async function result(value: NativeMcpResult) {
   const execution = await invocation(async () => value);

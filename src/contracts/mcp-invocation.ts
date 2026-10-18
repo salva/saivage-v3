@@ -23,6 +23,7 @@ export const McpToolCallArgumentsSchema = z
   .object({
     serverName: z.string(),
     bindingId: z.string().uuid(),
+    catalogId: z.string().uuid(),
     toolName: z.string(),
     args: z.record(z.unknown()).optional(),
     max_dimension: imageMaxDimensionSchema.optional(),
@@ -30,6 +31,10 @@ export const McpToolCallArgumentsSchema = z
   .strict();
 
 export type McpToolCallArguments = z.infer<typeof McpToolCallArgumentsSchema>;
+
+export const McpCatalogRefreshArgumentsSchema = z
+  .object({ serverName: z.string().min(1), bindingId: z.string().uuid() })
+  .strict();
 
 export const McpServerControlArgumentsSchema = z
   .object({

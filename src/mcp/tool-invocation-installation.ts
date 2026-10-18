@@ -44,11 +44,13 @@ export function createMcpToolInvocationInstallation(): McpToolInvocationInstalla
     getServerStatus: (name) => authority().getServerStatus(name),
     startServer: (name, options) => authority().startServer(name, options),
     stopServer: (name) => authority().stopServer(name),
-    getServerTools: (name) => authority().getServerTools(name),
+    getServerCatalog: (name) => authority().getServerCatalog(name),
+    refreshServerCatalog: (name, bindingId, options) =>
+      authority().refreshServerCatalog(name, bindingId, options),
     findToolCapability: (serverName, toolName) =>
       authority().findToolCapability(serverName, toolName),
-    invokeTool: (serverName, bindingId, toolName, args, options) =>
-      authority().invokeTool(serverName, bindingId, toolName, args, options),
+    invokeTool: (serverName, bindingId, catalogId, toolName, args, options) =>
+      authority().invokeTool(serverName, bindingId, catalogId, toolName, args, options),
   };
   Object.freeze(port);
   const installer = new McpToolInvocationInstaller((next) => {

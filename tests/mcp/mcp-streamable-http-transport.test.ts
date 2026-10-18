@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { discoverStreamableHttpTools, invokeStreamableHttpTool, readStreamableHttpJsonRpcResponse } from '../../src/mcp/streamable-http-transport.js';
+import { initializeStreamableHttp, listStreamableHttpTools, invokeStreamableHttpTool, readStreamableHttpJsonRpcResponse } from '../../src/mcp/streamable-http-transport.js';
 import { TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { MCP_WIRE_RESPONSE_LIMIT_BYTES } from '../../src/mcp/protocol.js';
@@ -45,7 +45,8 @@ describe('Streamable HTTP MCP transport', () => {
   const config = { transport: 'streamable-http' as const, disabled: false, autostart: false, url: 'http://localhost/mcp' };
   const discovery = (signal = new AbortController().signal) => {
     let id = 0;
-    return discoverStreamableHttpTools({ serverName: 'srv', config, ids: { next: () => ++id }, signal });
+    const input = { serverName: 'srv', config, ids: { next: () => ++id }, signal };
+    return initializeStreamableHttp(input).then(() => listStreamableHttpTools(input));
   };
   it.each(['initialize', 'notifications/initialized', 'tools/list'])('classifies %s JSON-RPC and HTTP rejection at consumption', async stage => {
     for (const status of [200, 503]) {
@@ -256,7 +257,9 @@ describe('Streamable HTTP MCP transport', () => {
       return sseResponse({ jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: 'ok' }] } });
     });
 
-    const tools = await discoverStreamableHttpTools({ serverName: 'srv', config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, ids: { next: () => id++ }, signal: new AbortController().signal });
+    const input = { serverName: 'srv', config: { transport: 'streamable-http' as const, disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, ids: { next: () => id++ }, signal: new AbortController().signal };
+    await initializeStreamableHttp(input);
+    const tools = await listStreamableHttpTools(input);
     expect(tools.map((tool) => tool.name)).toEqual(['one', 'two']);
     expect(handle.streamableHttpSessionId).toBe('sess-1');
     const result = await invokeStreamableHttpTool({ serverName: 'srv', toolName: 'one', args: {}, config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, timeoutMs: 1000, ids: { next: () => id++ }, signal: new AbortController().signal });

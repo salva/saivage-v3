@@ -290,7 +290,8 @@ try {
     getServerStatus() { throw new Error('Unexpected MCP status'); },
     async startServer() { throw new Error('Unexpected MCP start in prompt smoke.'); },
     async stopServer() { throw new Error('Unexpected MCP stop in prompt smoke.'); },
-    getServerTools() { throw new Error('Unexpected MCP server tools read in compiled prompt smoke.'); },
+    getServerCatalog() { throw new Error('Unexpected MCP catalog read in compiled prompt smoke.'); },
+    refreshServerCatalog() { throw new Error('Unexpected MCP refresh in compiled prompt smoke.'); },
     findToolCapability() { throw new Error('Unexpected MCP capability read in compiled prompt smoke.'); },
     invokeTool() { return Promise.reject(new Error('Unexpected MCP invocation in compiled prompt smoke.')); },
   };

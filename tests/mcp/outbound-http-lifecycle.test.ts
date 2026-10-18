@@ -58,7 +58,7 @@ describe('MCP owner-local observations through installed real tool surface', () 
     expect(f.records.filter(r => r.event === 'outbound_http_terminal' && r.purpose === 'mcp-notification')[0]).toMatchObject({ body_disposition: 'not_consumed' });
     const bindingId = f.manager.getServerStatus('secret-server')!.bindingId!;
     const owners = ['card-b', 'card-c'].map((card, i) => testLlmToolInvocationContext({ sessionId: `agent:executor:${card}`, sourceInputId: `${i + 2}${'1'.repeat(7)}-1111-4111-8111-111111111111`, toolName: 'mcp_tool_call' }));
-    const pending = owners.map(owner => invokeToolForLlm(f.surface, 'mcp_tool_call', { serverName: 'secret-server', bindingId, toolName: 'secret-tool', args: { password: 'secret-tool-argument' } }, owner));
+    const pending = owners.map(owner => invokeToolForLlm(f.surface, 'mcp_tool_call', { serverName: 'secret-server', bindingId, catalogId: f.manager.getServerCatalog('secret-server')!.catalogId, toolName: 'secret-tool', args: { password: 'secret-tool-argument' } }, owner));
     await microtasks(); expect(pendingCalls).toHaveLength(2);
     const dispatched = f.records.filter(r => r.event === 'outbound_http_dispatch' && r.purpose === 'mcp-invoke');
     expect(dispatched).toHaveLength(2);

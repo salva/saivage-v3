@@ -1,7 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { McpServerControlArgumentsSchema, McpToolsArgumentsSchema } from '../../src/contracts/index.js';
+import { McpServerControlArgumentsSchema, McpToolsArgumentsSchema, McpCatalogRefreshArgumentsSchema, McpToolCallArgumentsSchema } from '../../src/contracts/index.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { invokeToolForLlm, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { McpInvokeError } from '../../src/mcp/tool-api.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
@@ -18,6 +19,38 @@ async function call(names:string[], port:McpToolInvocationPort, toolName:string,
   return settleToolActionOutcome(settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome).providerResult;
 }
 describe('independent configured MCP admissions', () => {
+  it('strictly admits refresh separately, preserves known success and classifies bounded failures', async () => {
+    const bindingId = '11111111-1111-4111-8111-111111111111';
+    const catalogId = '22222222-2222-4222-8222-222222222222';
+    const args = { serverName: 'one', bindingId };
+    for (const bad of [{ serverName: 'one' }, { ...args, bindingId: 'bad' }, { ...args, serverName: '' }, { ...args, catalogId }])
+      expect(McpCatalogRefreshArgumentsSchema.safeParse(bad).success).toBe(false);
+    expect(McpToolCallArgumentsSchema.safeParse({ ...args, toolName: 'ping' }).success).toBe(false);
+    expect(McpToolCallArgumentsSchema.safeParse({ ...args, catalogId, toolName: 'ping' }).success).toBe(true);
+    const refreshServerCatalog = jest.fn(async () => ({ ...args, catalogId, toolCount: 0 }));
+    const port = { ...unusedMcpToolInvocation, refreshServerCatalog };
+    const definitions = surfaceToolDefinitions(surface(['mcp_catalog_refresh', 'mcp_tool_call'], port));
+    expect(definitions.find(tool => tool.function.name === 'mcp_catalog_refresh')!.function.parameters).toMatchObject({ required: ['serverName', 'bindingId'], additionalProperties: false });
+    expect(definitions.find(tool => tool.function.name === 'mcp_tool_call')!.function.parameters).toMatchObject({ required: expect.arrayContaining(['bindingId', 'catalogId']), additionalProperties: false });
+    expect(await call(['mcp_catalog_refresh'], port, 'mcp_catalog_refresh', args)).toEqual({ success: true, data: { ...args, catalogId, toolCount: 0 } });
+    for (const selected of ['mcp_tools', 'mcp_tool_call', 'mcp_server_control'])
+      expect(await call([selected], port, 'mcp_catalog_refresh', args)).toMatchObject({ success: false, error: expect.stringContaining('Unsupported tool') });
+    for (const name of ['mcp_tools', 'mcp_tool_call', 'mcp_server_control'])
+      expect(await call(['mcp_catalog_refresh'], port, name, { ...args, catalogId, toolName: 'ping' })).toMatchObject({ success: false, error: expect.stringContaining('Unsupported tool') });
+    expect(refreshServerCatalog).toHaveBeenCalledTimes(1);
+    const installation = createMcpToolInvocationInstallation();
+    await expect(call(['mcp_catalog_refresh'], installation.port, 'mcp_catalog_refresh', args)).rejects.toThrow('not installed');
+    const failed = { ...port, refreshServerCatalog: async () => { throw new McpInvokeError('token=private-refresh-secret ' + 'X'.repeat(1000), 'TRANSPORT_ERROR', 502); } };
+    const refused = await call(['mcp_catalog_refresh'], failed, 'mcp_catalog_refresh', args);
+    expect(refused.success).toBe(false);
+    expect(JSON.stringify(refused)).not.toContain('private-refresh-secret');
+    if (refused.success) throw new Error('Expected refresh failure');
+    expect(Buffer.byteLength(refused.error)).toBeLessThanOrEqual(512);
+    const caller = new AbortController();
+    const known = { ...port, refreshServerCatalog: async () => { caller.abort(new Error('after publication')); return { ...args, catalogId, toolCount: 0 }; } };
+    const result = await invokeToolForLlm(surface(['mcp_catalog_refresh'], known), 'mcp_catalog_refresh', args, testLlmToolInvocationContext({ toolName: 'mcp_catalog_refresh' }), caller.signal);
+    expect(result).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'succeeded', data: { catalogId } } } });
+  });
   it('settles actual discovery rejection through the installed lifecycle port as executed failure with no evidence', async () => {
     const originalFetch = globalThis.fetch;
     const terminate = jest.fn(async () => ({ failed: [] }));
@@ -55,7 +88,7 @@ describe('independent configured MCP admissions', () => {
   it('uses compiled default role selections and rejects even explicit MCP selection for Oversight', async () => {
     const workflows = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never);
     const startServer = jest.fn(async (serverName:string) => ({ serverName, status:'running' as const, toolCount:0 }));
-    const port = { ...unusedMcpToolInvocation, startServer, getServerTools: () => [] };
+    const port = { ...unusedMcpToolInvocation, startServer };
     for (const name of ['analyst', 'executor', 'reviewer', 'oversight']) {
       const agent = workflows.agents.get(name)!;
       const selected = agent.tools.filter(tool => ['mcp_server_control', 'mcp_tools', 'mcp_tool_call'].includes(tool.name));
@@ -98,9 +131,9 @@ describe('independent configured MCP admissions', () => {
         definitionSource: 'operator' as const,
         containmentFailed: false,
         processId: null,
-      }), getServerTools: () => [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] };
+       }), getServerCatalog: () => ({ serverName: 'one', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', tools: [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] }) };
     expect(await call(['mcp_tools'], port, 'mcp_tools', { serverName: 'one', toolName: 'screenshot' })).toEqual({ success: true, data: { serverName: 'one',
-        bindingId: '11111111-1111-4111-8111-111111111111', tools: [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] } });
+        bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', tools: [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] } });
     expect(await call(['mcp_server_control'], port, 'mcp_server_control', { serverName: 'one', action: 'start' })).toMatchObject({ success: true, data: { status: 'running' } });
     expect(startServer).toHaveBeenCalledTimes(1);
     for (const toolName of ['mcp_tools', 'mcp_server_control']) expect(await call(['mcp_tool_call'], port, toolName, { serverName: 'one', action: 'start' })).toMatchObject({ success: false, error: expect.stringContaining('Unsupported tool') });
@@ -109,7 +142,7 @@ describe('independent configured MCP admissions', () => {
   });
   it('fails stopped/missing selection and an oversized schema explicitly without truncating', async () => {
     const name = 'mcp_tools';
-    const stopped = { ...unusedMcpToolInvocation, getServerTools: () => undefined };
+    const stopped = { ...unusedMcpToolInvocation, getServerCatalog: () => undefined };
     expect(await call([name], stopped, name, { serverName: 'one' })).toMatchObject({ success: false, error: expect.stringContaining('stopped') });
     const oversized = { ...unusedMcpToolInvocation,
       getServerStatus: () => ({
@@ -120,7 +153,7 @@ describe('independent configured MCP admissions', () => {
         definitionSource: 'operator' as const,
         containmentFailed: false,
         processId: null,
-      }), getServerTools: () => [{ name: 'huge', inputSchema: { type: 'object' as const, description: 'X'.repeat(1024 * 1024) } }] };
+       }), getServerCatalog: () => ({ serverName: 'one', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', tools: [{ name: 'huge', inputSchema: { type: 'object' as const, description: 'X'.repeat(1024 * 1024) } }] }) };
     expect(await call([name], oversized, name, { serverName: 'one', toolName: 'huge' })).toMatchObject({ success: false, error: expect.stringContaining('exceeds 1 MiB') });
     expect(await call([name], oversized, name, { serverName: 'one', toolName: 'missing' })).toMatchObject({ success: false, error: 'MCP tool not found.' });
   });

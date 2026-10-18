@@ -45,6 +45,7 @@ import {
   McpToolCallArgumentsSchema,
   McpServerControlArgumentsSchema,
   McpToolsArgumentsSchema,
+  McpCatalogRefreshArgumentsSchema,
   McpServerRegisterArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
   McpServersArgumentsSchema,
@@ -112,6 +113,7 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'mcp_tool_call',
   'mcp_server_control',
   'mcp_tools',
+  'mcp_catalog_refresh',
   'mcp_server_register',
   'mcp_server_unregister',
   'mcp_servers',
@@ -270,6 +272,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
     case 'mcp_server_control':
     case 'mcp_tools':
+    case 'mcp_catalog_refresh':
     case 'mcp_servers':
     case 'mcp_server_unregister':
     case 'mcp_server_register':
@@ -457,6 +460,8 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return McpServerControlArgumentsSchema;
     case 'mcp_tools':
       return McpToolsArgumentsSchema;
+    case 'mcp_catalog_refresh':
+      return McpCatalogRefreshArgumentsSchema;
     case 'mcp_servers':
       return McpServersArgumentsSchema;
     case 'mcp_server_register':

@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { describe, expect, it } from '@jest/globals';
 
-import { discoverStreamableHttpTools, invokeStreamableHttpTool } from '../../src/mcp/streamable-http-transport.js';
+import { initializeStreamableHttp, listStreamableHttpTools, invokeStreamableHttpTool } from '../../src/mcp/streamable-http-transport.js';
 import { TransportError } from '../../src/mcp/errors.js';
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void } {
@@ -45,7 +45,7 @@ describe('Streamable HTTP native fetch cleanup', () => {
       const serverController = new AbortController();
       const reason = { exact: 'HTTP caller reason' };
       const input = { serverName: 'loopback', config: { transport: 'streamable-http' as const, disabled: false, autostart: true, url: `http://127.0.0.1:${address.port}/mcp` }, handle: { abortController: serverController, streamableHttpSessionId: 'retained-session' }, ids: { next: () => 1 }, signal: caller.signal };
-      const observed = (operation === 'discovery' ? discoverStreamableHttpTools(input) : invokeStreamableHttpTool({ ...input, toolName: 'pending', args: {}, timeoutMs: 5_000 })).catch(error => error);
+      const observed = (operation === 'discovery' ? initializeStreamableHttp(input).then(() => listStreamableHttpTools(input)) : invokeStreamableHttpTool({ ...input, toolName: 'pending', args: {}, timeoutMs: 5_000 })).catch(error => error);
       await entered.promise;
       caller.abort(reason);
       expect(await within(observed, 5_000)).toBe(reason);
@@ -69,7 +69,8 @@ describe('Streamable HTTP native fetch cleanup', () => {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     try {
       const address = server.address(); if (!address || typeof address === 'string') throw new Error('Expected IP listener');
-      const error = await discoverStreamableHttpTools({ serverName: 'loopback', config: { transport: 'streamable-http', disabled: false, autostart: false, url: `http://127.0.0.1:${address.port}/mcp` }, ids: { next: () => 1 }, signal: new AbortController().signal }).catch(error => error);
+      const input = { serverName: 'loopback', config: { transport: 'streamable-http' as const, disabled: false, autostart: false, url: `http://127.0.0.1:${address.port}/mcp` }, ids: { next: () => 1 }, signal: new AbortController().signal };
+      const error = await initializeStreamableHttp(input).then(() => listStreamableHttpTools(input)).catch(error => error);
       expect(error).toBeInstanceOf(TransportError);
       expect(error.message).toContain('initialize rejected (code -32007)');
       expect(error.message).not.toContain('secret SSE text');

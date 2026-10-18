@@ -68,13 +68,49 @@ describe('current family semantic authority', () => {
     expect(details(unavailable)).toContain('card-a:brief.md');
     expect(details(unavailable)).toContain('authored_record');
   });
-  it('owns all 51 actual tools through one full-envelope presenter', () => {
+  it('owns every actual tool through one full-envelope presenter', () => {
     const names = ['activate_card','apply_patch','cancel_card','create_card','delete_card','diff_card_versions','edit','edit_card','emit_result','get_card','get_card_version','get_status','get_tree','glob','grep','kill_process','list_agent_sessions','list_card_versions','list_cards','list_processes_tool','mcp_tool_call','navigate_back','navigate_workspace','pause_runtime','queue_notification','read','read_agent_session','read_control_actions','read_record_version','read_runtime_errors','read_runtime_events','reconfigure','reorder_child','reopen_card','restart_server','resume_runtime','run_command','show_config','skill','start_project','stop_project','wait_process','webfetch','websearch','write'];
-    names.push('view_image', 'mcp_server_control', 'mcp_tools', 'mcp_server_register', 'mcp_server_unregister', 'mcp_servers');
+    names.push('view_image', 'mcp_server_control', 'mcp_tools', 'mcp_server_register', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh');
     expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(names.sort());
     for (const tool of names) {
       expect(TOOL_PRESENTERS[tool].result).toBeTypeOf('function');
       expect(presentToolCall(callEnvelope(tool, {})).sections.length).toBeGreaterThan(0);
+    }
+  });
+  it('presents recorded refresh facts without inventing successful refresh or live readiness', () => {
+    const facts = { serverName: 'one', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolCount: 0 };
+    const call = presentToolCall(callEnvelope('mcp_catalog_refresh', facts));
+    expect(call.name).toBe('mcp_catalog_refresh');
+    expect(call.sections[0].fields).toEqual([
+      { label: 'serverName', parts: [{ kind: 'text', text: facts.serverName, language: 'text' }] },
+      { label: 'bindingId', parts: [{ kind: 'text', text: facts.bindingId, language: 'text' }] },
+    ]);
+    const result = present('mcp_catalog_refresh', facts);
+    expect(result.outcome).toBe('Refresh recorded');
+    expect(result.sections[0].fields?.map(field => [field.label, field.parts])).toEqual(
+      Object.entries(facts).map(([label, value]) => [label, [{ kind: 'text', text: String(value), language: typeof value === 'string' ? 'text' : 'json' }]]),
+    );
+    for (const data of [undefined, {}, { ...facts, catalogId: undefined }, { ...facts, toolCount: '0' }, { ...facts, toolCount: -1 }]) {
+      expect(present('mcp_catalog_refresh', data).outcome).not.toContain('Refresh recorded');
+    }
+    const error = 'Complete refresh error '.repeat(100);
+    for (const data of [undefined, facts, { ...facts, outcome_unknown: true }]) {
+      const failed = presentToolResult(JSON.stringify({ success: false, error, data }), { tool: 'mcp_catalog_refresh' });
+      expect(failed.outcome).toBe(data && 'outcome_unknown' in data ? 'Effects uncertain' : 'Failed');
+      expect(failed.status).toBe('error');
+      expect(failed.sections.find(section => section.title === (data && 'outcome_unknown' in data ? 'Uncertainty' : 'Error'))?.content).toBe(error);
+      expect(failed.outcome).not.toMatch(/Refresh recorded|ready|running/i);
+      if (data) expect(details(failed)).toContain(facts.catalogId);
+    }
+    for (const catalogId of [undefined, facts.catalogId]) {
+      const recorded = { serverName: facts.serverName, bindingId: facts.bindingId, ...(catalogId ? { catalogId } : {}) };
+      const discovery = present('mcp_tools', { ...recorded, tools: [] });
+      const invocation = presentToolCall(callEnvelope('mcp_tool_call', { ...recorded, toolName: 'ping' }));
+      for (const view of [discovery, invocation]) {
+        const fields = view.sections[0].fields!;
+        expect(fields.find(field => field.label === 'bindingId')?.parts).toEqual([{ kind: 'text', text: facts.bindingId, language: 'text' }]);
+        expect(fields.find(field => field.label === 'catalogId')?.parts).toEqual(catalogId ? [{ kind: 'text', text: catalogId, language: 'text' }] : undefined);
+      }
     }
   });
   it('shows supplied edits and patches separately from measured effects', () => {

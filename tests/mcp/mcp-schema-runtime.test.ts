@@ -59,7 +59,6 @@ describe('MCP schema validation at runtime use', () => {
                 tools: [
                   ...(changedOne && String(url).endsWith('/one') ? [...schemas].reverse() : schemas)
                     .map((inputSchema, i) => ({ name: `tool${i}`, inputSchema })),
-                  { name: 'missing' },
                   { name: 'invalid', inputSchema: { type: 'object', required: 'not-an-array' } },
                   {
                     name: 'unsupported',
@@ -107,27 +106,23 @@ describe('MCP schema validation at runtime use', () => {
           if (previousBinding) {
             expect(binding).not.toBe(previousBinding);
             const count = calls.length;
-            await expect(manager.invokeTool(name, previousBinding, 'tool0', { value: 'text' }))
+            await expect(manager.invokeTool(name, previousBinding, manager.getServerCatalog(name)!.catalogId, 'tool0', { value: 'text' }))
               .rejects.toMatchObject({ statusCode: 409 });
             expect(calls).toHaveLength(count);
           }
           bindings.set(name, binding);
           expect(
             manager
-              .getServerTools(name)!
+              .getServerCatalog(name)!.tools
               .slice(0, 2)
               .map((t) => t.inputSchema),
           ).toEqual(admittedSchemas);
-          expect(
-            manager.getServerTools(name)!.find((t) => t.name === 'missing'),
-          ).not.toHaveProperty('inputSchema');
           const beforeInvalid = calls.length;
           for (const [tool, reason] of [
-            ['missing', 'schema_missing'],
             ['invalid', 'schema_compile_error'],
             ['unsupported', 'schema_unsupported'],
           ]) {
-            await expect(manager.invokeTool(name, binding, tool!, {})).rejects.toMatchObject({
+            await expect(manager.invokeTool(name, binding, manager.getServerCatalog(name)!.catalogId, tool!, {})).rejects.toMatchObject({
               data: { reason },
             });
           }
@@ -136,10 +131,10 @@ describe('MCP schema validation at runtime use', () => {
             const stringValue = changed ? i === 1 : i === 0;
             const count = calls.length;
             await expect(
-              manager.invokeTool(name, binding, `tool${i}`, { value: stringValue ? 42 : 'text' }),
+              manager.invokeTool(name, binding, manager.getServerCatalog(name)!.catalogId, `tool${i}`, { value: stringValue ? 42 : 'text' }),
             ).rejects.toMatchObject({ data: { reason: 'validation_error' } });
             expect(calls).toHaveLength(count);
-            await manager.invokeTool(name, binding, `tool${i}`, { value: stringValue ? 'text' : 42 });
+            await manager.invokeTool(name, binding, manager.getServerCatalog(name)!.catalogId, `tool${i}`, { value: stringValue ? 'text' : 42 });
           }
         }
         for (const name of ['one', 'two']) await manager.stopServer(name);
@@ -158,12 +153,15 @@ describe('MCP schema validation at runtime use', () => {
       const callsPath = join(root, 'calls.jsonl');
       writeFileSync(callsPath, '');
       const httpCalls: unknown[] = [];
+      const tool = structuredClone(official);
+      const toolPath = join(root, 'tool.json');
+      writeFileSync(toolPath, JSON.stringify(tool));
       globalThis.fetch = jest.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         const request = JSON.parse(String(init?.body));
         if (request.method === 'notifications/initialized') return new Response(null, { status: 202 });
         let result;
         if (request.method === 'initialize') result = { protocolVersion: '2025-06-18' };
-        else if (request.method === 'tools/list') result = { tools: [official] };
+        else if (request.method === 'tools/list') result = { tools: [tool] };
         else {
           expect(request.method).toBe('tools/call');
           httpCalls.push(request.params);
@@ -177,7 +175,7 @@ describe('MCP schema validation at runtime use', () => {
         return response;
       }) as typeof fetch;
       const config = transport === 'stdio'
-        ? { transport, command: process.execPath, args: [fileURLToPath(new URL('../fixtures/mcp/schema-server.mjs', import.meta.url)), officialPath, callsPath] }
+        ? { transport, command: process.execPath, args: [fileURLToPath(new URL('../fixtures/mcp/schema-server.mjs', import.meta.url)), toolPath, callsPath] }
         : { transport, url: 'http://localhost/schema-mcp' };
       writeFileSync(join(root, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: config } }));
       const registry = new ManagedProcessGroupRegistry();
@@ -188,12 +186,16 @@ describe('MCP schema validation at runtime use', () => {
       const calls = () => transport === 'stdio'
         ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
         : httpCalls;
+      const refresh = async () => {
+        writeFileSync(toolPath, JSON.stringify(tool));
+        await manager.refreshServerCatalog('one', manager.getServerCatalog('one')!.bindingId);
+      };
       try {
         expect(await manager.reconcilePersistedConfig()).toMatchObject({ converged: true });
-        expect(manager.getServerTools('one')).toEqual([official]);
+        expect(manager.getServerCatalog('one')!.tools).toEqual([official]);
         for (const args of [{}, { scale: 'wrong' }, { scale: 'css', extra: true }]) {
           await expect(manager.invokeTool('one',
-              manager.getServerStatus('one')!.bindingId!, official.name, args)).rejects.toMatchObject({
+              manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, args)).rejects.toMatchObject({
             data: { reason: 'validation_error' },
           });
         }
@@ -202,34 +204,38 @@ describe('MCP schema validation at runtime use', () => {
         expect(events.appendEventPrepared).not.toHaveBeenCalled();
         const args = { scale: 'css', type: 'png' };
         await expect(manager.invokeTool('one',
-            manager.getServerStatus('one')!.bindingId!, official.name, args)).resolves.toEqual({ content: [{ type: 'text', text: 'accepted' }] });
+            manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, args)).resolves.toEqual({ content: [{ type: 'text', text: 'accepted' }] });
         expect(calls()).toEqual([{ name: official.name, arguments: args }]);
         expect(args).toEqual({ scale: 'css', type: 'png' });
-        expect(manager.getServerTools('one')).toEqual([official]);
+        expect(manager.getServerCatalog('one')!.tools).toEqual([official]);
 
-        // Change the discovered object itself: the existing (name,fingerprint) use cache
-        // must not reuse the formerly compiled validator or a pruned schema projection.
-        const tool = manager.getServerTools('one')![0]!;
+        // Public projections cannot mutate the owner; only complete remote refresh replaces it.
+        manager.getServerCatalog('one')!.tools[0]!.inputSchema = { type: 'object' };
+        expect(manager.getServerCatalog('one')!.tools).toEqual([official]);
         tool.inputSchema = {
           type: 'object', properties: { tuple: { type: 'array', prefixItems: [{ type: 'integer' }], items: false } },
           required: ['tuple'], unevaluatedProperties: false, 'x-discovery-extension': { preserved: true },
         };
-        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, official.name, { tuple: [1] })).resolves.toBeDefined();
-        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, official.name, { tuple: [1, 2] })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
-        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, official.name, { tuple: [1], extra: true })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
+        await refresh();
+        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, { tuple: [1] })).resolves.toBeDefined();
+        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, { tuple: [1, 2] })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
+        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, { tuple: [1], extra: true })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
         tool.inputSchema = { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', properties: { tuple: { type: 'array', items: [{ type: 'string' }], additionalItems: false } } };
-        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, official.name, { tuple: ['one'] })).resolves.toBeDefined();
-        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, official.name, { tuple: ['one', 'two'] })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
+        await refresh();
+        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, { tuple: ['one'] })).resolves.toBeDefined();
+        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, { tuple: ['one', 'two'] })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
         tool.inputSchema = { type: 'object', properties: { enabled: true, disabled: false }, 'x-external': true };
-        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, official.name, { enabled: 1 })).resolves.toBeDefined();
-        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, official.name, { disabled: 1 })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
+        await refresh();
+        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, { enabled: 1 })).resolves.toBeDefined();
+        await expect(manager.invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, { disabled: 1 })).rejects.toMatchObject({ data: { reason: 'validation_error' } });
         for (const inputSchema of [
           { type: 'object' as const, $schema: 'unsupported' },
           { type: 'object' as const, properties: { value: { $ref: 'https://example.invalid/schema' } } },
         ]) {
           tool.inputSchema = inputSchema;
+          await refresh();
           await expect(manager.invokeTool('one',
-              manager.getServerStatus('one')!.bindingId!, official.name, {})).rejects.toMatchObject({ data: { reason: inputSchema.$schema ? 'schema_unsupported' : 'schema_compile_error' } });
+              manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, {})).rejects.toMatchObject({ data: { reason: inputSchema.$schema ? 'schema_unsupported' : 'schema_compile_error' } });
         }
         expect(calls()).toHaveLength(4);
         expect(manager.getInvocationStats()[`one:${official.name}`]).toMatchObject({ total: 4, success: 4, error: 0 });

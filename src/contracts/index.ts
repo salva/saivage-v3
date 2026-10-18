@@ -303,6 +303,7 @@ export {
   McpToolCallArgumentsSchema,
   McpServerControlArgumentsSchema,
   McpToolsArgumentsSchema,
+  McpCatalogRefreshArgumentsSchema,
   McpServerRegisterArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
   McpServersArgumentsSchema,

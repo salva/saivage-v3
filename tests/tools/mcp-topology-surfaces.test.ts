@@ -50,8 +50,8 @@ async function invoke(
 
 describe('dynamic MCP ordinary surfaces', () => {
   it('compiles independent management selections for custom card participants without default or Oversight grants', () => {
-    const tools = ['mcp_server_register', 'mcp_server_unregister', 'mcp_servers'];
-    for (const name of ['planner', 'executor', 'reviewer']) {
+    const tools = ['mcp_server_register', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh'];
+    for (const name of ['planner', 'executor', 'reviewer', 'analyst']) {
       const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
       config.agents[name]!.tools.push(...tools);
       expect(
@@ -249,7 +249,7 @@ describe('dynamic MCP ordinary surfaces', () => {
       ...unusedMcpToolInvocation,
       getStatus: () => [{ ...status, name: 'X'.repeat(1024 * 1024) }],
       getServerStatus: () => status,
-      getServerTools: () => [
+      getServerCatalog: () => ({ serverName: 'one', bindingId, catalogId: '22222222-2222-4222-8222-222222222222', tools: [
         {
           name: 'ping',
           inputSchema: {
@@ -257,7 +257,7 @@ describe('dynamic MCP ordinary surfaces', () => {
             properties: { apiKey: { const: 'token=opaque-schema-secret' } },
           },
         },
-      ],
+      ] }),
     };
     expect(await invoke(['mcp_servers'], port, 'mcp_servers', {})).toMatchObject({
       success: false,

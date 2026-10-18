@@ -270,7 +270,7 @@ this adds no default grants. A typical independently authorized sequence is:
 mcp_server_register({serverName:"local",connection:{transport:"stdio",command:"node",args:["peer.js"]}})
 mcp_server_control({serverName:"local",action:"start"})
 mcp_tools({serverName:"local"})
-mcp_tool_call({serverName:"local",bindingId:"<observed binding UUID>",toolName:"ping",args:{}})
+mcp_tool_call({serverName:"local",bindingId:"<observed binding UUID>",catalogId:"<observed catalog UUID>",toolName:"ping",args:{}})
 mcp_server_control({serverName:"local",action:"stop"})
 mcp_server_unregister({serverName:"local"})
 ```
@@ -298,9 +298,39 @@ Stdio `processId` is a safe shared Process observation association, not wait/kil
 authority. MCP owns the runtime launch and retirement; stdout/stderr are
 `not_captured`, not command output. Arbitrary process attachment is unsupported.
 HTTP has null process ID; local disconnect does not terminate the external peer.
-Ordinary Project Stop leaves MCP connections alive. Live catalog refresh and
+Ordinary Project Stop leaves MCP connections alive. Notifications/native projection and
 card-tree visibility/lifetime remain deferred. Deployment, reset and migration
 remain separate permissions; this source change authorizes none of them.
+
+### Explicit MCP catalog refresh
+
+Opt in to `mcp_catalog_refresh` independently of discovery, calling and lifecycle
+control, for either an operator YAML or dynamic definition. On a ready connection:
+
+```text
+mcp_tools({serverName:"local"})
+mcp_catalog_refresh({serverName:"local",bindingId:"<observed binding UUID>"})
+mcp_tools({serverName:"local"})
+mcp_tool_call({serverName:"local",bindingId:"<same binding UUID>",catalogId:"<new catalog UUID>",toolName:"ping",args:{}})
+```
+
+Refresh performs only paginated `tools/list` on the same stdio connection or HTTP
+session. It has one 30-second budget including queue wait; concurrent refresh fails
+busy. It publishes only a complete catalog and always rotates `catalogId`, even for
+identical tools. It neither restarts nor autoinstalls, starts a stopped definition,
+reloads configuration, or promises target continuity/remote snapshot consistency.
+System UI refresh fetches observations only, not the remote list.
+
+Stale calls fail before dispatch; discover and author a new call rather than replay.
+Already-dispatched calls retain their outcomes. A failed refresh can leave the old
+complete catalog as the last successful observation, not proof that its tools still
+exist remotely. Queued cancellation does not interrupt the preceding stdio call;
+active stdio cancellation/timeout or uncorrelated transport failure closes that
+connection and joins containment. HTTP cancellation affects its request only. Stop
+prevents late publication. Failed containment remains a blocker; refresh never
+retries or restarts automatically. Errors disclose known unchanged/closed status,
+not remote termination or denial of prior effects. No reset or migration is needed
+for these ephemeral identities; old recorded arguments remain historical facts.
 
 An agent start whose external discovery is explicitly rejected receives a recorded
 executed failed tool result only after successful local containment and stop join.
@@ -937,7 +967,7 @@ Neither backup authorizes restoration or merging. In the reset branch, rollback 
 
 ## Configuration file cutovers
 
-The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Selected start/stop/discovery and dynamic connection registration/removal are supported; edit/restart/enable-state tools, live catalog refresh and card-tree lifetime remain deferred. Current calls require discovery's binding; prior name-only recorded calls remain historical facts, not replay inputs. Explicitly select additional tools and reconcile instance-owned browser guidance when authorized. This note authorizes no deployment or live configuration mutation.
+The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Selected start/stop/discovery, explicit per-connection catalog refresh and dynamic connection registration/removal are supported; edit/restart/enable-state tools, notifications/native projection and card-tree lifetime remain deferred. Current calls require discovery's connection and catalog identities; prior name-only or binding-only recorded calls remain historical facts, not replay inputs. Explicitly select additional tools and reconcile instance-owned browser guidance when authorized. This note authorizes no deployment or live configuration mutation.
 
 Project Oversight configuration is required even when checks are disabled:
 

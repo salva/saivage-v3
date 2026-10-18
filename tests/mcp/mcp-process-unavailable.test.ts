@@ -178,9 +178,9 @@ describe('real process authority loss in current stdio lifetime owner', () => {
       const handle = Reflect.get(f.runtime, 'handle');
       const child = f.platform.children[0]!;
       const record = f.runner.list()[0]!;
-      const pending = f.runtime.invokeTool('ping', {}).catch((error) => error);
+      const pending = f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'ping', {}).catch((error) => error);
       await turn();
-      const queued = f.runtime.invokeTool('ping', {}).catch((error) => error);
+      const queued = f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'ping', {}).catch((error) => error);
       f.platform.states.set(child.pid!, 'EPERM');
       let stopping: Promise<unknown>;
       if (mode === 'open-observer') {
@@ -233,9 +233,9 @@ describe('real process authority loss in current stdio lifetime owner', () => {
       const f = fixture();
       await f.runtime.start();
       const child = f.platform.children[0]!;
-      const pending = f.runtime.invokeTool('ping', {});
+      const pending = f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'ping', {});
       await turn();
-      const queued = f.runtime.invokeTool('ping', {}).catch((error) => error);
+      const queued = f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'ping', {}).catch((error) => error);
       f.platform.states.set(child.pid!, 'EPERM');
       const result = { content: [{ type: 'text', text: 'known' }], isError };
       child.stdout.write(wire({ jsonrpc: '2.0', id: f.calls[0]!.id, result }));
@@ -354,7 +354,7 @@ describe('real process authority loss in current stdio lifetime owner', () => {
     expect(f.runner.get(sibling.id)).toBeNull();
     expect(f.runner.get(record.id)?.status).toBe('unavailable');
     expect(manager.getStatus()).toHaveLength(1);
-    expect(manager.getServerTools('one')).toBeUndefined();
+    expect(manager.getServerCatalog('one')?.tools).toBeUndefined();
     expect(f.platform.children).toHaveLength(2);
   });
 

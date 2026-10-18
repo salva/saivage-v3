@@ -49,7 +49,7 @@ describe('current named-agent MCP manager contract',()=>{
       let settled = false;
       const observed = value.startServer('one').catch(error => { settled = true; return error; });
       await entered.promise;
-      expect(settled).toBe(false); expect(value.getServerTools('one')).toBeUndefined();
+      expect(settled).toBe(false); expect(value.getServerCatalog('one')?.tools).toBeUndefined();
       await expect(value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
       const failure = new Error('exact containment failure');
       if (mode === 'rejection') containment.reject(failure);
@@ -83,7 +83,7 @@ describe('current named-agent MCP manager contract',()=>{
       globalThis.fetch = jest.fn(async () => new Response(null, { status: 503 })) as typeof fetch;
       const second = manager(projectRoot);
       await expect(second.value.reconcilePersistedConfig()).resolves.toMatchObject({ converged: false, pending: [{ name: 'one', operation: 'add' }] });
-      expect(second.value.getServerTools('one')).toBeUndefined();
+      expect(second.value.getServerCatalog('one')?.tools).toBeUndefined();
       await second.value.cleanupForApplicationStop();
     } finally { globalThis.fetch = originalFetch; }
   });
@@ -110,7 +110,7 @@ describe('current named-agent MCP manager contract',()=>{
     await expect(value.startServer('one')).rejects.toThrow('Stop before');
     await expect(value.stopServer('absent')).rejects.toMatchObject({ statusCode: 404 });
     expect(await value.stopServer('one')).toEqual({ serverName: 'one', status: 'stopped', toolCount: 0 });
-    expect(value.getServerTools('one')).toBeUndefined();
+    expect(value.getServerCatalog('one')?.tools).toBeUndefined();
     expect(await value.startServer('one')).toEqual({ serverName: 'one', status: 'running', toolCount: 1 });
     expect(() =>value.getStatus()).toThrow(); // Complete definition observations strictly consume both maps.
     await value.cleanupForApplicationStop();
@@ -138,7 +138,7 @@ describe('current named-agent MCP manager contract',()=>{
     const failure = new Error('exact containment failure');
     jest.spyOn(other.runner, 'closeAndTerminateDirectScope').mockRejectedValue(failure);
     await expect(other.value.stopServer('one')).rejects.toBe(failure);
-    expect(other.value.getServerTools('one')).toBeUndefined();
+    expect(other.value.getServerCatalog('one')?.tools).toBeUndefined();
     await expect(other.value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
     expect(other.value.getStatus()).toHaveLength(1);
   });
@@ -163,7 +163,7 @@ describe('current named-agent MCP manager contract',()=>{
       const first = manager(projectRoot); const start = first.value.startServer('one');
       await jest.advanceTimersByTimeAsync(10_001);
       expect(first.value.getServerStatus('one')).toMatchObject({ status: 'starting' });
-      expect(first.value.getServerTools('one')).toBeUndefined();
+      expect(first.value.getServerCatalog('one')?.tools).toBeUndefined();
       await jest.advanceTimersByTimeAsync(999); await expect(start).resolves.toMatchObject({ status: 'running', toolCount: 1 });
       await first.value.cleanupForApplicationStop();
       const methods: string[] = [];
@@ -178,7 +178,7 @@ describe('current named-agent MCP manager contract',()=>{
       const second = manager(projectRoot); const exhausted = second.value.startServer('one').catch(error => { settled = true; return error; });
       await jest.advanceTimersByTimeAsync(100_000);
       expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
-      expect(settled).toBe(false); expect(second.value.getServerTools('one')).toBeUndefined();
+      expect(settled).toBe(false); expect(second.value.getServerCatalog('one')?.tools).toBeUndefined();
       await jest.advanceTimersByTimeAsync(79_999); expect(settled).toBe(false);
       await jest.advanceTimersByTimeAsync(1);
       expect(await exhausted).toMatchObject({ code: 'TIMEOUT' });
@@ -285,14 +285,14 @@ describe('current named-agent MCP manager contract',()=>{
   it('reconciles persisted HTTP configuration and invokes the provider independently of agent admission',async()=>{
     const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value}=manager(projectRoot);
     await expect(value.reconcilePersistedConfig()).resolves.toEqual(expect.objectContaining({converged:true,active:[expect.objectContaining({name:'one',state:'running'})]}));
-    expect(value.getServerTools('one')).toEqual([expect.objectContaining({name:'ping',inputSchema:{type:'object',properties:{}}})]);
+    expect(value.getServerCatalog('one')?.tools).toEqual([expect.objectContaining({name:'ping',inputSchema:{type:'object',properties:{}}})]);
   });
 
   it('performs no lifecycle mutation when the complete next configuration is invalid',async()=>{
     const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value}=manager(projectRoot);await value.reconcilePersistedConfig();writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers:'invalid'}));
     await expect(value.reconcilePersistedConfig()).rejects.toThrow();
     expect(() =>value.getStatus()).toThrow('mcpServers must be a mapping');
-    expect(value.getServerTools('one')).toEqual([expect.objectContaining({name:'ping'})]);
+    expect(value.getServerCatalog('one')?.tools).toEqual([expect.objectContaining({name:'ping'})]);
   });
 
   it('closes open admission once, retrieves containment separately, and waits for all containment',async()=>{
@@ -311,7 +311,7 @@ describe('current named-agent MCP manager contract',()=>{
     expect(containmentAccess).toHaveBeenCalledTimes(1);
     expect(terminateRoot).toHaveBeenCalledTimes(1);
     await expect(value.reconcilePersistedConfig()).rejects.toThrow('closed');
-    await expect(value.invokeTool('one', '11111111-1111-4111-8111-111111111111','ping',{})).rejects.toBeInstanceOf(ServerNotRunningError);
+    await expect(value.invokeTool('one', '11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','ping',{})).rejects.toBeInstanceOf(ServerNotRunningError);
     direct.resolve(emptyReport);
     await expect(Promise.race([cleanup.then(() => 'settled'), Promise.resolve('pending')])).resolves.toBe('pending');
     rootTermination.resolve(emptyReport);
@@ -363,13 +363,13 @@ describe('current named-agent MCP manager contract',()=>{
       entered.resolve();
       return new Response(new ReadableStream<Uint8Array>({ cancel: () => body.promise }), { headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
-    const call = value.invokeTool('one', value.getServerStatus('one')!.bindingId!, 'ping', {}).catch(error => error);
+    const call = value.invokeTool('one', value.getServerStatus('one')!.bindingId!, value.getServerCatalog('one')!.catalogId, 'ping', {}).catch(error => error);
     await entered.promise;
     let cleaned = false;
     const cleanup = value.cleanupForApplicationStop().then(() => { cleaned = true; });
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(cleaned).toBe(false);
-    expect(value.getServerTools('one')).toBeUndefined();
+    expect(value.getServerCatalog('one')?.tools).toBeUndefined();
     expect(value.getStatus()).toHaveLength(1);
     body.resolve();
     await Promise.all([call, cleanup]);

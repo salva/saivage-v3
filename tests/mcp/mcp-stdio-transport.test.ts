@@ -23,10 +23,9 @@ async function composedStdioCall(content: unknown) {
     ...unusedMcpToolInvocation,
     invokeTool: () => connection.invoke({ toolName: 'tool', args: {}, onResponse() {}, signal: new AbortController().signal }),
     findToolCapability: () => null,
-    getServerTools: () => undefined,
   };
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
-  const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+  const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
   connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy();
   return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
 }
@@ -63,7 +62,8 @@ describe('stdio MCP transport composition', () => {
         }
       });
       try {
-        await connection.discover(new AbortController().signal);
+        await connection.initialize(new AbortController().signal);
+        await connection.listTools(new AbortController().signal);
         if (timing === 'idle')
           await new Promise<void>((resolve) =>
             setImmediate(() => {
@@ -96,7 +96,7 @@ describe('stdio MCP transport composition', () => {
       let id = 0;
       const connection = new StdioMcpConnection({ serverName: 'one', stdin, stdout, ids: { next: () => ++id }, onFailure() {} });
       try {
-        const error = await connection.discover(new AbortController().signal).catch(error => error);
+        const error = await connection.initialize(new AbortController().signal).then(() => connection.listTools(new AbortController().signal)).catch(error => error);
         expect(error).toBeInstanceOf(TransportError);
         expect(error.message).toContain(stage);
         expect(error.message).toContain(close ? 'stream closed before response' : 'code -32001');
@@ -110,7 +110,7 @@ describe('stdio MCP transport composition', () => {
     const failure = new Error('ID invariant');
     const connection = new StdioMcpConnection({ serverName: 'one', stdin, stdout, ids: { next: () => { throw failure; } }, onFailure() {} });
     try {
-      await expect(connection.discover(new AbortController().signal)).rejects.toBe(failure);
+      await expect(connection.initialize(new AbortController().signal).then(() => connection.listTools(new AbortController().signal))).rejects.toBe(failure);
     } finally { connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy(); }
   });
   it('answers negotiated workspace roots even when server request IDs collide with client IDs', async () => {
@@ -131,7 +131,8 @@ describe('stdio MCP transport composition', () => {
     });
     let id = 0;
     const connection = new StdioMcpConnection({ serverName: 'browser', stdin, stdout, ids: { next: () => ++id }, rootUri: 'file:///project', onFailure() {} });
-    expect(await connection.discover(new AbortController().signal)).toMatchObject([{ name: 'capture' }]);
+    await connection.initialize(new AbortController().signal);
+    expect(await connection.listTools(new AbortController().signal)).toMatchObject([{ name: 'capture' }]);
     expect(requests.some(message => message.result?.roots)).toBe(true);
     connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy();
   });

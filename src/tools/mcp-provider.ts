@@ -14,6 +14,7 @@ import {
   McpToolCallArgumentsSchema,
   McpServerControlArgumentsSchema,
   McpToolsArgumentsSchema,
+  McpCatalogRefreshArgumentsSchema,
   McpServerRegisterArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
   McpServersArgumentsSchema,
@@ -152,22 +153,20 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
   defineToolBinder({
     name: 'mcp_tools',
     description:
-      'Read currently ready MCP tool names, descriptions, exact input schemas and bindingId required for calls. Optional toolName selects one exact tool. Does not grant invocation/control. Oversize discovery fails without truncating schemas.',
+      'Read currently ready MCP tool names, descriptions, exact input schemas and connection bindingId/catalogId required for calls. Optional toolName selects one exact tool. This observes the last successful catalog; it does not refresh it or grant invocation/control. Oversize discovery fails without truncating schemas.',
     resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
     inputSchema: () => McpToolsArgumentsSchema,
     executor: async (ctx: McpProviderContext, args, signal) => {
       signal.throwIfAborted();
       try {
-        const catalog = ctx.mcpToolInvocation.getServerTools(args.serverName);
+        const catalog = ctx.mcpToolInvocation.getServerCatalog(args.serverName);
         if (!catalog)
           return executedToolOutcome('none', toolFailed('MCP server is stopped or not ready.'));
         const tools = args.toolName
-          ? catalog.filter((tool) => tool.name === args.toolName)
-          : catalog;
+          ? catalog.tools.filter((tool) => tool.name === args.toolName)
+          : catalog.tools;
         if (args.toolName && !tools.length)
           return executedToolOutcome('none', toolFailed('MCP tool not found.'));
-        const bindingId = ctx.mcpToolInvocation.getServerStatus(args.serverName)?.bindingId;
-        if (!bindingId) throw new Error('Ready MCP catalog has no binding identity.');
         for (const tool of tools) {
           if (
             JSON.stringify(projectDynamicForOutbound(tool.inputSchema)) !==
@@ -180,7 +179,8 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
         }
         const data = projectDynamicForOutbound({
           serverName: args.serverName,
-          bindingId,
+          bindingId: catalog.bindingId,
+          catalogId: catalog.catalogId,
           tools: tools.map(({ name, description, inputSchema }) => ({
             name,
             description,
@@ -202,9 +202,37 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
     },
   }),
   defineToolBinder({
+    name: 'mcp_catalog_refresh',
+    description:
+      'Explicitly re-list one ready MCP server on its observed connection without restarting it. Publishes a complete new catalog identity, even for unchanged tools; discover exact schemas again before calling. One 30-second budget includes queue wait and pagination. Concurrent refresh fails busy. Failure may retain the last successful observation or close an interrupted stdio connection; no target continuity or replay is guaranteed.',
+    resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
+    inputSchema: () => McpCatalogRefreshArgumentsSchema,
+    executor: async (ctx: McpProviderContext, args, signal, invocation) => {
+      signal.throwIfAborted();
+      try {
+        const result = await ctx.mcpToolInvocation.refreshServerCatalog(
+          args.serverName,
+          args.bindingId,
+          {
+            signal,
+            observationSource: invocation
+              ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+              : undefined,
+          },
+        );
+        return executedToolOutcome('none', toolSucceeded(result));
+      } catch (error) {
+        throwIfPublicationOutcomeUnknown(error);
+        if (signal.aborted && error === signal.reason) throw error;
+        if (!(error instanceof McpInvokeError)) throw error;
+        return executedToolOutcome('none', toolFailed(boundedMcpError(error.message)));
+      }
+    },
+  }),
+  defineToolBinder({
     name: 'mcp_tool_call',
     description:
-      'Call a ready MCP tool using its current discovery bindingId. A stale binding fails before dispatch; discover again, never automatically replay. Preserves complete ordered native text/images and ordinary structured metadata. Native static PNG/JPEG/WebP snapshots use local max_dimension (default 1600; integer 1..16384 or original), not forwarded to the server. Wire <=48 MiB, aggregate image sources <=32 MiB, projected text/JSON <=1 MiB; oversize fails without truncation. Only use non-secret images: pixels cannot be redacted. Effects may occur even when a call fails.',
+      'Call a ready MCP tool using its discovery bindingId and catalogId. Stale identities fail before dispatch; discover again and author a new call, never automatically replay. Preserves complete ordered native text/images and ordinary structured metadata. Native static PNG/JPEG/WebP snapshots use local max_dimension (default 1600; integer 1..16384 or original), not forwarded to the server. Wire <=48 MiB, aggregate image sources <=32 MiB, projected text/JSON <=1 MiB; oversize fails without truncation. Only use non-secret images: pixels cannot be redacted. Effects may occur even when a call fails.',
     resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
     inputSchema: () => McpToolCallArgumentsSchema,
     executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
@@ -214,6 +242,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
         value = await ctx.mcpToolInvocation.invokeTool(
           args.serverName,
           args.bindingId,
+          args.catalogId,
           args.toolName,
           args.args ?? {},
           {

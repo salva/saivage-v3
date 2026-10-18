@@ -43,7 +43,7 @@ async function fixture() {
   const stats = new McpInvocationStatsRecorder(events as never);
   const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'stdio', command: 'test', autostart: true, disabled: false }, revision: 'r', processRunner: runner as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: stats });
   await runtime.start();
-  return { runtime, containment, terminate, entered, calls, stdout, events, stats };
+  return { runtime, catalogId: runtime.getCatalog()!.catalogId, containment, terminate, entered, calls, stdout, events, stats };
 }
 const success = { failed: [] };
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -89,10 +89,10 @@ describe('active stdio cancellation ownership', () => {
   it.each(['caller', 'deadline'] as const)('preserves %s classification through installed port, reader and real shared tool invocation', async mode => {
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, getServerTools: () => f.runtime.getTools(), findToolCapability: () => null, invokeTool: (_server, _binding, tool, args, options) => f.runtime.invokeTool(tool, args, { ...options, timeoutMs: mode === 'deadline' ? 15 : 10_000 }) });
+    installation.installer.install({ ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: (_server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, { ...options, timeoutMs: mode === 'deadline' ? 15 : 10_000 }) });
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
     const caller = new AbortController();
-    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }), caller.signal);
+    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, catalogId: f.catalogId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }), caller.signal);
     await f.entered.promise;
     if (mode === 'caller') caller.abort({ exact: 'non-default caller reason' });
     else {
@@ -114,7 +114,7 @@ describe('active stdio cancellation ownership', () => {
     const f = await fixture();
     const failure = uncertain ? new PublicationOutcomeUnknownError() : new Error('exact ordinary event publication failure');
     f.events.appendEventPrepared.mockImplementation(() => { throw failure; });
-    const observed = f.runtime.invokeTool('pending', {}).catch(error => error);
+    const observed = f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}).catch(error => error);
     await f.entered.promise;
     f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [], isError } }) + '\n');
     expect(await observed).toBe(failure);
@@ -129,9 +129,9 @@ describe('active stdio cancellation ownership', () => {
   it('later recognized image conversion failure leaves the actual native invocation successful without replay', async () => {
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, getServerTools: () => f.runtime.getTools(), findToolCapability: () => null, invokeTool: (_server, _binding, tool, args, options) => f.runtime.invokeTool(tool, args, options) });
+    installation.installer.install({ ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: (_server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, options) });
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
-    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
+    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, catalogId: f.catalogId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
     await f.entered.promise;
     f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [{ type: 'image', mimeType: 'image/png', data: 'YQ==' }] } }) + '\n');
     const execution = await result;
@@ -153,7 +153,7 @@ describe('active stdio cancellation ownership', () => {
     { response: {}, code: 'MCP_NO_RESULT' },
   ])('retains mapped $code rejection with one eligible failure record rather than native success', async ({ response, code }) => {
     const f = await fixture();
-    const observed = f.runtime.invokeTool('pending', {}).catch(error => error);
+    const observed = f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}).catch(error => error);
     await f.entered.promise;
     f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, ...response }) + '\n');
     expect(await observed).toMatchObject({ code });
@@ -168,11 +168,11 @@ describe('active stdio cancellation ownership', () => {
 
   it('unknown tool and already-aborted caller add no invocation or telemetry', async () => {
     const f = await fixture();
-    await expect(f.runtime.invokeTool('unknown', {})).rejects.toMatchObject({ code: 'TOOL_NOT_FOUND' });
+    await expect(f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'unknown', {})).rejects.toMatchObject({ code: 'TOOL_NOT_FOUND' });
     const caller = new AbortController();
     const reason = new Error('already cancelled');
     caller.abort(reason);
-    await expect(f.runtime.invokeTool('pending', {}, { signal: caller.signal })).rejects.toBe(reason);
+    await expect(f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}, { signal: caller.signal })).rejects.toBe(reason);
     expect(f.calls).toHaveLength(0);
     expect(f.events.appendEventPrepared).not.toHaveBeenCalled();
     expect(f.stats.snapshot()).toEqual({});
@@ -185,10 +185,10 @@ describe('active stdio cancellation ownership', () => {
     const caller = new AbortController();
     const reason = { exact: 'caller reason' };
     let settled = false;
-    const active = f.runtime.invokeTool('pending', {}, { signal: caller.signal, timeoutMs: mode === 'deadline' ? 15 : 10_000 });
+    const active = f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}, { signal: caller.signal, timeoutMs: mode === 'deadline' ? 15 : 10_000 });
     const observed = active.then(() => undefined, error => { settled = true; return error; });
     await f.entered.promise;
-    const queued = [f.runtime.invokeTool('pending', {}), f.runtime.invokeTool('pending', {})].map(p => p.catch(error => error));
+    const queued = [f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}), f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {})].map(p => p.catch(error => error));
     if (mode === 'caller') caller.abort(reason);
     else await new Promise(resolve => setTimeout(resolve, 30));
     expect(f.runtime.isReady()).toBe(false);
@@ -210,11 +210,11 @@ describe('active stdio cancellation ownership', () => {
   it('queued-only cancellation writes nothing and does not invalidate the active exchange; completed response detaches invalidation', async () => {
     const f = await fixture();
     const activeCaller = new AbortController();
-    const active = f.runtime.invokeTool('pending', {}, { signal: activeCaller.signal });
+    const active = f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}, { signal: activeCaller.signal });
     await f.entered.promise;
     const caller = new AbortController();
     const reason = new Error('queued cancellation');
-    const queued = f.runtime.invokeTool('pending', {}, { signal: caller.signal }).catch(error => error);
+    const queued = f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}, { signal: caller.signal }).catch(error => error);
     caller.abort(reason);
     expect(f.runtime.isReady()).toBe(true);
     expect(f.terminate).not.toHaveBeenCalled();
@@ -231,7 +231,7 @@ describe('active stdio cancellation ownership', () => {
   it.each(['report', 'rejection'] as const)('containment %s takes precedence and retains the closed owner', async mode => {
     const f = await fixture();
     const caller = new AbortController();
-    const observed = f.runtime.invokeTool('pending', {}, { signal: caller.signal }).catch(error => error);
+    const observed = f.runtime.invokeTool(f.runtime.bindingId, f.catalogId, 'pending', {}, { signal: caller.signal }).catch(error => error);
     await f.entered.promise;
     caller.abort(new Error('routine cancellation'));
     const failure = new Error('fatal containment');

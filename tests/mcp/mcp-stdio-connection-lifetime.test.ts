@@ -62,8 +62,8 @@ describe('connection-owned stdio receiver', () => {
         );
       } else if (request.method === 'tools/list') {
         const page = request.params?.cursor
-          ? { tools: [{ name: 'second' }] }
-          : { tools: [{ name: 'first' }], nextCursor: 'page2' };
+          ? { tools: [{ name: 'second', inputSchema: { type: 'object' } }] }
+          : { tools: [{ name: 'first', inputSchema: { type: 'object' } }], nextCursor: 'page2' };
         f.stdout.write(
           wire({ jsonrpc: '2.0', id: request.id, result: page }) +
             wire(roots(`page-${request.id}`)),
@@ -85,9 +85,10 @@ describe('connection-owned stdio receiver', () => {
       }
     });
     try {
-      expect(await f.connection.discover(signal())).toEqual([
-        { name: 'first' },
-        { name: 'second' },
+      await f.connection.initialize(signal());
+      expect(await f.connection.listTools(signal())).toEqual([
+        { name: 'first', inputSchema: { type: 'object' } },
+        { name: 'second', inputSchema: { type: 'object' } },
       ]);
       await turn();
       f.stdout.write(wire(roots('idle')));
@@ -153,7 +154,7 @@ describe('connection-owned stdio receiver', () => {
           );
         });
         try {
-          const error = await f.connection.discover(signal()).catch((error) => error);
+          const error = await f.connection.initialize(signal()).then(() => f.connection.listTools(signal())).catch((error) => error);
           expect(error).toBeInstanceOf(TransportError);
           expect(error.message).toBe(
             `Transport error on MCP server 'one': ${stage} rejected${code === -32001 ? ' (code -32001)' : ''}`,
@@ -214,7 +215,7 @@ describe('connection-owned stdio receiver', () => {
       const remove = jest.spyOn(caller.signal, 'removeEventListener');
       const observed = (
         n % 2
-          ? f.connection.discover(caller.signal)
+          ? f.connection.initialize(caller.signal).then(() => f.connection.listTools(caller.signal))
           : f.connection.invoke({
               toolName: 'tool',
               args: {},
@@ -323,7 +324,7 @@ describe('connection-owned stdio receiver', () => {
       try {
         const operation =
           stage === 'discovery'
-            ? f.connection.discover(signal())
+            ? f.connection.initialize(signal()).then(() => f.connection.listTools(signal()))
             : f.connection.invoke({
                 toolName: 'tool',
                 args: {},
@@ -361,7 +362,8 @@ describe('connection-owned stdio receiver', () => {
         stdout.write(wire({ jsonrpc: '2.0', id: request.id, result: { tools: [] } }));
     });
     try {
-      await connection.discover(signal());
+      await connection.initialize(signal());
+      await connection.listTools(signal());
       stdout.write(wire({ method: 'roots/list', id: 9 }));
       expect(requests[0].params.capabilities).toEqual({});
       expect(requests).toHaveLength(3);

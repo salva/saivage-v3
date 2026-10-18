@@ -83,14 +83,14 @@ describe('MCP tool invocation production composition', () => {
       if (fixtureFailure) throw fixtureFailure;
       expect(finishFinalPage).toBeDefined(); expect(settled).toBe(false);
       expect(manager.getServerStatus('offline')).toMatchObject({ status: 'starting', processId: null, startedAt: expect.any(String) });
-      expect(manager.getServerTools('offline')).toBeUndefined();
+      expect(manager.getServerCatalog('offline')?.tools).toBeUndefined();
       expect(calls.map(call => [call.method, call.operation])).toEqual([['POST', 'initialize'], ['POST', 'notifications/initialized'], ['POST', 'tools/list'], ['POST', 'tools/list']]);
       expect(calls[0]!.session).toBeUndefined();
       expect(calls.slice(1).map(call => call.session)).toEqual(['loopback-session', 'loopback-session', 'loopback-session']);
       expect(calls.map(call => call.cursor)).toEqual([undefined, undefined, undefined, 'page-two']);
       finishFinalPage!();
       await expect(start).resolves.toMatchObject({ status: 'running', toolCount: 2 });
-      expect(manager.getServerTools('offline')!.map(tool => tool.name)).toEqual(['first', 'second']);
+      expect(manager.getServerCatalog('offline')!.tools.map(tool => tool.name)).toEqual(['first', 'second']);
       expect(manager.getServerStatus('offline')).toMatchObject({ status: 'running', processId: null });
       expect(calls).toHaveLength(4);
     } finally {
@@ -172,6 +172,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       let fixtureFailure: unknown;
       let step = 0;
       let binding = '';
+      let catalogId = '';
       let processId: string | null = null;
       let gateway: unknown;
       const seen: string[] = [];
@@ -274,10 +275,12 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
             case 9:
               expect(settled.success).toBe(true);
               binding = settled.data.bindingId;
+              catalogId = settled.data.catalogId;
               expect(binding).toEqual(expect.any(String));
               emit('mcp_tool_call', {
                 serverName: 'dynamic',
                 bindingId: binding,
+                catalogId,
                 toolName: 'ping',
                 args: { value: 'selected-agent' },
               });
@@ -343,6 +346,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           manager.invokeTool(
             'independent',
             manager.getServerStatus('independent')!.bindingId!,
+            manager.getServerCatalog('independent')!.catalogId,
             'ping',
             { value: 'independent' },
           ),
@@ -368,10 +372,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         expect(replacementBinding).not.toBe(binding);
         const beforeStale = wireCount();
         await expect(
-          manager.invokeTool('dynamic', binding, 'ping', { value: 'never-dispatched' }),
+          manager.invokeTool('dynamic', binding, catalogId, 'ping', { value: 'never-dispatched' }),
         ).rejects.toThrow('Stale MCP binding');
         expect(wireCount()).toBe(beforeStale);
-        await manager.invokeTool('dynamic', replacementBinding, 'ping', { value: 'bound-B' });
+        await manager.invokeTool('dynamic', replacementBinding, manager.getServerCatalog('dynamic')!.catalogId, 'ping', { value: 'bound-B' });
         expect(wireCount()).toBe(beforeStale + 1);
         await manager.unregisterServer('dynamic');
         if (transport === 'stdio') {
@@ -380,8 +384,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           const serialBinding = manager.getServerStatus('serial')!.bindingId!;
           const before = Date.now();
           await Promise.all([
-            manager.invokeTool('serial', serialBinding, 'ping', { value: 'first' }),
-            manager.invokeTool('serial', serialBinding, 'ping', { value: 'second' }),
+            manager.invokeTool('serial', serialBinding, manager.getServerCatalog('serial')!.catalogId, 'ping', { value: 'first' }),
+            manager.invokeTool('serial', serialBinding, manager.getServerCatalog('serial')!.catalogId, 'ping', { value: 'second' }),
           ]);
           const calls = readFileSync(callsPath, 'utf8')
             .trim()
@@ -404,6 +408,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           await manager.invokeTool(
             'natural',
             manager.getServerStatus('natural')!.bindingId!,
+            manager.getServerCatalog('natural')!.catalogId,
             'ping',
             { value: 'exit' },
           );
@@ -493,11 +498,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       for (let n = 1; n <= 2; n++)
         await expect(
           manager.invokeTool('local',
-            manager.getServerStatus('local')!.bindingId!, 'mutate', {}, { timeoutMs: 5000 }),
+            manager.getServerStatus('local')!.bindingId!, manager.getServerCatalog('local')!.catalogId, 'mutate', {}, { timeoutMs: 5000 }),
         ).resolves.toMatchObject({ content: [{ type: 'text', text: `mutation:${n}` }] });
       await expect(
         manager.invokeTool('local',
-          manager.getServerStatus('local')!.bindingId!, 'report', {}, { timeoutMs: 5000 }),
+          manager.getServerStatus('local')!.bindingId!, manager.getServerCatalog('local')!.catalogId, 'report', {}, { timeoutMs: 5000 }),
       ).resolves.toMatchObject({
         structuredContent: {
           mutations: 2,
@@ -577,7 +582,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       }
       expect(rows.filter(row => row.kind === 'tool_call').map(row => row.tool_call_id)).toEqual([failedId, correctedId]);
       expect(rows.filter(row => row.kind === 'tool_result').map(row => row.tool_call_id)).toEqual([failedId, correctedId]);
-      expect(app.server.mcpManager.getServerTools(SERVER_NAME)).toEqual([]);
+      expect(app.server.mcpManager.getServerCatalog(SERVER_NAME)?.tools).toEqual([]);
     } finally {
       if (app) { apps.delete(app); await app.stop(); }
       await closeServer(provider); await closeServer(mcp);
@@ -642,7 +647,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         rootCalls += 1;
         if (rootCalls === 1) {
           sendToolCall(response, 'mcp-call', 'mcp_tool_call', { serverName: SERVER_NAME,
-              bindingId: app!.server.mcpManager.getServerStatus(SERVER_NAME)!.bindingId!, toolName: 'echo_marker', args: { marker: MARKER } });
+              bindingId: app!.server.mcpManager.getServerStatus(SERVER_NAME)!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog(SERVER_NAME)!.catalogId, toolName: 'echo_marker', args: { marker: MARKER } });
         } else if (rootCalls === 2) {
           markerResultSeenByProvider = JSON.parse(last?.content ?? 'null');
           if (last?.role !== 'tool' || JSON.stringify(markerResultSeenByProvider).includes(MARKER) === false) throw new Error('Root continuation did not receive the marker-bearing MCP settlement.');
@@ -674,7 +679,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       initializeProject(projectRoot);
       app = await startProductionApp(projectRoot, TOKEN);
       apps.add(app);
-      expect(app.server.mcpManager.getServerTools(SERVER_NAME)).toEqual([
+      expect(app.server.mcpManager.getServerCatalog(SERVER_NAME)?.tools).toEqual([
         expect.objectContaining({ name: 'echo_marker', inputSchema: expect.objectContaining({ type: 'object' }) }),
       ]);
 
@@ -684,7 +689,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const cards = app.server.runtimeApplication.cardStore;
       try { await waitFor(() => cards.read('project')?.lifecycle.status === 'done', 'MCP-backed root completion'); }
       catch (error) {
-        throw new Error(`${(error as Error).message} fixture=${(fixtureFailure as Error | null)?.message ?? 'none'} calls=${JSON.stringify({ analystCalls, rootCalls, mcpMethods, toolCalls })} tools=${JSON.stringify(app.server.mcpManager.getServerTools(SERVER_NAME))} card=${JSON.stringify(cards.read('project')?.lifecycle)} conversation=${JSON.stringify(readConversation(projectRoot, 'agent:executor:project').physicalRows)}`);
+        throw new Error(`${(error as Error).message} fixture=${(fixtureFailure as Error | null)?.message ?? 'none'} calls=${JSON.stringify({ analystCalls, rootCalls, mcpMethods, toolCalls })} tools=${JSON.stringify(app.server.mcpManager.getServerCatalog(SERVER_NAME)?.tools)} card=${JSON.stringify(cards.read('project')?.lifecycle)} conversation=${JSON.stringify(readConversation(projectRoot, 'agent:executor:project').physicalRows)}`);
       }
 
       if (fixtureFailure) throw fixtureFailure;

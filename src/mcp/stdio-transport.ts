@@ -12,6 +12,7 @@ import {
 } from './protocol.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
 import type { NativeMcpResult } from './native-result.js';
+import { decodeMcpListPage } from './catalog-discovery.js';
 
 interface MessageIdSource {
   next(): number | string;
@@ -209,13 +210,12 @@ export class StdioMcpConnection {
         this.write(request);
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
-        this.clearPending();
-        reject(error);
+        this.fail(error);
       }
     });
   }
 
-  async discover(signal: AbortSignal): Promise<McpToolDefinition[]> {
+  async initialize(signal: AbortSignal): Promise<void> {
     signal.throwIfAborted();
     const response = await this.exchange(
       {
@@ -234,7 +234,11 @@ export class StdioMcpConnection {
     signal.throwIfAborted();
     if (this.closed) throw this.terminalReason;
     this.write({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  }
+
+  async listTools(signal: AbortSignal): Promise<McpToolDefinition[]> {
     const tools: McpToolDefinition[] = [];
+    const names = new Set<string>();
     let cursor: string | undefined;
     do {
       const request: McpJsonRpcRequest = {
@@ -244,14 +248,9 @@ export class StdioMcpConnection {
       };
       if (cursor) request.params = { cursor };
       const page = await this.exchange(request, signal);
-      this.checkDiscovery(page, 'tools/list');
-      const result = page.result as
-        | { tools?: McpToolDefinition[]; nextCursor?: string }
-        | undefined;
-      if (result && Array.isArray(result.tools)) {
-        tools.push(...result.tools);
-        cursor = result.nextCursor;
-      } else cursor = undefined;
+      const result = decodeMcpListPage(this.input.serverName, page, names);
+      tools.push(...result.tools);
+      cursor = result.nextCursor;
     } while (cursor);
     return tools;
   }

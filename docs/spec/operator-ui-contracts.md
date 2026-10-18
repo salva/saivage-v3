@@ -158,6 +158,14 @@ containment failure is a removed retained blocker, not an available definition.
 Starting exposes no ready tools. Process association grants no wait/kill authority
 and promises no captured protocol output. Registration/removal presenters show
 recorded publication/containment facts; no topology controls are added.
+The `mcp_catalog_refresh` presenter shows requested server/connection and recorded
+returned server, `bindingId`, `catalogId` and tool count. **Refresh recorded** requires
+a successful result with those supporting facts; failed, uncertain or missing facts
+never acquire that success label. Error details and raw facts stay accessible.
+This is not present readiness or target-continuity evidence. Discovery results and
+call request details disclose recorded `catalogId` when present; historical absence
+stays absent. System UI refresh only fetches observations: it does not send remote
+`tools/list`. There is no new button, endpoint or polling behavior.
 Loaded current instructions show browser guidance only when actually
 composed, never dynamic discovery or full historical wire. Retained ordinary MCP data stays opaque inspectable JSON,
 not retrospectively complete or an attachment/delivery claim. Safe originals/copy,

@@ -15,7 +15,7 @@ import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 
 describe('durable-preserving MCP topology history', () => {
-  it('strict current readers/materialization and outbound projection retain old name-only and new bound/registration facts without execution', () => {
+  it('strict current readers/materialization and outbound projection retain name-only, binding-only, catalog-bound and refresh facts without execution', () => {
     const root = mkdtempSync(join(tmpdir(), 'mcp-historical-'));
     const session = 'agent:planner:project' as ConversationSessionId;
     const input = '11111111-1111-4111-8111-111111111111';
@@ -43,6 +43,16 @@ describe('durable-preserving MCP topology history', () => {
           connection: { transport: 'stdio', command: 'node', env: { CUSTOM: 'private-env-value' } },
         },
         data: { serverName: 'two', registered: true },
+      },
+      {
+        tool: 'mcp_tool_call',
+        args: { serverName: 'one', bindingId: '22222222-2222-4222-8222-222222222222', catalogId: '33333333-3333-4333-8333-333333333333', toolName: 'ping', args: {} },
+        data: { catalogBound: true },
+      },
+      {
+        tool: 'mcp_catalog_refresh',
+        args: { serverName: 'one', bindingId: '22222222-2222-4222-8222-222222222222' },
+        data: { serverName: 'one', bindingId: '22222222-2222-4222-8222-222222222222', catalogId: '33333333-3333-4333-8333-333333333333', toolCount: 0 },
       },
     ];
     const rows: AgentMessage[] = [
@@ -114,6 +124,8 @@ describe('durable-preserving MCP topology history', () => {
       const projected = providerConversationProjection(materialized, []).messages;
       expect(JSON.stringify(projected)).toContain('prior');
       expect(JSON.stringify(projected)).toContain('bound');
+      expect(JSON.stringify(projected)).toContain('catalogBound');
+      expect(JSON.stringify(projected)).toContain('mcp_catalog_refresh');
       facts.forEach(({ tool, args, data }, index) => {
         const result = projectToolInvocation({
           shape: 'complete',
@@ -131,7 +143,11 @@ describe('durable-preserving MCP topology history', () => {
           expect(result).toMatchObject({ arguments: args });
           expect(JSON.stringify(result)).not.toContain('bindingId');
         }
-        if (index === 1) expect(result).toMatchObject({ arguments: args });
+        if (index === 1) {
+          expect(result).toMatchObject({ arguments: args });
+          expect(JSON.stringify(result)).not.toContain('catalogId');
+        }
+        if (index >= 3) expect(result).toMatchObject({ arguments: args });
         if (index === 2) expect(JSON.stringify(result)).not.toContain('private-env-value');
       });
     } finally {

@@ -27,6 +27,9 @@ import {
 import {
   MCP_INVOKE_TIMEOUT_MS,
   MCP_START_TIMEOUT_MS,
+  MCP_REFRESH_TIMEOUT_MS,
+  type McpCatalogSnapshot,
+  type McpCatalogRefreshResult,
   type McpServerStatus,
   type McpStatus,
   type McpToolDefinition,
@@ -35,7 +38,8 @@ import type { McpServerConfig, McpServerHandle } from './server-registry.js';
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { buildMcpServerStatus } from './status-projection.js';
 import {
-  discoverStreamableHttpTools,
+  initializeStreamableHttp,
+  listStreamableHttpTools,
   invokeStreamableHttpTool,
 } from './streamable-http-transport.js';
 import { StdioMcpConnection } from './stdio-transport.js';
@@ -77,9 +81,10 @@ export class McpServerRuntime {
   private containmentFailed = false;
   private statusOverride?: { status: McpStatus; error?: string };
   private startedAt?: string;
-  private tools?: McpToolDefinition[];
+  private catalog?: McpCatalogSnapshot;
+  private refreshing = false;
   private readonly argumentValidatorCache = new Map<string, CachedMcpArgumentValidator>();
-  private stdioInvocationQueue?: Promise<void>;
+  private stdioExchangeQueue?: Promise<void>;
   private admissionOpen = true;
   private contained = false;
   private ready = false;
@@ -154,10 +159,10 @@ export class McpServerRuntime {
         if (cfg.transport === 'stdio') this.startStdio(cfg, signal);
         else this.startStreamableHttp();
         this.assertAdmissionOpen(signal);
-        const tools = await this.discoverTools(signal, options?.observationSource);
+        await this.initializeTransport(signal, options?.observationSource);
+        const tools = await this.listTools(signal, options?.observationSource);
         this.assertAdmissionOpen(signal);
-        this.tools = tools;
-        this.argumentValidatorCache.clear();
+        this.publishCatalog(tools);
         this.ready = true;
       } catch (error) {
         publicationUnknown = error instanceof PublicationOutcomeUnknownError;
@@ -196,7 +201,7 @@ export class McpServerRuntime {
     this.disposeStdio(new ServerNotRunningError(this.name));
     this.admissionOpen = false;
     this.ready = false;
-    this.tools = undefined;
+    this.catalog = undefined;
     this.argumentValidatorCache.clear();
     this.statusOverride = { status: 'stopped' };
     let containment: Promise<import('../runtime/runtime-api.js').ProcessStopReport>;
@@ -264,7 +269,163 @@ export class McpServerRuntime {
     return this.stop();
   }
 
+  refreshCatalog(
+    bindingId: string,
+    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+  ): Promise<McpCatalogRefreshResult> {
+    if (options?.signal?.aborted) return Promise.reject(options.signal.reason);
+    if (!this.admissionOpen || !this.ready)
+      return Promise.reject(new ServerNotRunningError(this.name));
+    if (bindingId !== this.bindingId)
+      return Promise.reject(
+        new McpLifecycleError('Stale MCP binding; discover tools again before refreshing.', 409),
+      );
+    if (this.refreshing)
+      return Promise.reject(
+        new McpLifecycleError(`MCP server '${this.name}' catalog refresh is busy.`, 409),
+      );
+    this.refreshing = true;
+    let joinStop = false;
+    let onBoundedAbort!: () => void;
+    let operationSignal!: AbortSignal;
+    let rejectBounded!: (reason: unknown) => void;
+    let published = false;
+    let listStarted = false;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectBounded = reject;
+    });
+    const inner = this.admit(async (signal, controller) => {
+      operationSignal = signal;
+      onBoundedAbort = () => {
+        throwIfPublicationOutcomeUnknown(signal.reason);
+        if (!published && !listStarted) {
+          const reason = signal.reason;
+          rejectBounded(
+            reason instanceof TimeoutError
+              ? new McpInvokeError(
+                  `${reason.message}; last successful catalog unchanged.`,
+                  reason.code,
+                  reason.statusCode,
+                )
+              : reason,
+          );
+        }
+      };
+      signal.addEventListener('abort', onBoundedAbort, { once: true });
+      const deadline = setTimeout(
+        () =>
+          controller.abort(new TimeoutError(this.name, 'catalog refresh', MCP_REFRESH_TIMEOUT_MS)),
+        MCP_REFRESH_TIMEOUT_MS,
+      );
+      let publicationUnknown = false;
+      const list = async () => {
+        this.assertAdmissionOpen(signal);
+        if (!this.ready) throw new ServerNotRunningError(this.name);
+        listStarted = true;
+        const invalidate = () => {
+          throwIfPublicationOutcomeUnknown(signal.reason);
+          if (this.config.transport === 'stdio') this.closeAdmission();
+        };
+        signal.addEventListener('abort', invalidate, { once: true });
+        let listPublicationUnknown = false;
+        try {
+          return await this.listTools(signal, options?.observationSource);
+        } catch (error) {
+          listPublicationUnknown = error instanceof PublicationOutcomeUnknownError;
+          throw error;
+        } finally {
+          // Fatal publication uncertainty forbids follow-up cleanup.
+          if (!listPublicationUnknown) {
+            throwIfPublicationOutcomeUnknown(signal.reason);
+            signal.removeEventListener('abort', invalidate);
+          }
+        }
+      };
+      try {
+        const tools =
+          this.config.transport === 'stdio' ? await this.enqueueStdioExchange(list) : await list();
+        this.assertAdmissionOpen(signal);
+        if (!this.ready) throw new ServerNotRunningError(this.name);
+        this.publishCatalog(tools);
+        published = true;
+        const catalog = this.catalog!;
+        return {
+          serverName: this.name,
+          bindingId: this.bindingId,
+          catalogId: catalog.catalogId,
+          toolCount: tools.length,
+        };
+      } catch (error) {
+        publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+        throwIfPublicationOutcomeUnknown(error);
+        if (!this.admissionOpen) {
+          try {
+            await this.directContainment();
+          } catch (containmentError) {
+            publicationUnknown = containmentError instanceof PublicationOutcomeUnknownError;
+            throw containmentError;
+          }
+          joinStop = true;
+        }
+        if (error instanceof McpInvokeError)
+          throw new McpInvokeError(
+            `${error.message}; ${this.admissionOpen ? 'last successful catalog unchanged' : 'connection closed'}.`,
+            error.code,
+            error.statusCode,
+          );
+        throw error;
+      } finally {
+        if (!publicationUnknown) {
+          clearTimeout(deadline);
+          signal.removeEventListener('abort', onBoundedAbort);
+          this.refreshing = false;
+        }
+      }
+    }, options?.signal);
+    // The caller may leave on deadline while the queued no-op is still owned and busy.
+    // Only an untracked completion may join stop, which itself joins inner.
+    const completion = inner.then(
+      async (value) => {
+        if (joinStop) await this.stop();
+        return value;
+      },
+      async (error) => {
+        if (joinStop) await this.stop();
+        throw error;
+      },
+    );
+    return Promise.race([completion, aborted]).finally(() => {
+      throwIfPublicationOutcomeUnknown(operationSignal.reason);
+    });
+  }
+
+  private publishCatalog(tools: McpToolDefinition[]): void {
+    this.catalog = {
+      serverName: this.name,
+      bindingId: this.bindingId,
+      catalogId: randomUUID(),
+      tools,
+    };
+    this.argumentValidatorCache.clear();
+  }
+
+  private assertCatalog(bindingId: string, catalogId: string): void {
+    if (!this.ready || !this.catalog) throw new ServerNotRunningError(this.name);
+    if (bindingId !== this.bindingId)
+      throw new McpLifecycleError(
+        'Stale MCP binding; call was not dispatched. Discover tools again.',
+        409,
+      );
+    if (catalogId !== this.catalog.catalogId)
+      throw new McpLifecycleError(
+        'Stale MCP catalog; call was not dispatched. Discover tools again.',
+        409,
+      );
+  }
+
   invokeTool(
+    bindingId: string,
+    catalogId: string,
     toolName: string,
     args: Record<string, unknown>,
     options?: {
@@ -277,88 +438,99 @@ export class McpServerRuntime {
     const inner = this.admit(async (signal, controller) => {
       const cfg = this.config;
       const handle = this.handle;
-      if (!handle || !this.ready) throw new ServerNotRunningError(this.name);
-      if (cfg.transport === 'stdio') {
-        if (
-          !handle.process ||
-          !handle.processId ||
-          this.#processRunner.get(handle.processId)?.status !== 'running'
-        )
+      let startTime = 0;
+      let dispatched = false;
+      const admitDispatch = () => {
+        this.assertAdmissionOpen(signal);
+        this.assertCatalog(bindingId, catalogId);
+        if (!handle) throw new ServerNotRunningError(this.name);
+        if (cfg.transport === 'stdio') {
+          if (
+            !handle.process ||
+            !handle.processId ||
+            this.#processRunner.get(handle.processId)?.status !== 'running'
+          )
+            throw new ServerNotRunningError(this.name);
+        } else if (!handle.abortController || handle.abortController.signal.aborted)
           throw new ServerNotRunningError(this.name);
-      } else if (!handle.abortController || handle.abortController.signal.aborted)
-        throw new ServerNotRunningError(this.name);
-
-      const toolDefinition = this.tools?.find((tool) => tool.name === toolName);
-      if (!toolDefinition) throw new ToolNotFoundError(this.name, toolName);
-      this.validateToolArguments(toolName, toolDefinition.inputSchema, args);
-      const startTime = Date.now();
+        const toolDefinition = this.catalog!.tools.find((tool) => tool.name === toolName);
+        if (!toolDefinition) throw new ToolNotFoundError(this.name, toolName);
+        this.validateToolArguments(toolName, toolDefinition.inputSchema, args);
+        startTime = Date.now();
+        dispatched = true;
+      };
       const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
       let result: NativeMcpResult;
       let responseCompleted = false;
       try {
-        result =
-          cfg.transport === 'stdio'
-            ? await this.enqueueStdioInvocation(async () => {
-                this.assertAdmissionOpen(signal);
-                const invalidate = () => {
-                  throwIfPublicationOutcomeUnknown(signal.reason);
-                  this.closeAdmission();
-                };
-                signal.addEventListener('abort', invalidate, { once: true });
-                const deadline = setTimeout(
-                  () => controller.abort(new TimeoutError(this.name, toolName, timeoutMs)),
-                  timeoutMs,
-                );
-                let publicationUnknown = false;
-                try {
-                  return await this.stdioConnection!.invoke({
-                    toolName,
-                    args,
-                    signal,
-                    onResponse: () => {
-                      responseCompleted = true;
-                      clearTimeout(deadline);
-                      signal.removeEventListener('abort', invalidate);
-                    },
-                  });
-                } catch (error) {
-                  publicationUnknown = error instanceof PublicationOutcomeUnknownError;
-                  throwIfPublicationOutcomeUnknown(error);
-                  if (!responseCompleted) {
-                    try {
-                      this.closeAdmission();
-                      await this.directContainment();
-                    } catch (containmentError) {
-                      publicationUnknown =
-                        containmentError instanceof PublicationOutcomeUnknownError;
-                      throw containmentError;
-                    }
-                    joinStop = true;
-                  }
-                  throw error;
-                } finally {
-                  if (!publicationUnknown) {
-                    clearTimeout(deadline);
-                    signal.removeEventListener('abort', invalidate);
-                  }
-                }
-              })
-            : await invokeStreamableHttpTool({
-                outboundHttp: this.#outboundHttp,
-                observationSource: options?.observationSource,
-                serverName: this.name,
+        if (cfg.transport === 'stdio') {
+          result = await this.enqueueStdioExchange(async () => {
+            admitDispatch();
+            const invalidate = () => {
+              throwIfPublicationOutcomeUnknown(signal.reason);
+              this.closeAdmission();
+            };
+            signal.addEventListener('abort', invalidate, { once: true });
+            const deadline = setTimeout(
+              () => controller.abort(new TimeoutError(this.name, toolName, timeoutMs)),
+              timeoutMs,
+            );
+            let publicationUnknown = false;
+            try {
+              return await this.stdioConnection!.invoke({
                 toolName,
                 args,
-                config: cfg,
-                handle,
-                timeoutMs,
-                ids: this.#ids,
                 signal,
+                onResponse: () => {
+                  responseCompleted = true;
+                  clearTimeout(deadline);
+                  signal.removeEventListener('abort', invalidate);
+                },
               });
-        if (responseCompleted) options?.signal?.throwIfAborted();
-        else this.assertAdmissionOpen(signal);
+            } catch (error) {
+              publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+              throwIfPublicationOutcomeUnknown(error);
+              if (!responseCompleted) {
+                try {
+                  this.closeAdmission();
+                  await this.directContainment();
+                } catch (containmentError) {
+                  publicationUnknown = containmentError instanceof PublicationOutcomeUnknownError;
+                  throw containmentError;
+                }
+                joinStop = true;
+              }
+              throw error;
+            } finally {
+              if (!publicationUnknown) {
+                clearTimeout(deadline);
+                signal.removeEventListener('abort', invalidate);
+              }
+            }
+          });
+        } else {
+          admitDispatch();
+          result = await invokeStreamableHttpTool({
+            outboundHttp: this.#outboundHttp,
+            observationSource: options?.observationSource,
+            serverName: this.name,
+            toolName,
+            args,
+            config: cfg,
+            handle,
+            timeoutMs,
+            ids: this.#ids,
+            signal,
+          });
+        }
+        // A dispatched HTTP call retains its own response even after catalog replacement.
+        if (cfg.transport === 'stdio') {
+          if (responseCompleted) options?.signal?.throwIfAborted();
+          else this.assertAdmissionOpen(signal);
+        }
       } catch (err) {
         throwIfPublicationOutcomeUnknown(err);
+        if (!dispatched) throw err;
         if (responseCompleted) options?.signal?.throwIfAborted();
         if (!responseCompleted && !this.admissionOpen) throw err;
         if (
@@ -398,7 +570,7 @@ export class McpServerRuntime {
         handle: this.handle,
         override: this.statusOverride,
         startedAt: this.startedAt,
-        tools: this.tools,
+        tools: this.catalog?.tools,
         ready: this.ready,
         starting: this.admissionOpen && this.operations.size > 0 && !this.ready,
       }),
@@ -409,7 +581,10 @@ export class McpServerRuntime {
     };
   }
   getTools(): McpToolDefinition[] | undefined {
-    return this.tools;
+    return this.getCatalog()?.tools;
+  }
+  getCatalog(): McpCatalogSnapshot | undefined {
+    return this.catalog ? structuredClone(this.catalog) : undefined;
   }
   isRunning(): boolean {
     return Boolean(this.handle);
@@ -581,13 +756,30 @@ export class McpServerRuntime {
     this.startedAt = new Date().toISOString();
   }
 
-  private discoverTools(
+  private async initializeTransport(
+    signal: AbortSignal,
+    observationSource?: OutboundObservationSource,
+  ): Promise<void> {
+    if (this.config.transport === 'stdio') await this.stdioConnection!.initialize(signal);
+    else
+      await initializeStreamableHttp({
+        outboundHttp: this.#outboundHttp,
+        observationSource,
+        serverName: this.name,
+        config: this.config,
+        handle: this.handle,
+        ids: this.#ids,
+        signal,
+      });
+  }
+
+  private listTools(
     signal: AbortSignal,
     observationSource?: OutboundObservationSource,
   ): Promise<McpToolDefinition[]> {
     return this.config.transport === 'stdio'
-      ? this.stdioConnection!.discover(signal)
-      : discoverStreamableHttpTools({
+      ? this.stdioConnection!.listTools(signal)
+      : listStreamableHttpTools({
           outboundHttp: this.#outboundHttp,
           observationSource,
           serverName: this.name,
@@ -599,9 +791,9 @@ export class McpServerRuntime {
   }
 
   private clearCaches(): void {
-    this.tools = undefined;
+    this.catalog = undefined;
     this.argumentValidatorCache.clear();
-    this.stdioInvocationQueue = undefined;
+    this.stdioExchangeQueue = undefined;
   }
 
   private disposeStdio(reason: unknown): void {
@@ -629,10 +821,10 @@ export class McpServerRuntime {
       });
   }
 
-  private enqueueStdioInvocation<T>(fn: () => Promise<T>): Promise<T> {
-    const previous = this.stdioInvocationQueue ?? Promise.resolve();
+  private enqueueStdioExchange<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.stdioExchangeQueue ?? Promise.resolve();
     const next = previous.then(fn, fn);
-    this.stdioInvocationQueue = next.then(
+    this.stdioExchangeQueue = next.then(
       () => undefined,
       () => undefined,
     );

@@ -208,7 +208,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
         const work =
           phase === 'startup'
             ? start
-            : manager.invokeTool('one', oldBinding, 'ping', {}).catch((e) => e);
+            : manager.invokeTool('one', oldBinding, manager.getServerCatalog('one')!.catalogId, 'ping', {}).catch((e) => e);
         await entered.promise;
         const removal = manager.unregisterServer('one');
         expect(() => manager.registerServer('one', connection)).toThrow('containment');
@@ -223,8 +223,8 @@ describe('dynamic MCP exact definitions and owner fences', () => {
           definitionSource: 'agent',
         });
         expect(manager.getServerStatus('one')!.bindingId).not.toBe(oldBinding);
-        await expect(manager.invokeTool('one', oldBinding, 'ping', {})).rejects.toThrow('Stale');
-        await manager.invokeTool('other', manager.getServerStatus('other')!.bindingId!, 'ping', {});
+        await expect(manager.invokeTool('one', oldBinding, manager.getServerCatalog('one')!.catalogId, 'ping', {})).rejects.toThrow('Stale');
+        await manager.invokeTool('other', manager.getServerStatus('other')!.bindingId!, manager.getServerCatalog('other')!.catalogId, 'ping', {});
         expect(callCount).toBe(phase === 'call' ? 2 : 1);
       } finally {
         release.resolve();
@@ -290,7 +290,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
         definitionSource: 'agent',
         status: 'running',
       });
-      await manager.invokeTool('one', b, 'ping', {});
+      await manager.invokeTool('one', b, manager.getServerCatalog('one')!.catalogId, 'ping', {});
     } finally {
       completion.resolve();
       globalThis.fetch = originalFetch;
@@ -338,12 +338,12 @@ describe('dynamic MCP exact definitions and owner fences', () => {
           phase === 'startup'
             ? start
             : manager
-                .invokeTool('one', manager.getServerStatus('one')!.bindingId!, 'ping', {})
+                .invokeTool('one', manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, 'ping', {})
                 .catch((e) => e);
         await entered.promise;
         if (phase === 'startup') {
           expect(manager.getServerStatus('one')).toMatchObject({ status: 'starting' });
-          expect(manager.getServerTools('one')).toBeUndefined();
+          expect(manager.getServerCatalog('one')?.tools).toBeUndefined();
         }
         const failure = new Error('deterministic containment failure');
         jest.spyOn(runner, 'closeAndTerminateDirectScope').mockRejectedValue(failure);
@@ -408,13 +408,14 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       await manager.startServer('one');
       const b = manager.getServerStatus('one')!.bindingId!;
       expect(b).not.toBe(a);
-      await expect(manager.invokeTool('one', a, 'ping', {})).rejects.toThrow('Stale MCP binding');
+      await expect(manager.invokeTool('one', a, manager.getServerCatalog('one')!.catalogId, 'ping', {})).rejects.toThrow('Stale MCP binding');
       expect(calls).toEqual([]);
-      await manager.invokeTool('one', b, 'ping', {});
+      await manager.invokeTool('one', b, manager.getServerCatalog('one')!.catalogId, 'ping', {});
       expect(calls).toHaveLength(1);
       await manager.invokeTool(
         'operator',
         manager.getServerStatus('operator')!.bindingId!,
+        manager.getServerCatalog('operator')!.catalogId,
         'ping',
         {},
       );

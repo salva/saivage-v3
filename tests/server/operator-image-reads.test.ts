@@ -233,13 +233,12 @@ it.each(['agent:analyst:global', 'agent:planner:project'] as const)(
               { type: 'image', data: first.toString('base64'), mimeType: 'image/png' },
             ],
           }),
-          getServerTools: () => undefined,
           findToolCapability: () => null,
         },
       });
     const execution = await tool.executor(
       { serverName: 'browser',
-        bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'browser_take_screenshot' },
+        bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'browser_take_screenshot' },
       new AbortController().signal,
       testLlmToolInvocationContext({ sessionId: session, toolName: 'mcp_tool_call' }),
     );

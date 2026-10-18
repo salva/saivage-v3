@@ -25,6 +25,7 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardService, initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { queue_notification } from '../../src/tools/analyst-misc-tools.js';
 import { createTestRestartPort } from '../helpers/restart-port.js';
+import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 
 const roots: string[] = [];
 
@@ -74,14 +75,15 @@ describe('zodToJsonSchemaMini production surface canary', () => {
     const processRunner = new ProcessRunner(projectRoot, processRegistry, createApplicationFatalPort());
     const cardTypeVocabulary = effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config)).card_types;
     const vocabulary = Object.keys(cardTypeVocabulary) as Array<keyof typeof cardTypeVocabulary>;
-    const mcpToolInvocation = {
+    const mcpToolInvocation: McpToolInvocationPort = {
       registerServer() { throw new Error('Unexpected MCP register'); },
       async unregisterServer() { throw new Error('Unexpected MCP unregister'); },
       getStatus() { throw new Error('Unexpected MCP status'); },
       getServerStatus() { throw new Error('Unexpected MCP status'); },
       async startServer() { throw new Error('Unexpected MCP start'); },
       async stopServer() { throw new Error('Unexpected MCP stop'); },
-      getServerTools: () => [],
+      getServerCatalog() { throw new Error('Unexpected MCP catalog read'); },
+      async refreshServerCatalog() { throw new Error('Unexpected MCP catalog refresh'); },
       findToolCapability: () => null,
       invokeTool: async () => { throw new Error('Unexpected MCP invocation in test.'); },
     };

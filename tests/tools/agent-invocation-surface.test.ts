@@ -484,7 +484,6 @@ describe('named-agent inventories and composition', () => {
       processRunner: {} as never,
       mcpToolInvocation: {
         ...unusedMcpToolInvocation,
-        getServerTools: () => [],
         findToolCapability: () => null,
         invokeTool: async () => ({ content: [] }),
       },
@@ -510,7 +509,7 @@ describe('named-agent inventories and composition', () => {
     const outcome = await invokeToolForLlm(
       surface,
       'mcp_tool_call',
-      { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'tool' },
+      { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' },
       testLlmToolInvocationContext({
         sessionId: 'agent:reviewer:project',
         toolName: 'mcp_tool_call',

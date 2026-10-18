@@ -131,7 +131,7 @@ describe('runtime lifetime receiver ordering', () => {
       if (stage === 'discovery') operation = f.runtime.start().catch((error) => error);
       else {
         await f.runtime.start();
-        operation = f.runtime.invokeTool('mutate', {}).catch((error) => error);
+        operation = f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'mutate', {}).catch((error) => error);
       }
       await f.entered.promise;
       const stopping = f.runtime.stop();
@@ -151,9 +151,9 @@ describe('runtime lifetime receiver ordering', () => {
       await f.runtime.start();
       const eof = mode.endsWith('EOF');
       const nativeError = mode.startsWith('native-error');
-      const result = f.runtime.invokeTool('mutate', {}).catch((error) => error);
+      const result = f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'mutate', {}).catch((error) => error);
       await f.entered.promise;
-      const queued = f.runtime.invokeTool('mutate', {}).catch((error) => error);
+      const queued = f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'mutate', {}).catch((error) => error);
       if (!eof)
         jest.spyOn(f.stdin, 'write').mockImplementation(() => {
           throw new Error('roots answer write failed');
@@ -181,7 +181,7 @@ describe('runtime lifetime receiver ordering', () => {
       expect(event).toMatchObject({ kind: 'mcp_tool_invocation', success: succeeded });
       if (nativeError) expect(event).not.toHaveProperty('error');
       await queued;
-      await expect(f.runtime.invokeTool('mutate', {})).rejects.toThrow('not running');
+      await expect(f.runtime.invokeTool(f.runtime.bindingId, '22222222-2222-4222-8222-222222222222', 'mutate', {})).rejects.toThrow('not running');
       expect(f.calls).toHaveLength(1);
       expect(f.mutations).toBe(1);
       f.terminal.resolve({ record: { status: 'exited', signal: null } });
@@ -199,7 +199,7 @@ describe('runtime lifetime receiver ordering', () => {
     await f.runtime.start();
     const caller = new AbortController();
     const observed = f.runtime
-      .invokeTool('mutate', {}, { signal: caller.signal })
+      .invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'mutate', {}, { signal: caller.signal })
       .catch((error) => error);
     await f.entered.promise;
     f.stdout.write(wire({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [] } }));
@@ -357,7 +357,7 @@ describe('runtime lifetime receiver ordering', () => {
       await f.runtime.start();
       const failure = new TypeError('exact read failure');
       const observed =
-        state === 'active' ? f.runtime.invokeTool('mutate', {}).catch((error) => error) : undefined;
+        state === 'active' ? f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'mutate', {}).catch((error) => error) : undefined;
       if (state === 'active') await f.entered.promise;
       f.stdout.emit('error', failure);
       expect(f.runtime.isReady()).toBe(false);
@@ -381,7 +381,7 @@ describe('runtime lifetime receiver ordering', () => {
         await f.runtime.start();
         const observed =
           state === 'active'
-            ? f.runtime.invokeTool('mutate', {}).catch((error) => error)
+            ? f.runtime.invokeTool(f.runtime.bindingId, f.runtime.getCatalog()!.catalogId, 'mutate', {}).catch((error) => error)
             : undefined;
         if (state === 'active') await f.entered.promise;
         if (kind === 'EOF') f.stdout.emit('end');
@@ -397,7 +397,7 @@ describe('runtime lifetime receiver ordering', () => {
         expect(f.runtime.isReady()).toBe(false);
         expect(f.runtime.isAdmissionOpen()).toBe(false);
         expect(f.terminate).toHaveBeenCalledTimes(1);
-        await expect(f.runtime.invokeTool('mutate', {})).rejects.toThrow('not running');
+        await expect(f.runtime.invokeTool(f.runtime.bindingId, '22222222-2222-4222-8222-222222222222', 'mutate', {})).rejects.toThrow('not running');
         const stopping = f.runtime.stop();
         f.terminal.resolve({ record: { status: 'exited', signal: null } });
         f.containment.resolve(success);

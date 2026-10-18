@@ -240,7 +240,7 @@ it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
       mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => nativeEnvelope, findToolCapability: () => null },
     } as never);
     const invocation = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'native-fixture',
-        bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'capture' },
+        bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'capture' },
       testLlmToolInvocationContext({ sessionId, sourceInputId: INPUT, toolCallId: 'call-image', toolName: 'mcp_tool_call' }));
     expect(invocation.kind).toBe('executed');
     const settled = settleToolActionOutcome(invocation.kind === 'executed' ? invocation.execution.providerOutcome : invocation.providerOutcome);

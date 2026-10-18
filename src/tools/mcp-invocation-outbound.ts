@@ -40,6 +40,7 @@ export function projectMcpToolCallArgumentsForOutbound(
   return McpToolCallArgumentsSchema.parse({
     serverName: argumentsValue.serverName,
     bindingId: argumentsValue.bindingId,
+    catalogId: argumentsValue.catalogId,
     toolName: argumentsValue.toolName,
     ...(argumentsValue.max_dimension === undefined
       ? {}

@@ -310,10 +310,16 @@ dynamic definitions survive restart/reset but always require explicit start.
 `mcp_server_unregister` removes only dynamic entries and contains their exact
 runtime. `mcp_servers` observes configured and retained owners independently.
 No new permissions are added to defaults. Discover with `mcp_tools`, then pass
-its `bindingId` to `mcp_tool_call`; stop/start requires fresh discovery.
+its `bindingId` and `catalogId` to `mcp_tool_call`; stop/start requires fresh discovery.
+Any eligible configured global/card agent may independently opt in to
+`mcp_catalog_refresh` in its `tools` list. It requires an observed ready connection,
+re-lists on that same connection and publishes a new catalog identity; discover
+again for exact schemas before calling. This selection grants neither discovery,
+invocation nor lifecycle control, and defaults remain unchanged. Oversight admits
+no MCP tools. See [explicit refresh](../runbook/index.md#explicit-mcp-catalog-refresh).
 Stdio is an MCP-managed runtime process, not an attachable agent command;
 ordinary process wait/kill remains denied. HTTP is an external URL and local
-stop does not terminate it. Editing, live catalog refresh and card-tree lifetime
+stop does not terminate it. Editing, notifications/native projection and card-tree lifetime
 refinements are deferred. `show_config` remains YAML-only; Files refuses the
 secret-bearing dynamic definition file. Include it in complete project backups.
 

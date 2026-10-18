@@ -1805,7 +1805,7 @@ cancellation remains request-local and does not stop the remote service.
 MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'})`
 and read-only `mcp_tools({serverName,toolName?})`, strict nonempty names and no extra
 fields. Discovery returns current names/descriptions and exact input schemas through
-outbound redaction and a runtime `bindingId`; optional exact tool selection avoids catalog overflow. If redaction would alter an input schema, discovery fails rather than advertising altered validation. More than
+outbound redaction and runtime connection `bindingId`/catalog `catalogId` together from one snapshot; optional exact tool selection avoids catalog overflow. If redaction would alter an input schema, discovery fails rather than advertising altered validation. More than
 1 MiB fails explicitly, including a single oversize schema; no schema truncation.
 Discovery grants neither invocation nor control. Unknown owners/config entries fail
 explicitly; stopped/not-ready discovery exposes no phantom capabilities.
@@ -1828,9 +1828,26 @@ and containment are errors, not installed/ready stubs; no retry or implicit rest
 Application closure synchronously fences new starts/calls, aborts starts and closes
 all retained owners before joins and clearing. Project Stop leaves MCP alive.
 
-Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No edit/restart/enable/disable tools, live catalog refresh or card-tree lifetime rules are added.
+Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No edit/restart/enable/disable tools or card-tree lifetime rules are added.
 
-`mcp_servers({serverName?})` independently observes definitions and retained owners, bounded at 1 MiB (select an exact name on overflow). Common observations expose source `operator|agent|null`, `starting|running|stopped|error`, containment failure, binding and safe process association. Running means discovery complete; starting exposes no ready tools. Null source means an unregistered retained owner. `mcp_tool_call` requires the discovered binding, checks it before transport, and uses that exact immutable runtime catalog; stale bindings fail without retry. Possession grants no tool permission. Prepared generic gateways stay frozen; configured card participants may independently select management, observation or invocation. Oversight remains observation-only and admits no MCP tools.
+`mcp_servers({serverName?})` independently observes definitions and retained owners, bounded at 1 MiB (select an exact name on overflow). Common observations expose source `operator|agent|null`, `starting|running|stopped|error`, containment failure, binding and safe process association. Running means discovery complete; starting exposes no ready tools. Null source means an unregistered retained owner. `mcp_tool_call` strictly requires both discovered identities and validates against that exact catalog at dispatch, inside the stdio exchange queue or immediately before HTTP dispatch. Stale identities fail without sending the call, retry or replay. Possession grants no tool permission. Prepared generic gateways stay frozen; configured card/global participants may independently select management, refresh, observation or invocation. Oversight remains observation-only and admits no MCP tools.
+
+Independently selectable `mcp_catalog_refresh({serverName,bindingId})` re-lists only
+an already-ready exact configured connection, without initialization, restart,
+installation or configuration reconciliation. No default role gains this permission.
+One 30-second budget includes queue wait and every page; overlapping refresh fails
+busy. Complete validated catalogs replace the runtime snapshot with a fresh opaque
+UUID, even if unchanged, while keeping the connection binding. Partial pages never
+publish. Discovery observes the last successful catalog, not guaranteed remote
+continuity. Classified read rejection retains that snapshot where the connection
+remains usable; interrupted active stdio exchanges close admission and join exact
+containment, while queued cancellation leaves the preceding call alone and HTTP
+cancellation is request-local. Stop prevents late publication. Successful publication
+is a known result, not rewritten by later cancellation. Already-dispatched calls
+retain their original schema/response ownership, including HTTP results arriving
+after refresh. Remote schemas remain discovery data, not native prepared tools;
+the model must discover and author a new call after a stale rejection. Notifications,
+native projection and atomic remote-catalog guarantees remain out of scope.
 
 Stdio `processId` correlates with the shared runner's `mcp:<name>` runtime-owned `service_infrastructure` launch, not an OS PID or transferable capability. Protocol streams are `not_captured`; ordinary activation/session-owned `wait_process` and `kill_process` remain denied. MCP stop/unregister and application cleanup own settlement and termination. Natural terminal consumption retires the ID. HTTP has no local process ID; disconnect contains local requests only, not the remote target. Arbitrary already-running process attachment is unsupported. Env values are structurally suppressed and URL/command secrets redacted in supported observations; Files refuses the connection-definition file and resolved aliases.
 

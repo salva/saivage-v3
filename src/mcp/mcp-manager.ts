@@ -10,7 +10,12 @@ import type { ProcessRunner } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessStopReport } from '../runtime/runtime-api.js';
 import { McpLifecycleError, ServerNotRunningError } from './errors.js';
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
-import { type McpServerStatus, type McpToolDefinition } from './protocol.js';
+import type {
+  McpServerStatus,
+  McpToolDefinition,
+  McpCatalogSnapshot,
+  McpCatalogRefreshResult,
+} from './protocol.js';
 import { type McpServerConfig } from './server-registry.js';
 import { McpServerRuntime } from './server-runtime.js';
 import type { NativeMcpResult } from './native-result.js';
@@ -23,7 +28,11 @@ export interface McpStatusProvider {
 export interface McpToolsReadModelProvider {
   getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel>;
 }
-type McpToolCapability = McpToolDefinition & { serverName: string; bindingId: string };
+type McpToolCapability = McpToolDefinition & {
+  serverName: string;
+  bindingId: string;
+  catalogId: string;
+};
 export interface McpToolInvocationPort {
   registerServer(name: string, connection: McpConnection): { serverName: string; registered: true };
   unregisterServer(
@@ -36,11 +45,17 @@ export interface McpToolInvocationPort {
     options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
   ): Promise<McpLifecycleResult>;
   stopServer(name: string): Promise<McpLifecycleResult>;
-  getServerTools(name: string): McpToolDefinition[] | undefined;
+  getServerCatalog(name: string): McpCatalogSnapshot | undefined;
+  refreshServerCatalog(
+    name: string,
+    bindingId: string,
+    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+  ): Promise<McpCatalogRefreshResult>;
   findToolCapability(serverName: string, toolName: string): McpToolCapability | null;
   invokeTool(
     serverName: string,
     bindingId: string,
+    catalogId: string,
     toolName: string,
     args: Record<string, unknown>,
     options?: {
@@ -197,10 +212,31 @@ export class McpManager implements McpReconciliationPort {
   getServerStatus(name: string): McpServerStatus | undefined {
     return this.getStatus().find((status) => status.name === name);
   }
-  getServerTools(name: string): McpToolDefinition[] | undefined {
+  getServerCatalog(name: string): McpCatalogSnapshot | undefined {
     const runtime = this.#runtimes.get(name);
     if (!runtime) throw new McpLifecycleError(`Unknown MCP server '${name}'.`, 404);
-    return runtime.getTools();
+    return runtime.getCatalog();
+  }
+
+  refreshServerCatalog(
+    name: string,
+    bindingId: string,
+    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+  ): Promise<McpCatalogRefreshResult> {
+    options?.signal?.throwIfAborted();
+    this.assertAdmission();
+    const { configs } = this.loadDefinitions();
+    const config = configs[name];
+    if (!config) throw new McpLifecycleError(`Unknown configured MCP server '${name}'.`, 404);
+    if (config.disabled) throw new McpLifecycleError(`MCP server '${name}' is disabled.`, 409);
+    const runtime = this.#runtimes.get(name);
+    if (!runtime?.isReady()) throw new ServerNotRunningError(name);
+    if (runtime.revision !== revisionOf(config))
+      throw new McpLifecycleError(
+        'MCP configuration changed; catalog refresh does not reconcile configuration.',
+        409,
+      );
+    return runtime.refreshCatalog(bindingId, options);
   }
 
   async startServer(
@@ -297,6 +333,7 @@ export class McpManager implements McpReconciliationPort {
   async invokeTool(
     serverName: string,
     bindingId: string,
+    catalogId: string,
     toolName: string,
     args: Record<string, unknown>,
     options?: {
@@ -312,7 +349,7 @@ export class McpManager implements McpReconciliationPort {
     if (!runtime.isReady()) throw new ServerNotRunningError(serverName);
     if (runtime.bindingId !== bindingId)
       throw new McpLifecycleError('Stale MCP binding; discover tools again before invoking.', 409);
-    return runtime.invokeTool(toolName, args, options);
+    return runtime.invokeTool(bindingId, catalogId, toolName, args, options);
   }
 
   getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> {
@@ -324,10 +361,10 @@ export class McpManager implements McpReconciliationPort {
   }
 
   findToolCapability(serverName: string, toolName: string): McpToolCapability | null {
-    const tool = this.getServerTools(serverName)?.find((candidate) => candidate.name === toolName);
-    const runtime = this.#runtimes.get(serverName);
-    return tool && runtime?.isReady()
-      ? { ...tool, serverName, bindingId: runtime.bindingId }
+    const catalog = this.getServerCatalog(serverName);
+    const tool = catalog?.tools.find((candidate) => candidate.name === toolName);
+    return tool && catalog
+      ? { ...tool, serverName, bindingId: catalog.bindingId, catalogId: catalog.catalogId }
       : null;
   }
 
