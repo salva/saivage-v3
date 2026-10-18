@@ -353,6 +353,50 @@ For an actual finite review batch, the shared Planner assesses remedies, routes 
 
 These seven bundled hosts (two test nodes in each typed profile and Planner in all three profiles) affect new compilation only where selected. Existing materialized/custom prompts need separately authorized stopped reconciliation preserving customization, then a fresh process; init never upgrades them. No adoption, historical reinterpretation, retention or durable-format change follows source completion. Scripted runtime/composition evidence demonstrates feasibility under scripted choices, not model compliance, incident causality or measured savings.
 
+### Simplicity within existing role decisions
+
+The four shared Planner, Executor, Reviewer and Oversight methods in all three
+profiles favor the simplest coherent approach meeting actual requirements.
+Planner assesses an evidenced defect separately from its proposed remedy, rejects
+speculative expansion, and rederives simpler alternatives at real design/revision
+choices, including choices still open before proceeding on an approved approach.
+Existing code, sunk cost and reviewer agreement do not establish necessity;
+removing an introduced mechanism may be better than repairing its interactions.
+Ordinary scoped engineering choices remain autonomous; stronger product guarantees
+or weaker explicit requirements need the requirement owner's decision.
+
+Executor applies this method to code and design, distinguishing correctness and
+safety from optional availability, diagnostic precision and rare-failure recovery.
+Explicit failure at an appropriate safe boundary, pre-admission capacity rejection
+or omission of optional oversized diagnostics may suffice. Actual failures and
+known/possible/unknown effects, owned-resource identity/cleanup, independent
+disposal/control, authentication/authorization and confidentiality remain binding.
+Ordinary contention does not justify cross-session destruction; uncertainty grants
+no replay or false success. Checks belong at actual trust/consumption boundaries,
+not in machinery for impossible or unhandleable internal states. Focused useful
+verification does not justify complicating production architecture for tests.
+
+Reviewer separates violated requirements and concrete impact from recommendations,
+proposes the simplest sufficient correction and distinguishes required fixes from
+suggestions without waiving any assigned or exhaustive criterion. Oversight may
+recognize evidenced non-progress cycles sustaining unnecessary machinery and advise
+Planner to reconsider its need; it gains no complexity patrol, strategy authority
+or review gate. Successful no-action and reasoned disagreement remain legitimate.
+Existing unfinished-investigation ownership, supported early returns, bounded
+discovery/throughput and exact-input evidence qualifications remain unchanged.
+
+This is consolidated role instruction policy, not a new checklist, outcome,
+runtime enforcement mechanism or measured model-quality result. Nodes and handoffs
+retain their scoped tasks and historical evidence; no method moves to init-only
+memory or conditional records. Feeding, continuation/re-entry, compaction and
+retention are unchanged. Recorded old role/edge bytes remain historical facts;
+no durable contract or discriminator changes. New config-absent init receives the
+packaged text. Existing materialized/custom prompts need separately authorized
+stopped reconciliation of the actual selected four role hosts, preserving
+customization, then a genuinely new process. Existing-config init, Run and browser
+refresh do not adopt it; source completion authorizes no live action or whole-release
+compatibility claim. PAAD retains its five intentional differences and attribution.
+
 ### Illustrative status consolidation
 
 **Illustrative facts and paths, not executed checks or runtime evidence; not a required format.** Both versions use only this supplied scenario: the accepted brief requires CSV export and a successful retry round-trip on source X, followed by independent review. Export is implemented on X, but its retry round-trip failed; the primary failed-check report is `reports/export-X-failed.txt`. Review remains outstanding. The task-owned worker remains allocated for the retry investigation, with no confirmed release.

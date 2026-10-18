@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -25,6 +25,11 @@ import { MemoryCandidateAvailability } from '../../../src/agents/candidate-avail
 import { createInvocationServiceProvider } from '../../../src/application/invocation-service-provider.js';
 import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { invocationProviderRegistry } from '../../helpers/invocation-provider-fixture.js';
+import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
+import { compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
+import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
+import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
+import { formatVocabularySnippet } from '../../../src/tools/prompt-api.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -70,6 +75,44 @@ function assertPreparedCheck(root: string): void {
 }
 
 describe('OversightSession owned check settlement', () => {
+  it.each(['classic', 'classic-typed', 'paad-typed'])('prepares the selected %s global role again on a later no-action check', async (profile) => {
+    const root = projectRoot();
+    const template = resolveSystemTemplate(profile);
+    const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)), { projectRoot: root, defaultPromptRoot: template.promptRoot });
+    const prompts = createPromptTemplateRegistry(workflows);
+    let calls = 0;
+    const provider = scriptedAdmissionProvider(async (input) => {
+      calls++;
+      const expectedRole = prompts.render({ kind: 'global-agent' }, workflows.oversight.name, { vocabularySnippet: formatVocabularySnippet([...workflows.cardTypes.keys()]) });
+      expect(input.systemPrompt).toBe(expectedRole);
+      const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+      if (directory) {
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, `oversight-${profile}-check-${calls}.json`), JSON.stringify({ agentName: input.agentName, sessionId: input.sessionId, systemPrompt: input.systemPrompt, tools: input.tools, preparedContext: input.preparedContext, providerConversation: input.providerConversation }, null, 2));
+      }
+      return finalMessage();
+    });
+    const createCheck = () => new OversightSession({
+      sessionId: 'agent:oversight:global', agentName: workflows.oversight.name,
+      surface: { agentName: workflows.oversight.name, tools: new Map(), providers: [] }, provider,
+      conversations: { projectRoot: root, changes: { conversationChanged() {}, agentMembershipChanged() {} } },
+      promptTemplates: prompts, modelParams: { temperature: 0.2, maxTokens: 1000 },
+      capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
+      candidateChain: [{ provider: 'test', account: null, model: 'test-model' }], routeUsableInputTokens: 80_000,
+      compactionPolicy: testCompactionPolicy, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider,
+      runtimeProjectionChanged() {}, fatalPort: testApplicationFatalPort, cardTypeVocabulary: [...workflows.cardTypes.keys()],
+    });
+    await expect(createCheck().run()).resolves.toBe('succeeded');
+    await expect(createCheck().run()).resolves.toBe('succeeded');
+    expect(calls).toBe(2);
+    const markers = readConversation(root, 'agent:oversight:global').physicalRows.flatMap(row => {
+      const marker = row.kind === 'activity' ? parseActivationOpenPayload(row.content, row.session_id, row.timestamp) : null;
+      return marker ? [marker] : [];
+    });
+    expect(markers).toHaveLength(2);
+    expect(markers[1]!.instructions).toEqual(markers[0]!.instructions);
+  });
+
   it('matches a real-service late successful tool call through existing cancellation settlement without execution or continuation', async () => {
     const root = projectRoot();
     const executor = jest.fn(async () => executedToolOutcome('none', toolSucceeded({ known: true })));

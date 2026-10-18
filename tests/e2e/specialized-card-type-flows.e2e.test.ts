@@ -268,6 +268,7 @@ function harness(
   roots.push(root);
   createProjectIdentity(root, `Specialized ${type}`);
   const config = testConfig();
+  config.card_types = effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate(profile).config)).card_types;
   if (summary) {
     const capabilities = config.providers.test?.capabilities;
     if (!capabilities) throw new Error('test provider capabilities are missing');
@@ -715,8 +716,8 @@ else throw new Error('Unknown fixture mode');
     assertRecordedNodeInstructions(root, inputs);
   });
 
-  it('prepares PAAD goal Planner with its own brief, current contract and direct parent direction', async () => {
-    let goalId = ''; let parentCalls = 0; let goalCalls = 0;
+  it.each(['classic', 'paad-typed'])('prepares %s goal Planner and independent Reviewer with its own brief, current contract and direct parent direction', async (profile) => {
+    let goalId = ''; let parentCalls = 0; let goalCalls = 0; let reviewerCalls = 0;
     const direction = 'Assess this goal only against its accepted brief. No implementation or descendant work is requested; return actual scoped evidence.';
     const run = harness('goal', async input => {
       const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId;
@@ -724,24 +725,31 @@ else throw new Error('Unknown fixture mode');
         parentCalls++;
         if (parentCalls === 1) return complete(tool('goal-activate','activate_card',{card_id:goalId,instructions:direction}));
         if (parentCalls === 2) {
-          expect(run.cards.read(goalId)!.lifecycle).toMatchObject({status:'done',result:{node_id:'plan',outcome:'complete_direct'}});
+          expect(run.cards.read(goalId)!.lifecycle).toMatchObject({status:'done',result:{node_id:'review',outcome:'approved'}});
           expect(latestToolResult(input).success).toBe(true);
           return complete(tool('goal-parent-status','write',{path:'record:///status.md?card=project',content:'Scoped goal assessment returned; no implementation acceptance claimed.'}));
         }
         if (parentCalls === 3) return complete(tool('goal-parent-done','emit_result',{outcome:'complete_direct',summary:'Scoped assessment complete.'}));
         throw new Error('Unexpected goal parent call');
       }
-      expect(cardId).toBe(goalId); goalCalls++;
-      expect(input.agentName).toBe('planner');
+      expect(cardId).toBe(goalId);
       expect(input.preparedContext!.stableBlocks.find(block=>block.id.startsWith('parent-direction:'))!.content).toContain(JSON.stringify(direction));
+      if (input.agentName === 'reviewer') {
+        reviewerCalls++;
+        if (reviewerCalls === 1) return complete(tool('goal-review', 'write', {path:`record:///review.md?card=${goalId}`, content:'Independently assessed the bounded assessment-only brief and accepted status. No implementation or decomposition is required; the scoped assessment is complete.'}));
+        if (reviewerCalls === 2) return complete(tool('goal-approved', 'emit_result', {outcome:'approved',summary:'Scoped assessment independently approved.'}));
+        throw new Error('Unexpected goal reviewer call');
+      }
+      goalCalls++;
+      expect(input.agentName).toBe('planner');
       if (goalCalls === 1) return complete(tool('goal-status','write',{path:`record:///status.md?card=${goalId}`,content:'Accepted goal requests assessment only. No implementation or decomposition is necessary; no work is added to manufacture alignment.'}));
-      if (goalCalls === 2) return complete(tool('goal-done','emit_result',{outcome:'complete_direct',summary:'Assessment complete without unnecessary decomposition.'}));
+      if (goalCalls === 2) return complete(tool('goal-review-admission','emit_result',{outcome:'admit_review',summary:'Assessment complete without unnecessary decomposition; ready for scoped independent review.'}));
       throw new Error('Unexpected goal call');
-    }, undefined, 'Assess whether this supplied assessment-only goal needs decomposition. No implementation is requested or accepted by this goal.', 'paad-typed');
+    }, undefined, 'Assess whether this supplied assessment-only goal needs decomposition. No implementation is requested or accepted by this goal.', profile);
     goalId = run.child.id;
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
-    expect(goalCalls).toBe(2); expect(parentCalls).toBe(3);
+    expect(goalCalls).toBe(2); expect(reviewerCalls).toBe(2); expect(parentCalls).toBe(3);
   });
 
   it.each(['repair', 'already_green'] as const)('PAAD returns a missing owner decision, re-enters after clarification and independently accepts %s', async (mode) => {
