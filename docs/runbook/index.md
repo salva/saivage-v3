@@ -1160,13 +1160,13 @@ Without authorization, remain stopped. Reset discards history; it does not estab
 
 Startup compiles every card type independently into one immutable process-actor topology and binds named model/tool capabilities once. Runtime status may expose its current transient entry/node/terminal state and zero-based node ordinal, but neither is persisted. After process restart, startup completely validates the linked running set and handles each selected card leaf-to-root before publishing stopped runtime, MCP reconciliation, and listener/readiness; after same-process Stop, explicit Run uses that same Supervisor operation: stabilize its exact named-agent conversations, immediately publish that card stopped through singular `stopRunning` with reason `recovery stopped lifecycle`, then advance to its ancestor. Only project launches through configured STOPPED. Descendants remain stopped until ordinary activation by their immediate parent. Neither path resumes or repairs an old node. Startup creates no activation owner, provider/tool call, or automatic Run; explicit Run alone launches project through STOPPED. Urgent exact live-card interruption shares only that domain stop operation after exact owned settlement; it never invokes Run recovery.
 
-Before starting the new binary, stop the service and manually relocate every old-layout override. For card hosts, project `<purpose>/<card-type>/<reference>.md` wins, then project `<purpose>/_shared/<reference>.md`, bundled card-specific, and bundled shared; the Analyst checks shared tiers only. Only exact absence advances. Agent filenames use the configured prompt reference, not agent name. Agents sharing a reference share applicable overrides; assign distinct references for independent content. There is no runtime migration or old-path fallback, and this configuration-path cutover alone needs no generated-state reset. Direct one-level fragments use `{{> fragment-id}}`; process templates may use only `{{cardType}}`. This old directive is rejected:
+Before starting the new binary, stop the service and manually relocate every old-layout override. For card hosts, project `<purpose>/<card-type>/<reference>.md` wins, then project `<purpose>/_shared/<reference>.md`, bundled card-specific, and bundled shared; the Analyst checks shared tiers only. Only exact absence advances. Agent filenames use the configured prompt reference, not agent name. Agents sharing a reference share applicable overrides; assign distinct references for independent content. There is no runtime migration or old-path fallback, and this configuration-path cutover alone needs no generated-state reset. Direct one-level fragments use `{{> fragment-id}}`; process templates may use only `{{cardType}}`. Review custom instructions for stale or contradictory advice such as:
 
 ```markdown
 Use emit_result with status done, blocked, or failed.
 ```
 
-A current override delegates once to the generated contract and remains topology-neutral:
+That wording alone is not rejected by the structural compiler, but an actual result using the old `status` field remains invalid. Generated node contracts and actual tool/result schemas are authoritative. A current override delegates once to the generated contract and remains topology-neutral:
 
 ```markdown
 Perform the current configured node step and follow its node/edge context.
@@ -1174,7 +1174,7 @@ Perform the current configured node step and follow its node/edge context.
 Use that generated contract exactly; the configured edge decides what follows.
 ```
 
-Zero or multiple placeholders, obsolete result directives, unknown process prompts, or malformed graphs fail startup before actor construction and name the effective prompt/card-type/agent or config path. Update the override or remove it to select the bundled file. Never rewrite an override automatically, translate `status` to `outcome`, map old values, or start with a fallback graph.
+Zero or multiple `{{contractDescription}}` placeholders in an effective workflow-agent prompt, unknown or host-inapplicable placeholders, unknown process prompts, or malformed graphs fail startup before actor construction and name the effective prompt/card-type/agent or config path. These checks do not detect contradictory natural language. Deliberately update the override or remove it to select the bundled file. Never rewrite an override automatically, translate `status` to `outcome`, map old values, or start with a fallback graph.
 :::
 
 ## Skill index format cutover

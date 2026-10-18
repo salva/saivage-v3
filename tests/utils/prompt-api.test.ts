@@ -5,6 +5,14 @@ const templateName='test-template';
 const compile=(text:string,kind:'global-agent'|'workflow-agent'|'process'='workflow-agent',fragments:Record<string,string>={})=>compilePromptTemplate({host:kind==='global-agent'?{kind}:{kind,cardType:'code'},name:templateName,path:'host.md',text,resolveFragment:(id)=>{if(!(id in fragments))throw Object.assign(new Error(`missing ${id}`),{code:'ENOENT'});return{path:`fragments/${id}.md`,text:fragments[id]!};}});
 
 describe('prompt template compiler',()=>{
+  it.each(['direct', 'fragment'] as const)('preserves literal negative result guidance from a %s host input', (input) => {
+    const guidance = 'When reporting a node result, do not claim done, blocked, or failed from an earlier workflow.';
+    const compiled = input === 'direct'
+      ? compile(`${guidance}\n{{contractDescription}}`)
+      : compile('{{> guidance}}\n{{contractDescription}}', 'workflow-agent', { guidance });
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'}, templateName, compiled, {contractDescription:'Generated node contract'}))
+      .toBe(`${guidance}\nGenerated node contract`);
+  });
   it('renders direct repeated fragments in semantic order and counts the expanded contract',()=>{
     const compiled=compile('A {{> contract}} B {{> detail}} C {{> detail}}','workflow-agent',{contract:'{{contractDescription}}',detail:'detail'});
     expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},templateName,compiled,{contractDescription:'contract'})).toBe('A contract B detail C detail');

@@ -122,12 +122,6 @@ function parse(host: PromptHost, name: string, template: string): readonly Parse
   return Object.freeze(tokens);
 }
 
-const OBSOLETE_PROCESS_DIRECTIVES: readonly RegExp[] = Object.freeze([
-  /emit_result[^\n]*(?:\bstatus\b|\bdone\b[^\n]*\bblocked\b[^\n]*\bfailed\b)/i,
-  /terminal statuses?[^\n]*(?:\bdone\b|\brework\b|\bblocked\b|\bfailed\b)/i,
-  /report[^\n]*\bdone\b[^\n]*\bblocked\b[^\n]*\bfailed\b/i,
-]);
-
 export function compilePromptTemplate(
   options: Readonly<{
     host: PromptHost;
@@ -169,16 +163,6 @@ export function compilePromptTemplate(
         options.name,
         options.path,
         `effective workflow-agent template must contain {{contractDescription}} exactly once; found ${count}`,
-      );
-    const reconstructed = effective
-      .map((token) => (token.kind === 'literal' ? token.text : `{{${token.key}}}`))
-      .join('');
-    if (OBSOLETE_PROCESS_DIRECTIVES.some((pattern) => pattern.test(reconstructed)))
-      fail(
-        options.host,
-        options.name,
-        options.path,
-        'effective workflow-agent template contains an obsolete emit_result terminal directive',
       );
   }
   if (options.host.kind === 'record-context') {

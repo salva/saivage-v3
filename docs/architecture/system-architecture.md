@@ -754,7 +754,8 @@ One discriminated `PromptHost` represents selected global agent, workflow agent 
 Agent paths use configured prompt references.
 Direct fragments inherit the host discriminator and cannot include fragments.
 A card type named `global` is therefore ordinary card scope, never the Analyst sentinel.
-Startup requires exactly one `{{contractDescription}}` only for effective workflow-agent system prompts, rejects obsolete fixed-result directives, and eagerly renders process `{{cardType}}`.
+Startup requires exactly one `{{contractDescription}}` only for effective workflow-agent system prompts and eagerly renders process `{{cardType}}`.
+Prompt validation enforces structure, not authored-prose semantics; generated node contracts and actual tool/result schemas remain authoritative. Custom stale or contradictory instructions require author review, with no automatic override rewrite or compatibility fallback.
 Immutable agent tokens and final process strings admit no workflow-family or runtime prompt selection.
 The five shipped role prompts, including both global Analyst and Oversight hosts, each directly select common and role-specific project-guidance fragments; custom prompt references receive only the includes they explicitly contain. The [canonical authoring guide](./prompts.md#authoring-shipped-project-guidance) owns practical editing, specialization, and stopped reconciliation guidance.
 Build packaging compiles each registered template standalone against its own per-template source prompts root, observes selected bundled agent/process/fragment artifacts through that same selector, and requires each template's physical tree to equal its complete source-derived compiled closure exactly before copying each tree under `dist/src/config/system-templates/<name>/prompts/`.

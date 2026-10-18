@@ -253,7 +253,7 @@ surviving newest-occurrence order, including inherited facts overridden by the
 suffix (A1, B1, A2 becomes B1, A2), not first-key insertion or revision/time order.
 This claims neither retained body bytes nor delivery, recall or currentness.
 
-Unknown or host-inapplicable placeholders fail startup. Every effective workflow-agent system prompt contains `{{contractDescription}}` exactly once after fragment expansion and passes obsolete fixed-result-directive validation. The Analyst and process hosts reject that value. Old `toolList`, `projectContext`, `cardId`, `cardTitle`, and `cardBrief` placeholders do not exist: tools, project orientation, and card data are typed dynamic context, never rendered prompt variables.
+Unknown or host-inapplicable placeholders fail startup. Every effective workflow-agent system prompt contains `{{contractDescription}}` exactly once after fragment expansion. The Analyst and process hosts reject that value. Validation is structural, not semantic policing of authored prose: generated node contracts and actual tool/result schemas remain authoritative. Authors must review custom instructions for stale or contradictory advice; Saivage neither rewrites overrides automatically nor supplies a compatibility fallback. Old `toolList`, `projectContext`, `cardId`, `cardTitle`, and `cardBrief` placeholders do not exist: tools, project orientation, and card data are typed dynamic context, never rendered prompt variables.
 
 ## Compiled artifacts and runtime use
 

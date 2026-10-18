@@ -370,6 +370,26 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(compiled.agents.get('analyst')?.tools[2]?.name).toBe('reopen_card');
   });
 
+  it('accepts literal negative guidance in a selected override while enforcing the compiled node result schema',()=>{
+    const projectRoot=mkdtempSync(join(tmpdir(),'workflow-literal-guidance-'));roots.push(projectRoot);
+    const path=join(projectRoot,'.saivage','config','prompts','agents','code');
+    mkdirSync(path,{recursive:true});
+    const guidance='When reporting a node result, do not claim done, blocked, or failed from an earlier workflow.';
+    writeFileSync(join(path,'executor.md'),`${guidance}\n{{contractDescription}}`);
+    const compiled=compileProjectWorkflows(source(),{projectRoot});
+    const process=compiled.cardTypes.get('code')!;
+    const stateId='node:execute';
+    const node=process.states.get(stateId)!;
+    if(node.kind!=='node')throw new Error('missing execute node');
+    expect(node.selectedAgentPrompt.source).toBe('override-card');
+    const contract=describeNodeResultContract(process,stateId);
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:contract})).toBe(`${guidance}\n${contract}`);
+    const schema=nodeResultSchema(process,stateId);
+    expect(schema.safeParse({outcome:'done',summary:'Current node work is complete.'}).success).toBe(true);
+    expect(schema.safeParse({outcome:'complete_direct',summary:'Outcome from another node.'}).success).toBe(false);
+    expect(schema.safeParse({status:'done',summary:'Old result shape.'}).success).toBe(false);
+  });
+
   it('keeps agent, node, and correction prompt snapshots under their compiled owners',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'workflow-prompts-'));
     roots.push(projectRoot);
