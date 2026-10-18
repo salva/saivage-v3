@@ -39,7 +39,7 @@ import {
   parseConversationSessionId,
 } from '../../src/schemas/conversation-session-id.js';
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
-import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { parseActivationOpenPayload } from '../../src/schemas/index.js';
 import {
   foldConversation,
@@ -216,7 +216,7 @@ function runtimeHarness(
           serializeSummaryRequest: deterministicSummarySerialization,
           completeTurn: async (input: LlmInvocationInput) => {
             summary.calls.push(input);
-            if (profile === 'paad-typed') captureTestComposition(`${basename(root)}-summary-${summary.calls.length}`, input);
+            captureTestComposition(`${basename(root)}-summary-${summary.calls.length}`, input);
             return complete({ kind: 'message', content: summary.content });
           },
           projectProviderExchanges: jest.fn(),
@@ -231,6 +231,7 @@ function runtimeHarness(
     projectRoot: root,
     actorStore: cards,
     provider: scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+      captureTestComposition(`${basename(root)}-${profile}-${input.agentName}-${++capturedCalls}`, input);
       if (profile === 'paad-typed') {
         const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
         const process = structural.cardTypes.get(cards.read(cardId)!.type)!;
@@ -242,7 +243,6 @@ function runtimeHarness(
         expect(input.systemPrompt).toContain(role);
         expect(input.systemPrompt.split(contract)).toHaveLength(2);
         expect(input.tools.map(tool => tool.function.name).sort()).toEqual([...node.agent.tools.map(tool => tool.name), 'emit_result'].sort());
-        captureTestComposition(`${basename(root)}-${cardId}-${node.nodeId}-${++capturedCalls}`, input);
       }
       return provider(input, signal);
     })),
@@ -314,7 +314,7 @@ function latestToolResult(input: LlmInvocationInput) {
   if (!row) throw new Error('expected a prior tool result');
   return JSON.parse(row.content) as {
     success: boolean;
-    data?: { exit_code?: number | null; status?: string };
+    data?: { exit_code?: number | null; status?: string; process_id?: string };
   };
 }
 function outcomeEnum(input: LlmInvocationInput) {
@@ -338,6 +338,8 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
     join(directory, `${name}.json`),
     JSON.stringify(
       {
+        agentName: input.agentName,
+        sessionId: input.sessionId,
         systemPrompt: input.systemPrompt,
         tools: input.tools,
         preparedContext: input.preparedContext,
@@ -350,6 +352,369 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
 }
 
 describe('specialized production card-type flows', () => {
+  it('batches two independent findings, joins a useful run, then retains evidence through original-owner repair, compaction and STOPPED reentry', async () => {
+    let reviewId = '';
+    let releaseOwner = '';
+    let encodingOwner = '';
+    let parentCalls = 0;
+    let reviewCalls = 0;
+    let parentReviewCalls = 0;
+    let processId = '';
+    const ownerCalls = new Map<string, number>();
+    let findingsUrl = '';
+    const summaryCalls: LlmInvocationInput[] = [];
+    const findings = 'Candidate A: release.cjs returns false, expected true per caller.txt (original release owner); encoding.cjs returns ascii, expected utf8 per caller.txt (original encoding owner). Reproduce with fixture.cjs release and fixture.cjs encoding: each actual assertion exits 1. Retain both counterexamples and publication prerequisite behavior as meaningful regression coverage. Release-dependent publication not evaluated: masked by release prerequisite, not a third defect. Arithmetic unchanged and accepted; independent broad arithmetic checks passed. Full combined acceptance gate outstanding; no assessor repair.';
+    const summary = `Finite assignment only: release, encoding, dependent publication and arithmetic. ${findings}`;
+    const command = (mode: string) =>
+      `timeout -k 10s 15s ${JSON.stringify(process.execPath)} fixture.cjs ${mode}`;
+    const status = (card: string, id: string, content: string) =>
+      tool(id, 'write', { path: `record:///status.md?card=${card}`, content });
+    const direction = 'Combined B is stable: release.cjs=true and encoding.cjs=utf8, sequentially repaired by original owners. Retain unchanged arithmetic acceptance; independently recheck both defects and dependent publication, then run the outstanding full gate. No source/test repair by assessor.';
+    const run = harness('test', async (input, signal) => {
+      const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
+      if (input.agentName === 'reviewer') {
+        expect(cardId).toBe('project');
+        parentReviewCalls++;
+        const actions = [
+          tool('parent-review-source-release', 'read', { path: 'release.cjs' }),
+          tool('parent-review-source-encoding', 'read', { path: 'encoding.cjs' }),
+          tool('parent-review-revision', 'write', { path: 'record:///review.md?card=project', content: 'Combined source has release true and encoding utf8. Child acceptance is evidence, not authored fixes by this Reviewer. Parent status needs exact retained A finding locator and explicit distinction between masked A and evaluated B publication, so the finite disposition is intelligible.' }),
+          tool('parent-review-return', 'emit_result', { outcome: 'revision_required', summary: 'Clarify retained finding provenance and masked A versus evaluated B in parent status; no additional product work requested.' }),
+          tool('parent-review-revised-status', 'read', { path: 'record:///status.md?card=project' }),
+          tool('parent-review-approved-record', 'write', { path: 'record:///review.md?card=project', content: 'Parent status now cites exact retained A findings, distinguishes masked A from passing B publication, and records combined independent/full acceptance. Source inspection agrees with B; no additional gate or source repair required.' }),
+          tool('parent-review-approved', 'emit_result', { outcome: 'approved', summary: 'Finite correction/evidence disposition accepted.' }),
+        ];
+        if (parentReviewCalls === 6) {
+          expect(JSON.stringify(latestToolResult(input))).toContain(findingsUrl);
+          expect(JSON.stringify(latestToolResult(input))).toContain('masked A');
+        }
+        const action = actions[parentReviewCalls - 1];
+        if (!action) throw new Error(`Unexpected parent review ${parentReviewCalls}`);
+        return complete(action);
+      }
+      if (input.agentName === 'planner') {
+        parentCalls++;
+        const actions = [
+          tool('initial-release-owner', 'activate_card', { card_id: releaseOwner, instructions: 'Deliver candidate A release implementation; later correct original scope when directed.' }),
+          tool('initial-encoding-owner', 'activate_card', { card_id: encodingOwner, instructions: 'Deliver candidate A encoding implementation; later correct original scope when directed.' }),
+          tool('finite-review-A', 'activate_card', { card_id: reviewId, instructions: 'Independently classify adequate arithmetic coverage, then review the finite release/encoding/publication scope on candidate A. Collect useful independent findings; do not repair.' }),
+          tool('reopen-release-owner', 'reopen_card', { card_id: releaseOwner }),
+          tool('repair-release-owner', 'activate_card', { card_id: releaseOwner, instructions: 'Correct release false to true from the concrete counterexample. Preserve other files. Run focused author check, not independent acceptance.' }),
+          tool('reopen-encoding-owner', 'reopen_card', { card_id: encodingOwner }),
+          tool('repair-encoding-owner', 'activate_card', { card_id: encodingOwner, instructions: 'Correct ascii to utf8 from the concrete counterexample. Preserve prior release repair and arithmetic. Run focused author check; combined acceptance remains outstanding.' }),
+          tool('finite-review-B', 'activate_card', { card_id: reviewId, instructions: direction }),
+          tool('resume-finite-review-B', 'activate_card', { card_id: reviewId, instructions: direction }),
+          status('project', 'batch-parent-status', 'Both original owners repaired sequentially with focused checks. Combined B independently accepted, unchanged arithmetic evidence retained; outstanding full gate passed.'),
+          tool('batch-parent-review', 'emit_result', { outcome: 'admit_review', summary: 'Finite combined repair accepted with full gate; inspect parent evidence disposition.' }),
+          status('project', 'batch-parent-revision-status', `Both original owners repaired sequentially with focused checks. Combined B independently accepted after full gate. Retained A findings: ${findingsUrl}; masked A publication was not evaluated, B publication was independently evaluated PASS. Arithmetic source/assertion unchanged, prior applicable acceptance retained. No full-gate restart on intermediate edits; finite assigned obligations complete.`),
+          tool('batch-parent-revised-review', 'emit_result', { outcome: 'admit_review', summary: 'Clarified original-owner evidence and exact A/B applicability for parent review.' }),
+        ];
+        if (parentCalls === 4) {
+          expect(run.cards.read(reviewId)!.lifecycle).toMatchObject({ status: 'blocked', result: { node_id: 'verify', outcome: 'blocked' } });
+          expect(JSON.stringify(latestToolResult(input))).toContain('record:///status.md');
+          expect(JSON.stringify(latestToolResult(input))).toContain('release and encoding');
+          const accepted = run.cards.readRecordCurrent(reviewId, 'status.md');
+          if (accepted.kind !== 'found') throw new Error('Missing accepted findings');
+          expect(accepted.value.projection?.accepted?.content).toBe(findings);
+          findingsUrl = accepted.value.projection!.acceptedVersionUrl!;
+        }
+        if (parentCalls === 9) {
+          expect(input.preparedContext!.stableBlocks[1]!.content).toContain("Current workflow node 'recover'");
+          expect(run.cards.read(reviewId)!.lifecycle.status).toBe('stopped');
+        }
+        if (parentCalls === 12) {
+          const transition = transitionRows(input).at(-1)!.content;
+          expect(transition).toContain('Previous process node: review\nAccepted outcome: revision_required');
+          expect(transition).toMatch(/record:\/\/\/review\.md\?card=project&v=\d+/u);
+        }
+        const action = actions[parentCalls - 1];
+        if (!action) throw new Error(`Unexpected batch parent ${parentCalls}`);
+        return complete(action);
+      }
+      if (cardId === releaseOwner || cardId === encodingOwner) {
+        const count = (ownerCalls.get(cardId) ?? 0) + 1;
+        ownerCalls.set(cardId, count);
+        const release = cardId === releaseOwner;
+        const actions = [
+          tool(`deliver-${cardId}`, 'write', { path: release ? 'release.cjs' : 'encoding.cjs', content: release ? 'module.exports = false;\n' : 'module.exports = "ascii";\n' }),
+          status(cardId, `initial-${cardId}`, 'Candidate A implementation delivered; independent acceptance outstanding.'),
+          tool(`initial-done-${cardId}`, 'emit_result', { outcome: 'done', summary: 'Original implementation delivered for independent review.' }),
+          tool(`repair-${cardId}`, 'write', { path: release ? 'release.cjs' : 'encoding.cjs', content: release ? 'module.exports = true;\n' : 'module.exports = "utf8";\n' }),
+          tool(`focused-${cardId}`, 'run_command', { command: command(release ? 'release' : 'encoding') }),
+          status(cardId, `repaired-${cardId}`, 'Original-owner correction passes focused check. Author evidence only; independent combined/full gate outstanding.'),
+          tool(`repair-done-${cardId}`, 'emit_result', { outcome: 'done', summary: 'Focused original-owner repair complete; not independent approval.' }),
+        ];
+        if (count === 6) expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 0 } });
+        const action = actions[count - 1];
+        if (!action) throw new Error(`Unexpected batch owner ${count}`);
+        return complete(action);
+      }
+      expect(cardId).toBe(reviewId);
+      reviewCalls++;
+      const position = run.supervisor.getActorRuntimeReadModel().cards.find(({ cardId: id }) => id === reviewId)?.processState;
+      if (position?.kind !== 'node') throw new Error('Missing batch review node');
+      if (reviewCalls === 5) {
+        const result = latestToolResult(input) as { success: boolean; data: { process_id: string; status: string } };
+        expect(result).toMatchObject({ success: true, data: { status: 'running' } });
+        processId = result.data.process_id;
+      }
+      if (reviewCalls === 7 || reviewCalls === 9)
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 1 } });
+      if (reviewCalls === 11) {
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 3, stdout: 'publication NOT_EVALUATED: release prerequisite\n' } });
+      }
+      if (reviewCalls === 12) {
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { status: 'running' } });
+        // This releases only the fixture's bounded independent command, not a source input.
+        writeFileSync(join(run.root, 'finish-independent'), 'finish');
+      }
+      if (reviewCalls === 13)
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { status: 'exited', exit_code: 0, stdout: 'independent-start\nindependent 3/3 PASS\n' } });
+      if (reviewCalls === 21) {
+        return new Promise<never>((_resolve, reject) => {
+          if (signal.aborted) reject(signal.reason);
+          else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      if (reviewCalls === 22) {
+        expect(position.nodeId).toBe('diagnose');
+        expect(input.preparedContext!.stableBlocks.at(-1)!.content).toContain(JSON.stringify(direction));
+      }
+      if ([26, 27, 28, 29].includes(reviewCalls))
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 0 } });
+      const actions = [
+        tool('batch-arithmetic', 'run_command', { command: command('arithmetic') }),
+        status(reviewId, 'batch-diagnosed', 'Candidate A arithmetic assertion passes, adequate coverage. Release/encoding/publication review remains assigned to verify; no coverage gap.'),
+        tool('batch-ready', 'emit_result', { outcome: 'coverage_ready', summary: 'Adequate focused coverage; finite semantic inspection remains.' }),
+        tool('independent-broad', 'run_command', { command: command('independent'), wait: false }),
+        tool('inspect-release', 'read', { path: 'release.cjs' }),
+        tool('counterexample-release', 'run_command', { command: command('release') }),
+        tool('inspect-encoding', 'read', { path: 'encoding.cjs' }),
+        tool('counterexample-encoding', 'run_command', { command: command('encoding') }),
+        tool('inspect-caller', 'read', { path: 'caller.txt' }),
+        tool('masked-publication', 'run_command', { command: command('publication') }),
+        tool('observe-independent', 'wait_process', { process_id: processId, timeout_ms: 0 }),
+        tool('join-independent', 'wait_process', { process_id: processId, timeout_ms: 2_000 }),
+        status(reviewId, 'batch-evidence-for-compaction', `${findings}\n${'Synthetic compaction pressure, not additional findings. '.repeat(2000)}`),
+        status(reviewId, 'batch-consolidated', findings),
+        tool('batch-return', 'emit_result', { outcome: 'blocked', summary: 'Candidate A: release and encoding independent defects require original owners; publication masked; full combined gate outstanding.' }),
+        // Accepted findings remain readable on corrected-input reactivation, not merely in summary prose.
+        tool('retained-findings', 'read', { path: findingsUrl }),
+        status(reviewId, 'B-diagnosed-before-stop', 'Combined B established by sequential original owners. Arithmetic source/assertion unchanged, retained acceptance. Release/encoding/dependent publication and full gate still outstanding.'),
+        tool('B-ready-before-stop', 'emit_result', { outcome: 'coverage_ready', summary: 'B adequate coverage; affected independent acceptance outstanding.' }),
+        tool('B-read-release-before-stop', 'read', { path: 'release.cjs' }),
+        tool('B-read-encoding-before-stop', 'read', { path: 'encoding.cjs' }),
+        // Call 21 is an abort-aware suspended provider turn, not an emitted result.
+        tool('unused-stop-slot', 'read', { path: 'caller.txt' }),
+        tool('retained-B-status-after-stop', 'read', { path: `record:///status.md?card=${reviewId}` }),
+        status(reviewId, 'B-recovered-diagnosis', 'STOPPED reentry at diagnose: B remains stable, arithmetic retained; independent release/encoding/publication and mandatory full gate remain outstanding.'),
+        tool('B-recovered-ready', 'emit_result', { outcome: 'coverage_ready', summary: 'B unchanged adequate coverage; verify remaining obligations.' }),
+        tool('independent-B-release', 'run_command', { command: command('release') }),
+        tool('independent-B-encoding', 'run_command', { command: command('encoding') }),
+        tool('independent-B-publication', 'run_command', { command: command('publication') }),
+        tool('outstanding-B-full', 'run_command', { command: command('full') }),
+        status(reviewId, 'B-final-acceptance', 'Combined B: both source-backed findings independently rechecked PASS; dependent publication now evaluated PASS; outstanding full gate 4/4 PASS. Arithmetic unchanged, prior acceptance retained without rerunning its unrelated focused check. No assessor source/test edits; finite assigned scope complete.'),
+        tool('B-done', 'emit_result', { outcome: 'done', summary: 'Combined B independently accepted after full gate; unchanged arithmetic evidence retained.' }),
+      ];
+      if (reviewCalls === 17) {
+        expect(latestToolResult(input).success).toBe(true);
+        expect(JSON.stringify(latestToolResult(input))).toContain('Candidate A');
+      }
+      const action = actions[reviewCalls - 1];
+      if (!action) throw new Error(`Unexpected batch review ${reviewCalls}`);
+      if (action.kind === 'tool_calls') {
+        for (const call of action.tool_calls) {
+          if (call.function.name === 'write')
+            expect(JSON.parse(call.function.arguments).path).toBe(`record:///status.md?card=${reviewId}`);
+        }
+      }
+      return complete(action);
+    }, { calls: summaryCalls, content: summary }, 'Independently classify arithmetic coverage, then assess finite release, encoding and dependent publication semantics on the exact candidate named by parent. Release must be true, encoding utf8, publication requires both; arithmetic is 4. Original owners alone repair. Required final full gate covers all four; retain applicable unchanged evidence. No whole-product expansion.');
+    reviewId = run.child.id;
+    for (const name of ['release', 'encoding']) {
+      const owner = run.cards.create({ type: 'ops', parent: 'project', title: `${name} original owner`, bootstrap_content: `Deliver candidate A ${name}.cjs, then correct independently reported defects in that file when directed. Preserve other owners' files and arithmetic; focused author checks are not independent acceptance.`, priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+      if (name === 'release') releaseOwner = owner.id;
+      else encodingOwner = owner.id;
+    }
+    writeFileSync(join(run.root, 'caller.txt'), 'release must be true; encoding must be utf8; publication checks require release, then encoding. Arithmetic must remain 4.\n');
+    writeFileSync(join(run.root, 'arithmetic.cjs'), 'module.exports = 4;\n');
+    writeFileSync(join(run.root, 'fixture.cjs'), `
+const fs = require('node:fs'); const a = require('node:assert/strict');
+const mode = process.argv[2]; fs.appendFileSync('command-starts.txt', mode + '\\n');
+const release = () => a.equal(require('./release.cjs'), true);
+const encoding = () => a.equal(require('./encoding.cjs'), 'utf8');
+const arithmetic = () => a.equal(require('./arithmetic.cjs'), 4);
+if (mode === 'independent') {
+  console.log('independent-start');
+  const timer = setInterval(() => {
+    if (!fs.existsSync('finish-independent')) return;
+    clearInterval(timer); arithmetic(); arithmetic(); arithmetic(); console.log('independent 3/3 PASS');
+  }, 5);
+} else if (mode === 'release') release();
+else if (mode === 'encoding') encoding();
+else if (mode === 'arithmetic') arithmetic();
+else if (mode === 'publication') {
+  if (!require('./release.cjs')) { console.log('publication NOT_EVALUATED: release prerequisite'); process.exit(3); }
+  encoding(); console.log('publication PASS');
+} else if (mode === 'full') { release(); encoding(); arithmetic(); a.ok(require('./release.cjs')); console.log('full 4/4 PASS'); }
+else throw new Error('Unknown fixture mode');
+`);
+    expect((await run.supervisor.startProject()).started).toBe(true);
+    await waitUntil(() => reviewCalls === 21 || run.supervisor.getStatus().status === 'stopped');
+    expect(reviewCalls).toBe(21);
+    await expect(run.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    // Stop contains execution; explicit Run performs the existing durable-chain recovery.
+    expect(run.cards.read(reviewId)!.lifecycle.status).toBe('running');
+    expect((await run.supervisor.startProject()).started).toBe(true);
+    await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+    expect(parentCalls).toBe(13);
+    expect(parentReviewCalls).toBe(7);
+    expect(reviewCalls).toBe(30);
+    expect([...ownerCalls.values()]).toEqual([7, 7]);
+    expect(summaryCalls.length).toBeGreaterThan(0);
+    expect(summaryCalls.some(({ providerConversation }) => providerConversation.messages.some(({ content }) => content.includes("Current workflow node 'verify'")))).toBe(true);
+    expect(summaryCalls.some(({ providerConversation }) => providerConversation.messages.some(({ content }) => content.includes(findings)))).toBe(true);
+    const commandStarts = readFileSync(join(run.root, 'command-starts.txt'), 'utf8').trim().split('\n');
+    expect(commandStarts).toEqual(['arithmetic', 'independent', 'release', 'encoding', 'publication', 'release', 'encoding', 'release', 'encoding', 'publication', 'full']);
+    expect(run.cards.read(reviewId)!.lifecycle).toMatchObject({ status: 'done', result: { node_id: 'verify', outcome: 'done' } });
+    expect(run.cards.read('project')!.lifecycle).toMatchObject({ status: 'done', result: { node_id: 'review', outcome: 'approved' } });
+    expect(run.cards.readRecordVersion(reviewId, 'status.md', Number(findingsUrl.match(/&v=(\d+)$/u)![1]))).toMatchObject({
+      kind: 'found', value: { projection: { versionUrl: findingsUrl, artifact: { accepted: { content: findings, writer_agent: 'executor' } } } },
+    });
+    const rows = readConversation(run.root, cardAgentSessionId('executor', reviewId)).physicalRows;
+    const writes = rows.filter(({ kind, tool }) => kind === 'tool_call' && tool === 'write');
+    for (const row of writes) {
+      const args = JSON.parse(JSON.parse(row.content).tool_calls[0].function.arguments);
+      expect(args.path).toBe(`record:///status.md?card=${reviewId}`);
+    }
+    expect(readFileSync(join(run.root, 'release.cjs'), 'utf8')).toBe('module.exports = true;\n');
+    expect(readFileSync(join(run.root, 'encoding.cjs'), 'utf8')).toBe('module.exports = "utf8";\n');
+  });
+
+  it.each(['diagnose', 'verify'])('curtails invalid ongoing work in %s without losing independent findings or claiming a full pass', async (phase) => {
+    let childId = '';
+    let parentCalls = 0;
+    let calls = 0;
+    let processId = '';
+    let observationCount = 0;
+    const evidence: object[] = [];
+    const command = (script: string) => `timeout -k 10s 15s ${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+    const status = (id: string, content: string) => tool(id, 'write', { path: `record:///status.md?card=${childId}`, content });
+    const run = harness('test', async (input) => {
+      if (input.agentName === 'planner') {
+        parentCalls++;
+        if (parentCalls === 1) return complete(tool('curtailed-activate', 'activate_card', { card_id: childId, instructions: 'Classify only the assigned two counterexamples and prerequisite. Do not author fixes or claim a full pass. Stop the controlled nonconverging command when prerequisite failure is observed.' }));
+        if (parentCalls === 2) {
+          expect(run.cards.read(childId)!.lifecycle).toMatchObject({ status: 'blocked', result: { node_id: phase, outcome: 'blocked' } });
+          return complete(tool('curtailed-parent-status', 'write', { path: 'record:///status.md?card=project', content: 'Two independent findings returned. Prerequisite invalid; controlled run killed, full dependent gate not evaluated. Original owner action required.' }));
+        }
+        if (parentCalls === 3) return complete(tool('curtailed-parent-result', 'emit_result', { outcome: 'blocked', summary: 'Original owner/prerequisite correction required; no product acceptance claimed.' }));
+        throw new Error('Unexpected curtailed parent');
+      }
+      calls++;
+      const offset = phase === 'verify' ? 3 : 0;
+      if (phase === 'verify' && calls <= 3) {
+        const diagnosis = [
+          tool('curtailed-baseline', 'run_command', { command: command("require('node:assert/strict').equal(4, 4)") }),
+          status('curtailed-ready-status', 'Arithmetic focused baseline passes with adequate coverage. Two source/caller cases and prerequisite belong to verify.'),
+          tool('curtailed-ready', 'emit_result', { outcome: 'coverage_ready', summary: 'Adequate focused baseline; semantic review outstanding.' }),
+        ];
+        return complete(diagnosis[calls - 1]!);
+      }
+      const step = calls - offset;
+      if (step === 2 || step === 3) {
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 1 } });
+        evidence.push(latestToolResult(input));
+      }
+      if (step === 4) {
+        const result = latestToolResult(input);
+        expect(result).toMatchObject({ success: true, data: { status: 'running', process_id: expect.any(String) } });
+        processId = result.data!.process_id!;
+      }
+      if (step === 5) {
+        observationCount++;
+        const result = latestToolResult(input);
+        expect(result).toMatchObject({ success: true, data: { status: 'running' } });
+        if (!JSON.stringify(result).includes('prerequisite FAIL')) {
+          if (observationCount >= 10) throw new Error('Controlled prerequisite never produced evidence');
+          calls--;
+          return complete(tool(`observe-prerequisite-${observationCount}`, 'wait_process', { process_id: processId, timeout_ms: 100 }));
+        }
+        evidence.push(result);
+      }
+      if (step === 6) {
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { status: 'killed', stdout: 'prerequisite FAIL\n' } });
+        evidence.push(latestToolResult(input));
+      }
+      const actions = [
+        tool('classify-first-defect', 'run_command', { command: command("require('node:assert/strict').equal(require('./first.cjs'), true)") }),
+        tool('classify-independent-defect', 'run_command', { command: command("require('node:assert/strict').equal(require('./second.cjs'), 'utf8')") }),
+        tool('controlled-invalid-run', 'run_command', { command: command("console.log('prerequisite FAIL'); setInterval(() => {}, 1000)"), wait: false }),
+        tool('observe-prerequisite', 'wait_process', { process_id: processId, timeout_ms: 100 }),
+        tool('curtail-invalid-run', 'kill_process', { process_id: processId }),
+        status('curtailed-status', 'Fixed first.cjs=false versus caller true and second.cjs=ascii versus caller utf8 independently fail actual assertions (exit1 each). Both require original implementation owners; no source/test repair by assessor. Controlled command reported prerequisite FAIL, was killed, not a full pass. Dependent/full checks NOT_EVALUATED; prerequisite correction and stable combined input needed. No coverage_ready classification of known failures.'),
+        tool('curtailed-result', 'emit_result', { outcome: 'blocked', summary: 'Two independent findings and invalid prerequisite need original owners; killed ongoing run, dependent full gate unperformed.' }),
+      ];
+      const action = actions[step - 1];
+      if (!action) throw new Error(`Unexpected curtailed step ${step}`);
+      return complete(action);
+    }, undefined, 'Independently classify the two fixed source/caller cases: first.cjs must be true, second.cjs utf8. Preserve independent findings; no assessor repairs. A failing prerequisite invalidates dependent full acceptance; do not waive it.');
+    childId = run.child.id;
+    writeFileSync(join(run.root, 'first.cjs'), 'module.exports = false;\n');
+    writeFileSync(join(run.root, 'second.cjs'), 'module.exports = "ascii";\n');
+    expect((await run.supervisor.startProject()).started).toBe(true);
+    await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+    expect(parentCalls).toBe(3);
+    expect(evidence).toHaveLength(4);
+    expect(readFileSync(join(run.root, 'first.cjs'), 'utf8')).toBe('module.exports = false;\n');
+    expect(readFileSync(join(run.root, 'second.cjs'), 'utf8')).toBe('module.exports = "ascii";\n');
+  });
+
+  it('prepares classic parent and one-node test Executor without typed outcomes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'classic-throughput-composition-'));
+    roots.push(root);
+    createProjectIdentity(root, 'Classic composition');
+    const config = effectiveSaivageConfigSchema.parse({
+      ...testConfig(),
+      card_types: structuredClone(resolveSystemTemplate('classic').config.card_types),
+    });
+    const structural = compileProjectWorkflows(config, { defaultPromptRoot: resolveSystemTemplate('classic').promptRoot });
+    publishInitialProjectRuntime(root, structural);
+    const cards = new CardService(root, structural);
+    const child = cards.create({ type: 'test', parent: 'project', title: 'Classic finite assessment', bootstrap_content: 'Inspect the supplied caller agreement only; no implementation or broad gate is required by this assessment-only brief.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    let parentCalls = 0;
+    let childCalls = 0;
+    const inputs: Array<{ node: string; input: LlmInvocationInput }> = [];
+    const run = runtimeHarness(root, config, async (input) => {
+      if (input.agentName === 'planner') {
+        parentCalls++;
+        const actions = [
+          tool('classic-activate', 'activate_card', { card_id: child.id, instructions: 'Assess only supplied caller agreement; no typed diagnosis/verify route or implementation repair is requested.' }),
+          tool('classic-parent-status', 'write', { path: 'record:///status.md?card=project', content: 'Scoped classic assessment accepted; no implementation or full product acceptance claimed.' }),
+          tool('classic-parent-done', 'emit_result', { outcome: 'complete_direct', summary: 'Scoped classic assessment complete.' }),
+        ];
+        return complete(actions[parentCalls - 1]!);
+      }
+      childCalls++;
+      if (childCalls === 1) inputs.push({ node: 'execute', input });
+      expect(outcomeEnum(input)).toEqual(['done', 'blocked', 'failed']);
+      const actions = [
+        tool('classic-inspect', 'read', { path: 'caller.txt' }),
+        tool('classic-status', 'write', { path: `record:///status.md?card=${child.id}`, content: 'Supplied caller explicitly agrees on true; scoped inspection complete without source/test changes.' }),
+        tool('classic-done', 'emit_result', { outcome: 'done', summary: 'Supplied caller agreement assessed.' }),
+      ];
+      if (childCalls === 2) expect(JSON.stringify(latestToolResult(input))).toContain('release must be true');
+      return complete(actions[childCalls - 1]!);
+    }, undefined, 'classic');
+    writeFileSync(join(root, 'caller.txt'), 'release must be true; supplied agreement is true.\n');
+    expect((await run.supervisor.startProject()).started).toBe(true);
+    await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+    expect(childCalls).toBe(3);
+    expect(parentCalls).toBe(3);
+    expect(run.cards.read('project')!.lifecycle.status).toBe('done');
+    assertRecordedNodeInstructions(root, inputs);
+  });
+
   it('prepares PAAD goal Planner with its own brief, current contract and direct parent direction', async () => {
     let goalId = ''; let parentCalls = 0; let goalCalls = 0;
     const direction = 'Assess this goal only against its accepted brief. No implementation or descendant work is requested; return actual scoped evidence.';
