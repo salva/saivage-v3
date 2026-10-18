@@ -195,7 +195,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('declares strict authenticated configured MCP lifecycle contracts', () => {
-    for (const operationId of ['mcp.start', 'mcp.stop'] as const) {
+    for (const operationId of ['mcp.start', 'mcp.stop', 'mcp.restart'] as const) {
       const contract = operatorApiContracts[operationId];
       expect(contract.auth).toBe('operator-session');
       expect(contract.method).toBe('POST');

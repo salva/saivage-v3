@@ -44,6 +44,7 @@ export function createMcpToolInvocationInstallation(): McpToolInvocationInstalla
     getServerStatus: (name) => authority().getServerStatus(name),
     startServer: (name, options) => authority().startServer(name, options),
     stopServer: (name) => authority().stopServer(name),
+    restartServer: (name, options) => authority().restartServer(name, options),
     getServerCatalog: (name) => authority().getServerCatalog(name),
     refreshServerCatalog: (name, bindingId, options) =>
       authority().refreshServerCatalog(name, bindingId, options),

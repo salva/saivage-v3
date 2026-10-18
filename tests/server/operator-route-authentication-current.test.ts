@@ -9,6 +9,7 @@ import { createEventLog } from '../../src/observability/index.js';
 const cases=[
   {operationId:'mcp.start',url:'/api/mcp/servers/browser/start',body:{serverName:'browser',status:'running',toolCount:1}},
   {operationId:'mcp.stop',url:'/api/mcp/servers/browser/stop',body:{serverName:'browser',status:'stopped',toolCount:0}},
+  {operationId:'mcp.restart',url:'/api/mcp/servers/browser/restart',body:{serverName:'browser',status:'running',toolCount:0}},
   {operationId:'agents.currentInstructions',url:'/api/agents/agent%3Aanalyst%3Aglobal/current-instructions',body:{session_id:'agent:analyst:global',basis:'server_loaded_configuration',scope:{kind:'global'},bindings:[{kind:'global',instructions:'Safe current instructions'}]}},
   {operationId:'events.list',url:'/api/events',body:{events:[],total:0}},
   {operationId:'processes.list',url:'/api/processes',body:{processes:[]}},

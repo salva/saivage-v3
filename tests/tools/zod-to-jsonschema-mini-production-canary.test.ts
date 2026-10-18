@@ -82,6 +82,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       getServerStatus() { throw new Error('Unexpected MCP status'); },
       async startServer() { throw new Error('Unexpected MCP start'); },
       async stopServer() { throw new Error('Unexpected MCP stop'); },
+      async restartServer() { throw new Error('Unexpected MCP restart'); },
       getServerCatalog() { throw new Error('Unexpected MCP catalog read'); },
       async refreshServerCatalog() { throw new Error('Unexpected MCP catalog refresh'); },
       findToolCapability: () => null,

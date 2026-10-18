@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { presentToolResult } from '../../utils/tool-presenters';
+import { presentToolCall, presentToolResult } from '../../utils/tool-presenters';
 describe('native MCP result metadata', () => {
+  it.each([
+    [{ success: true, data: { serverName: 'browser', status: 'running', toolCount: 1 } }, 'Server ready'],
+    [{ success: false, error: 'MCP discovery failed after containment.' }, 'Failed · Outcome not reported'],
+    [{ success: true, data: { serverName: 'browser' } }, 'Outcome not reported'],
+  ])('presents recorded restart outcome without inventing continuity: %j', (result, outcome) => {
+    const view = presentToolResult(JSON.stringify(result), { tool: 'mcp_server_control' });
+    expect(view.outcome).toBe(outcome);
+    const call = presentToolCall(JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'restart', type: 'function', function: { name: 'mcp_server_control', arguments: JSON.stringify({ serverName: 'browser', action: 'restart' }) } }] }));
+    expect(JSON.stringify(call.sections)).toContain('restart');
+  });
   it('shows concise lifecycle known outcomes and complete discovery schemas as JSON', () => {
     const stopped = presentToolResult('{"success":true,"data":{"serverName":"browser","status":"stopped","toolCount":0}}', { tool: 'mcp_server_control' });
     expect(stopped.outcome).toBe('Server stopped · Context may be lost');

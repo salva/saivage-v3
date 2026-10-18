@@ -249,15 +249,16 @@ retained runtime work; ordinary Project Stop still leaves MCP services alive.
 ### Configured browser lifecycle
 
 MCP definitions come from operator-owned YAML or agent-authored connection definitions. `mcp_server_control` starts (including
-fetch/install/discovery) or stops one named configured server; `mcp_tools` returns
+fetch/install/discovery), stops or explicitly restarts one named server; `mcp_tools` returns
 current exact schemas, optionally selecting toolName. Defaults admit these and
 `mcp_tool_call` to Analyst/Executor; Reviewer requires explicit selection, Oversight
 has none; custom card participants may opt in. Each permission is independent. Operators may
-use authenticated `POST /api/mcp/servers/:name/start` or `POST /api/mcp/servers/:name/stop` with `{}`; success
+use authenticated `POST /api/mcp/servers/:name/start`, `POST /api/mcp/servers/:name/stop`
+or `POST /api/mcp/servers/:name/restart` with `{}`; success
 is `{serverName,status,toolCount}`. Unknown names return 404, disabled/busy/changed
 live entries 409, failed start/containment an error. There is no new browser UI.
 An identical ready start is idempotent. Edit alone does not change a running server:
-explicit stop/start loads only that entry. Other config changes still need restart.
+explicit stop/start or restart loads only that entry. Other config changes still need application restart.
 Stop during startup closes immediately and joins; failed containment retains its
 closed owner and forbids replacement. Startup autostart is preserved.
 
@@ -288,11 +289,11 @@ definition reads. Do not add credentials to chat examples.
 
 `mcp_servers` explains stopped definitions, starting owners and removed owners
 whose containment failed. Running means discovery complete. Fresh discovery is
-required after stop/start; stale bindings fail before wire dispatch, without retry.
+required after stop/start or restart; stale bindings fail before wire dispatch, without retry.
 Unregister publishes removal before containment: on containment failure the
 definition stays absent and its closed owner blocks register/start. Do not assume
 failure undid removal or replay automatically; publication uncertainty is fatal
-before further operations. There is no atomic replace/edit/restart tool.
+before further operations. There is no atomic replacement or edit tool; explicit restart is non-atomic.
 
 Stdio `processId` is a safe shared Process observation association, not wait/kill
 authority. MCP owns the runtime launch and retirement; stdout/stderr are
@@ -301,6 +302,54 @@ HTTP has null process ID; local disconnect does not terminate the external peer.
 Ordinary Project Stop leaves MCP connections alive. Notifications/native projection and
 card-tree visibility/lifetime remain deferred. Deployment, reset and migration
 remain separate permissions; this source change authorizes none of them.
+
+### Explicit MCP server restart
+
+With lifecycle control already selected, request one retained server's restart:
+
+```text
+mcp_server_control({serverName:"local",action:"restart"})
+mcp_tools({serverName:"local"})
+```
+
+The operator alternative is authenticated `POST /api/mcp/servers/:name/restart`
+with `name` set to `local` and strict JSON body `{}` through the shared `mcp.restart` contract. Use existing operator
+authentication, never credentials in URLs or chat. Both surfaces use the same
+manager operation; no browser button or new role permission is added.
+
+Restart requires a retained owner, including a successfully stopped one. A
+never-started definition alone returns 404: use start instead. Stop first fences
+old admission, clears readiness/catalog and joins startup, calls and containment.
+Only successful containment permits fresh start/discovery of that selected current
+definition. Failed containment retains the blocker and launches nothing. If another
+action replaces/removes the captured owner during the join, restart conflicts
+rather than adopting it. This is not an exclusive transaction: an independent stop
+may finish before the restart's following start. Each separately completed explicit
+restart intentionally reconnects; it is not an idempotent replay request.
+
+Cancellation before entry has no effects; cancellation during stop still joins
+containment, then rejects before start. Application closure prevents resurrection.
+After successful stop, missing/disabled/conflicting definition or failed/cancelled
+startup may leave stopped/failed ownership. There is no rollback, compensation,
+resend or automatic retry. Observe actual retained state; do not infer that an
+error undid the stop. Failed containment and unclassified errors remain failures;
+publication uncertainty is fatal before any follow-up operation.
+
+Success `{serverName,status:"running",toolCount}` means discovery-complete readiness
+at completion, not current readiness forever. Discover again and use fresh binding,
+catalog and schemas for later calls; old prepared/queued calls cannot dispatch to
+the successor. Completed native responses retain their original source facts;
+interrupted dispatched work can have unknown effects and is never replayed.
+Stdio contains its exact local managed runner scope; HTTP only closes local
+requests/session ownership and reconnects. Neither remote service restart, target
+reset nor target survival is promised; disposable server context may be lost.
+
+Adoption requires matching updated source/server and freshly compiled generated
+tool contracts. Existing custom prompts are not automatically rewritten. This
+procedure authorizes no deployment, service action, reset or migration; whole-release
+incompatibilities still require the separately authorized adoption workflow.
+Catalog refresh below instead re-lists the existing ready connection without
+restart.
 
 ### Explicit MCP catalog refresh
 
@@ -967,7 +1016,7 @@ Neither backup authorizes restoration or merging. In the reset branch, rollback 
 
 ## Configuration file cutovers
 
-The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Selected start/stop/discovery, explicit per-connection catalog refresh and dynamic connection registration/removal are supported; edit/restart/enable-state tools, notifications/native projection and card-tree lifetime remain deferred. Current calls require discovery's connection and catalog identities; prior name-only or binding-only recorded calls remain historical facts, not replay inputs. Explicitly select additional tools and reconcile instance-owned browser guidance when authorized. This note authorizes no deployment or live configuration mutation.
+The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Selected start/stop/restart/discovery, explicit per-connection catalog refresh and dynamic connection registration/removal are supported; edit/enable-state tools, notifications/native projection and card-tree lifetime remain deferred. Restart is the non-atomic retained-owner stop/fresh-start operation described above, not remote restart or target-continuity control. Current calls require discovery's connection and catalog identities; prior name-only or binding-only recorded calls remain historical facts, not replay inputs. Explicitly select additional tools and reconcile instance-owned browser guidance when authorized. This note authorizes no deployment or live configuration mutation.
 
 Project Oversight configuration is required even when checks are disabled:
 

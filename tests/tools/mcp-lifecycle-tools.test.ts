@@ -19,6 +19,21 @@ async function call(names:string[], port:McpToolInvocationPort, toolName:string,
   return settleToolActionOutcome(settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome).providerResult;
 }
 describe('independent configured MCP admissions', () => {
+  it.each(['start', 'stop', 'restart'] as const)('preserves known %s success despite cancellation after return through the installed port', async action => {
+    const caller = new AbortController();
+    const result = { serverName: 'one', status: action === 'stop' ? 'stopped' as const : 'running' as const, toolCount: 0 };
+    const operation = jest.fn<McpToolInvocationPort['startServer']>(async () => { caller.abort(new Error('after known result')); return result; });
+    const installation = createMcpToolInvocationInstallation();
+    installation.installer.install({ ...unusedMcpToolInvocation, startServer: operation, stopServer: operation, restartServer: operation });
+    const bound = surface(['mcp_server_control'], installation.port);
+    const definitions = surfaceToolDefinitions(bound);
+    expect(definitions[0]!.function.parameters).toMatchObject({ properties: { action: { enum: ['start', 'stop', 'restart'] } }, additionalProperties: false });
+    const invoked = await invokeToolForLlm(bound, 'mcp_server_control', { serverName: 'one', action }, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'mcp_server_control' }), caller.signal);
+    expect(invoked).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'succeeded', data: result } } });
+    expect(operation).toHaveBeenCalledTimes(1);
+    if (action !== 'stop') expect(operation).toHaveBeenCalledWith('one', expect.objectContaining({ signal: caller.signal, observationSource: expect.any(Object) }));
+    else expect(operation).toHaveBeenCalledWith('one');
+  });
   it('strictly admits refresh separately, preserves known success and classifies bounded failures', async () => {
     const bindingId = '11111111-1111-4111-8111-111111111111';
     const catalogId = '22222222-2222-4222-8222-222222222222';
@@ -85,16 +100,16 @@ describe('independent configured MCP admissions', () => {
       expect(runtime.isContained()).toBe(true);
     } finally { globalThis.fetch = originalFetch; }
   });
-  it('uses compiled default role selections and rejects even explicit MCP selection for Oversight', async () => {
+  it.each(['start', 'restart'] as const)('uses compiled default role selections for %s and rejects even explicit MCP selection for Oversight', async action => {
     const workflows = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never);
     const startServer = jest.fn(async (serverName:string) => ({ serverName, status:'running' as const, toolCount:0 }));
-    const port = { ...unusedMcpToolInvocation, startServer };
+    const port = { ...unusedMcpToolInvocation, startServer, restartServer: startServer };
     for (const name of ['analyst', 'executor', 'reviewer', 'oversight']) {
       const agent = workflows.agents.get(name)!;
       const selected = agent.tools.filter(tool => ['mcp_server_control', 'mcp_tools', 'mcp_tool_call'].includes(tool.name));
       const scope = agent.session === 'global' ? 'global' : 'card';
       const bound = new BoundAgentToolSet(selected).bind({ scope, agentName:name, projectRoot:'/', mcpToolInvocation:port } as never);
-      const invocation = await invokeToolForLlm(bound, 'mcp_server_control', {serverName:'one',action:'start'},
+       const invocation = await invokeToolForLlm(bound, 'mcp_server_control', {serverName:'one',action},
         testLlmToolInvocationContext({sessionId:scope === 'global' ? `agent:${name}:global` : `agent:${name}:project`,toolName:'mcp_server_control'}));
       const result = settleToolActionOutcome(invocation.kind === 'executed' ? invocation.execution.providerOutcome : invocation.providerOutcome).providerResult;
       expect(result.success).toBe(name === 'analyst' || name === 'executor');
@@ -109,7 +124,7 @@ describe('independent configured MCP admissions', () => {
     config.agents.reviewer!.tools.push('mcp_server_control', 'mcp_tools');
     const reviewer = compileProjectWorkflows(config as never).agents.get('reviewer')!;
     expect(await call(reviewer.tools.filter(tool => ['mcp_server_control', 'mcp_tools'].includes(tool.name)).map(tool => tool.name), port,
-      'mcp_server_control', {serverName:'one',action:'start'})).toMatchObject({success:true});
+      'mcp_server_control', {serverName:'one',action})).toMatchObject({success:true});
     expect(startServer).toHaveBeenCalledTimes(3);
   });
   it('requires strict explicit nonempty control/discovery arguments', () => {

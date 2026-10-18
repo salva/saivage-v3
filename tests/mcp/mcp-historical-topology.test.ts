@@ -11,11 +11,12 @@ import {
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { openAIChatAdapter } from '../../src/agents/llm-openai-chat-adapter.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 
 describe('durable-preserving MCP topology history', () => {
-  it('strict current readers/materialization and outbound projection retain name-only, binding-only, catalog-bound and refresh facts without execution', () => {
+  it('strict current readers/materialization and outbound projection retain topology and start/stop/restart facts without execution or a format bump', () => {
     const root = mkdtempSync(join(tmpdir(), 'mcp-historical-'));
     const session = 'agent:planner:project' as ConversationSessionId;
     const input = '11111111-1111-4111-8111-111111111111';
@@ -54,6 +55,11 @@ describe('durable-preserving MCP topology history', () => {
         args: { serverName: 'one', bindingId: '22222222-2222-4222-8222-222222222222' },
         data: { serverName: 'one', bindingId: '22222222-2222-4222-8222-222222222222', catalogId: '33333333-3333-4333-8333-333333333333', toolCount: 0 },
       },
+      ...(['start', 'stop', 'restart'] as const).map(action => ({
+        tool: 'mcp_server_control',
+        args: { serverName: 'one', action },
+        data: { serverName: 'one', status: action === 'stop' ? 'stopped' : 'running', toolCount: action === 'stop' ? 0 : 1 },
+      })),
     ];
     const rows: AgentMessage[] = [
       {
@@ -118,14 +124,38 @@ describe('durable-preserving MCP topology history', () => {
       initProjectTree(root);
       appendConversationBatch({ projectRoot: root }, rows);
       expect(readConversationCatalog(root, session).versions).toHaveLength(1);
-      expect(readCurrentConversationSegment(root, session)!.rows).toEqual(rows);
+      const segment = readCurrentConversationSegment(root, session)!;
+      expect(segment.index.format_version).toBe(11);
+      expect(segment.genesis.format_version).toBe(11);
+      expect(segment.rows).toEqual(rows);
       const materialized = readConversation(root, session);
       expect(materialized.physicalRows).toEqual(rows);
-      const projected = providerConversationProjection(materialized, []).messages;
+      const providerConversation = providerConversationProjection(materialized, []);
+      const projected = providerConversation.messages;
+      const request = openAIChatAdapter.buildRequestBody({
+        candidate: { provider: 'openai', account: null, model: 'gpt-5.6' },
+        systemPrompt: 'Historical MCP facts.',
+        providerConversation,
+        options: {
+          providerSessionId: 'historical-mcp', inputId: input, temperature: 0,
+          max_tokens: 512, contract_id: 'historical-mcp', contractName: 'historical-mcp',
+          terminalToolOffered: [], tools: [], tool_choice: 'auto',
+        },
+        capabilities: {
+          transportProtocol: 'openai-chat-completions', imageInput: false,
+          toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [],
+        },
+      });
       expect(JSON.stringify(projected)).toContain('prior');
       expect(JSON.stringify(projected)).toContain('bound');
       expect(JSON.stringify(projected)).toContain('catalogBound');
       expect(JSON.stringify(projected)).toContain('mcp_catalog_refresh');
+      // These are retained facts, not requests to execute against today's manager.
+      for (const action of ['start', 'stop', 'restart']) {
+        expect(request.messages).toEqual(expect.arrayContaining([expect.objectContaining({
+          role: 'assistant', tool_calls: [expect.objectContaining({ function: { name: 'mcp_server_control', arguments: JSON.stringify({ serverName: 'one', action }) } })],
+        })]));
+      }
       facts.forEach(({ tool, args, data }, index) => {
         const result = projectToolInvocation({
           shape: 'complete',
@@ -139,6 +169,12 @@ describe('durable-preserving MCP topology history', () => {
           result: { success: true, data },
         });
         expect(result).toMatchObject({ result: { success: true, data } });
+        if (tool === 'mcp_server_control') {
+          expect(result).toMatchObject({ arguments: args });
+          const retainedResult = expect.objectContaining({ role: 'tool', tool_call_id: `call-${index}`, content: JSON.stringify({ success: true, data }) });
+          expect(projected).toEqual(expect.arrayContaining([retainedResult]));
+          expect(request.messages).toEqual(expect.arrayContaining([retainedResult]));
+        }
         if (index === 0) {
           expect(result).toMatchObject({ arguments: args });
           expect(JSON.stringify(result)).not.toContain('bindingId');

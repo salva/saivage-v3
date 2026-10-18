@@ -1298,6 +1298,26 @@ The configuration schema's factored strict `stdio` and `streamable-http` connect
 
 Unregister captures the runtime, publishes removal and enters its existing stop fence without an intervening await. Failed containment retains that closed owner even without a definition; no compensating publication or replacement occurs. Publication uncertainty escapes before any further operation. Startup reconciliation and application root/direct-scope joins remain the existing owners. Selected dynamic start requires prior containment before constructing a fresh owner.
 
+Explicit restart is one `McpManager.restartServer` operation through the existing
+installed authority, shared by `mcp_server_control` and authenticated `mcp.restart`.
+It requires a retained owner (missing is 404), captures that object and joins its
+existing stop. Failed containment retains ownership and blocks new launch. After
+the join it rechecks manager admission, exact caller cancellation and map-object
+identity (replacement/removal conflicts), then immediately uses existing fresh
+start with the selected current definition. A contained runtime is never reopened.
+No coordinator, queue, retry or compensation spans these non-atomic phases;
+independent explicit actions keep their semantics, including a concurrent stop
+completing before the following start. Failed fresh start cannot restore the old
+connection. Successful completion means discovery-complete readiness then, with
+fresh binding/catalog; later cancellation does not erase a known lifecycle result.
+Old queued/prepared calls cannot dispatch to the successor, while completed native
+responses retain their original source/schema/invocation ownership. Interrupted
+effects remain uncertain, never replayed. HTTP reconnect is local, not remote
+restart or target continuity; stdio uses existing exact-scope containment.
+Publication uncertainty permits no subsequent operation. Default tool selections,
+all registered template graphs (including optional PAAD) and the prompt composition
+mechanism remain unchanged; the generated lifecycle contract now includes restart.
+
 Each runtime owns a random transient connection `bindingId` and one replaceable catalog snapshot `{serverName,bindingId,catalogId,tools}`. Initial discovery and every successful explicit refresh create fresh catalog UUIDs; public reads clone the snapshot, preserving exact identities/schemas without mutation authority. Manager discovery and `findToolCapability` consume that single read. Invocation compares both identities and validates the selected schema at dispatch, inside the stdio queue or immediately before HTTP I/O. Fresh dialect-appropriate Ajv compilation per tool schema isolates `$id` namespaces without rewriting schemas or fetching refs; validators remain runtime-local and clear on catalog replacement. Generic prepared gateway contracts remain frozen: remote tools are discovery data, not native model definitions. Status unions exact definition names with retained owners, distinguishes starting from ready/running, and exposes safe source, containment and current launch association only.
 
 The independently selected ordinary `mcp_catalog_refresh` binder follows the existing installation/manager/runtime chain for global/card agents, with no default grants or Analyst-special route. Manager resolves only an exact existing ready configured runtime; it does not reconcile configuration. Transports separate initialize/initialized from a shared-decoded paginated list path. Refresh lists on the same stdio connection or HTTP session, accumulating a call-local complete candidate. A runtime-local busy flag and existing admitted-operation/controller lifecycle own one 30-second deadline covering queue wait and every page. Stdio queues the whole traversal beside invocation exchanges; a cancelled queued no-op remains owned until settled, without closing the preceding invocation. Active interruption closes exact admission and completes stop through untracked outer completion, never self-joining. HTTP cancellation joins request settlement without remote shutdown. Correlated list rejection can preserve the previous complete observation; uncorrelated stdio failure contains the connection. Stop/readiness/signal fences precede synchronous snapshot publication without an intervening await. Publication success remains known despite later cancellation; stale/local-invalid calls add no remote invocation telemetry. Already-dispatched calls retain response ownership, including HTTP outcomes after replacement. No replay, persisted catalog registry, prepared-tool rebinding or notification subscription is introduced.
@@ -2177,6 +2197,7 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:40` |
 | `POST /api/mcp/servers/:name/start` | Start/install/discover one configured server. | `src/contracts/operator-api-mcp.ts:50` |
 | `POST /api/mcp/servers/:name/stop` | Stop and join one retained server owner. | `src/contracts/operator-api-mcp.ts:51` |
+| `POST /api/mcp/servers/:name/restart` | Stop the retained owner, then fresh start/discovery (non-atomic). | `src/contracts/operator-api-mcp.ts:85` |
 | `GET /api/processes` | Operator-session process list. | `src/contracts/operator-api-processes.ts:74` |
 | `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:186` |
 | `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:197` |

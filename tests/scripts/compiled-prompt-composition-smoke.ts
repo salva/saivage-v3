@@ -309,6 +309,7 @@ try {
     getServerStatus() { throw new Error('Unexpected MCP status'); },
     async startServer() { throw new Error('Unexpected MCP start in prompt smoke.'); },
     async stopServer() { throw new Error('Unexpected MCP stop in prompt smoke.'); },
+    async restartServer() { throw new Error('Unexpected MCP restart in prompt smoke.'); },
     getServerCatalog() { throw new Error('Unexpected MCP catalog read in compiled prompt smoke.'); },
     refreshServerCatalog() { throw new Error('Unexpected MCP refresh in compiled prompt smoke.'); },
     findToolCapability() { throw new Error('Unexpected MCP capability read in compiled prompt smoke.'); },

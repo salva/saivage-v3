@@ -45,6 +45,10 @@ export interface McpToolInvocationPort {
     options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
   ): Promise<McpLifecycleResult>;
   stopServer(name: string): Promise<McpLifecycleResult>;
+  restartServer(
+    name: string,
+    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+  ): Promise<McpLifecycleResult>;
   getServerCatalog(name: string): McpCatalogSnapshot | undefined;
   refreshServerCatalog(
     name: string,
@@ -286,6 +290,22 @@ export class McpManager implements McpReconciliationPort {
     if (!runtime) throw new McpLifecycleError(`Unknown MCP owner '${name}'.`, 404);
     await runtime.stop();
     return { serverName: name, status: 'stopped', toolCount: 0 };
+  }
+
+  async restartServer(
+    name: string,
+    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+  ): Promise<McpLifecycleResult> {
+    options?.signal?.throwIfAborted();
+    this.assertAdmission();
+    const runtime = this.#runtimes.get(name);
+    if (!runtime) throw new McpLifecycleError(`Unknown MCP owner '${name}'.`, 404);
+    await runtime.stop();
+    this.assertAdmission();
+    options?.signal?.throwIfAborted();
+    if (this.#runtimes.get(name) !== runtime)
+      throw new McpLifecycleError(`MCP owner '${name}' changed during restart.`, 409);
+    return this.startServer(name, options);
   }
 
   registerServer(

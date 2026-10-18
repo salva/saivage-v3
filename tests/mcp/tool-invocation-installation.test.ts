@@ -20,6 +20,7 @@ function port(label: string): McpToolInvocationPort {
     getServerStatus: jest.fn(() => undefined),
     startServer: jest.fn(async (name: string) => ({ serverName: name, status: 'running' as const, toolCount: 1 })),
     stopServer: jest.fn(async (name: string) => ({ serverName: name, status: 'stopped' as const, toolCount: 0 })),
+    restartServer: jest.fn(async (name: string) => ({ serverName: name, status: 'running' as const, toolCount: 0 })),
     getServerCatalog: jest.fn(() => ({ serverName: label, bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', tools: [] })),
     refreshServerCatalog: jest.fn(async (name: string, bindingId: string) => ({ serverName: name, bindingId, catalogId: '22222222-2222-4222-8222-222222222222', toolCount: 0 })),
     findToolCapability: jest.fn(() => ({ serverName: label,
@@ -36,6 +37,7 @@ describe('one-shot MCP tool invocation installation', () => {
       () => installation.port.refreshServerCatalog('server', '11111111-1111-4111-8111-111111111111'),
       () => installation.port.startServer('server'),
       () => installation.port.stopServer('server'),
+      () => installation.port.restartServer('server'),
       () => installation.port.findToolCapability('server', 'tool'),
       () => installation.port.invokeTool('server', '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 'tool', {}),
       () => installation.port.getStatus(),
@@ -60,6 +62,8 @@ describe('one-shot MCP tool invocation installation', () => {
     expect(authority.refreshServerCatalog).toHaveBeenCalledWith('server', '11111111-1111-4111-8111-111111111111', undefined);
     expect(facade.findToolCapability('server', 'tool')).toEqual(expect.objectContaining({ serverName: 'first' }));
     const signal = new AbortController().signal;
+    await expect(facade.restartServer('server', { signal })).resolves.toMatchObject({ status: 'running' });
+    expect(authority.restartServer).toHaveBeenCalledWith('server', { signal });
     await expect(facade.invokeTool('server',
         '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 'tool', { value: 1 }, { timeoutMs: 2, signal })).resolves.toEqual({ content: [{ type: 'text', text: 'first' }] });
     expect(authority.invokeTool).toHaveBeenCalledWith('server',

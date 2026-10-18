@@ -125,22 +125,34 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
   defineToolBinder({
     name: 'mcp_server_control',
     description:
-      'Start/install/discover or stop one operator or agent-defined MCP server. Start has one 180-second budget. Stop/cancel may lose the shared browser context; effects are not undone.',
+      'Start/install/discover, stop, or restart one operator or agent-defined MCP server. Restart requires a retained owner: stop and join it before a fresh start/discovery. This sequence is not atomic and never replays work. Start has one 180-second budget. Stop/restart/cancel may lose the shared browser context; effects are not undone.',
     resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
     inputSchema: () => McpServerControlArgumentsSchema,
     executor: async (ctx: McpProviderContext, args, signal, invocation) => {
       signal.throwIfAborted();
       try {
-        const result =
-          args.action === 'start'
-            ? await ctx.mcpToolInvocation.startServer(args.serverName, {
-                signal,
-                observationSource: invocation
-                  ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
-                  : undefined,
-              })
-            : await ctx.mcpToolInvocation.stopServer(args.serverName);
-        signal.throwIfAborted();
+        const options = {
+          signal,
+          observationSource: invocation
+            ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+            : undefined,
+        };
+        let result;
+        switch (args.action) {
+          case 'start':
+            result = await ctx.mcpToolInvocation.startServer(args.serverName, options);
+            break;
+          case 'stop':
+            result = await ctx.mcpToolInvocation.stopServer(args.serverName);
+            break;
+          case 'restart':
+            result = await ctx.mcpToolInvocation.restartServer(args.serverName, options);
+            break;
+          default: {
+            const unexpected: never = args.action;
+            throw new Error(`Unexpected MCP lifecycle action: ${unexpected}`);
+          }
+        }
         return executedToolOutcome('none', toolSucceeded(result));
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);

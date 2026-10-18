@@ -150,7 +150,14 @@ explicit JSON sections, with no required or fabricated `source_path` and no dupl
 native text/descriptors. Concise MCP lifecycle/discovery presenters show recorded
 ready/stopped outcomes (including context-loss caution) and complete JSON input schemas,
 not browser controls or delivery claims. Authenticated POST lifecycle routes use the
-shared operator contract/auth machinery and strict empty bodies. MCP observations show
+shared operator contract/auth machinery and strict empty bodies, including
+`mcp.restart` (`POST /api/mcp/servers/:name/restart`, `{}`). Recorded restart input
+keeps its action visible; a successful running result renders the reported ready
+fact only, not present readiness, remote restart or target continuity. Failure or
+missing outcome remains unreported, never inferred success. Restart is stop-first,
+non-atomic and may lose context; failed containment retains the old owner and
+interrupted effects can remain unknown, with no replay. No new browser controls or
+default role grants are added. MCP observations show
 `starting|running|stopped|error` (running means ready after discovery),
 `definitionSource:operator|agent|null`, `containmentFailed`, inspectable `bindingId`
 and safe `processId` (null after retirement or for HTTP). A null source with

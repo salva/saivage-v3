@@ -46,7 +46,7 @@ export interface OperatorAvailabilityContext {
 
 export interface OperatorMcpProviderContext {
   mcpToolsProvider: McpToolsReadModelProvider;
-  mcpLifecycle: Pick<McpToolInvocationPort, 'startServer' | 'stopServer'>;
+  mcpLifecycle: Pick<McpToolInvocationPort, 'startServer' | 'stopServer' | 'restartServer'>;
 }
 
 export interface OperatorConfigContext {

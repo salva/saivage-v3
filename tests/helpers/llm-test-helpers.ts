@@ -107,6 +107,7 @@ export const unusedMcpToolInvocation: McpToolInvocationPort = {
   getServerStatus: () => { throw new Error('Unexpected MCP server status'); },
   startServer: async () => { throw new Error('Unexpected MCP start'); },
   stopServer: async () => { throw new Error('Unexpected MCP stop'); },
+  restartServer: async () => { throw new Error('Unexpected MCP restart'); },
   getServerCatalog: () => { throw new Error('Unexpected MCP catalog read in test.'); },
   refreshServerCatalog: async () => { throw new Error('Unexpected MCP refresh in test.'); },
   findToolCapability: () => { throw new Error('Unexpected MCP capability read in test.'); },

@@ -82,6 +82,12 @@ export const mcpOperatorApiContracts = {
     method: 'POST',
     path: '/api/mcp/servers/:name/stop',
   },
+  'mcp.restart': {
+    ...lifecycleContract,
+    operationId: 'mcp.restart',
+    method: 'POST',
+    path: '/api/mcp/servers/:name/restart',
+  },
   'mcp.tools': {
     operationId: 'mcp.tools',
     method: 'GET',

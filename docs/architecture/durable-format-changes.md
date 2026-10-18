@@ -23,6 +23,44 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Explicit selected MCP restart — no durable impact (2026-10-18)
+
+Exact implementation parent: `1adefa5e7b8a974ea58d649b89c39e5a39d27030`.
+This source change adds `restart` to the existing generic lifecycle input through
+`contracts/mcp-invocation.ts`, `tools/mcp-provider.ts`, the installed invocation
+port and `mcp/mcp-manager.ts`; `contracts/operator-api-mcp.ts` adds the shared
+authenticated operation. The manager composes retained-owner stop and fresh start,
+without a persisted restart event, configuration write or historical reinterpretation.
+The existing `{serverName,status,toolCount}` lifecycle result is unchanged.
+Historical start/stop/call/result arguments, outcome meanings, source identities,
+rows and prompt facts remain recorded facts, never normalized or replayed.
+Transient binding/catalog UUIDs are not durable-family discriminators.
+
+No durable shape, meaning, selection, provenance or layout changes; no discriminator
+bump. MCP definitions remain `format_version:1/type:mcp-server-definitions`;
+conversation index/genesis/segment remain **11**, record heads **2**, immutable
+accepted records and card families unchanged. Provider/app-log envelopes retain
+shared `version:1/type:rows`. No unreleased-cutover reuse or deployment claim is
+made. Source applicability is the exact parent above, not an installation inventory
+or a whole-release compatibility assertion.
+
+Source coverage added in `tests/mcp/mcp-historical-topology.test.ts` retains
+start/stop/restart arguments and unchanged running/stopped results through the
+owning strict segment/catalog readers, materialization, provider composition and
+public tool-invocation projection (`persistence/conversation-file.ts`,
+`runtime/actors/conversation-session.ts` and
+`tools/tool-invocation-outbound.ts`). Manager validation in `focused-final.log`
+passed all 31 suites / 372 tests, including strict historical materialization,
+the actual OpenAI serializer and public projection. This is bounded consuming-owner
+evidence, not whole-release compatibility or security certification.
+
+Adoption needs matching updated source/server and newly compiled generated tool
+contracts; custom prompts are not automatically rewritten. This entry authorizes
+no deployment, service action, reset or migration. Other incompatible changes in
+a selected whole release still require their separately authorized adoption;
+equal family numbers do not prove compatibility. No binary-only rollback,
+converter, dual reader or implicit reset is introduced.
+
 ### Node-entry record scaffolds (2026-10-16)
 
 Exact implementation parent: `07ed080bb4cd4be78b1ba223f64a5fb7fbe90082`.

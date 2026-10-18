@@ -79,7 +79,14 @@ scroll surface unchanged.
 
 Recorded configured-MCP lifecycle and discovery exchanges need concise ready/stopped
 outcomes with context-loss caution and complete inspectable input schemas. These
-tools and authenticated start/stop APIs add no browser controls to the UI. Loaded
+tools and authenticated start/stop/restart APIs add no browser controls to the UI.
+Recorded restart requests must remain inspectable as restart, with only their
+reported outcome: ready means discovery complete at completion, not present
+readiness, remote restart or target continuity. Stop-first restart is non-atomic;
+context can be lost, failed containment retains ownership and interrupted effects
+can be unknown. A failed or missing outcome must not acquire a success claim or
+imply replay. Authenticated `POST /api/mcp/servers/:name/restart` accepts `{}` and
+uses the existing lifecycle authority, without changing default grants. Loaded
 current instructions expose the actual composed browser guidance, not dynamic tool
 discovery, pixels or historical provider wire.
 

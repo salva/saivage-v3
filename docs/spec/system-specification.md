@@ -1802,7 +1802,7 @@ TIMEOUT failures, while the exact caller reason reaches shared synthetic
 unchanged; no replay or denial of possible remote effects is implied. HTTP call
 cancellation remains request-local and does not stop the remote service.
 
-MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'})`
+MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'|'restart'})`
 and read-only `mcp_tools({serverName,toolName?})`, strict nonempty names and no extra
 fields. Discovery returns current names/descriptions and exact input schemas through
 outbound redaction and runtime connection `bindingId`/catalog `catalogId` together from one snapshot; optional exact tool selection avoids catalog overflow. If redaction would alter an input schema, discovery fails rather than advertising altered validation. More than
@@ -1815,7 +1815,7 @@ disabled entries reject. Equivalent ready owners return running, overlapping sta
 reject busy and changed non-contained owners require explicit stop first. Successfully
 contained owners can be replaced; failed containment owners are never replaced.
 YAML startup autostart remains unchanged; dynamic definitions remain stopped on host restart. Runtime config edits alone change no live MCP:
-explicit stop/start reloads only that selected entry; unrelated routing/workflows
+explicit stop/start or restart reloads only that selected entry; unrelated routing/workflows
 still require application restart. Stop immediately fences the exact retained owner
 and joins startup/calls/containment, never waiting behind global reconciliation.
 One 180-second start budget includes package fetch, matched browser installation,
@@ -1828,7 +1828,38 @@ and containment are errors, not installed/ready stubs; no retry or implicit rest
 Application closure synchronously fences new starts/calls, aborts starts and closes
 all retained owners before joins and clearing. Project Stop leaves MCP alive.
 
-Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No edit/restart/enable/disable tools or card-tree lifetime rules are added.
+Restart requires an exact retained owner, even if stopped; a never-started definition
+alone returns 404 and requires start. It fences and joins that captured owner's
+existing stop before freshly starting the selected current definition. Failed
+containment retains the closed owner and permits no new launch. After the join,
+manager admission, exact caller cancellation and captured-owner identity are checked
+before replacement; a changed owner conflicts (409), rather than being adopted.
+The old runtime is never reopened. Simultaneous restarts of one captured owner
+cannot both install replacements. Independent explicit actions remain non-atomic:
+a concurrent stop may complete before the restart's subsequent start; no exclusive
+restart or stop-wins guarantee is offered.
+
+Pre-entry cancellation has no effects. Cancellation during the stop join does not
+abandon containment, but prevents the following start. After successful stop,
+definition rejection, startup failure or cancellation may leave stopped/failed
+ownership; there is no restoration, compensation or automatic retry. Startup keeps
+its existing containment/error semantics. A returned lifecycle success remains a
+known result despite later cancellation. Restart success is
+`{serverName,status:'running',toolCount}`: discovery-complete readiness at completion,
+not continuing readiness or target continuity. Discover again for fresh binding,
+catalog and schemas before calling. Stale/queued calls never dispatch to the
+successor; interrupted dispatched work may have unknown effects and is never
+replayed. Known completed responses retain their original schema, source and
+invocation attribution. Stdio containment owns the local runner scope; HTTP stop
+only aborts local requests, not the remote service. Neither remote restart, target
+reset nor target survival is promised. Publication uncertainty permits no follow-up
+start, read, logging or cleanup; unclassified failures remain unclassified.
+
+Authenticated `POST /api/mcp/servers/:name/restart` (`mcp.restart`) accepts only `{}`
+and delegates to the same operation as the selected control tool, with existing
+lifecycle auth/error boundaries. No new permission or default role grant is added.
+
+Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No edit/enable/disable tools or card-tree lifetime rules are added.
 
 `mcp_servers({serverName?})` independently observes definitions and retained owners, bounded at 1 MiB (select an exact name on overflow). Common observations expose source `operator|agent|null`, `starting|running|stopped|error`, containment failure, binding and safe process association. Running means discovery complete; starting exposes no ready tools. Null source means an unregistered retained owner. `mcp_tool_call` strictly requires both discovered identities and validates against that exact catalog at dispatch, inside the stdio exchange queue or immediately before HTTP dispatch. Stale identities fail without sending the call, retry or replay. Possession grants no tool permission. Prepared generic gateways stay frozen; configured card/global participants may independently select management, refresh, observation or invocation. Oversight remains observation-only and admits no MCP tools.
 

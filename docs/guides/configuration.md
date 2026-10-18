@@ -297,10 +297,13 @@ mcpServers:
 
 MCP tools become available to agents as `mcp_tool_call` according to each
 agent's configured tool inventory. Reconciliation happens at startup. Independent
-`mcp_server_control` and `mcp_tools` selections allow configured runtime start/stop
+`mcp_server_control` and `mcp_tools` selections allow configured runtime start/stop/restart
 and exact-schema discovery. Defaults select all three for Analyst/Executor; Reviewer
 requires opt-in and Oversight admits none. Edit alone changes no running server:
-explicit stop/start reloads only its current entry, not other workflows/routing.
+explicit stop/start or restart reloads only its current entry, not other workflows/routing.
+Restart requires a retained owner and stops it before fresh start/discovery; it is
+non-atomic, with no replay, remote restart or target-continuity promise. See the
+[restart procedure](../runbook/index.md#explicit-mcp-server-restart).
 See the [pinned browser recipe](../runbook/index.md#configured-browser-lifecycle).
 
 An explicitly selected `mcp_server_register` may instead add a connection to the
@@ -310,7 +313,7 @@ dynamic definitions survive restart/reset but always require explicit start.
 `mcp_server_unregister` removes only dynamic entries and contains their exact
 runtime. `mcp_servers` observes configured and retained owners independently.
 No new permissions are added to defaults. Discover with `mcp_tools`, then pass
-its `bindingId` and `catalogId` to `mcp_tool_call`; stop/start requires fresh discovery.
+its `bindingId` and `catalogId` to `mcp_tool_call`; stop/start or restart requires fresh discovery.
 Any eligible configured global/card agent may independently opt in to
 `mcp_catalog_refresh` in its `tools` list. It requires an observed ready connection,
 re-lists on that same connection and publishes a new catalog identity; discover

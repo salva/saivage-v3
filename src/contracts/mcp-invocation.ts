@@ -39,7 +39,7 @@ export const McpCatalogRefreshArgumentsSchema = z
 export const McpServerControlArgumentsSchema = z
   .object({
     serverName: z.string().min(1),
-    action: z.enum(['start', 'stop']),
+    action: z.enum(['start', 'stop', 'restart']),
   })
   .strict();
 export const McpToolsArgumentsSchema = z

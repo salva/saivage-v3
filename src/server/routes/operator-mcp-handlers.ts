@@ -34,6 +34,20 @@ export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderCon
         };
       }
     },
+    'mcp.restart': async ({ params }) => {
+      try {
+        return { body: await options.mcpLifecycle.restartServer(params.name) };
+      } catch (error) {
+        if (!(error instanceof McpLifecycleError)) throw error;
+        return {
+          statusCode: error.statusCode as 404 | 409,
+          body: {
+            error: error.code as 'MCP_NOT_FOUND' | 'MCP_CONFLICT',
+            message: redactTextForOutbound(error.message),
+          },
+        };
+      }
+    },
     'mcp.tools': () => {
       const body: OperatorApiSuccess<'mcp.tools'> = projectMcpToolsForOutbound(
         options.mcpToolsProvider.getToolsReadModel(),

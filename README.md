@@ -36,7 +36,11 @@ screenshots (`scale:'css'`, no filename). See the [pinned browser recipe](docs/r
 Reviewer requires explicit admission; Oversight has no MCP. Independently selected
 registration/removal tools persist connections separately from operator YAML;
 registration does not launch and dynamic connections never autostart. Discover
-`bindingId` and `catalogId` before calling; bindings change on stop/start. Opt-in
+`bindingId` and `catalogId` before calling; bindings change on stop/start or explicit
+`mcp_server_control` restart. Restart stops the retained owner before fresh startup
+and discovery; it is non-atomic and promises neither remote restart nor target
+continuity. Default role grants are unchanged. See the
+[restart procedure](docs/runbook/index.md#explicit-mcp-server-restart). Opt-in
 `mcp_catalog_refresh` re-lists one ready connection without restarting it and
 publishes a fresh catalog identity; discover again before a new call. See the
 [refresh procedure](docs/runbook/index.md#explicit-mcp-catalog-refresh). MCP-managed stdio process

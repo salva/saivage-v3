@@ -15,6 +15,12 @@ import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
+import Fastify from 'fastify';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
+import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { mcpOperatorApiContracts } from '../../src/contracts/operator-api-mcp.js';
+import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
+import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
 
 const A = [
   { name: 'common', inputSchema: { type: 'object', properties: { value: { type: 'string' }, hold: { type: 'boolean' } }, required: ['value'], additionalProperties: false } },
@@ -77,6 +83,86 @@ async function discover(manager: McpManager, name: string) {
 }
 
 describe('explicit catalog refresh through real local peers', () => {
+  it('restarts a stdio owner with a distinct process, fences active/queued old calls and leaves the second server alone', async () => {
+    const f = fixture(); const peer = stdioPeer(f.root, 'restart-one'); const other = stdioPeer(f.root, 'restart-other');
+    try {
+      for (const [name, p] of [['one', peer], ['other', other]] as const) { f.manager.registerServer(name, p.connection); await f.manager.startServer(name); }
+      const a = f.manager.getServerCatalog('one')!; const untouched = f.manager.getServerCatalog('other')!;
+      const oldProcess = f.manager.getServerStatus('one')!.processId;
+      const known = await f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'completed' });
+      const active = f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'held', hold: true }).catch(error => error);
+      await waitFor(() => peer.calls().filter(r => r.method === 'tools/call').length === 2, 'active stdio call before restart');
+      const queued = f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'queued' }).catch(error => error);
+      peer.set('B');
+      await expect(f.manager.restartServer('one')).resolves.toMatchObject({ status: 'running', toolCount: 2 });
+      expect(await active).toBeInstanceOf(Error); expect(await queued).toBeInstanceOf(Error);
+      expect(peer.calls().filter(r => r.method === 'tools/call')).toHaveLength(2);
+      const b = f.manager.getServerCatalog('one')!;
+      expect(b.bindingId).not.toBe(a.bindingId); expect(b.catalogId).not.toBe(a.catalogId); expect(b.tools).toEqual(B);
+      expect(oldProcess).not.toBeNull(); expect(f.manager.getServerStatus('one')!.processId).not.toBe(oldProcess);
+      expect(peer.calls().filter(r => r.method === 'initialize')).toHaveLength(2);
+      await expect(f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'stale' })).rejects.toThrow('Stale MCP binding');
+      await f.manager.invokeTool('one', b.bindingId, b.catalogId, 'common', { value: 5 });
+      expect(known).toMatchObject({ content: [{ text: 'known:completed' }] });
+      expect(f.manager.getServerCatalog('other')).toEqual(untouched);
+      await f.manager.invokeTool('other', untouched.bindingId, untouched.catalogId, 'common', { value: 'unaffected' });
+    } finally { await f.close(); }
+  }, 20_000);
+
+  it('routes authenticated socket restart through the installed manager to a fresh HTTP session, with readiness only after discovery', async () => {
+    const f = fixture(); const operator = Fastify({ logger: false });
+    let session = 0; let releaseList: (() => void) | undefined; let failure: unknown;
+    const wire: Array<{ method: string; session: unknown }> = [];
+    const peer = createServer(async (req, res) => {
+      try {
+        const body = await readJsonRequest(req);
+        wire.push({ method: body.method, session: req.headers['mcp-session-id'] });
+        if (body.method === 'notifications/initialized') { res.statusCode = 202; res.end(); return; }
+        res.setHeader('content-type', 'application/json');
+        const send = (result: unknown) => res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
+        if (body.method === 'initialize') { session++; res.setHeader('Mcp-Session-Id', `session-${session}`); send({}); }
+        else if (body.method === 'tools/list' && session === 2) releaseList = () => send({ tools: B });
+        else if (body.method === 'tools/list') send({ tools: A });
+        else send({ content: [{ type: 'text', text: 'remote-still-alive' }] });
+      } catch (error) { failure = error; res.statusCode = 500; res.end(); }
+    });
+    const other = stdioPeer(f.root, 'socket-unrelated');
+    try {
+      const port = await listen(peer);
+      f.manager.registerServer('one', { transport: 'streamable-http', url: `http://127.0.0.1:${port}` });
+      f.manager.registerServer('other', other.connection);
+      await f.manager.startServer('one'); await f.manager.startServer('other');
+      const a = f.manager.getServerCatalog('one')!; const untouched = f.manager.getServerCatalog('other')!;
+      const installation = createMcpToolInvocationInstallation(); installation.installer.install(f.manager);
+      new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'synthetic-token' }), eventLogger: { appendEventPrepared() {} } as never, fatalPort: testApplicationFatalPort }).mount(operator, mcpOperatorApiContracts, buildMcpOperatorContractHandlers({ mcpLifecycle: installation.port, mcpToolsProvider: f.manager }));
+      const address = await operator.listen({ host: '127.0.0.1', port: 0 });
+      const url = `${address}/api/mcp/servers/one/restart`;
+      const post = (authenticated: boolean, body: unknown) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(authenticated ? { authorization: 'Bearer synthetic-token' } : {}) }, body: JSON.stringify(body) });
+      expect((await post(false, { forbidden: true })).status).toBe(401);
+      expect((await post(true, { forbidden: true })).status).toBe(400);
+      expect(session).toBe(1);
+      let settled = false;
+      const restart = post(true, {}).then(response => { settled = true; return response; });
+      await waitFor(() => releaseList !== undefined, 'replacement HTTP discovery');
+      expect(settled).toBe(false); expect(f.manager.getServerCatalog('one')).toBeUndefined();
+      expect(f.manager.getServerStatus('one')).toMatchObject({ status: 'starting' });
+      await expect(f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'old' })).rejects.toThrow('not running');
+      expect(f.manager.getServerCatalog('other')).toEqual(untouched);
+      await f.manager.invokeTool('other', untouched.bindingId, untouched.catalogId, 'common', { value: 'during discovery' });
+      releaseList!();
+      const response = await restart; expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ serverName: 'one', status: 'running', toolCount: 2 });
+      const b = f.manager.getServerCatalog('one')!;
+      expect(b.bindingId).not.toBe(a.bindingId); expect(b.catalogId).not.toBe(a.catalogId); expect(b.tools).toEqual(B);
+      await f.manager.invokeTool('one', b.bindingId, b.catalogId, 'common', { value: 7 });
+      expect(wire.filter(r => r.method === 'initialize')).toHaveLength(2);
+      expect(wire.at(-1)).toEqual({ method: 'tools/call', session: 'session-2' });
+      // The synthetic remote service remains listening: restart owns only the local HTTP session.
+      expect(peer.listening).toBe(true);
+      expect(f.manager.getServerCatalog('other')).toEqual(untouched);
+      if (failure) throw failure;
+    } finally { releaseList?.(); await operator.close(); try { await f.close(); } finally { await closeServer(peer); } }
+  }, 20_000);
   it('rejects missing, disabled, unready, stale and edited definitions without starting or reconciling services', async () => {
     const f = fixture(); const peer = stdioPeer(f.root, 'operator');
     const binding = '11111111-1111-4111-8111-111111111111';

@@ -29,6 +29,136 @@ function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason:
 const emptyReport: ProcessStopReport = { selected: [], stopped: [], failed: [] };
 
 describe('current named-agent MCP manager contract',()=>{
+  it('restarts retained stopped owners but never aliases initial start, and reloads only the selected definition', async () => {
+    const projectRoot = root();
+    writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false } });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = successfulFetch(); globalThis.fetch = fetchMock as typeof fetch;
+    const { value } = manager(projectRoot);
+    try {
+      await expect(value.restartServer('one')).rejects.toMatchObject({ statusCode: 404 });
+      await expect(value.restartServer('missing')).rejects.toMatchObject({ statusCode: 404 });
+      const caller = new AbortController(); const reason = new Error('pre-aborted'); caller.abort(reason);
+      await expect(value.restartServer('one', { signal: caller.signal })).rejects.toBe(reason);
+      expect(fetchMock).not.toHaveBeenCalled();
+      await value.startServer('one');
+      const first = value.getServerCatalog('one')!;
+      await value.stopServer('one');
+      await expect(value.restartServer('one')).resolves.toMatchObject({ status: 'running' });
+      const second = value.getServerCatalog('one')!;
+      expect(second.bindingId).not.toBe(first.bindingId); expect(second.catalogId).not.toBe(first.catalogId);
+      await value.restartServer('one');
+      expect(value.getServerCatalog('one')!.bindingId).not.toBe(second.bindingId);
+      writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp', disabled: true } });
+      await expect(value.restartServer('one')).rejects.toMatchObject({ statusCode: 409 });
+      expect(value.getServerCatalog('one')).toBeUndefined();
+      expect(value.getServerStatus('one')).toMatchObject({ status: 'stopped', containmentFailed: false });
+      expect(fetchMock.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === 'initialize')).toHaveLength(3);
+    } finally { await value.cleanupForApplicationStop(); globalThis.fetch = originalFetch; }
+  });
+
+  it.each(['failure', 'uncertainty'] as const)('retains the old owner and never starts after stop %s', async mode => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const originalFetch = globalThis.fetch; globalThis.fetch = successfulFetch() as typeof fetch;
+    const { value, runner } = manager(projectRoot);
+    try {
+      await value.startServer('one');
+      const failure = mode === 'uncertainty' ? new PublicationOutcomeUnknownError() : new Error('containment failed');
+      const stop = jest.spyOn(runner, 'closeAndTerminateDirectScope').mockRejectedValue(failure);
+      const start = jest.spyOn(value, 'startServer');
+      await expect(value.restartServer('one')).rejects.toBe(failure);
+      expect(start).not.toHaveBeenCalled();
+      // No follow-up inspection or cleanup after publication uncertainty.
+      if (mode === 'failure') {
+        expect(value.getServerStatus('one')).toMatchObject({ status: 'error', containmentFailed: true });
+        await expect(value.restartServer('one')).rejects.toBe(failure);
+        expect(stop).toHaveBeenCalledTimes(1);
+        await expect(value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
+      }
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
+  it.each(['abort', 'close', 'competing restart', 'competing start', 'stop'] as const)('joins old containment before %s and never adopts a replacement owner', async mode => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const originalFetch = globalThis.fetch; const fetchMock = successfulFetch(); globalThis.fetch = fetchMock as typeof fetch;
+    const { value, runner } = manager(projectRoot);
+    try {
+      await value.startServer('one');
+      const entered = deferred<void>(); const release = deferred<void>();
+      const terminate = runner.closeAndTerminateDirectScope.bind(runner);
+      jest.spyOn(runner, 'closeAndTerminateDirectScope').mockImplementation(async input => {
+        entered.resolve(); await release.promise; return terminate(input);
+      });
+      const caller = new AbortController(); const reason = new Error('cancel while joining');
+      // Schedule a separate explicit start after containment, before restart's continuation.
+      if (mode === 'competing start') {
+        const originalStop = McpServerRuntime.prototype.stop;
+        jest.spyOn(McpServerRuntime.prototype, 'stop').mockImplementationOnce(async function (this: McpServerRuntime) {
+          await originalStop.call(this);
+          await value.startServer('one');
+        });
+      }
+      const restart = value.restartServer('one', { signal: caller.signal }).catch(error => error);
+      await entered.promise;
+      expect(value.getServerCatalog('one')).toBeUndefined();
+      const competing = mode === 'competing restart' ? value.restartServer('one').catch(error => error) : undefined;
+      const stop = mode === 'stop' ? value.stopServer('one') : undefined;
+      if (mode === 'abort') caller.abort(reason);
+      if (mode === 'close') value.closeAdmission();
+      expect(fetchMock.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === 'initialize')).toHaveLength(1);
+      release.resolve();
+      const result = await restart;
+      if (mode === 'abort') expect(result).toBe(reason);
+      else if (mode === 'close') expect(result.message).toContain('closed');
+      else if (mode === 'competing start') expect(result).toMatchObject({ statusCode: 409 });
+      else expect(result).toMatchObject({ status: 'running' });
+      if (competing) expect(await competing).toMatchObject({ statusCode: 409 });
+      await stop;
+      expect(fetchMock.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === 'initialize')).toHaveLength(mode === 'abort' || mode === 'close' ? 1 : 2);
+    } finally { await value.cleanupForApplicationStop(); globalThis.fetch = originalFetch; }
+  });
+
+  it('keeps failed replacement discovery contained with no rollback or replay', async () => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const originalFetch = globalThis.fetch; globalThis.fetch = successfulFetch() as typeof fetch;
+    const { value } = manager(projectRoot);
+    try {
+      await value.startServer('one');
+      globalThis.fetch = jest.fn(async () => new Response(null, { status: 503 })) as typeof fetch;
+      await expect(value.restartServer('one')).rejects.toBeInstanceOf(TransportError);
+      expect(value.getServerCatalog('one')).toBeUndefined();
+      expect(value.getServerStatus('one')).toMatchObject({ status: 'stopped', containmentFailed: false });
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    } finally { await value.cleanupForApplicationStop(); globalThis.fetch = originalFetch; }
+  });
+
+  it('fences and joins the captured starting owner before fresh initialization', async () => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const originalFetch = globalThis.fetch; const entered = deferred<void>(); const release = deferred<void>();
+    const successful = successfulFetch(); let first = true; let oldStartupJoined = false;
+    globalThis.fetch = jest.fn(async (url: string | URL, options?: RequestInit) => {
+      if (first) {
+        first = false; entered.resolve(); await release.promise;
+        try { options!.signal!.throwIfAborted(); } finally { oldStartupJoined = true; }
+        throw new Error('Expected the old initialization to be aborted');
+      }
+      expect(oldStartupJoined).toBe(true);
+      return successful(url, options);
+    }) as typeof fetch;
+    const { value } = manager(projectRoot);
+    try {
+      const starting = value.startServer('one').catch(error => error); await entered.promise;
+      const oldBinding = value.getServerStatus('one')!.bindingId;
+      const restart = value.restartServer('one');
+      expect(value.getServerCatalog('one')).toBeUndefined();
+      expect(successful).not.toHaveBeenCalled();
+      release.resolve();
+      expect(await starting).toBeInstanceOf(Error);
+      await expect(restart).resolves.toMatchObject({ status: 'running' });
+      expect(value.getServerCatalog('one')!.bindingId).not.toBe(oldBinding);
+      expect(successful.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === 'initialize')).toHaveLength(1);
+    } finally { release.resolve(); await value.cleanupForApplicationStop(); globalThis.fetch = originalFetch; }
+  });
   it.each(['success', 'report', 'rejection'] as const)('joins actual discovery rejection containment (%s) before settlement or replacement', async mode => {
     const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false } });
     const originalFetch = globalThis.fetch;

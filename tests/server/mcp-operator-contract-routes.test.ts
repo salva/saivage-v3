@@ -53,20 +53,22 @@ describe('MCP operator contract routes', () => {
     const handlers = buildMcpOperatorContractHandlers({ mcpToolsProvider: { getToolsReadModel: () => ({ servers: [] }) }, mcpLifecycle: {
       startServer: async name => { calls.push(name); if (name === 'missing') throw new McpLifecycleError('Unknown', 404); if (name === 'disabled') throw new McpLifecycleError('Disabled', 409); if (name === 'failure') throw new Error('private failure'); return { serverName: name, status: 'running', toolCount: 2 }; },
       stopServer: async name => ({ serverName: name, status: 'stopped', toolCount: 0 }),
+      restartServer: async name => { calls.push(name); if (name === 'missing') throw new McpLifecycleError('Unknown', 404); if (name === 'disabled') throw new McpLifecycleError('Disabled', 409); if (name === 'failure') throw new Error('private failure'); return { serverName: name, status: 'running', toolCount: 2 }; },
     } });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'test-token' }), eventLogger: { appendEventPrepared() {} } as never, fatalPort: testApplicationFatalPort }).mount(fastify, mcpOperatorApiContracts, handlers);
     const headers = { authorization: 'Bearer test-token' };
-    for (const action of ['start', 'stop']) {
+    for (const action of ['start', 'stop', 'restart']) {
       const url = `/api/mcp/servers/browser/${action}`;
       const before = calls.length;
       expect((await fastify.inject({ method: 'POST', url, payload: { command: 'forbidden' } })).statusCode).toBe(401);
       expect(calls).toHaveLength(before);
       expect((await fastify.inject({ method: 'POST', url, headers, payload: { command: 'forbidden' } })).statusCode).toBe(400);
       const response = await fastify.inject({ method: 'POST', url, headers, payload: {} });
-      expect(response.statusCode).toBe(200); expect(response.json()).toEqual({ serverName: 'browser', status: action === 'start' ? 'running' : 'stopped', toolCount: action === 'start' ? 2 : 0 });
+      expect(response.statusCode).toBe(200); expect(response.json()).toEqual({ serverName: 'browser', status: action === 'stop' ? 'stopped' : 'running', toolCount: action === 'stop' ? 0 : 2 });
     }
-    for (const [name, status] of [['missing', 404], ['disabled', 409], ['failure', 500]] as const)
-      expect((await fastify.inject({ method: 'POST', url: `/api/mcp/servers/${name}/start`, headers, payload: {} })).statusCode).toBe(status);
+    for (const action of ['start', 'restart'])
+      for (const [name, status] of [['missing', 404], ['disabled', 409], ['failure', 500]] as const)
+        expect((await fastify.inject({ method: 'POST', url: `/api/mcp/servers/${name}/${action}`, headers, payload: {} })).statusCode).toBe(status);
   });
   it('omits opaque integration payload while preserving exact names, topology, and stats', async () => {
     const stat = { total: 9, success: 8, error: 1, lastInvokedAt: '2026-07-22T12:00:00.000Z' };
