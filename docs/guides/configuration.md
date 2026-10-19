@@ -289,6 +289,8 @@ destination's declared input. An agent declares e.g.
 Node inputs use `{literal: value}` or `{source: card_id|card_type|card_title}`;
 hooks additionally allow `committed_status`. Missing/duplicate suppliers fail
 compilation on every incoming route, and inputs are checked again at use.
+Hooks have no incoming edge and must explicitly supply every declared required
+input, including an empty argv list for `shell.run` when appropriate.
 Agent handoff quotes only selected facts; it does not grant tools or instructions.
 
 The optional `stdout_record` binding is only for an exact declared nonbootstrap

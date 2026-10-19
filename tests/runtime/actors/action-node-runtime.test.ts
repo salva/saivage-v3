@@ -29,7 +29,7 @@ import { cardExecutionFile } from '../../../src/persistence/layout.js';
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); jest.restoreAllMocks(); });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
-function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }, retainedRoot?: string, stdoutRecord = false) {
+function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; args?: string[]; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }, retainedRoot?: string, stdoutRecord = false) {
   const root = retainedRoot ?? mkdtempSync(join(tmpdir(), 'action-runtime-'));
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
   const workflow = config.card_types.project!.workflow;
@@ -82,7 +82,7 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
     workflow.after_activation_commit = { statuses: [attachment.status ?? 'done'], execution: {
       kind: 'action', action: attachment.definition?.id ?? 'shell.run', contract_version: 1,
       config: attachment.definition ? {} : { script: attachment.script ?? 'printf "actual hook"', timeout_ms: 1000, terminate_grace_ms: 50 },
-      inputs: attachment.definition ? {} : { args: { literal: [] } },
+      inputs: attachment.definition ? {} : { args: { literal: attachment.args ?? [] } },
     } };
     if (attachment.child) {
       config.card_types.goal!.workflow = structuredClone(workflow);
@@ -708,7 +708,11 @@ it('retains required operation scope settlement failure after a known successful
 });
 
 it.each([false, true])('natural DONE hook consumes delivery and releases actual root/child lease; child=%s', async (child) => {
-  const f = fixture(undefined, 'exit 0', false, false, false, {}, { child });
+  const args = ['explicit hook argument', 'second-λ'];
+  const f = fixture(undefined, 'exit 0', false, false, false, {}, {
+    child, args, script: 'printf "<%s>\\n" "$@"',
+  });
+  const commit = jest.spyOn(f.cards, 'commitActivationOutcome');
   const consumers = jest.spyOn(ActivationOperationTracker.prototype, 'trackConsumer');
   const owner = await launch(f);
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'done' });
@@ -716,11 +720,26 @@ it.each([false, true])('natural DONE hook consumes delivery and releases actual 
   const rows = readCardExecutions(f.root, id);
   expect(rows.filter((row) => row.kind === 'invocation_started')).toHaveLength(2);
   const hook = rows.find((row) => row.kind === 'invocation_started' && row.binding.kind === 'card-hook');
-  expect(hook).toMatchObject({ binding: { status: 'done', committed_card_artifact: { entry_id: expect.any(String), version: f.cards.read(id)!.version_seq } } });
-  expect(rows.at(-1)).toMatchObject({ outcome: 'passed' });
+  if (!hook || hook.kind !== 'invocation_started') throw new Error('Missing real hook invocation.');
+  const commitIndex = commit.mock.calls.findIndex(([cardId]) => cardId === id);
+  expect(commitIndex).toBeGreaterThanOrEqual(0);
+  const committed = commit.mock.results[commitIndex]!;
+  if (committed.type !== 'return') throw new Error('Expected known successful Supervisor commit.');
+  expect(committed.value.card.lifecycle.status).toBe('done');
+  expect(hook).toMatchObject({ operation: 'shell.run', input: [{ name: 'args', type: 'strings', value: args }],
+    binding: { status: 'done', committed_card_artifact: committed.value.artifact } });
+  expect(hook.shell!.argv.slice(-args.length)).toEqual(args);
+  expect(committed.value.artifact.version).toBe(f.cards.read(id)!.version_seq);
+  expect(f.cards.read(id)!.lifecycle.status).toBe('done');
+  const process = rows.find((row) => row.kind === 'process_started' && row.invocation_id === hook.invocation_id);
+  if (!process || process.kind !== 'process_started') throw new Error('Missing real hook process.');
+  const stdout = process.files.find((file) => file.kind === 'capture' && file.stream === 'stdout')!;
+  expect(readFileSync(join(f.root, stdout.path), 'utf8')).toBe('<explicit hook argument>\n<second-λ>\n');
+  expect(rows.at(-1)).toMatchObject({ invocation_id: hook.invocation_id, disposition: 'returned', outcome: 'passed', leader_exit: { exit_code: 0, signal: null } });
   expect(consumers).toHaveBeenCalledTimes(child ? 3 : 2);
   expect(f.supervisor.getStatus().status).toBe('stopped');
   expect((f.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners.size).toBe(0);
+  expect(f.processes.processRunner.list()).toEqual([]);
 });
 
 it.each([false, true])('advisory hook nonzero preserves DONE and releases root/child; child=%s', async (child) => {

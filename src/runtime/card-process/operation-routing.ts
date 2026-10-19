@@ -61,6 +61,8 @@ export function compileActionExecution(
     throw new Error(`Operation '${source.action}' does not support '${binding}'.`);
   const config = operation.config.parse(source.config);
   validateInputBindings(operation.inputs, source.inputs, binding === 'after_activation_commit');
+  if (binding === 'after_activation_commit')
+    validateIncomingInputs(operation.inputs, source.inputs, {}, {});
   return Object.freeze({
     kind: 'action',
     operation,

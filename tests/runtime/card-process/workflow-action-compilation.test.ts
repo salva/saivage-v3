@@ -419,6 +419,80 @@ describe('workflow2 typed action compilation', () => {
     delete node.edges.signalled;
     expect(() => compile(config)).toThrow(/every exact operation outcome/);
   });
+  it('rejects missing hook argv at compilation while admitting the identical explicit supplier', () => {
+    const complete = fixture();
+    complete.card_types.code!.workflow.after_activation_commit = {
+      statuses: ['done'],
+      execution: {
+        kind: 'action',
+        action: 'shell.run',
+        contract_version: 1,
+        config: { script: 'printf "%s" "$@"', timeout_ms: 1000, terminate_grace_ms: 50 },
+        inputs: { args: { literal: ['explicit hook argument'] } },
+      },
+    };
+    const incomplete = structuredClone(complete);
+    incomplete.card_types.code!.workflow.after_activation_commit!.execution.inputs = {};
+    const parsedIncomplete = effectiveSaivageConfigSchema.parse(incomplete);
+    expect(() => compileProjectWorkflows(parsedIncomplete, { operationPlugins: [plugin] }))
+      .toThrow("Missing required input 'args'");
+    const hook = compile(effectiveSaivageConfigSchema.parse(complete))
+      .cardTypes.get('code')!.afterActivationCommit!;
+    expect(hook.execution.operation.id).toBe('shell.run');
+    expect(hook.execution.inputs).toEqual({ args: { literal: ['explicit hook argument'] } });
+  });
+  it('compiles and resolves a required plain-string hook input from committed status', () => {
+    const observe: OperationDefinition = {
+      ...inspect,
+      id: 'acme-analysis.observe',
+      bindings: ['after_activation_commit'],
+      inputs: { status: { type: 'string', workflow: true } },
+    };
+    const config = fixture();
+    config.card_types.code!.workflow.after_activation_commit = {
+      statuses: ['done'],
+      execution: {
+        kind: 'action', action: observe.id, contract_version: 1, config: {},
+        inputs: { status: { source: 'committed_status' } },
+      },
+    };
+    const hook = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config), {
+      operationPlugins: [{ namespace: 'acme-analysis', operations: { inspect, observe } }],
+    }).cardTypes.get('code')!.afterActivationCommit!;
+    expect(resolveExecutionInputs(hook.execution.operation.inputs, hook.execution.inputs, {}, {}, {
+      card_id: 'card-a', card_type: 'code', card_title: 'Observed commit', committed_status: 'done',
+    })).toEqual({ status: 'done' });
+  });
+  it('admits an ordinary action required input supplied exclusively by predecessor output', () => {
+    const receive: OperationDefinition = {
+      ...inspect,
+      id: 'acme-analysis.receive',
+      inputs: { findings: { type: 'integer', min: 0, max: 1000, workflow: true } },
+    };
+    const config = fixture();
+    config.card_types.code!.workflow.nodes.assess = {
+      execution: {
+        kind: 'action', action: receive.id, contract_version: 1, config: {}, inputs: {},
+      },
+      records: {},
+      edges: {
+        finished: { target: { node: 'repair' }, inputs: { findings: { output: 'count' } } },
+      },
+    };
+    const workflow = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config), {
+      operationPlugins: [{ namespace: 'acme-analysis', operations: { inspect, receive } }],
+    }).cardTypes.get('code')!;
+    const target = workflow.states.get('node:assess')!;
+    if (target.kind !== 'node' || target.execution.kind !== 'action')
+      throw new Error('Expected edge-fed action.');
+    expect(target.execution.inputs).toEqual({});
+    const predecessor = workflow.states.get('node:inspect')!;
+    const incoming = predecessor.on.get('result:finished:case:partial')!.semantic;
+    if (incoming.kind !== 'configured-outcome') throw new Error('Expected configured route.');
+    expect(resolveExecutionInputs(target.execution.operation.inputs, target.execution.inputs,
+      incoming.inputs, { count: 3 }, { card_id: 'card-a', card_type: 'code', card_title: 'Check' },
+    )).toEqual({ findings: 3 });
+  });
   it('strictly rejects old source config, unsupported fields and incomplete operation returns', () => {
     const old = structuredClone(DEFAULT_SAIVAGE_CONFIG) as unknown as {
       card_types: { code: { workflow: Record<string, unknown> } };
