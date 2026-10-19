@@ -40,17 +40,15 @@ function main() {
     .filter(Boolean);
 
   const dirty = statusEntries(DIST);
-  const gitignoreDirty = statusEntries('.gitignore').length > 0;
-  const migrationPending = ignoredByPolicy && gitignoreDirty && tracked.length > 0;
 
   const errors = [];
   if (!ignoredByPolicy) {
     errors.push(`.gitignore must explicitly ignore ${DIST}/ because VitePress output is generated.`);
   }
-  if (tracked.length > 0 && !migrationPending) {
+  if (tracked.length > 0) {
     errors.push(`${DIST}/ must not contain tracked files (${tracked.length} tracked file(s) found).`);
   }
-  if (dirty.length > 0 && !migrationPending) {
+  if (dirty.length > 0) {
     errors.push(`${DIST}/ must not leave git-visible dirty entries after docs build (${dirty.length} entr${dirty.length === 1 ? 'y' : 'ies'} found).`);
   }
 
@@ -74,11 +72,7 @@ function main() {
     process.exit(1);
   }
 
-  if (migrationPending) {
-    console.log(`✓ VitePress dist artifact policy migration pending: ${DIST}/ is now ignored and tracked generated files will be removed by this commit`);
-  } else {
-    console.log(`✓ VitePress dist artifact policy enforced: ${DIST}/ is ignored generated output with no tracked or dirty entries`);
-  }
+  console.log(`✓ VitePress dist artifact policy enforced: ${DIST}/ is ignored generated output with no tracked or dirty entries`);
 }
 
 main();
