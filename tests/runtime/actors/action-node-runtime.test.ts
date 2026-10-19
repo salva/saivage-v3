@@ -1,5 +1,6 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
-import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -27,8 +28,8 @@ import { cardExecutionFile } from '../../../src/persistence/layout.js';
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); jest.restoreAllMocks(); });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
-function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }) {
-  const root = mkdtempSync(join(tmpdir(), 'action-runtime-'));
+function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }, retainedRoot?: string) {
+  const root = retainedRoot ?? mkdtempSync(join(tmpdir(), 'action-runtime-'));
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
   const workflow = config.card_types.project!.workflow;
   const recovery = workflow.nodes.plan!;
@@ -87,7 +88,7 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
   const compiled = compileProjectWorkflows(config, { operationPlugins: operation ? [{ namespace: 'acme', operations: { inspect: operation } }] : [] });
   const registry = new ProviderRegistry(config);
   const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
-  initProjectTree(root);
+  if (!retainedRoot) initProjectTree(root);
   const cards = new CardService(root, compiled);
   const processes = createTestProcessRunner(root);
   let providerCalls = 0;
@@ -388,6 +389,54 @@ it('Stop, direct status changes, record writes and stopped-chain recovery do not
   expect(readCardExecutions(f.root, 'project')).toEqual(rows);
   expect(f.provider).not.toHaveBeenCalled();
 });
+
+it('fresh startup preserves a fatal lost finish and explicit Run enters STOPPED, never the logged action', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'action-lost-finish-'));
+  cleanups.push(async () => { rmSync(root, { recursive: true, force: true }); });
+  const marker = join(root, 'marker');
+  writeFileSync(marker, '');
+  // The existing disposable fatal owner enters a real operation and exits before
+  // cleanup, finish publication, or acknowledgement. Do not synthesize log rows.
+  const fatal = spawnSync(process.execPath, ['--import', 'tsx',
+    join(process.cwd(), 'tests', 'fixtures', 'publication-fatal-boundaries.ts'),
+    'action-node-publication', marker], { cwd: process.cwd(), encoding: 'utf8', timeout: 30_000 });
+  expect(fatal.status).toBe(1);
+  expect(fatal.stdout).toBe('');
+  expect(fatal.stderr).toBe('Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.\n');
+  expect(readFileSync(marker, 'utf8')).toBe('entered\n');
+  const run = jest.fn<OperationDefinition['run']>(async () => {
+    throw new Error('Lost invocation must not be replayed.');
+  });
+  const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [], run };
+  const f = fixture(definition, '', false, true, false, {}, undefined, root);
+  expect(f.cards.read('project')!.lifecycle.status).toBe('running');
+  const file = cardExecutionFile(root, 'project');
+  const bytes = readFileSync(file);
+  const rows = readCardExecutions(root, 'project');
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ kind: 'invocation_started', operation: 'acme.inspect',
+    binding: { kind: 'node', node_id: 'check' }, input: [] });
+
+  await f.supervisor.start();
+  expect(f.cards.read('project')!.lifecycle.status).toBe('stopped');
+  expect(f.supervisor.getStatus().status).toBe('stopped');
+  expect(f.provider).not.toHaveBeenCalled();
+  expect(run).not.toHaveBeenCalled();
+  expect(f.processes.processRunner.list()).toEqual([]);
+  expect(readFileSync(file)).toEqual(bytes);
+  expect(readCardExecutions(root, 'project')).toEqual(rows);
+
+  const owner = await launch(f);
+  await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'blocked',
+    result: { node_id: 'plan', executor: { kind: 'agent', agent: 'planner' } } });
+  expect(f.provider).toHaveBeenCalledTimes(1);
+  expect(run).not.toHaveBeenCalled();
+  expect(f.processes.processRunner.list()).toEqual([]);
+  expect(readFileSync(file)).toEqual(bytes);
+  expect(readCardExecutions(root, 'project')).toEqual(rows);
+  expect(readFileSync(marker, 'utf8')).toBe('entered\n');
+}, 35_000);
 
 it('reopening an actually completed card does not dispatch another attachment', async () => {
   const f = fixture(undefined, 'exit 0', false, false, false, {}, {});
