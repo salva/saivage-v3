@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { invokeOperation } from '../../../src/runtime/actors/operation-execution.js';
@@ -15,7 +16,7 @@ import { testApplicationFatalPort } from '../../helpers/test-application-fatal-p
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 function fixture(script: string, extra: Record<string, unknown> = {}) {
-  const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/operation-execution-');
+  const projectRoot = mkdtempSync(join(tmpdir(), 'operation-execution-'));
   mkdirSync(join(projectRoot, '.saivage/cards/project/records'), { recursive: true });
   const registry = new ManagedProcessGroupRegistry();
   const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);

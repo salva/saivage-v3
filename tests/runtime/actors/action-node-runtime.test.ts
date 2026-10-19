@@ -1,5 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { CardService } from '../../../src/cards/card-service.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
@@ -26,7 +28,7 @@ const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); jest.restoreAllMocks(); });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
 function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }) {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/action-runtime-');
+  const root = mkdtempSync(join(tmpdir(), 'action-runtime-'));
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
   const workflow = config.card_types.project!.workflow;
   const recovery = workflow.nodes.plan!;

@@ -1,5 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import { CardService } from '../../src/cards/card-service.js';
 import { createResolvedConfigAuthority } from '../../src/config/index.js';
 import { join } from 'node:path';
@@ -21,7 +22,7 @@ import {
 
 /** Existing production composition + local scripted provider, finite real commands only. */
 export async function executionProductionFixture(exitCode = 0) {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/executions-production-');
+  const root = mkdtempSync(join(tmpdir(), 'executions-production-'));
   const token = 'disposable-executions-token';
   let analystStarted = false;
   let workflowCalls = 0;

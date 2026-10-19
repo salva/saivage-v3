@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join, relative } from 'node:path';
+import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   CardService,
@@ -84,7 +85,7 @@ describe('exact authenticated execution evidence APIs', () => {
     });
 
   beforeEach(async () => {
-    root = mkdtempSync('/home/salva/g/ml/tmp/execution-api-');
+    root = mkdtempSync(join(tmpdir(), 'execution-api-'));
     initProjectTree(root);
     cards = new CardService(root);
     server = Fastify({ logger: false });

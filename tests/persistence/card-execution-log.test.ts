@@ -10,6 +10,7 @@ import {
   existsSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   appendCardExecutions,
   readCardExecutions,
@@ -23,7 +24,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function project(): string {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/saivage-executions-');
+  const root = mkdtempSync(join(tmpdir(), 'saivage-executions-'));
   roots.push(root);
   mkdirSync(dirname(cardExecutionFile(root, 'project')), { recursive: true });
   return root;

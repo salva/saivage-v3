@@ -1,6 +1,7 @@
 import { expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { z } from 'zod';
 import { CardService } from '../../../src/cards/card-service.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
@@ -27,7 +28,7 @@ import { testApplicationFatalPort } from '../../helpers/test-application-fatal-p
 it.each([0, 3, -1])(
   'actual plugin output chooses a branch and binds typed successor input without retry: %i',
   async (count) => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/plugin-output-binding-');
+    const root = mkdtempSync(join(tmpdir(), 'plugin-output-binding-'));
     let sourceCalls = 0;
     const selected: Array<{ label: string; input: unknown }> = [];
     const source: OperationDefinition = {

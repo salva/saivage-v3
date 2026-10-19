@@ -1,5 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   NodeExecution,
   type AcceptedNodeResult,
@@ -16,7 +18,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 function fixture() {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/saivage-node-resource-');
+  const root = mkdtempSync(join(tmpdir(), 'saivage-node-resource-'));
   const registry = new ManagedProcessGroupRegistry();
   const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
   const runtimeRoot = runner.createContainerScope(registry.rootScope, 'runtime');

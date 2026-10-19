@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -12,7 +14,7 @@ afterEach(async () => {
   for (const run of cleanup.splice(0)) await run();
 });
 function fixture() {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/saivage-captured-');
+  const root = mkdtempSync(join(tmpdir(), 'saivage-captured-'));
   const registry = new ManagedProcessGroupRegistry();
   const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
   const scope = runner.createDirectScope(registry.rootScope, 'finite action', 'runtime_card');
@@ -102,7 +104,7 @@ describe('captured argv process ownership', () => {
     expect(runner.list()).toEqual([]);
   });
   it('destroys owned lingering captures at the shared deadline instead of abandoning their settlement', async () => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/saivage-capture-deadline-');
+    const root = mkdtempSync(join(tmpdir(), 'saivage-capture-deadline-'));
     const child = Object.assign(new EventEmitter(), {
       stdout: new PassThrough(),
       stderr: new PassThrough(),
@@ -153,7 +155,7 @@ describe('captured argv process ownership', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
   it('bounds and joins the same capture settlement after unconfirmed termination, including the runtime-root join', async () => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/saivage-unconfirmed-capture-');
+    const root = mkdtempSync(join(tmpdir(), 'saivage-unconfirmed-capture-'));
     const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() });
     let id!: string;
     const report = () => ({ selected: [id], stopped: [], failed: [{ groupId: id, state: 'unconfirmed' as const, diagnostic: 'Group remained live.' }] });
