@@ -8,5 +8,5 @@ export {
   redactUrl,
 } from './text.js';
 
-export { projectDynamicForOutbound } from './dynamic.js';
+export { neutralSecretValue, projectDynamicForOutbound } from './dynamic.js';
 export { isSecretKey } from './secret-key.js';

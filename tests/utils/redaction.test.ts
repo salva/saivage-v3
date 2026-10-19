@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   SECRET_REDACTION_PLACEHOLDER,
+  neutralSecretValue,
   projectDynamicForOutbound,
   redactSnippetForOutbound,
   redactTextForOutbound,
@@ -65,6 +66,39 @@ describe('outbound redaction', () => {
   });
 
   describe('structured values', () => {
+    it('shares typed scalar neutralization without changing dynamic null, bigint or array traversal', () => {
+      const text: string = neutralSecretValue('violet-orbit-4826');
+      const count: number = neutralSecretValue(73);
+      const enabled: boolean = neutralSecretValue(true);
+      expect([text, count, enabled]).toEqual(['[REDACTED]', 0, false]);
+      expect(neutralSecretValue(null)).toBeNull();
+      expect(neutralSecretValue(undefined)).toBeUndefined();
+      expect(neutralSecretValue(91n)).toBe(0n);
+      expect(projectDynamicForOutbound({
+        api_token: 'violet-orbit-4826',
+        count_secret: 73,
+        enabled_secret: true,
+        null_secret: null,
+        absent_secret: undefined,
+        bigint_secret: 91n,
+        // Generic dynamic arrays still recurse without carrying the containing key.
+        // Execution observations own their explicit per-element neutralization separately.
+        access_token: ['amber-meadow-7319', 'api_key: ordinary-array-canary'],
+        empty_secret: [],
+        safe: { label: 'visible-control', count: 19, enabled: true },
+      })).toEqual({
+        api_token: '[REDACTED]',
+        count_secret: 0,
+        enabled_secret: false,
+        null_secret: null,
+        absent_secret: undefined,
+        bigint_secret: 0n,
+        access_token: ['amber-meadow-7319', 'api_key: [REDACTED]'],
+        empty_secret: [],
+        safe: { label: 'visible-control', count: 19, enabled: true },
+      });
+    });
+
     it('uses the same secret-key classification for text and dynamic projections', () => {
       const value = {
         candidateBToken: 'synthetic-camel-secret',

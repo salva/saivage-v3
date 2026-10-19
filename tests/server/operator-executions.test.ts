@@ -32,6 +32,15 @@ import {
   type CardExecutionFinish,
 } from '../../src/persistence/card-execution-log.js';
 import { cardExecutionFile } from '../../src/persistence/layout.js';
+import { readCardExecutions } from '../../src/persistence/card-execution-log.js';
+import { parseOperatorResponse } from '../../src/contracts/index.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
+import {
+  invokeObservationPlugin,
+  observationCanaries,
+  observationInputs,
+  observationOutputs,
+} from '../helpers/execution-observation-fixture.js';
 
 describe('exact authenticated execution evidence APIs', () => {
   let root: string;
@@ -113,6 +122,63 @@ describe('exact authenticated execution evidence APIs', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it.each(['input', 'values'] as const)(
+    'neutralizes secret-named compiled plugin %s at the authenticated route, not in raw facts',
+    async (side) => {
+      const { invocation, received, selected } = await invokeObservationPlugin(root);
+      expect(received).toEqual([observationInputs]);
+      expect(invocation.result.values).toEqual(observationOutputs);
+      expect(selected.routeId).toBe('original-secret-value');
+      expect(selected.result.values).toEqual(observationOutputs);
+      const path = cardExecutionFile(root, 'project');
+      const bytes = readFileSync(path);
+      const raw = readCardExecutions(root, 'project');
+      expect(raw.map((row) => row.kind)).toEqual(['invocation_started', 'invocation_finished']);
+      const input = raw[0];
+      const output = raw[1];
+      if (input?.kind !== 'invocation_started' || output?.kind !== 'invocation_finished')
+        throw new Error('Expected real invocation evidence.');
+      expect(Object.fromEntries(input.input.map(({ name, value }) => [name, value]))).toEqual(observationInputs);
+      expect(Object.fromEntries(output.values.map(({ name, value }) => [name, value]))).toEqual(observationOutputs);
+      expect(input.input.map(({ type }) => type)).toEqual([
+        'string', 'strings', 'integer', 'boolean', 'strings', 'string',
+        'strings', 'integer', 'boolean', 'strings', 'string', 'strings',
+      ]);
+      expect(output.values.map(({ type }) => type)).toEqual(input.input.map(({ type }) => type));
+      for (const canary of [...observationCanaries.input, ...observationCanaries.output])
+        expect(bytes.toString()).toContain(canary);
+      expect((await get(`/${invocation.invocationId}`, false)).statusCode).toBe(401);
+      const response = await get(`/${invocation.invocationId}`);
+      expect(response.statusCode).toBe(200);
+      const detail = parseOperatorResponse('cards.executions.get', 200, response.json());
+      // The outbound read must not rewrite or neutralize canonical evidence or internal values.
+      expect(readFileSync(path)).toEqual(bytes);
+      expect(readCardExecutions(root, 'project')).toEqual(raw);
+      expect(received).toEqual([observationInputs]);
+      expect(detail).toMatchObject({ disposition: 'returned', outcome: 'observed', shell: null });
+      expect(response.body).not.toMatch(/PRIVATE-OBSERVATION-CONFIG|"config"|"env"/u);
+      const original = side === 'input' ? observationInputs : observationOutputs;
+      expect(detail[side]).toEqual([
+        { name: 'api_token', type: 'string', value: '[REDACTED]' },
+        { name: 'access_token', type: 'strings', value: ['[REDACTED]', '[REDACTED]'] },
+        { name: 'count_secret', type: 'integer', value: 0 },
+        { name: 'enabled_secret', type: 'boolean', value: false },
+        { name: 'empty_secret', type: 'strings', value: [] },
+        { name: 'label', type: 'string', value: original.label },
+        { name: 'labels', type: 'strings', value: original.labels },
+        { name: 'count', type: 'integer', value: original.count },
+        { name: 'enabled', type: 'boolean', value: original.enabled },
+        { name: 'empty', type: 'strings', value: [] },
+        { name: 'note', type: 'string', value: redactTextForOutbound(original.note) },
+        { name: 'notes', type: 'strings', value: original.notes.map(redactTextForOutbound) },
+      ]);
+      for (const canary of [...observationCanaries.input, ...observationCanaries.output])
+        expect(response.body).not.toContain(canary);
+      expect(response.body).not.toContain('ordinary-input-text-canary');
+      expect(response.body).not.toContain('ordinary-output-list-canary');
+    },
+  );
+
   it('authenticates before consuming even malformed canonical evidence, including downloads', async () => {
     writeFileSync(cardExecutionFile(root, 'project'), 'MALFORMED\n');
     const id = randomUUID();
@@ -123,6 +189,52 @@ describe('exact authenticated execution evidence APIs', () => {
       `/${id}/files/${randomUUID()}:0/download`,
     ])
       expect((await get(path, false)).statusCode).toBe(401);
+  });
+
+  it('keeps ordinary outbound filtering on known list/detail text fields and preserves identities', async () => {
+    const text = 'api_key: known-field-canary';
+    const projected = redactTextForOutbound(text);
+    const s = start();
+    s.provider.name = text;
+    s.binding = { kind: 'node', activation_id: randomUUID(), node_id: text, ordinal: 0 };
+    s.shell = { script: text, cwd: text, argv: [text], env: { PRIVATE: 'PRIVATE-ENV-MARKER' } };
+    const f = finish(s, [text]);
+    f.summary = text;
+    f.leader_exit = { exit_code: 3, signal: text, observed_at: f.timestamp };
+    f.leader_error = { diagnostic: text, observed_at: f.timestamp };
+    f.interruption = text;
+    f.timeout_reason = text;
+    f.process = {
+      id: randomUUID(), group: 'absent', group_diagnostic: text,
+      stdout: 'eof', stderr: 'eof', stdout_error: text, stderr_error: text,
+    };
+    f.absent_artifacts = [text];
+    appendCardExecutions(root, 'project', [s, f]);
+    const bytes = readFileSync(cardExecutionFile(root, 'project'));
+    const response = await get(`/${s.invocation_id}`);
+    expect(response.statusCode).toBe(200);
+    const detail = parseOperatorResponse('cards.executions.get', 200, response.json());
+    expect(detail).toMatchObject({
+      invocation_id: s.invocation_id,
+      provider: { kind: 'builtin', name: projected },
+      binding: { ...s.binding, node_id: projected },
+      started_at: s.timestamp, finished_at: f.timestamp,
+      shell: { script: projected, cwd: projected, argv: [projected] },
+      summary: projected,
+      leader_exit: { ...f.leader_exit, signal: projected },
+      leader_error: { ...f.leader_error, diagnostic: projected },
+      interruption: projected, timeout_reason: projected,
+      process: { ...f.process, group_diagnostic: projected, stdout_error: projected, stderr_error: projected },
+      files: [{ key: `${f.row_id}:0`, label: projected, source: 'current' }],
+      absent_artifacts: [projected],
+    });
+    const listResponse = await get();
+    const list = parseOperatorResponse('cards.executions.list', 200, listResponse.json());
+    expect(list.rows.map((row) => row.binding)).toEqual([
+      { ...s.binding, node_id: projected }, { ...s.binding, node_id: projected },
+    ]);
+    expect(response.body + listResponse.body).not.toMatch(/known-field-canary|PRIVATE-/u);
+    expect(readFileSync(cardExecutionFile(root, 'project'))).toEqual(bytes);
   });
 
   it('keeps lazy absence and incomplete evidence distinct, paginates by exact row, redacts private configuration', async () => {

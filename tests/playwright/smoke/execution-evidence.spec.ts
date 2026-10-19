@@ -5,8 +5,67 @@ import { executionProductionFixture, executionReport } from '../../helpers/execu
 import { redactTextForOutbound } from '../../../src/redaction/index.js';
 import { appendCardExecutions } from '../../../src/persistence/card-execution-log.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
+import { parseOperatorResponse } from '../../../src/contracts/index.js';
+import { cardExecutionFile } from '../../../src/persistence/layout.js';
+import {
+  invokeObservationPlugin,
+  observationCanaries,
+  observationInputs,
+  observationOutputs,
+} from '../../helpers/execution-observation-fixture.js';
 
 test.describe.configure({ timeout: 90_000, retries: 0 });
+
+test('compiled plugin observations render the actual authenticated detail result without secret scalar/list values', async ({ page }) => {
+  const fixture = await executionProductionFixture();
+  try {
+    // A trusted test-local invocation supplies an explicitly compiled plugin without changing
+    // shipped registration or asking a provider to invoke an unsupported workflow operation.
+    const { invocation, received, selected } = await invokeObservationPlugin(fixture.root);
+    expect(received).toEqual([observationInputs]);
+    expect(selected.routeId).toBe('original-secret-value');
+    expect(invocation.result.values).toEqual(observationOutputs);
+    const path = cardExecutionFile(fixture.root, 'project');
+    const raw = readFileSync(path);
+    await seedTokenBeforeNavigation(page, fixture.token);
+    await page.goto(`${fixture.origin}/cards/project?facet=executions`);
+    const responsePromise = page.waitForResponse((response) =>
+      response.url() === `${fixture.origin}/api/cards/project/executions/${invocation.invocationId}` &&
+      response.request().method() === 'GET',
+    );
+    await page.getByTestId('card-executions').getByRole('button', { name: /named-observations.*invocation_started/u }).click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+    expect(response.request().headers().authorization).toBe(`Bearer ${fixture.token}`);
+    const detail = parseOperatorResponse('cards.executions.get', 200, await response.json());
+    const rendered = page.getByTestId('execution-detail').locator('h4 + pre');
+    await expect(rendered).toHaveText(JSON.stringify({ input: detail.input, values: detail.values }, null, 2));
+    const observations = JSON.parse((await rendered.textContent())!);
+    for (const side of ['input', 'values'] as const) {
+      const original = side === 'input' ? observationInputs : observationOutputs;
+      expect(observations[side]).toEqual(expect.arrayContaining([
+        { name: 'api_token', type: 'string', value: '[REDACTED]' },
+        { name: 'access_token', type: 'strings', value: ['[REDACTED]', '[REDACTED]'] },
+        { name: 'count_secret', type: 'integer', value: 0 },
+        { name: 'enabled_secret', type: 'boolean', value: false },
+        { name: 'empty_secret', type: 'strings', value: [] },
+        { name: 'label', type: 'string', value: original.label },
+        { name: 'labels', type: 'strings', value: original.labels },
+        { name: 'count', type: 'integer', value: original.count },
+        { name: 'enabled', type: 'boolean', value: true },
+        { name: 'empty', type: 'strings', value: [] },
+      ]));
+    }
+    for (const canary of [...observationCanaries.input, ...observationCanaries.output]) {
+      expect(raw.toString()).toContain(canary);
+      await expect(page.getByTestId('execution-detail')).not.toContainText(canary);
+    }
+    expect(readFileSync(path)).toEqual(raw);
+    expect(fixture.counts()).toEqual({ workflowCalls: 0, providerCalls: 0 });
+  } finally {
+    await fixture.close();
+  }
+});
 
 test('real production server: action and hook evidence, confidential file download, real conversation retained', async ({
   page,

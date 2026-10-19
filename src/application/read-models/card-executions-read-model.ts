@@ -3,18 +3,59 @@ import {
   readCardExecutions,
   type CardExecutionRow,
   type CardExecutionStart,
+  type CardExecutionObservation,
+  type CardExecutionBinding,
 } from '../../persistence/index.js';
-import { redactTextForOutbound } from '../../redaction/index.js';
+import { isSecretKey, neutralSecretValue, redactTextForOutbound } from '../../redaction/index.js';
 import type { OperatorApiHandlerResult, OperatorApiSuccess } from '../../contracts/index.js';
 import type { WorkspaceFileReadModelService } from './workspace-file-read-model.js';
 
-// Projection only: private configuration/env are deliberately not part of the public shape.
-function redact<T>(value: T): T {
-  if (typeof value === 'string') return redactTextForOutbound(value) as T;
-  if (Array.isArray(value)) return value.map(redact) as T;
-  if (value && typeof value === 'object')
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item)])) as T;
-  return value;
+type ExecutionDetail = OperatorApiSuccess<'cards.executions.get'>;
+
+// Classify the original name, not its display projection or the unrelated key "value".
+function projectObservation(
+  observation: CardExecutionObservation,
+): ExecutionDetail['input'][number] {
+  const secret = isSecretKey(observation.name);
+  const name = redactTextForOutbound(observation.name);
+  switch (observation.type) {
+    case 'string':
+      return {
+        name,
+        type: 'string',
+        value: secret
+          ? neutralSecretValue(observation.value)
+          : redactTextForOutbound(observation.value),
+      };
+    case 'integer':
+      return {
+        name,
+        type: 'integer',
+        value: secret ? neutralSecretValue(observation.value) : observation.value,
+      };
+    case 'boolean':
+      return {
+        name,
+        type: 'boolean',
+        value: secret ? neutralSecretValue(observation.value) : observation.value,
+      };
+    case 'strings':
+      return {
+        name,
+        type: 'strings',
+        value: observation.value.map((value) =>
+          secret ? neutralSecretValue(value) : redactTextForOutbound(value),
+        ),
+      };
+  }
+}
+function projectBinding(binding: CardExecutionBinding): ExecutionDetail['binding'] {
+  return binding.kind === 'node'
+    ? { ...binding, node_id: redactTextForOutbound(binding.node_id) }
+    : binding;
+}
+function redactNullable(value: string | null): string | null {
+  return value === null ? null : redactTextForOutbound(value);
 }
 const notFound = { statusCode: 404 as const, body: { error: 'Execution evidence unavailable.' } };
 type FileResult =
@@ -53,16 +94,16 @@ export class CardExecutionsReadModel {
       body: {
         rows: selected.map((row) => {
           const start = starts.get(row.invocation_id)!; // Strict owning read validates every association.
-          return redact({
+          return {
             row_id: row.row_id,
             invocation_id: row.invocation_id,
             timestamp: row.timestamp,
             kind: row.kind,
-            operation: start.operation,
+            operation: redactTextForOutbound(start.operation),
             contract_version: start.contract_version,
-            binding: start.binding,
+            binding: projectBinding(start.binding),
             disposition: row.kind === 'invocation_finished' ? row.disposition : null,
-          });
+          } satisfies OperatorApiSuccess<'cards.executions.list'>['rows'][number];
         }),
         next_cursor: index + 1 + selected.length < rows.length ? selected.at(-1)!.row_id : null,
       },
@@ -77,46 +118,65 @@ export class CardExecutionsReadModel {
     const processes = rows.filter((row) => row.kind === 'process_started');
     const selectedRows = [...processes.slice(0, 100), ...(finish ? [finish] : [])];
     return {
-      body: redact({
+      // Private configuration/env are deliberately not part of this public projection.
+      body: {
         invocation_id: invocationId,
-        operation: start.operation,
+        operation: redactTextForOutbound(start.operation),
         contract_version: start.contract_version,
-        provider: start.provider,
-        binding: start.binding,
+        provider: { kind: start.provider.kind, name: redactTextForOutbound(start.provider.name) },
+        binding: projectBinding(start.binding),
         started_at: start.timestamp,
         finished_at: finish?.timestamp ?? null,
         completion: finish
           ? ('retained' as const)
           : ('no completion retained; effects unknown' as const),
         shell: start.shell
-          ? { script: start.shell.script, cwd: start.shell.cwd, argv: start.shell.argv }
+          ? {
+              script: redactTextForOutbound(start.shell.script),
+              cwd: redactTextForOutbound(start.shell.cwd),
+              argv: start.shell.argv.map(redactTextForOutbound),
+            }
           : null,
-        input: start.input,
+        input: start.input.map(projectObservation),
         disposition: finish?.disposition ?? null,
-        summary: finish?.summary ?? null,
-        outcome: finish?.outcome ?? null,
-        leader_exit: finish?.leader_exit ?? null,
-        leader_error: finish?.leader_error ?? null,
-        interruption: finish?.interruption ?? null,
-        timeout_reason: finish?.timeout_reason ?? null,
-        process: finish?.process ?? null,
+        summary: redactNullable(finish?.summary ?? null),
+        outcome: redactNullable(finish?.outcome ?? null),
+        leader_exit: finish?.leader_exit
+          ? { ...finish.leader_exit, signal: redactNullable(finish.leader_exit.signal) }
+          : null,
+        leader_error: finish?.leader_error
+          ? {
+              ...finish.leader_error,
+              diagnostic: redactTextForOutbound(finish.leader_error.diagnostic),
+            }
+          : null,
+        interruption: redactNullable(finish?.interruption ?? null),
+        timeout_reason: redactNullable(finish?.timeout_reason ?? null),
+        process: finish?.process
+          ? {
+              ...finish.process,
+              group_diagnostic: redactNullable(finish.process.group_diagnostic),
+              stdout_error: redactNullable(finish.process.stdout_error),
+              stderr_error: redactNullable(finish.process.stderr_error),
+            }
+          : null,
         processes: processes
           .slice(0, 100)
           .map((row) => ({ process_id: row.process_id, timestamp: row.timestamp })),
         processes_truncated: processes.length > 100,
-        values: finish?.values ?? [],
+        values: finish?.values.map(projectObservation) ?? [],
         files: selectedRows.flatMap((row) =>
           row.files.map((file, ordinal) => ({
             key: `${row.row_id}:${ordinal}`,
-            label: file.kind === 'capture' ? file.stream : file.path,
+            label: file.kind === 'capture' ? file.stream : redactTextForOutbound(file.path),
             source: file.kind === 'capture' ? ('capture' as const) : ('current' as const),
             observed_at: file.kind === 'artifact' ? file.observed_at : null,
             size: file.kind === 'artifact' ? file.size : null,
           })),
         ),
-        absent_artifacts: finish?.absent_artifacts ?? [],
+        absent_artifacts: finish?.absent_artifacts.map(redactTextForOutbound) ?? [],
         external_effects: 'unknown' as const,
-      }),
+      } satisfies ExecutionDetail,
     };
   }
 

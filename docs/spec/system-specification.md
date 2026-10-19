@@ -130,6 +130,10 @@ after known settlement and remain mutable current-source references, never
 snapshots. Absent artifacts have no invented link and later missing files are
 unavailable. Authenticated execution list/detail/exact-reference files share
 Files privacy/alias/attic refusal and bounded redacted text downloads.
+Public named inputs and retained values use their original names for secret-name
+neutralization while preserving declared types and list cardinality. Raw operation
+values and retained evidence remain unchanged. Private configuration and environment
+are omitted from execution detail, not published as placeholders.
 
 Parent `activate_card` requires strict `{card_id,instructions}` with non-whitespace
 direction preserved byte-for-byte. Trusted parent card/session/input/call provenance

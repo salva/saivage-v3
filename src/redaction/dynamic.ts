@@ -35,7 +35,11 @@ function projectValue(
   }
 }
 
-function neutralSecretValue(value: unknown): unknown {
+export function neutralSecretValue(value: string): string;
+export function neutralSecretValue(value: number): number;
+export function neutralSecretValue(value: boolean): boolean;
+export function neutralSecretValue(value: unknown): unknown;
+export function neutralSecretValue(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === 'boolean') return false;
   if (typeof value === 'number') return 0;
