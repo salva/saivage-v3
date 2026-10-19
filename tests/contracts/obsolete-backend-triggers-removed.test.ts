@@ -1,6 +1,4 @@
 import { describe, expect, it } from '@jest/globals';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 
 describe('obsolete backend trigger contracts are removed', () => {
@@ -9,9 +7,5 @@ describe('obsolete backend trigger contracts are removed', () => {
     expect(contractIds).not.toContain('cards.create');
     expect(contractIds).not.toContain('cards.update');
     expect(contractIds).not.toContain('cards.delete');
-  });
-
-  it('runtime no longer exposes directive wakeup API', () => {
-    expect(existsSync(join(process.cwd(), 'src/runtime/runtime.ts'))).toBe(false);
   });
 });

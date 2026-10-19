@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildToolDisplay, inlinePartsText, isKnownTool } from '../utils/tool-friendly';
+import { buildToolDisplay, inlinePartsText } from '../utils/tool-friendly';
 import { call, result, processData } from './tool-presenters/fixtures';
 import { presentToolResult } from '../utils/tool-presenters';
 describe('single row tool display', () => {
@@ -26,7 +26,6 @@ describe('single row tool display', () => {
     expect(inlinePartsText(recorded.status)).toContain('Metadata only');
   });
   it('keeps exact unknown tool names and opaque safe values', () => {
-    expect(isKnownTool('custom_probe')).toBe(false);
     const display = buildToolDisplay({ entry: call('custom_probe', { exact: 'received' }), mate: null });
     expect(display.toolName).toBe('custom_probe');
     expect(display.requestSections[0].content).toContain('received');

@@ -216,11 +216,15 @@ function projectParsedArguments(toolName: KnownToolInvocationName, value: unknow
   return projectValidArguments(toolName, parsed.data);
 }
 
-function projectValidArguments(toolName: KnownToolInvocationName, value: unknown): unknown {
+function projectValidArguments(
+  toolName: Exclude<
+    KnownToolInvocationName,
+    'create_card' | 'list_cards' | 'mcp_server_register' | 'mcp_server_replace'
+  >,
+  value: unknown,
+): unknown {
   const input = value as Record<string, unknown>;
   switch (toolName) {
-    case 'create_card':
-      return copyWithText(input, ['title', 'bootstrap_content']);
     case 'cancel_card':
       return copyWithText(input, ['reason']);
     case 'activate_card':
@@ -278,8 +282,6 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'mcp_catalog_refresh':
     case 'mcp_servers':
     case 'mcp_server_unregister':
-    case 'mcp_server_register':
-    case 'mcp_server_replace':
       return projectDynamicForOutbound(input);
     case 'emit_result':
       return {
@@ -303,7 +305,6 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'list_processes_tool':
     case 'list_agent_sessions':
     case 'read_agent_session':
-    case 'list_cards':
     case 'get_card':
     case 'get_tree':
     case 'list_card_versions':

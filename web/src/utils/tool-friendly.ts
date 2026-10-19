@@ -5,9 +5,6 @@ import { getToolPresenter } from './tool-presenters/presenters';
 import type { SemanticSection, ToolResultPresentation } from './tool-presenters/types';
 import { oneLine } from './tool-presenters/helpers';
 
-export function isKnownTool(name: string): boolean {
-  return getToolPresenter(name) !== undefined;
-}
 function friendlyAction(name: string): string {
   return getToolPresenter(name)?.action ?? oneLine(name, 48);
 }
