@@ -170,12 +170,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       depends_on: input.depends_on ?? [],
     });
     const propagation = reportPropagation(() =>
-      propagateChange(
-        this.store,
-        parent,
-        { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` },
-        this.notifyCard,
-      ),
+      propagateChange(this.store, parent, `analyst created child card ${card.id}`, this.notifyCard),
     );
     return success({ ...toCardView(this.store, card), propagation });
   }
@@ -211,10 +206,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       propagateChange(
         this.store,
         anchor,
-        {
-          kind: 'analyst_edit',
-          summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card',
-        },
+        reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card',
         this.notifyCard,
       ),
     );
@@ -254,7 +246,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
         propagateChange(
           this.store,
           parentId,
-          { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` },
+          `analyst reordered children of ${parentId}`,
           this.notifyCard,
         ),
       );
@@ -282,12 +274,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
         throwIfPublicationOutcomeUnknown(error); /* notification is best effort */
       }
     };
-    propagateChange(
-      this.store,
-      cardId,
-      { kind: 'analyst_edit', summary: `analyst reopened card ${cardId}` },
-      notifyCard,
-    );
+    propagateChange(this.store, cardId, `analyst reopened card ${cardId}`, notifyCard);
     const reopened = this.store.read(cardId);
     if (!reopened) throw new Error(`Reopened card '${cardId}' disappeared.`);
     if (reopened.lifecycle.status !== 'changed')
@@ -431,7 +418,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
       propagateAnalystRecordEdit(
         this.store,
         parsed.cardId,
-        { kind: 'analyst_edit', summary: `Analyst updated ${parsed.name}` },
+        `Analyst updated ${parsed.name}`,
         this.notifyCard,
       );
       return { ok: true };

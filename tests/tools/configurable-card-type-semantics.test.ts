@@ -9,22 +9,53 @@ import { CardService } from '../../src/cards/card-service.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { propagateAnalystRecordEdit } from '../../src/runtime/changed-propagation.js';
 
-const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
+const roots: string[] = [];
+afterEach(() => {
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+});
 
-describe('capability-based configurable card-type semantics',()=>{
-  it('uses renamed child-capable workflows for record-edit ancestor notifications',()=>{
-    const root=mkdtempSync(join(tmpdir(),'custom-card-semantics-'));roots.push(root);initProjectTree(root);
-    const config:SaivageConfig=structuredClone(TEST_SAIVAGE_CONFIG);
-    const project=structuredClone(config.card_types.project!);project.permitted_child_types=['initiative'];
-    const initiative=structuredClone(config.card_types.goal!);initiative.permitted_child_types=['task'];
-    const task=structuredClone(config.card_types.code!);task.permitted_child_types=[];
-    config.card_types={project,initiative,task};
-    const cards=new CardService(root,compileProjectWorkflows(config));
-    const plan=cards.create({type:'initiative',parent:'project',title:'Plan',bootstrap_content:'plan',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
-    const work=cards.create({type:'task',parent:plan.id,title:'Work',bootstrap_content:'work',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
-    const notify=jest.fn((_cardId:string,notice:Parameters<CardService['enqueueNotification']>[1])=>({ok:true as const,notificationId:notice.id}));
-    propagateAnalystRecordEdit(cards,work.id,{kind:'analyst_edit',summary:'updated'},notify);
-    expect(notify.mock.calls.map(([cardId])=>cardId)).toEqual([plan.id,'project']);
-    expect(notify.mock.calls.map(([cardId])=>cardId)).not.toContain(work.id);
+describe('capability-based configurable card-type semantics', () => {
+  it('uses renamed child-capable workflows for record-edit ancestor notifications', () => {
+    const root = mkdtempSync(join(tmpdir(), 'custom-card-semantics-'));
+    roots.push(root);
+    initProjectTree(root);
+    const config: SaivageConfig = structuredClone(TEST_SAIVAGE_CONFIG);
+    const project = structuredClone(config.card_types.project!);
+    project.permitted_child_types = ['initiative'];
+    const initiative = structuredClone(config.card_types.goal!);
+    initiative.permitted_child_types = ['task'];
+    const task = structuredClone(config.card_types.code!);
+    task.permitted_child_types = [];
+    config.card_types = { project, initiative, task };
+    const cards = new CardService(root, compileProjectWorkflows(config));
+    const plan = cards.create({
+      type: 'initiative',
+      parent: 'project',
+      title: 'Plan',
+      bootstrap_content: 'plan',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'analyst',
+      depends_on: [],
+    });
+    const work = cards.create({
+      type: 'task',
+      parent: plan.id,
+      title: 'Work',
+      bootstrap_content: 'work',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'analyst',
+      depends_on: [],
+    });
+    const notify = jest.fn(
+      (_cardId: string, notice: Parameters<CardService['enqueueNotification']>[1]) => ({
+        ok: true as const,
+        notificationId: notice.id,
+      }),
+    );
+    propagateAnalystRecordEdit(cards, work.id, 'updated', notify);
+    expect(notify.mock.calls.map(([cardId]) => cardId)).toEqual([plan.id, 'project']);
+    expect(notify.mock.calls.map(([cardId]) => cardId)).not.toContain(work.id);
   });
 });

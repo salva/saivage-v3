@@ -6,14 +6,30 @@ import { join } from 'node:path';
 import { OversightSession } from '../../../src/runtime/actors/oversight-session.js';
 import type { ProviderTurnCompletion } from '../../../src/contracts/index.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
-import type { InvocationSurface } from '../../../src/tools/invocation.js';
+import { surfaceToolDefinitions, type InvocationSurface } from '../../../src/tools/invocation.js';
+import {
+  BoundAgentToolSet,
+  surfaceToolContracts,
+} from '../../../src/tools/runtime-tool-catalog.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
-import { scriptedAdmissionProvider, testCompactionPolicy, testCompactor, unusedSummarizerProvider } from '../../helpers/llm-test-helpers.js';
-import { testApplicationFatalDelivery, testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
+import {
+  scriptedAdmissionProvider,
+  testCompactionPolicy,
+  testCompactor,
+  unusedSummarizerProvider,
+} from '../../helpers/llm-test-helpers.js';
+import {
+  testApplicationFatalDelivery,
+  testApplicationFatalPort,
+} from '../../helpers/test-application-fatal-port.js';
 import { globalAgentConversationRoot } from '../../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
 import { z } from 'zod';
-import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
+import {
+  defineTool,
+  executedToolOutcome,
+  OPERATIONAL_RESULT_POLICY_TEMPLATE,
+} from '../../../src/tools/invocation.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { readProviderExchangeEntries } from '../../../src/persistence/provider-exchange-log.js';
@@ -32,7 +48,10 @@ import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
 import { formatVocabularySnippet } from '../../../src/tools/prompt-api.js';
 
 const roots: string[] = [];
-afterEach(() => { jest.restoreAllMocks(); while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => {
+  jest.restoreAllMocks();
+  while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
+});
 
 function projectRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'oversight-session-'));
@@ -41,13 +60,22 @@ function projectRoot(): string {
   return root;
 }
 
-function session(root: string, provider: LLMProviderPort, runtimeProjectionChanged = () => {}, surface: InvocationSurface = { agentName: 'oversight', tools: new Map(), providers: [] }, compactor: CompactorPort = testCompactor): OversightSession {
+function session(
+  root: string,
+  provider: LLMProviderPort,
+  runtimeProjectionChanged = () => {},
+  surface: InvocationSurface = { agentName: 'oversight', tools: new Map(), providers: [] },
+  compactor: CompactorPort = testCompactor,
+): OversightSession {
   return new OversightSession({
     sessionId: 'agent:oversight:global',
     agentName: 'oversight',
     surface,
     provider,
-    conversations: { projectRoot: root, changes: { conversationChanged() {}, agentMembershipChanged: runtimeProjectionChanged } },
+    conversations: {
+      projectRoot: root,
+      changes: { conversationChanged() {}, agentMembershipChanged: runtimeProjectionChanged },
+    },
     promptTemplates: { render: () => 'Perform proportionate project oversight.' },
     modelParams: { temperature: 0.2, maxTokens: 1000 },
     capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
@@ -58,83 +86,232 @@ function session(root: string, provider: LLMProviderPort, runtimeProjectionChang
     summarizerProvider: unusedSummarizerProvider,
     runtimeProjectionChanged,
     fatalPort: testApplicationFatalPort,
-    cardTypeVocabulary: ['project','goal','code'],
+    cardTypeVocabulary: ['project', 'goal', 'code'],
   });
 }
 
-const finalMessage = (): ProviderTurnCompletion => ({ result: { kind: 'message', content: 'No action needed.' }, provider_exchanges: [] });
+const finalMessage = (): ProviderTurnCompletion => ({
+  result: { kind: 'message', content: 'No action needed.' },
+  provider_exchanges: [],
+});
 
 function assertPreparedCheck(root: string): void {
-  const rows = readConversation(root,'agent:oversight:global').physicalRows;
-  const markers = rows.filter(row => row.kind==='activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+  const rows = readConversation(root, 'agent:oversight:global').physicalRows;
+  const markers = rows.filter(
+    (row) =>
+      row.kind === 'activity' &&
+      parseActivationOpenPayload(row.content, row.session_id, row.timestamp),
+  );
   expect(markers).toHaveLength(1);
-  const marker=markers[0]!;
-  expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({
-    kind:'prepared',activation_id:null,caller:{kind:'global'},card:null,parent_direction:null,role_text:'Perform proportionate project oversight.',node:null,
+  const marker = markers[0]!;
+  expect(
+    parseActivationOpenPayload(marker.content, marker.session_id, marker.timestamp)?.instructions,
+  ).toEqual({
+    kind: 'prepared',
+    activation_id: null,
+    caller: { kind: 'global' },
+    card: null,
+    parent_direction: null,
+    role_text: 'Perform proportionate project oversight.',
+    node: null,
   });
 }
 
 describe('OversightSession owned check settlement', () => {
-  it.each(['classic', 'classic-typed', 'paad-typed'])('prepares the selected %s global role again on a later no-action check', async (profile) => {
-    const root = projectRoot();
-    const template = resolveSystemTemplate(profile);
-    const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)), { projectRoot: root, defaultPromptRoot: template.promptRoot });
-    const prompts = createPromptTemplateRegistry(workflows);
-    let calls = 0;
-    const provider = scriptedAdmissionProvider(async (input) => {
-      calls++;
-      const expectedRole = prompts.render({ kind: 'global-agent' }, workflows.oversight.name, { vocabularySnippet: formatVocabularySnippet([...workflows.cardTypes.keys()]) });
-      expect(input.systemPrompt).toBe(expectedRole);
-      const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
-      if (directory) {
-        mkdirSync(directory, { recursive: true });
-        writeFileSync(join(directory, `oversight-${profile}-check-${calls}.json`), JSON.stringify({ agentName: input.agentName, sessionId: input.sessionId, systemPrompt: input.systemPrompt, tools: input.tools, preparedContext: input.preparedContext, providerConversation: input.providerConversation }, null, 2));
-      }
-      return finalMessage();
-    });
-    const createCheck = () => new OversightSession({
-      sessionId: 'agent:oversight:global', agentName: workflows.oversight.name,
-      surface: { agentName: workflows.oversight.name, tools: new Map(), providers: [] }, provider,
-      conversations: { projectRoot: root, changes: { conversationChanged() {}, agentMembershipChanged() {} } },
-      promptTemplates: prompts, modelParams: { temperature: 0.2, maxTokens: 1000 },
-      capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
-      candidateChain: [{ provider: 'test', account: null, model: 'test-model' }], routeUsableInputTokens: 80_000,
-      compactionPolicy: testCompactionPolicy, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider,
-      runtimeProjectionChanged() {}, fatalPort: testApplicationFatalPort, cardTypeVocabulary: [...workflows.cardTypes.keys()],
-    });
-    await expect(createCheck().run()).resolves.toBe('succeeded');
-    await expect(createCheck().run()).resolves.toBe('succeeded');
-    expect(calls).toBe(2);
-    const markers = readConversation(root, 'agent:oversight:global').physicalRows.flatMap(row => {
-      const marker = row.kind === 'activity' ? parseActivationOpenPayload(row.content, row.session_id, row.timestamp) : null;
-      return marker ? [marker] : [];
-    });
-    expect(markers).toHaveLength(2);
-    expect(markers[1]!.instructions).toEqual(markers[0]!.instructions);
-  });
+  it.each(['classic', 'classic-typed', 'paad-typed'])(
+    'prepares the selected %s global role again on a later no-action check',
+    async (profile) => {
+      const root = projectRoot();
+      const template = resolveSystemTemplate(profile);
+      const workflows = compileProjectWorkflows(
+        effectiveSaivageConfigSchema.parse(structuredClone(template.config)),
+        { projectRoot: root, defaultPromptRoot: template.promptRoot },
+      );
+      const prompts = createPromptTemplateRegistry(workflows);
+      const surface = new BoundAgentToolSet(workflows.oversight.tools).bind({
+        scope: 'global',
+        agentName: workflows.oversight.name,
+        projectRoot: root,
+        store: {} as never,
+        processRunner: {} as never,
+        processOwnerId: 'agent:oversight:global',
+        mcpToolInvocation: {} as never,
+        observationToolContext: {
+          agentName: workflows.oversight.name,
+          projectRoot: root,
+          store: {} as never,
+          processRunner: {} as never,
+          eventQueries: {} as never,
+          runtime: {} as never,
+          queueNotification: async () => {
+            throw new Error('no notification expected');
+          },
+          captureExecutingLlmSnapshots: () => new Map(),
+        },
+        cardTypeVocabulary: [...workflows.cardTypes.keys()],
+      });
+      let calls = 0;
+      const provider = scriptedAdmissionProvider(async (input) => {
+        calls++;
+        const expectedRole = prompts.render({ kind: 'global-agent' }, workflows.oversight.name, {
+          vocabularySnippet: formatVocabularySnippet([...workflows.cardTypes.keys()]),
+        });
+        expect(input.systemPrompt).toBe(expectedRole);
+        expect(input.tools).toEqual(surfaceToolDefinitions(surface));
+        expect(input.tools.map((tool) => tool.function.name)).toEqual(
+          workflows.oversight.tools.map((tool) => tool.name),
+        );
+        expect(input.compiledToolContracts).toEqual(surfaceToolContracts(surface));
+        expect(input.preparedContext!.prefix.instructionText).toBe(expectedRole);
+        expect(input.preparedContext!.stableBlocks).toEqual([]);
+        const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+        if (directory) {
+          mkdirSync(directory, { recursive: true });
+          writeFileSync(
+            join(directory, `oversight-${profile}-check-${calls}.json`),
+            JSON.stringify(
+              {
+                agentName: input.agentName,
+                sessionId: input.sessionId,
+                systemPrompt: input.systemPrompt,
+                tools: input.tools,
+                compiledToolContracts: input.compiledToolContracts,
+                preparedContext: input.preparedContext,
+                providerConversation: input.providerConversation,
+              },
+              null,
+              2,
+            ),
+          );
+        }
+        return finalMessage();
+      });
+      const createCheck = () =>
+        new OversightSession({
+          sessionId: 'agent:oversight:global',
+          agentName: workflows.oversight.name,
+          surface,
+          provider,
+          conversations: {
+            projectRoot: root,
+            changes: { conversationChanged() {}, agentMembershipChanged() {} },
+          },
+          promptTemplates: prompts,
+          modelParams: { temperature: 0.2, maxTokens: 1000 },
+          capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
+          candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+          routeUsableInputTokens: 80_000,
+          compactionPolicy: testCompactionPolicy,
+          compactor: testCompactor,
+          summarizerProvider: unusedSummarizerProvider,
+          runtimeProjectionChanged() {},
+          fatalPort: testApplicationFatalPort,
+          cardTypeVocabulary: [...workflows.cardTypes.keys()],
+        });
+      await expect(createCheck().run()).resolves.toBe('succeeded');
+      await expect(createCheck().run()).resolves.toBe('succeeded');
+      expect(calls).toBe(2);
+      const markers = readConversation(root, 'agent:oversight:global').physicalRows.flatMap(
+        (row) => {
+          const marker =
+            row.kind === 'activity'
+              ? parseActivationOpenPayload(row.content, row.session_id, row.timestamp)
+              : null;
+          return marker ? [marker] : [];
+        },
+      );
+      expect(markers).toHaveLength(2);
+      expect(markers[1]!.instructions).toEqual(markers[0]!.instructions);
+    },
+  );
 
   it('matches a real-service late successful tool call through existing cancellation settlement without execution or continuation', async () => {
     const root = projectRoot();
-    const executor = jest.fn(async () => executedToolOutcome('none', toolSucceeded({ known: true })));
-    const definition = defineTool({ name: 'probe', description: 'probe', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor });
-    const surface: InvocationSurface = { agentName: 'oversight', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'probe', tools: [definition] }] };
-    const service = new InvocationService({ projectRoot: root, registry: invocationProviderRegistry([{ provider: 'test', account: null, model: 'test-model' }]), candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+    const executor = jest.fn(async () =>
+      executedToolOutcome('none', toolSucceeded({ known: true })),
+    );
+    const definition = defineTool({
+      name: 'probe',
+      description: 'probe',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: z.object({}).strict(),
+      executor,
+    });
+    const surface: InvocationSurface = {
+      agentName: 'oversight',
+      tools: new Map([[definition.name, definition]]),
+      providers: [{ providerName: 'probe', tools: [definition] }],
+    };
+    const service = new InvocationService({
+      projectRoot: root,
+      registry: invocationProviderRegistry([
+        { provider: 'test', account: null, model: 'test-model' },
+      ]),
+      candidateAvailability: new MemoryCandidateAvailability(),
+      freshness: NO_FRESHNESS_EFFECTS,
+    });
     const check = session(root, createInvocationServiceProvider(service, root), () => {}, surface);
     let release!: (response: Response) => void;
     let entered!: () => void;
-    const started = new Promise<void>((resolve) => { entered = resolve; });
-    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise((resolve) => { release = resolve; entered(); }));
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+          entered();
+        }),
+    );
     const pending = check.run();
     await started;
     check.cancel(new Error('runtime paused'));
-    release(new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-real', type: 'function', function: { name: 'probe', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 }));
+    release(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                tool_calls: [
+                  {
+                    id: 'call-real',
+                    type: 'function',
+                    function: { name: 'probe', arguments: '{}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
     await expect(pending).resolves.toBe('cancelled');
     const rows = readConversation(root, 'agent:oversight:global').sourceRows;
-    const marker = rows.find(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp))!;
-    expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({kind:'prepared',activation_id:null,caller:{kind:'global'},card:null,parent_direction:null,role_text:'Perform proportionate project oversight.',node:null});
+    const marker = rows.find(
+      (row) =>
+        row.kind === 'activity' &&
+        parseActivationOpenPayload(row.content, row.session_id, row.timestamp),
+    )!;
+    expect(
+      parseActivationOpenPayload(marker.content, marker.session_id, marker.timestamp)?.instructions,
+    ).toEqual({
+      kind: 'prepared',
+      activation_id: null,
+      caller: { kind: 'global' },
+      card: null,
+      parent_direction: null,
+      role_text: 'Perform proportionate project oversight.',
+      node: null,
+    });
     expect(rows.filter((row) => row.kind === 'tool_call')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
-    expect(rows.find((row) => row.kind === 'tool_result')).toMatchObject({ tool_call_id: 'call-real', content: expect.stringContaining('cancelled before tool execution') });
+    expect(rows.find((row) => row.kind === 'tool_result')).toMatchObject({
+      tool_call_id: 'call-real',
+      content: expect.stringContaining('cancelled before tool execution'),
+    });
     expect(rows.some((row) => row.kind === 'model_issue')).toBe(false);
     expect(executor).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -143,19 +320,45 @@ describe('OversightSession owned check settlement', () => {
 
   it('renders the compiled global vocabulary values for every check', async () => {
     const root = projectRoot();
-    const render = jest.fn((_purpose, _agent, values: Record<string, string>) => values.vocabularySnippet);
+    const render = jest.fn(
+      (_purpose, _agent, values: Record<string, string>) => values.vocabularySnippet,
+    );
     const check = new OversightSession({
-      sessionId:'agent:oversight:global',agentName:'oversight',surface:{agentName:'oversight',tools:new Map(),providers:[]},provider:scriptedAdmissionProvider(async()=>finalMessage()),conversations:{projectRoot:root,changes:{conversationChanged(){},agentMembershipChanged(){}}},promptTemplates:{render} as never,modelParams:{temperature:0.2,maxTokens:1000},capabilityRequest:{requiresTools:false,requiresExclusiveToolChoice:true},candidateChain:[{provider:'test',account:null,model:'test-model'}],routeUsableInputTokens:80_000,compactionPolicy:testCompactionPolicy,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,runtimeProjectionChanged(){},fatalPort:testApplicationFatalPort,cardTypeVocabulary:['project','custom-leaf'],
+      sessionId: 'agent:oversight:global',
+      agentName: 'oversight',
+      surface: { agentName: 'oversight', tools: new Map(), providers: [] },
+      provider: scriptedAdmissionProvider(async () => finalMessage()),
+      conversations: {
+        projectRoot: root,
+        changes: { conversationChanged() {}, agentMembershipChanged() {} },
+      },
+      promptTemplates: { render } as never,
+      modelParams: { temperature: 0.2, maxTokens: 1000 },
+      capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
+      candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+      routeUsableInputTokens: 80_000,
+      compactionPolicy: testCompactionPolicy,
+      compactor: testCompactor,
+      summarizerProvider: unusedSummarizerProvider,
+      runtimeProjectionChanged() {},
+      fatalPort: testApplicationFatalPort,
+      cardTypeVocabulary: ['project', 'custom-leaf'],
     });
     await expect(check.run()).resolves.toBe('succeeded');
-    expect(render).toHaveBeenCalledWith({kind:'global-agent'},'oversight',{vocabularySnippet:expect.stringContaining('custom-leaf')});
+    expect(render).toHaveBeenCalledWith({ kind: 'global-agent' }, 'oversight', {
+      vocabularySnippet: expect.stringContaining('custom-leaf'),
+    });
   });
 
   it('creates no conversation eagerly and invalidates global membership at first ingress publication', async () => {
     const root = projectRoot();
     const changed = jest.fn();
     expect(existsSync(globalAgentConversationRoot(root, 'oversight'))).toBe(false);
-    const check = session(root, scriptedAdmissionProvider(async () => finalMessage()), changed);
+    const check = session(
+      root,
+      scriptedAdmissionProvider(async () => finalMessage()),
+      changed,
+    );
     expect(existsSync(globalAgentConversationRoot(root, 'oversight'))).toBe(false);
     await expect(check.run()).resolves.toBe('succeeded');
     expect(existsSync(globalAgentConversationRoot(root, 'oversight'))).toBe(true);
@@ -165,28 +368,55 @@ describe('OversightSession owned check settlement', () => {
   it('settles an ordinary final response and permits a later check on the same durable session', async () => {
     const root = projectRoot();
     const complete = jest.fn(async () => finalMessage());
-    await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe('succeeded');
-    await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe('succeeded');
+    await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe(
+      'succeeded',
+    );
+    await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe(
+      'succeeded',
+    );
     expect(complete).toHaveBeenCalledTimes(2);
   });
 
   it('settles a prompt-policy summary block as one failed check and lets a fresh check reuse the canonical session', async () => {
     const root = projectRoot();
     const complete = jest.fn(async () => finalMessage());
-    const compact = jest.fn<CompactorPort['compact']>()
-      .mockRejectedValueOnce(new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new Error('RAW PROVIDER FLAG')))
-      .mockImplementationOnce(async ({ input }) => ({ kind: 'compacted' as const, summaryRefusal: null, providerConversation: input.providerConversation, estimatedProviderMessageTokens: 1 }));
+    const compact = jest
+      .fn<CompactorPort['compact']>()
+      .mockRejectedValueOnce(
+        new SummaryPolicyRefusalError(
+          '00000000-0000-4000-8000-000000000099',
+          new Error('RAW PROVIDER FLAG'),
+        ),
+      )
+      .mockImplementationOnce(async ({ input }) => ({
+        kind: 'compacted' as const,
+        summaryRefusal: null,
+        providerConversation: input.providerConversation,
+        estimatedProviderMessageTokens: 1,
+      }));
     const compactor: CompactorPort = { shouldCompact: () => true, compact };
 
-    await expect(session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run()).resolves.toBe('failed');
+    await expect(
+      session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run(),
+    ).resolves.toBe('failed');
     expect(complete).not.toHaveBeenCalled();
     assertPreparedCheck(root);
-    const rows=readConversation(root,'agent:oversight:global').physicalRows;
-    expect(rows.filter(row=>row.kind==='activity'&&JSON.parse(row.content).event==='llm_turn_started')).toEqual([]);
-    expect(readProviderExchangeEntries(root,'agent:oversight:global')).toEqual([]);
-    expect(readConversation(root, 'agent:oversight:global').sourceRows.some((row) => row.content.includes('RAW PROVIDER FLAG'))).toBe(false);
+    const rows = readConversation(root, 'agent:oversight:global').physicalRows;
+    expect(
+      rows.filter(
+        (row) => row.kind === 'activity' && JSON.parse(row.content).event === 'llm_turn_started',
+      ),
+    ).toEqual([]);
+    expect(readProviderExchangeEntries(root, 'agent:oversight:global')).toEqual([]);
+    expect(
+      readConversation(root, 'agent:oversight:global').sourceRows.some((row) =>
+        row.content.includes('RAW PROVIDER FLAG'),
+      ),
+    ).toBe(false);
 
-    await expect(session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run()).resolves.toBe('succeeded');
+    await expect(
+      session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run(),
+    ).resolves.toBe('succeeded');
     expect(compact).toHaveBeenCalledTimes(2);
     expect(complete).toHaveBeenCalledTimes(1);
   });
@@ -198,7 +428,9 @@ describe('OversightSession owned check settlement', () => {
     const snapshots: boolean[] = [];
     const changed = jest.fn(() => snapshots.push(check.executingLlmSnapshot() !== null));
     const provider = scriptedAdmissionProvider(async () => {
-      await new Promise<void>((resolve) => { release = resolve; });
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
       return finalMessage();
     });
     check = session(root, provider, changed);
@@ -218,12 +450,22 @@ describe('OversightSession owned check settlement', () => {
       ...base,
       async preparePrimaryRequestAdmission(input, signal) {
         const admitted = await base.preparePrimaryRequestAdmission(input, signal);
-        return { kind: 'local_admission_failed', routePass: admitted.routePass, candidates: admitted.candidates, bindings: admitted.bindings };
+        return {
+          kind: 'local_admission_failed',
+          routePass: admitted.routePass,
+          candidates: admitted.candidates,
+          bindings: admitted.bindings,
+        };
       },
     };
     await expect(session(root, provider).run()).resolves.toBe('failed');
     assertPreparedCheck(root);
-    await expect(session(root, scriptedAdmissionProvider(async () => finalMessage())).run()).resolves.toBe('succeeded');
+    await expect(
+      session(
+        root,
+        scriptedAdmissionProvider(async () => finalMessage()),
+      ).run(),
+    ).resolves.toBe('succeeded');
   });
 
   it('settles provider cancellation without turning it into owner failure', async () => {
@@ -231,58 +473,113 @@ describe('OversightSession owned check settlement', () => {
     let entered!: () => void;
     const provider = scriptedAdmissionProvider(async (_input, signal) => {
       entered();
-      return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      return new Promise<ProviderTurnCompletion>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
     });
     const check = session(root, provider);
-    const providerEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const providerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
     const task = check.run();
     await providerEntered;
-    expect(()=>check.assertEffectSignal(new AbortController().signal)).toThrow(/does not belong/);
+    expect(() => check.assertEffectSignal(new AbortController().signal)).toThrow(/does not belong/);
     check.cancel(new Error('runtime paused'));
     await expect(task).resolves.toBe('cancelled');
     assertPreparedCheck(root);
   });
 
   it('retains only prepared instruction evidence when cancelled after ingress before provider admission', async () => {
-    const root=projectRoot();
-    const complete=jest.fn(async () => finalMessage());
-    const base=scriptedAdmissionProvider(complete);
+    const root = projectRoot();
+    const complete = jest.fn(async () => finalMessage());
+    const base = scriptedAdmissionProvider(complete);
     let check!: OversightSession;
-    const provider: LLMProviderPort = {...base,async preparePrimaryRequestAdmission(_input,signal) {
-      check.cancel(new Error('cancel before admission'));
-      signal.throwIfAborted();
-      throw new Error('Cancellation did not abort admission.');
-    }};
-    check=session(root,provider);
+    const provider: LLMProviderPort = {
+      ...base,
+      async preparePrimaryRequestAdmission(_input, signal) {
+        check.cancel(new Error('cancel before admission'));
+        signal.throwIfAborted();
+        throw new Error('Cancellation did not abort admission.');
+      },
+    };
+    check = session(root, provider);
     await expect(check.run()).resolves.toBe('cancelled');
     expect(complete).not.toHaveBeenCalled();
     assertPreparedCheck(root);
   });
 
-  it('publishes an entered tool result exactly once when cancellation wins after executor entry',async()=>{
-    const root=projectRoot();const reason=new Error('runtime paused');let check!:OversightSession;let providerCalls=0;let executions=0;
-    const definition=defineTool({name:'probe',description:'bounded probe',resultPolicyTemplate:OPERATIONAL_RESULT_POLICY_TEMPLATE,inputSchema:z.object({}).strict(),executor:async()=>{executions+=1;check.cancel(reason);return executedToolOutcome('none',toolSucceeded({known:true}));}});
-    const surface:InvocationSurface={agentName:'oversight',tools:new Map([[definition.name,definition]]),providers:[{providerName:'probe',tools:[definition]}]};
-    const provider=scriptedAdmissionProvider(async()=>{providerCalls+=1;if(providerCalls>1)throw new Error('cancelled check continued to the model');return{result:{kind:'tool_calls',tool_calls:[{id:'probe-1',type:'function',function:{name:'probe',arguments:'{}'}}]},provider_exchanges:[]};});
-    check=session(root,provider,()=>{},surface);
+  it('publishes an entered tool result exactly once when cancellation wins after executor entry', async () => {
+    const root = projectRoot();
+    const reason = new Error('runtime paused');
+    let check!: OversightSession;
+    let providerCalls = 0;
+    let executions = 0;
+    const definition = defineTool({
+      name: 'probe',
+      description: 'bounded probe',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: z.object({}).strict(),
+      executor: async () => {
+        executions += 1;
+        check.cancel(reason);
+        return executedToolOutcome('none', toolSucceeded({ known: true }));
+      },
+    });
+    const surface: InvocationSurface = {
+      agentName: 'oversight',
+      tools: new Map([[definition.name, definition]]),
+      providers: [{ providerName: 'probe', tools: [definition] }],
+    };
+    const provider = scriptedAdmissionProvider(async () => {
+      providerCalls += 1;
+      if (providerCalls > 1) throw new Error('cancelled check continued to the model');
+      return {
+        result: {
+          kind: 'tool_calls',
+          tool_calls: [
+            { id: 'probe-1', type: 'function', function: { name: 'probe', arguments: '{}' } },
+          ],
+        },
+        provider_exchanges: [],
+      };
+    });
+    check = session(root, provider, () => {}, surface);
     await expect(check.run()).resolves.toBe('cancelled');
-    expect(executions).toBe(1);expect(providerCalls).toBe(1);
-    const rows=readConversation(root,'agent:oversight:global').physicalRows;
-    expect(rows.filter((row)=>row.kind==='tool_call'&&row.tool_call_id==='probe-1')).toHaveLength(1);
-    const results=rows.filter((row)=>row.kind==='tool_result'&&row.tool_call_id==='probe-1');expect(results).toHaveLength(1);expect(results[0]!.content).toContain('known');
+    expect(executions).toBe(1);
+    expect(providerCalls).toBe(1);
+    const rows = readConversation(root, 'agent:oversight:global').physicalRows;
+    expect(
+      rows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'probe-1'),
+    ).toHaveLength(1);
+    const results = rows.filter(
+      (row) => row.kind === 'tool_result' && row.tool_call_id === 'probe-1',
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0]!.content).toContain('known');
   });
 
   it('rejects an unexpected provider-boundary invariant instead of masking it as ordinary failure', async () => {
     const root = projectRoot();
     const failure = new Error('provider invariant');
-    const check = session(root, scriptedAdmissionProvider(async () => { throw failure; }));
+    const check = session(
+      root,
+      scriptedAdmissionProvider(async () => {
+        throw failure;
+      }),
+    );
     await expect(check.run()).rejects.toBe(failure);
     assertPreparedCheck(root);
   });
 
-  it('delivers publication uncertainty to the nonreturning fatal boundary rather than ordinary failure',async()=>{
-    const root=projectRoot();const publication=new PublicationOutcomeUnknownError();
-    const check=session(root,scriptedAdmissionProvider(async()=>{throw publication;}));
+  it('delivers publication uncertainty to the nonreturning fatal boundary rather than ordinary failure', async () => {
+    const root = projectRoot();
+    const publication = new PublicationOutcomeUnknownError();
+    const check = session(
+      root,
+      scriptedAdmissionProvider(async () => {
+        throw publication;
+      }),
+    );
     await expect(check.run()).rejects.toBe(testApplicationFatalDelivery);
   });
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AnalystIssue, CardStatus } from '../schemas/index.js';
+import type { CardStatus } from '../schemas/index.js';
 import type { CardService } from '../cards/store-api.js';
 import { analystRecordEditEffect } from '../cards/status-api.js';
 import { sanitizeAnalystText } from './analyst-sanitization.js';
@@ -8,10 +8,6 @@ import type { NotifyCardResult } from './runtime-api.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'blocked']);
 const ANALYST_RECORD_FLIPPABLE: ReadonlySet<CardStatus> = new Set(['blocked', 'done', 'failed']);
-
-type ChangeOrigin =
-  | { kind: 'analyst_edit'; summary: string }
-  | { kind: 'analyst_correction'; issues: AnalystIssue[]; note?: string };
 
 interface ChangedPropagation {
   flipped: Array<{ card_id: string; previous_status: CardStatus }>;
@@ -23,12 +19,6 @@ function isChildCapable(store: PropagationStore, cardType: string): boolean {
   const workflow = store.workflows.cardTypes.get(cardType);
   if (!workflow) throw new Error(`No compiled workflow exists for card type '${cardType}'.`);
   return workflow.permittedChildTypes.size > 0;
-}
-
-function originSummary(origin: ChangeOrigin): string {
-  if (origin.kind === 'analyst_edit') return sanitizeAnalystText(origin.summary, 1000);
-  const issueSummary = origin.issues.map((issue) => issue.summary).join('; ');
-  return sanitizeAnalystText(`${issueSummary}${origin.note ? `\n${origin.note}` : ''}`, 1000);
 }
 
 function ancestorPathIncludingEdited(
@@ -72,14 +62,13 @@ function flipRestingCardsAlongPath(
 function notifyOnce(
   recipients: readonly string[],
   notifyCard: (cardId: string, notification: CardNotification) => void,
-  kind: ChangeOrigin['kind'],
   summary: string,
 ): void {
   const notified = new Set<string>();
   for (const cardId of recipients) {
     if (notified.has(cardId)) continue;
     notified.add(cardId);
-    notifyCard(cardId, changeNotification(kind, summary));
+    notifyCard(cardId, changeNotification(summary));
   }
 }
 
@@ -115,7 +104,7 @@ function analystRecordAncestorRecipients(
 export function propagateChange(
   store: CardService,
   editedCardId: string,
-  origin: ChangeOrigin,
+  summary: string,
   notifyCard: (cardId: string, notification: CardNotification) => void,
 ): ChangedPropagation {
   const edited = store.read(editedCardId);
@@ -124,12 +113,10 @@ export function propagateChange(
   const path = ancestorPathIncludingEdited(store, editedCardId);
   const { flipped, firstRunningCardId } = flipRestingCardsAlongPath(store, path, FLIPPABLE_RESTING);
 
-  const summary = originSummary(origin);
   notifyOnce(
     firstRunningCardId ? [editedCardId, firstRunningCardId] : [editedCardId],
     notifyCard,
-    origin.kind,
-    summary,
+    sanitizeAnalystText(summary, 1000),
   );
 
   return { flipped };
@@ -138,7 +125,7 @@ export function propagateChange(
 export function propagateAnalystRecordEdit(
   store: PropagationStore,
   editedCardId: string,
-  origin: ChangeOrigin,
+  summary: string,
   notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult,
 ): ChangedPropagation {
   const edited = store.read(editedCardId);
@@ -173,18 +160,17 @@ export function propagateAnalystRecordEdit(
       `Analyst record edit effect '${effect}' has no propagation path for status '${edited.lifecycle.status}'.`,
     );
 
-  const summary = originSummary(origin);
-  notifyOnce(notifyRecipients, notifyCard, origin.kind, summary);
+  notifyOnce(notifyRecipients, notifyCard, sanitizeAnalystText(summary, 1000));
 
   return { flipped };
 }
 
-function changeNotification(kind: ChangeOrigin['kind'], summary: string): CardNotification {
+function changeNotification(summary: string): CardNotification {
   const createdAt = new Date().toISOString();
   return {
     id: randomUUID(),
     content: `Card changed: ${summary}`,
     created_at: createdAt,
-    source: kind === 'analyst_correction' ? 'analyst_correction' : 'card_changed',
+    source: 'card_changed',
   };
 }

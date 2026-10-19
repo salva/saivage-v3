@@ -131,12 +131,6 @@ export interface ProjectConfig {
   created_at: string;
   updated_at: string;
 }
-export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;
-export interface AnalystIssue {
-  summary: string;
-  severity?: (typeof analystIssueSeverityValues)[number];
-  evidence_path?: string;
-}
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind =

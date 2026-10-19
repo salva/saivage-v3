@@ -84,13 +84,7 @@ export {
   loggedEventSchema,
 } from './event-catalog.js';
 export { actionableErrorEnvelopeSchema } from './actionable-error.js';
-export {
-  CARD_RECORD_FIELDS,
-  cardStatusValues,
-  cardActionValues,
-  urgencyValues,
-  analystIssueSeverityValues,
-} from './types.js';
+export { CARD_RECORD_FIELDS, cardStatusValues, cardActionValues, urgencyValues } from './types.js';
 export type {
   BlockedResult,
   CompactionSummaryBlockedResult,
@@ -119,7 +113,6 @@ export type {
   CardView,
   ControlActionAuditEntry,
   ProjectConfig,
-  AnalystIssue,
   ProcessStatus,
   MessageRole,
   MessageKind,
