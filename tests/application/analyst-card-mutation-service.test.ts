@@ -18,7 +18,7 @@ function current(cards:CardService,id:string,name:string){const result=cards.rea
 function historical(cards:CardService,id:string,name:string,version:number){const result=cards.readRecordVersion(id,name,version);if(result.kind!=='found')throw new Error('missing record version');return result.value.projection;}
 
 function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): CardRecord {
-  const common = { id, type, child_membership: [], active_child_order: [], title: id, subtype: null, priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
+  const common = { id, type, child_membership: [], active_child_order: [], title: id, priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], status_text: null, status_text_updated_at: null, pending_notifications: [] };
   switch (status) {
     case 'done': return { ...common, lifecycle: { status, result: workflowResult('DONE', 'done'), error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
     case 'failed': return { ...common, lifecycle: { status, result: runtimeFailure('failed'), error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } };

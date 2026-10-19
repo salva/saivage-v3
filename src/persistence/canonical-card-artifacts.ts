@@ -63,7 +63,7 @@ export function ordinaryCardPayload(card: CardRecord): z.infer<typeof ordinaryCa
 
 export const cardVersionArtifactSchema = z
   .object({
-    format_version: z.literal(1),
+    format_version: z.literal(2),
     kind: z.literal('card-version'),
     entry_id: uuidV4Schema,
     card_id: cardIdSchema,
@@ -124,7 +124,7 @@ export const cardVersionArtifactSchema = z
 
 export const cardTombstoneArtifactSchema = z
   .object({
-    format_version: z.literal(1),
+    format_version: z.literal(2),
     kind: z.literal('card-tombstone'),
     entry_id: uuidV4Schema,
     card_id: nonRootCardIdSchema,
@@ -243,17 +243,8 @@ export function validateInitialCard(card: CardRecord, path: string): void {
     card.active_child_order.length === 0 &&
     card.version_seq === 1 &&
     card.created_at === card.updated_at &&
-    card.subtype === null &&
-    card.assigned_to === null &&
-    card.metrics === null &&
-    card.estimate === null &&
-    card.started_at === null &&
-    card.duration_ms === null &&
     card.status_text === null &&
     card.status_text_updated_at === null &&
-    card.status_text_author_session_id === null &&
-    card.latest_self_report === null &&
-    card.metadata === null &&
     card.pending_notifications.length === 0;
   if (!common) fail(path, 'has an invalid initial card');
   if (card.created_by === 'runtime:repair') {

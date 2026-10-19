@@ -69,7 +69,7 @@ void status;
 // @ts-expect-error backlog is initial-publication-only
 ('backlog' satisfies SetStatusTarget);
 
-const complete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', subtype: null, priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
+const complete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, status_text: null, status_text_updated_at: null, pending_notifications: [] };
 void complete;
 // @ts-expect-error canonical fields cannot be omitted
 const incomplete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, pending_notifications: [] };
@@ -87,26 +87,10 @@ const changedError: CardRecord = { ...complete, lifecycle: { status: 'changed', 
 const completedCancellation: CardRecord = { ...complete, lifecycle: { status: 'cancelled', result: null, error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
 void runningError; void changedResult; void changedError; void completedCancellation;
 
-// @ts-expect-error subtype is required literal null
-const valuedSubtype: CardRecord = { ...complete, subtype: 'legacy' };
-// @ts-expect-error assignment is required literal null
-const valuedAssignment: CardRecord = { ...complete, assigned_to: 'agent:planner:project' };
-// @ts-expect-error metrics are required literal null
-const valuedMetrics: CardRecord = { ...complete, metrics: {} };
-// @ts-expect-error estimate is required literal null
-const valuedEstimate: CardRecord = { ...complete, estimate: 1 };
-// @ts-expect-error started_at is required literal null
-const valuedStartedAt: CardRecord = { ...complete, started_at: '2026-07-20T00:00:00.000Z' };
-// @ts-expect-error duration_ms is required literal null
-const valuedDuration: CardRecord = { ...complete, duration_ms: 1 };
-// @ts-expect-error status_text_author_session_id is required literal null
-const valuedStatusAuthor: CardRecord = { ...complete, status_text_author_session_id: 'agent:planner:project' };
-// @ts-expect-error latest_self_report is required literal null
-const valuedSelfReport: CardRecord = { ...complete, latest_self_report: { summary: 'old' } };
-// @ts-expect-error metadata is required literal null
-const valuedMetadata: CardRecord = { ...complete, metadata: {} };
-void valuedSubtype; void valuedAssignment; void valuedMetrics; void valuedEstimate; void valuedStartedAt;
-void valuedDuration; void valuedStatusAuthor; void valuedSelfReport; void valuedMetadata;
+// @ts-expect-error obsolete card members are excess properties, even when null
+({ ...complete, subtype: null } satisfies CardRecord);
+// @ts-expect-error arbitrary metadata is not part of the current card contract
+({ ...complete, metadata: {} } satisfies CardRecord);
 
 type TerminalOutcomeArguments = Parameters<CardService['commitActivationOutcome']>;
 const terminalOutcomeArguments: TerminalOutcomeArguments = ['card-a', { status: 'done', summary: 'done', result: workflowResult('DONE','done') }, '2026-07-20T00:00:01.000Z'];

@@ -10,6 +10,18 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('card record hierarchy shape', () => {
+  it('accepts the minimal current shape and rejects the complete old null-bearing shape without stripping keys', () => {
+    const project = fixture().cards.read('project')!;
+    expect(cardRecordSchema.parse(project)).toEqual(project);
+    const obsolete = { subtype: null, assigned_to: null, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
+    for (const key of Object.keys(obsolete)) expect(project).not.toHaveProperty(key);
+    const parsed = cardRecordSchema.safeParse({ ...project, ...obsolete });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(parsed.error.issues).toContainEqual(expect.objectContaining({ code: 'unrecognized_keys', keys: Object.keys(obsolete) }));
+    const { pending_notifications: _pending, ...outbound } = project;
+    expect(outboundCardRecordSchema.safeParse({ ...outbound, ...obsolete }).success).toBe(false);
+  });
+
   it.each(['child_membership', 'active_child_order'] as const)('rejects duplicate %s at schema parsing', (field) => {
     const project = fixture().cards.read('project')!;
     const parsed = cardRecordSchema.safeParse({ ...project, child_membership: ['card-a'], active_child_order: ['card-a'], [field]: ['card-a', 'card-a'] });

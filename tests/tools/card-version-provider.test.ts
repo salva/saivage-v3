@@ -19,6 +19,13 @@ import { settleToolResultForConversation } from '../../src/runtime/actors/llm-de
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { CanonicalCardFilesReadModel } from '../../src/application/read-models/canonical-card-files-read-model.js';
 import { workflowResult } from '../helpers/workflow-result.js';
+import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { ACTIVITY_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { openAIChatAdapter } from '../../src/agents/llm-openai-chat-adapter.js';
+import { projectCanonicalConversationRow } from '../../src/application/read-models/canonical-conversation-outbound.js';
+import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
+import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -50,6 +57,71 @@ function childInput(title: string, depends_on: string[] = []) {
 }
 
 describe('card version provider', () => {
+  it('preserves opaque old card-result facts through format12 retained history, materialization, outbound and actual OpenAI serialization', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-opaque-history-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('Useful card'));
+    const obsolete = { subtype: null, assigned_to: null, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
+    const { pending_notifications: _pending, ...currentCard } = child;
+    // Factual opaque observation of a former card shape, not a current canonical artifact.
+    const oldCard = { ...currentCard, ...obsolete };
+    const recordedDigest = createHash('sha256').update(canonicalJson(oldCard)).digest('hex');
+    const data = { card_id: child.id, version: 1, artifact_sha256: recordedDigest, card: oldCard };
+    const content = JSON.stringify({ success: true, data }, null, 2);
+    const policies = toolRowPolicies({ content });
+    const session = 'agent:planner:project' as ConversationSessionId;
+    const input = '11111111-1111-4111-8111-111111111111';
+    const timestamp = '2026-10-10T00:00:00.000Z';
+    const args = { card_id: child.id, version: 1, section: 'summary' };
+    const round = `r-assistant-${'1'.repeat(32)}`;
+    const rows: AgentMessage[] = [
+      { id: 'activation', session_id: session, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY,
+        content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: input, timestamp }),
+        round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp },
+      { id: `${input}:tool-call:old-card`, session_id: session, role: 'assistant', kind: 'tool_call', tool: 'get_card_version', tool_call_id: 'old-card', context_policy: policies.call,
+        content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'old-card', type: 'function', function: { name: 'get_card_version', arguments: JSON.stringify(args) } }] }),
+        round_id: round, message_index: 1, block_index: 0, timestamp },
+      { id: `${input}:tool-result:old-card`, session_id: session, role: 'tool', kind: 'tool_result', tool: 'get_card_version', tool_call_id: 'old-card', context_policy: policies.result,
+        content, round_id: round, message_index: 2, block_index: 0, timestamp },
+    ];
+    appendConversationBatch({ projectRoot: root }, rows);
+    const segment = readCurrentConversationSegment(root, session)!;
+    expect(segment.index.format_version).toBe(12); expect(segment.genesis.format_version).toBe(12);
+    expect(segment.rows).toEqual(rows);
+    const materialized = readConversation(root, session);
+    expect(materialized.physicalRows).toEqual(rows);
+    const providerConversation = providerConversationProjection(materialized, []);
+    const request = openAIChatAdapter.buildRequestBody({
+      candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, systemPrompt: 'Retained card observations.', providerConversation,
+      options: { providerSessionId: 'card-history', inputId: input, temperature: 0, max_tokens: 512, contract_id: 'card-history', contractName: 'card-history', terminalToolOffered: [], tools: [], tool_choice: 'auto' },
+      capabilities: { transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+    });
+    expect(request.messages).toContainEqual(expect.objectContaining({ role: 'tool', tool_call_id: 'old-card', content }));
+    const outbound = projectCanonicalConversationRow(segment.rows[2], projectToolInvocation);
+    expect(JSON.parse(outbound.content)).toEqual({ success: true, data });
+    expect(outbound.content).not.toBe(content); // Existing transient reserialization is legitimate.
+    // Public policy omits the transient projected hash; strict projection above validates it internally.
+    expect(outbound.context_policy).toEqual({ kind: 'tool_result', settlement_origin: 'executed' });
+    expect(segment.rows[2]!.context_policy).toMatchObject({ result_content_sha256: createHash('sha256').update(content).digest('hex') });
+    expect(readCurrentConversationSegment(root, session)!.rows[2]).toEqual(rows[2]);
+
+    // New offline model-facing output retains useful identity/status and derives a new digest from today's projection.
+    const surface = completeSurfaceFor(cards);
+    const current = await invokeTestTool(surface, 'get_card', { id: child.id, section: 'summary' });
+    const selected = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', args, testLlmToolInvocationContext({ sessionId: session, toolName: 'get_card_version' })));
+    expect(current).toMatchObject({ success: true, data: { card: { id: child.id, type: 'code', title: 'Useful card', status: 'backlog', status_text: null } } });
+    expect(selected.providerResult).toMatchObject({ success: true, data: { card_id: child.id, version: 1, card: { title: 'Useful card' } } });
+    for (const key of Object.keys(obsolete)) {
+      expect((current.data as { card: object }).card).not.toHaveProperty(key);
+      expect((selected.providerResult as { data: { card: object } }).data.card).not.toHaveProperty(key);
+    }
+    const rest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, 1);
+    if ('statusCode' in rest) throw new Error('Expected selected REST artifact');
+    expect((selected.providerResult as { data: { artifact_sha256: string } }).data.artifact_sha256).toBe(createHash('sha256').update(canonicalJson(rest.body.artifact)).digest('hex'));
+    expect(JSON.stringify([current, selected.providerResult])).not.toContain('pending_notifications');
+    expect(JSON.parse(outbound.content).data.artifact_sha256).toBe(recordedDigest);
+  });
+
   it('rejects every supplied summary position and succeeds when position is omitted', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-summary-position-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

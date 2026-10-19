@@ -23,24 +23,15 @@ export function projectCardRecordForOutbound(card: CardRecord): OutboundCardReco
     active_child_order: [...parsed.active_child_order],
     title: redactTextForOutbound(parsed.title),
     lifecycle: projectLifecycle(parsed.lifecycle),
-    subtype: parsed.subtype,
     priority: parsed.priority,
     urgency: parsed.urgency,
     created_by: parsed.created_by,
     created_at: parsed.created_at,
     updated_at: parsed.updated_at,
     version_seq: parsed.version_seq,
-    assigned_to: parsed.assigned_to,
     depends_on: [...parsed.depends_on],
-    metrics: parsed.metrics,
-    estimate: parsed.estimate,
-    started_at: parsed.started_at,
-    duration_ms: parsed.duration_ms,
     status_text: redactNullableText(parsed.status_text),
     status_text_updated_at: parsed.status_text_updated_at,
-    status_text_author_session_id: parsed.status_text_author_session_id,
-    latest_self_report: parsed.latest_self_report,
-    metadata: parsed.metadata,
   });
 }
 
@@ -151,23 +142,14 @@ function projectDiffValue(field: string, value: unknown): unknown {
     case 'type':
     case 'child_membership':
     case 'active_child_order':
-    case 'subtype':
     case 'priority':
     case 'urgency':
     case 'created_by':
     case 'created_at':
     case 'updated_at':
     case 'version_seq':
-    case 'assigned_to':
     case 'depends_on':
-    case 'metrics':
-    case 'estimate':
-    case 'started_at':
-    case 'duration_ms':
     case 'status_text_updated_at':
-    case 'status_text_author_session_id':
-    case 'latest_self_report':
-    case 'metadata':
       return structuredClone(value);
     default:
       throw new Error(`Unknown card diff field '${field}'.`);

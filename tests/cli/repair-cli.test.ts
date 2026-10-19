@@ -13,6 +13,7 @@ import {
   cardRecordHeadFile,
   cardAcceptedRecordFile,
   cardHistoryRoot,
+  cardHistoryFile,
   cardMailboxRoot,
   cardRecordsRoot,
   cardConversationsRoot,
@@ -650,6 +651,11 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
     },
   });
   const synthetic = f.cards.read(goal.id)!;
+  expect(synthetic).not.toHaveProperty('subtype');
+  expect(synthetic).not.toHaveProperty('metadata');
+  const syntheticHead = JSON.parse(fs.readFileSync(cardHeadFile(f.root, goal.id), 'utf8'));
+  expect(syntheticHead.format_version).toBe(1);
+  expect(JSON.parse(fs.readFileSync(cardHistoryFile(f.root, goal.id, syntheticHead.ordinary.entry_id), 'utf8'))).toMatchObject({ format_version: 2, kind: 'card-version', card: { created_by: 'runtime:repair' } });
   expect(() =>
     validateInitialCard({ ...synthetic, title: 'invented original title' }, 'repair test'),
   ).toThrow(/synthetic/);

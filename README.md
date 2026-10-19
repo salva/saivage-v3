@@ -378,9 +378,11 @@ not node re-entry; latest descriptor facts do not imply body recall. See
   identities omit only encrypted reasoning before request admission. Adopting
   this payload also requires the separate incompatible-adoption decision, even
   with matching outer versions; those alone are not compatibility.
-   Card format-1 heads/history, record format-2 heads and format-1 accepted documents are a separate
-  incompatible adoption boundary; this source change authorizes no deployment,
-  external migration or destructive reset.
+  Current card heads/mailbox remain format1; ordinary/tombstone history bodies
+  require format2 after removal of nine null-only card members. Record heads3,
+  accepted documents2, conversation12 and initializer input1 are unchanged by
+  that [card-body cutover](docs/architecture/durable-format-changes.md#minimal-card-bodies-ev01-2026-10-19).
+  Source completion authorizes no deployment, external migration or destructive reset.
 - New projects enable an independent two-hour
   [Project Oversight](docs/spec/system-specification.md#project-oversight)
   check by default; its only project effect is an evidenced notification.

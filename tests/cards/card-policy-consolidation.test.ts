@@ -66,10 +66,8 @@ function rows(root: string, cardId: string): CardArtifact[] {
 describe('card field ordering policy', () => {
   it('exports the exact complete card-record order', () => {
     expect(CARD_RECORD_FIELDS).toEqual([
-      'id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'priority', 'urgency', 'created_by', 'created_at',
-      'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'lifecycle', 'metrics', 'estimate',
-      'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id',
-      'latest_self_report', 'metadata', 'pending_notifications',
+      'id', 'type', 'child_membership', 'active_child_order', 'title', 'priority', 'urgency', 'created_by', 'created_at',
+      'updated_at', 'version_seq', 'depends_on', 'lifecycle', 'status_text', 'status_text_updated_at', 'pending_notifications',
     ]);
   });
 

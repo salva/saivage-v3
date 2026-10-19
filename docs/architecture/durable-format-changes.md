@@ -23,6 +23,58 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Minimal card bodies EV01 (2026-10-19)
+
+Exact implementation parent: `54e04123885de26d8fa81a1677d2c80ecc18d815`.
+At that parent `persistence/canonical-card-artifacts.ts` requires format1 for
+`kind:card-version` and `kind:card-tombstone`; `card-files.ts` emits format1
+at both ordinary publication sites and the tombstone publication site. This
+source freshly advances each of those artifact variants' `format_version`
+**1→2**. Their strict embedded `card`/`final_card` loses nine required-null
+members: `subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`,
+`duration_ms`, `status_text_author_session_id`, `latest_self_report`, `metadata`.
+They are absent, not optional, stripped or normalized. Retained status text/time,
+lifecycle/result/provenance, relationships, revisions and history meaning remain.
+
+Card-head and mailbox-message `format_version` remain **1**, including previous
+head slots: neither embeds the changed card shape or changes selection semantics.
+Generated Files historical ordinary/tombstone wrappers emit **2**, synchronized
+with their artifact view, not a separate durable family. Current `card-current`
+stays versionless. Record-head **3**, accepted-record **2**, conversation
+index/genesis/segment **12**, initializer input **1** and provider/app-log shared
+`version:1,type:rows` are unchanged by EV01. The independent record0/templates
+cutover below remains intact; its bumps are not reused or undone.
+
+Nested-owner evidence: strict retained conversation validation consumes the common
+tool-result envelope with `data:unknown`, not today's CardRecord. Composition
+specializes process results only; ordinary card-result text reaches the actual
+OpenAI serializer unchanged. Public invocation projection preserves opaque card
+data and recorded artifact digests while legitimately reserializing JSON and
+recomputing only the transient projected row's content hash. Record observations
+remain strict conversation12 baseline/draft/accepted selections, not embedded card
+bodies; accepted-record card-history provenance remains an exact immutable link.
+The focused card-version-provider regression covers strict retained segment reads,
+materialization, provider serialization and outbound semantic preservation of an
+old all-null card observation, alongside new minimal tool output/digest derivation.
+It grants no acceptance of canonical artifact1 or old conversation envelopes.
+
+These are fresh bumps, not an unreleased-cutover exception or installation claim.
+Dated JSQLite2 conversation10 workspace evidence and reported absence of prerequisite
+adoption do not certify current deployment. Complete old canonical artifacts,
+including all-null bodies, fail strict current or reached-history consumption;
+previous heads selecting them cannot qualify as current-format repair candidates.
+No proactive history scan or stored result/hash rewrite is introduced.
+
+Source work authorizes no deployment, service action, migration, reset or Run.
+The owner intends one later separately requested final-release external migration,
+under the runbook's stopped exclusion, complete preserved backup, independent
+complete candidate and strict linked/indexed-history validation gates; alternatively
+a destructive reset requires its own consent. Neither family numbers nor equal
+outer envelopes establish whole-release compatibility. Binary-only rollback after
+new writes is unsupported; matching complete-state/release restoration requires
+separate authorization. Historical equal-number incompatibilities below remain
+honest source provenance, not supported old representations.
+
 ### Record document 0 and selected node templates (2026-10-18)
 
 Exact implementation parent: `10463cd83369b1eda687525c6522492836f133c0`.

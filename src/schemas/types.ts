@@ -46,25 +46,16 @@ export interface CardRecord {
   title: string;
   child_membership: string[];
   active_child_order: string[];
-  subtype: null;
   priority: number;
   urgency: Urgency;
   created_by: CreatedBy;
   created_at: string;
   updated_at: string;
   version_seq: number;
-  assigned_to: null;
   depends_on: string[];
   lifecycle: CardLifecycleState;
-  metrics: null;
-  estimate: null;
-  started_at: null;
-  duration_ms: null;
   status_text: string | null;
   status_text_updated_at: string | null;
-  status_text_author_session_id: null;
-  latest_self_report: null;
-  metadata: null;
   pending_notifications: string[];
 }
 export type OutboundCardRecord = Omit<CardRecord, 'pending_notifications'>;
@@ -75,25 +66,16 @@ export const CARD_RECORD_FIELDS = [
   'child_membership',
   'active_child_order',
   'title',
-  'subtype',
   'priority',
   'urgency',
   'created_by',
   'created_at',
   'updated_at',
   'version_seq',
-  'assigned_to',
   'depends_on',
   'lifecycle',
-  'metrics',
-  'estimate',
-  'started_at',
-  'duration_ms',
   'status_text',
   'status_text_updated_at',
-  'status_text_author_session_id',
-  'latest_self_report',
-  'metadata',
   'pending_notifications',
 ] as const satisfies readonly (keyof CardRecord)[];
 

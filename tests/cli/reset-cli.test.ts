@@ -86,11 +86,10 @@ describe('CLI reset generated-root boundary', () => {
     expect(catalog.value.rows).toHaveLength(1);
     const rootArtifact = catalog.value.head;
     if (rootArtifact.kind !== 'card-version') throw new Error('Expected initial snapshot.');
-    expect(rootArtifact).toMatchObject({ kind: 'card-version', format_version: 1, card_id: 'project', version: 1, change: null, predecessor: null });
+    expect(rootArtifact).toMatchObject({ kind: 'card-version', format_version: 2, card_id: 'project', version: 1, change: null, predecessor: null });
     expect(Object.keys(rootArtifact.card)).toEqual([
-      'id', 'type', 'child_membership', 'active_child_order', 'title', 'lifecycle', 'subtype', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at',
-      'version_seq', 'assigned_to', 'depends_on', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text',
-      'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications',
+      'id', 'type', 'child_membership', 'active_child_order', 'title', 'lifecycle', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at',
+      'version_seq', 'depends_on', 'status_text', 'status_text_updated_at', 'pending_notifications',
     ]);
     expect(rootArtifact.card.lifecycle).toEqual({ status: 'backlog', result: null, error: null, completed_at: null });
     for (const [path, bytes] of preserved) expect(readFileSync(join(root, path), 'utf8')).toBe(bytes);

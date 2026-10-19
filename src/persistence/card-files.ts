@@ -722,25 +722,16 @@ export function publishInitialChildCard(
     child_membership: [],
     active_child_order: [],
     title: input.title,
-    subtype: null,
     priority: input.priority,
     urgency: input.urgency,
     created_by: input.created_by,
     created_at: stamp,
     updated_at: stamp,
     version_seq: 1,
-    assigned_to: null,
     depends_on: input.depends_on,
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-    metrics: null,
-    estimate: null,
-    started_at: null,
-    duration_ms: null,
     status_text: null,
     status_text_updated_at: null,
-    status_text_author_session_id: null,
-    latest_self_report: null,
-    metadata: null,
     pending_notifications: [],
   });
   const definitions = [...workflow.records.values()].map(
@@ -775,25 +766,16 @@ export function publishInitialProjectCard(
     child_membership: [],
     active_child_order: [],
     title: input.title,
-    subtype: null,
     priority: 0,
     urgency: 'normal',
     created_by: 'runtime:bootstrap',
     created_at: stamp,
     updated_at: stamp,
     version_seq: 1,
-    assigned_to: null,
     depends_on: [],
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-    metrics: null,
-    estimate: null,
-    started_at: null,
-    duration_ms: null,
     status_text: null,
     status_text_updated_at: null,
-    status_text_author_session_id: null,
-    latest_self_report: null,
-    metadata: null,
     pending_notifications: [],
   });
   const definitions = [...workflow.records.values()].map(
@@ -829,14 +811,12 @@ export function publishDiscardedCard(
     child_membership: [],
     active_child_order: [],
     title: `Recovered card ${cardId} — data discarded`,
-    subtype: null,
     priority: 0,
     urgency: 'normal',
     created_by: 'runtime:repair',
     created_at: stamp,
     updated_at: stamp,
     version_seq: 1,
-    assigned_to: null,
     depends_on: [],
     lifecycle: {
       status: 'failed',
@@ -844,15 +824,8 @@ export function publishDiscardedCard(
       error: REPAIR_CARD_LOSS_SUMMARY,
       completed_at: stamp,
     },
-    metrics: null,
-    estimate: null,
-    started_at: null,
-    duration_ms: null,
     status_text: null,
     status_text_updated_at: null,
-    status_text_author_session_id: null,
-    latest_self_report: null,
-    metadata: null,
     pending_notifications: [],
   });
   for (const path of [
@@ -909,7 +882,7 @@ export function publishCardVersion(
     card = cardRecordSchema.parse(card);
     validateInitialCard(card, path);
     const artifact = cardVersionArtifactSchema.parse({
-      format_version: 1,
+      format_version: 2,
       kind: 'card-version',
       entry_id: initialEntryId ?? randomUUID(),
       card_id: card.id,
@@ -987,7 +960,7 @@ export function publishCardVersion(
     return null;
   }
   const artifact = cardVersionArtifactSchema.parse({
-    format_version: 1,
+    format_version: 2,
     kind: 'card-version',
     entry_id: change.entry_id,
     card_id: card.id,
@@ -1037,7 +1010,7 @@ export function publishCardTombstone(
   if (!valuesEqual(fold.current.card, finalCard))
     throw new Error(`Card '${cardId}' tombstone final card must equal current.`);
   const artifact = cardTombstoneArtifactSchema.parse({
-    format_version: 1,
+    format_version: 2,
     kind: 'card-tombstone',
     entry_id: change.entry_id,
     card_id: cardId,
