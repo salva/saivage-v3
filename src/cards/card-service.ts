@@ -6,6 +6,7 @@ import {
   positiveSafeIntegerSchema,
   valuesEqual,
   type AgentName,
+  type RecordAuthor,
   type CardRecord,
   type CardStatus,
   type RecordDefinition,
@@ -652,7 +653,7 @@ export class CardService {
     cardId: string,
     filename: string,
     content: string,
-    agentName: AgentName,
+    author: RecordAuthor,
   ): CurrentRecordProjection {
     const a = this.admitWrite(cardId, filename);
     const accepted = acceptAuthoredRecord(
@@ -660,7 +661,7 @@ export class CardService {
       a.projection,
       a.definition,
       content,
-      agentName,
+      author,
       this.cardPublicationIo,
     );
     this.freshness.cardProjectionChanged({

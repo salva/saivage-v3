@@ -160,7 +160,7 @@ for (const markdownCase of markdownCases) {
             source_version: 1,
             source_entry_id: segment,
             committed_at: timestamp,
-            writer_agent: 'analyst',
+            author: { kind: 'agent', agent: 'analyst' },
             card_version_seq: 1,
             card_history_version: 1,
             card_history_entry_id: segment,

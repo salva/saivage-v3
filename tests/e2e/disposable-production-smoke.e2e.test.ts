@@ -157,7 +157,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
       'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
-    workflow: { format_version: 1,
+    workflow: { format_version: 2,
       notification_recipient: 'executor',
       entries: {
         BACKLOG: { node: 'execute' },
@@ -1435,7 +1435,7 @@ describe('disposable production-composition smoke', () => {
       });
       expect(new CardService(root).readRecordCurrent('project', 'brief.md')).toMatchObject({
         kind: 'found',
-        value: { projection: { accepted: { writer_agent: 'runtime:bootstrap' } } },
+        value: { projection: { accepted: { author: { kind: 'runtime', purpose: 'bootstrap' } } } },
       });
     } finally {
       if (app) await stop(app);

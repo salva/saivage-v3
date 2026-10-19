@@ -186,6 +186,7 @@ export type CompiledNodeContract = ProcessStateBase &
     kind: 'node';
     nodeId: string;
     execution: CompiledAgentExecution | CompiledActionExecution;
+    stdoutRecord: CompiledRecordDefinition | null;
     recordPrompts: readonly CompiledRecordPrompt[];
     requirements: readonly CompiledRecordRequirement[];
     initializeRecords: readonly CompiledRecordDefinition[];
@@ -649,6 +650,7 @@ type ProcessEdgeDraft = Readonly<{
 type ProcessNodeDraft = Readonly<{
   nodeId: string;
   execution: CompiledAgentExecution | CompiledActionExecution;
+  stdoutRecord: CompiledRecordDefinition | null;
   recordPrompts: readonly CompiledRecordPrompt[];
   requirements: readonly CompiledRecordRequirement[];
   initializeRecords: readonly CompiledRecordDefinition[];
@@ -744,6 +746,16 @@ function compileCardTypeInputs(
   for (const [rawNodeId, node] of Object.entries(source.workflow.nodes)) {
     const nodeId = identifier(rawNodeId, `${location}.workflow.nodes key`);
     const selection = node.execution;
+    const stdoutRecord = node.stdout_record === undefined ? null : records.get(node.stdout_record);
+    if (node.stdout_record !== undefined) {
+      if (selection.kind !== 'action' || selection.action !== 'shell.run')
+        throw new Error(`Node '${nodeId}' stdout_record requires shell.run action execution.`);
+      if (!stdoutRecord || stdoutRecord.bootstrap)
+        throw new Error(`Node '${nodeId}' stdout_record requires a declared nonbootstrap record.`);
+      const requirement = node.records[node.stdout_record];
+      if (requirement?.mode !== 'continue' || requirement.gate !== 'updated')
+        throw new Error(`Node '${nodeId}' stdout_record requires continue/updated.`);
+    }
     const agent = selection.kind === 'agent' ? agents.get(selection.agent) : null;
     if (selection.kind === 'agent' && !agent)
       throw new Error(
@@ -780,7 +792,11 @@ function compileCardTypeInputs(
     for (const [rawRecord, requirement] of Object.entries(node.records)) {
       const name = parseRecordName(rawRecord);
       const definition = records.get(name) ?? genericRecordDefinition(name);
-      if (!agent && (requirement.mode !== 'continue' || requirement.gate !== 'exists'))
+      if (
+        !agent &&
+        name !== stdoutRecord?.name &&
+        (requirement.mode !== 'continue' || requirement.gate !== 'exists')
+      )
         throw new Error(`Action '${nodeId}' records require continue/exists accepted records.`);
       if (agent && !agentCanWriteRecord(agent, name))
         throw new Error(
@@ -992,6 +1008,7 @@ function compileCardTypeInputs(
       Object.freeze({
         nodeId,
         execution,
+        stdoutRecord: stdoutRecord ?? null,
         recordPrompts,
         requirements: Object.freeze(requirements),
         initializeRecords: Object.freeze(initializeRecords),
@@ -1312,6 +1329,7 @@ function buildCardTypeStateTable(
         recordPrompts: node.recordPrompts,
         requirements: node.requirements,
         initializeRecords: node.initializeRecords,
+        stdoutRecord: node.stdoutRecord,
         descendantContext: node.descendantContext,
         childCreationTypes: node.childCreationTypes,
         childActivationTypes: node.childActivationTypes,

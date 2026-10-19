@@ -351,8 +351,8 @@ it.each(['selector', 'identity', 'artifact'] as const)(
       bootstrap: false,
       declared: true,
     };
-    f.cards.acceptRecord(f.child.id, 'status.md', 'first', 'analyst');
-    f.cards.acceptRecord(f.child.id, 'status.md', 'second', 'analyst');
+    f.cards.acceptRecord(f.child.id, 'status.md', 'first', { kind: 'agent', agent: 'analyst' });
+    f.cards.acceptRecord(f.child.id, 'status.md', 'second', { kind: 'agent', agent: 'analyst' });
     const path = cardRecordHeadFile(f.root, f.child.id, definition);
     const current = JSON.parse(fs.readFileSync(path, 'utf8'));
     const badPath =
@@ -681,7 +681,7 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
           state: 'closed',
           draft: null,
           accepted: {
-            writer_agent: 'runtime:repair',
+            author: { kind: 'runtime', purpose: 'repair' },
             card_version_seq: 1,
             card_history: { version: 1 },
             content: expect.stringContaining('placeholder requirements'),

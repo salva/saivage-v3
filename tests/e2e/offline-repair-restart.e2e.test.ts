@@ -523,7 +523,7 @@ it('spawned child discard preserves namespace/sibling/parent; restart launches n
       value: {
         projection: {
           accepted: {
-            writer_agent: 'runtime:repair',
+            author: { kind: 'runtime', purpose: 'repair' },
             content: expect.stringContaining('placeholder requirements'),
           },
         },

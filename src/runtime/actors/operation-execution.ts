@@ -40,6 +40,11 @@ export interface OperationInvocation {
 interface OperationExecutionResult {
   readonly invocationId: string;
   readonly result: OperationReturn;
+  readonly completedStdout: Readonly<{
+    path: string;
+    processId: string;
+    leaderExit: Readonly<{ exit_code: number | null; signal: string | null }> | null;
+  }> | null;
 }
 function observations(values: OperationValues): CardExecutionObservation[] {
   return Object.entries(values).map(([name, value]) =>
@@ -371,5 +376,24 @@ export async function invokeOperation(
   append([finish]);
   if (failure) throw failure.error;
   signal.throwIfAborted();
-  return { invocationId, result: result! };
+  return {
+    invocationId,
+    result: result!,
+    completedStdout:
+      shell &&
+      observed?.evidence.group === 'absent' &&
+      observed.evidence.stdout === 'eof' &&
+      !observed.evidence.stdout_error
+        ? {
+            path: observed.stdout_path,
+            processId: observed.id,
+            leaderExit: observed.evidence.leader_exit
+              ? {
+                  exit_code: observed.evidence.leader_exit.exit_code,
+                  signal: observed.evidence.leader_exit.signal,
+                }
+              : null,
+          }
+        : null,
+  };
 }

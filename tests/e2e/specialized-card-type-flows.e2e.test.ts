@@ -581,7 +581,7 @@ else throw new Error('Unknown fixture mode');
     expect(run.cards.read(reviewId)!.lifecycle).toMatchObject({ status: 'done', result: { node_id: 'verify', outcome: 'done' } });
     expect(run.cards.read('project')!.lifecycle).toMatchObject({ status: 'done', result: { node_id: 'review', outcome: 'approved' } });
     expect(run.cards.readRecordVersion(reviewId, 'status.md', Number(findingsUrl.match(/&v=(\d+)$/u)![1]))).toMatchObject({
-      kind: 'found', value: { projection: { versionUrl: findingsUrl, artifact: { accepted: { content: findings, writer_agent: 'executor' } } } },
+      kind: 'found', value: { projection: { versionUrl: findingsUrl, artifact: { accepted: { content: findings, author: { kind: 'agent', agent: 'executor' } } } } },
     });
     const rows = readConversation(run.root, cardAgentSessionId('executor', reviewId)).physicalRows;
     const writes = rows.filter(({ kind, tool }) => kind === 'tool_call' && tool === 'write');

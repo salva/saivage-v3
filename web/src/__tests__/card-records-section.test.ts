@@ -21,7 +21,7 @@ const time = '2026-07-18T00:00:00Z';
 function content(cardId = A): CardRecordContentResponse {
   return { card_id: cardId, record: { name, head_id: entryId, revision: 4, current_url: `record:///${name}?card=${cardId}`,
     accepted_version_url: `record:///${name}?card=${cardId}&v=4`, state: 'closed',
-    accepted: { source_version: 4, source_entry_id: entryId, committed_at: time, writer_agent: 'analyst',
+    accepted: { source_version: 4, source_entry_id: entryId, committed_at: time, author: { kind: 'agent', agent: 'analyst' },
       card_version_seq: 1, card_history_version: 1, card_history_entry_id: entryId,
       content: 'accepted brief', content_sha256: 'a'.repeat(64), size_bytes: 14 },
     baseline: null, draft: null, effective_content_source: 'accepted' } };

@@ -38,6 +38,7 @@ export const WorkflowPresentationSchema = z
             node_id: z.string().min(1),
             execution: WorkflowExecutionIdentitySchema,
             initialize_records: z.array(recordNameSchema),
+            stdout_record: recordNameSchema.nullable(),
           })
           .strict(),
       )

@@ -74,7 +74,7 @@ const codeDebugGraph = {
     card_type: 'code', notification_recipient: 'executor', permitted_child_types: [],
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, initialization: null }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, initialization: null }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
-    nodes: [{ node_id: 'execute', initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], record_write_patterns: ['status.md'] } }],
+    nodes: [{ node_id: 'execute', stdout_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], record_write_patterns: ['status.md'] } }],
     edges: [{ route_id: 'done', test: null, source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { route_id: 'execution:failed', test: null, source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { route_id: 'execution:blocked', test: null, source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
@@ -84,7 +84,7 @@ const debugGraphs = parseOperatorResponse('debug.graphs', 200, {
 });
 const projectPresentation = parseOperatorResponse('workflows.presentation', 200, {
   card_type: 'project',
-  nodes: [{ node_id: 'plan', initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }],
+  nodes: [{ node_id: 'plan', stdout_record: null, initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }],
   entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'plan' })),
   edges: [
     { route_id: 'done', test: null, source_node_id: 'plan', outcome: 'done', condition: 'default', target: { kind: 'terminal', terminal: 'DONE' } },
@@ -246,7 +246,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname.startsWith(`/api/cards/${smokeCardId}/records/`)) {
       const name=decodeURIComponent(url.pathname.split('/').at(-1) ?? 'brief.md');
       const content=`Synthetic ${name} content`;
-      return json(route, parseOperatorResponse('cards.records.get',200,{card_id:smokeCardId,record:{head_id:'11111111-1111-4111-8111-111111111111',name,revision:1,current_url:`record:///${name}?card=${smokeCardId}`,accepted_version_url:`record:///${name}?card=${smokeCardId}&v=1`,state:'closed',baseline:null,accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:now,writer_agent:'runtime:bootstrap',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content,content_sha256:'a'.repeat(64),size_bytes:content.length},draft:null,effective_content_source:'accepted'}}));
+      return json(route, parseOperatorResponse('cards.records.get',200,{card_id:smokeCardId,record:{head_id:'11111111-1111-4111-8111-111111111111',name,revision:1,current_url:`record:///${name}?card=${smokeCardId}`,accepted_version_url:`record:///${name}?card=${smokeCardId}&v=1`,state:'closed',baseline:null,accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:now,author:{kind:'runtime',purpose:'bootstrap'},card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content,content_sha256:'a'.repeat(64),size_bytes:content.length},draft:null,effective_content_source:'accepted'}}));
     }
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, historyList);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/2`) return json(route, historyEntry);
@@ -399,7 +399,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       if (!graph) return json(route, parseOperatorResponse('workflows.presentation', 404, { error: 'workflow_type_not_found', card_type: workflowMatch[1] }), 404);
       return json(route, parseOperatorResponse('workflows.presentation', 200, {
         card_type: graph.card_type,
-        nodes: graph.nodes.map(({ node_id, execution, initialize_records }) => ({ node_id, execution: execution.kind === 'agent' ? { kind: 'agent', agent_name: execution.agent_name } : execution, initialize_records })),
+        nodes: graph.nodes.map(({ node_id, execution, initialize_records, stdout_record }) => ({ node_id, execution: execution.kind === 'agent' ? { kind: 'agent', agent_name: execution.agent_name } : execution, initialize_records, stdout_record })),
         entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
         edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
         terminals: graph.terminals,

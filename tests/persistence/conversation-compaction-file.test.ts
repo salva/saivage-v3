@@ -214,12 +214,12 @@ describe('conversation compaction file persistence', () => {
       try {
         const store = new CardService(root);
         const body = `A instruction start${'a'.repeat(40000)}OMITTED REQUIREMENT${'b'.repeat(40000)}A instruction end`;
-        store.acceptRecord('project', 'brief.md', body, 'analyst');
+        store.acceptRecord('project', 'brief.md', body, { kind: 'agent', agent: 'analyst' });
         const ctx = { projectRoot: root, store, agentName: 'planner' as const, cardId: 'project' };
         const first = (
           await readProject(ctx, { path: 'record:///brief.md?card=project', metadata_only: true })
         ).record_observations[1]!;
-        store.acceptRecord('project', 'brief.md', 'B current accepted body', 'analyst');
+        store.acceptRecord('project', 'brief.md', 'B current accepted body', { kind: 'agent', agent: 'analyst' });
         const latest = (
           await readProject(ctx, { path: 'record:///brief.md?card=project', metadata_only: true })
         ).record_observations[1]!;

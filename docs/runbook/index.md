@@ -2,7 +2,7 @@
 
 ## Action execution and evidence
 
-Author `workflow.format_version: 1` and singular node `execution` selections.
+Author `workflow.format_version: 2` and singular node `execution` selections.
 See the [configuration example](../guides/configuration.md#action-execution-and-typed-handoff)
 for agent→shell→agent routing, required four shell outcomes and typed input rules.
 Use literal Bash plus separate `args` (quote `"$@"`), project-relative cwd,
@@ -40,10 +40,41 @@ unavailable, absent declared artifacts have no invented link, and preview/downlo
 share bounded redacted Files confidentiality, including resolved alias/attic
 refusal. Never replay a lost invocation from its log or infer a successful verdict.
 
-Source parent is `a768ee4a0bf341738c5ebfa55fa8b85cf219f2ed`; deployed applicability
-is unknown. Card ordinary/tombstone2→3, new execution envelope1, workflow input1
-and `shell.run` contract1 are distinct from unchanged head/mailbox1,
-record-head3/accepted2 and conversation12. Reconcile outside YAML/prompt closure
+Optionally bind a shell node's completed stdout to an ordinary report:
+
+```yaml
+# Node excerpt; declare check-report.md on the enclosing card type as
+# {format: markdown, schema: check-report.v1, bootstrap: false}.
+stdout_record: check-report.md
+records:
+  check-report.md: { mode: continue, gate: updated }
+```
+
+Use this with the guide's full shell execution and four edges. For capture-only
+execution omit `stdout_record` and use `records: {}`. Only an exact nonbootstrap
+own-card declaration is allowed; agents, other actions and hooks cannot bind it.
+An open destination draft blocks launch; an intervening draft blocks publication.
+The completed stdout file alone supplies substantive valid UTF-8 text up to 1 MiB,
+without NUL. Missing, unreadable, nonregular, invalid, empty/whitespace-only or
+oversized output fails without truncation, stderr fallback or placeholder.
+BOM, CRLF, Unicode and trailing newline are preserved. Nonzero, signal and deadline
+captures keep their factual disposition, not a successful-work claim. Cancellation
+before publication writes no record; a later gate failure can leave the report
+without accepting the node. No replay, compensation or retry is introduced.
+
+Inspect ordinary Records for shell author, outcome, document version/history/diff;
+use Executions separately for invocation/capture evidence. Equal text from a new
+invocation is a new version with distinct provenance and possibly an empty diff.
+Accepted content has no capture dependency: later capture deletion cannot remove
+the report, but this is not permission or a procedure to delete captures.
+
+The stdout cutover's exact source parent is
+`ed4aa204f4a2f0aec32baa025f5813226f41b91b`; deployment applicability is unknown.
+Accepted2→3 replaces writer attribution with discriminated author; workflow1→2
+adds the binding, including strict version2 for unbound workflows. Card
+ordinary/tombstone3, head/mailbox1, record-head3, conversation12, execution log1,
+shell contract1, initializer1 and shared provider/app-log1 remain unchanged.
+Reconcile outside YAML/prompt closure
 with a matching pinned release. Unsupported retained state stays stopped until
 separately consented complete reset or explicitly requested external offline
 migration. No live adoption, service action or loss is authorized by this source
@@ -122,7 +153,7 @@ templates, private diagnostics or resemblance cannot fabricate text/provenance.
 No runtime converter exists. Binary-only downgrade after new-format publication is
 unsupported; rollback needs a separately authorized matching complete-state/release
 decision. That excerpt cutover left unrelated durable families unchanged; the later
-head3/accepted2/conversation12 contract below is separately incompatible.
+head3/accepted3/conversation12 contract below is separately incompatible.
 
 ## Optional record scaffolds
 
@@ -216,7 +247,7 @@ migration under [all offline gates](#external-migrations): stopped exclusion,
 successful complete preserved backup, separate complete candidate and strict complete
 linked/indexed history validation. No such operation is authorized here. A future
 migration must not invent historical seeds from current config or relabel old authored
-drafts. Binary-only rollback after head3/accepted2/conversation12 writes is unsupported;
+drafts. Binary-only rollback after head3/accepted3/conversation12 writes is unsupported;
 matching complete-boundary state/release rollback is a separate authorized operation.
 
 ## Unavailable process evidence
@@ -1172,7 +1203,7 @@ deployment, migration, reset, restart or Run.
 
 Successful `init` reports generated layout and configuration independently. `Project layout initialized at <canonical root>` or `Project layout already exists at <canonical root>` is followed by `Configuration materialized from template <selected name>` or `Existing configuration preserved`. An existing generated project with missing YAML can report existing layout plus materialized configuration only when the materialized effective identities remain compatible and final generated-state admission succeeds. This is the single ordinary `init` operation, not generated-state repair, identity-cutover authorization, or a profile upgrade; no completion line is reported when strict admission rejects.
 
-Every effective map requires the fixed `project` root entry. Every other key may be any lowercase card-type identifier of at most 64 ASCII letters, digits, or hyphens; only `project` is reserved. Every workflow declares format1, a duplicate-free child set whose names exist in the same map and never include `project`, record definitions with exactly one bootstrap record, all `BACKLOG | CHANGED | BLOCKED | STOPPED` entries, and nodes selecting agent or action execution. Terminal targets declare promotion and exported records; every export must be a source-node requirement (agent: `clean|continue` and `exists|updated`; action: accepted `continue/exists` only). Prompt defaults and overrides use the singular `agents|process|fragments/<card-type|_shared>/<reference>.md` tree below their bundled or `.saivage/config/prompts` root. Packaging compiles each registered template independently, observes its selected agent/process/fragment sources, and copies exactly that compiler-observed closure under `dist/src/config/system-templates/<name>/prompts/`.
+Every effective map requires the fixed `project` root entry. Every other key may be any lowercase card-type identifier of at most 64 ASCII letters, digits, or hyphens; only `project` is reserved. Every workflow declares format2, a duplicate-free child set whose names exist in the same map and never include `project`, record definitions with exactly one bootstrap record, all `BACKLOG | CHANGED | BLOCKED | STOPPED` entries, and nodes selecting agent or action execution. Terminal targets declare promotion and exported records; every export must be a source-node requirement (agent: `clean|continue` and `exists|updated`; action: accepted `continue/exists`, plus `continue/updated` only for its exact bound stdout destination). Prompt defaults and overrides use the singular `agents|process|fragments/<card-type|_shared>/<reference>.md` tree below their bundled or `.saivage/config/prompts` root. Packaging compiles each registered template independently, observes its selected agent/process/fragment sources, and copies exactly that compiler-observed closure under `dist/src/config/system-templates/<name>/prompts/`.
 
 Switching templates or replacing the map is a stopped configuration change, but the [agent and workflow identity cutover](#agent-and-workflow-identity-cutovers) rule determines whether retained generated history may be used. On a fresh directory, run `init --profile <name>`. On an initialized instance, deliberately edit the YAML and prompt tree or copy reconciled intended inputs only when the resulting participating identities remain compatible; do not use config-absent `init` materialization as an identity-changing upgrade. Start a genuinely new process so startup resolves and recompiles one complete effective map. Inspect the installed result in read-only **Debug > Graphs**: its entries, exact nodes (including typed `add-coverage`, `component-review`, and `system-review`), requirements, exports, and promotion come from that selected compilation. Card record tabs likewise come from compiled declarations; typed project/goal/architecture have `brief.md`, `status.md`, and `review.md`, while its other six types have `brief.md` and `status.md`.
 
@@ -1195,7 +1226,7 @@ old/mixed retained state.
 
 The earlier owning-Planner child-reopening release was a same-format adoption, not reset authority. Reconcile each explicitly configured named agent that performs Planner work so its selected card-scoped tool list includes `reopen_card` only where intended, and reconcile the selected Planner plus typed plan/recover/review-to-plan prompt overrides while preserving instance guidance and unrelated configuration. Do not infer capability from an agent name, assume bundled-template changes update a materialized instance, or add the tool globally to every role. Planner `reopen_card({card_id})` is autonomous local repair of only a done/failed immediate child during the exact active parent ownership; reopening and explicit activation direction have separate admission. Global Analyst `reopen_card({cardId})` remains the intervention-ready arbitrary-target operation with changed propagation, including root procedures. Neither operation guarantees successful model behavior. The later format-9 cutover has its own complete-state adoption decision; the earlier same-format release grants no current reset, migration or binary-only adoption authority.
 
-Do not combine that no-reset rollout statement with incompatible conversation, card or record cutovers. Current source uses strict object prompt declarations, conversation index/genesis/envelope12, record head3/accepted2 and explicit initializer input1; earlier formats are historical provenance, not current requirements. Incompatible adoption needs a separately consented reset or explicitly requested [external migration](#external-migrations); core records structural prepared evidence, not ordinary durable current-node model context, and does not reinterpret unmarked node-looking rows. Card head/mailbox1, ordinary/tombstone history3, new card execution envelope1 and provider/app-log shared envelope1 are distinct contracts. Source completion authorizes no deployment, prompt update, reset or migration.
+Do not combine that no-reset rollout statement with incompatible conversation, card or record cutovers. Current source uses strict object prompt declarations, workflow2, conversation index/genesis/envelope12, record head3/accepted3 and explicit initializer input1; earlier formats are historical provenance, not current requirements. Incompatible adoption needs a separately consented reset or explicitly requested [external migration](#external-migrations); core records structural prepared evidence, not ordinary durable current-node model context, and does not reinterpret unmarked node-looking rows. Card head/mailbox1, ordinary/tombstone history3, new card execution envelope1 and provider/app-log shared envelope1 are distinct contracts. Source completion authorizes no deployment, prompt update, reset or migration.
 
 **Hand-authored typed-graph prompt ownership:** an existing hand-authored explicit `card_types` map that references typed-only prompts (for example `code-red`, `specialized-plan`, `research-explore`, `architecture-draft`) must carry those prompt files in `.saivage/config/prompts`, because the bundled root contains only the classic template's source-derived closure. While stopped, deliberately copy and reconcile the required classic-typed prompt files without replacing existing customizations, then start a genuinely new process. Do not use `init` as an upgrade: existing-config init performs no template/config materialization. Classic-only process references continue to resolve from the bundled classic root when no project override exists.
 
@@ -1522,11 +1553,11 @@ The singular running-to-stopped reason remains `recovery stopped lifecycle`; the
 
 In the destructive reset branch, do not inspect backup/generated descendants to reconstruct, selectively repair, merge, restore or migrate. Backup is a prerequisite and preserved record, not a workspace or authority. An explicit owner migration request instead follows the separate [external workflow](#external-migrations), with its independent complete candidate and strict fidelity/validation gates.
 
-The card/record representation uses owner heads and immutable predecessor documents, current-only mailbox selection/draft, sparse ordinary card versions and consecutive accepted record versions independent of mutable revision. Current card heads/mailbox remain format1; ordinary/tombstone bodies require format3 with agent/action executor results (after the earlier format2 removal of nine null-only members). Record heads3, accepted documents2, conversation12 and initializer input1 remain unchanged by the [operation cutover](../architecture/durable-format-changes.md#stateless-node-operations-2026-10-19). Older artifacts, stream layouts and mixed representations fail strict reads, including old artifacts selected by previous heads for repair. Files current `card.json` is a versionless `card-current` projection; historical ordinary/tombstone wrappers use format3. Adoption chooses separately consented complete reset or explicitly requested [external migration](#external-migrations), preserving outside inputs. No core conversion/probing, selective installation restoration or incompatible binary. Source completion/prepared artifacts grant no deployment, reset or migration authority. Rollback needs a separately authorized matched-state/release decision; destructive reset loses history, whereas external fidelity must be evidenced.
+The card/record representation uses owner heads and immutable predecessor documents, current-only mailbox selection/draft, sparse ordinary card versions and consecutive accepted record versions independent of mutable revision. Current card heads/mailbox remain format1; ordinary/tombstone bodies require format3 with agent/action executor results (after the earlier format2 removal of nine null-only members). Record heads3, conversation12 and initializer input1 remain unchanged; accepted documents3 and workflow2 require the later [stdout authorship cutover](../architecture/durable-format-changes.md#shell-stdout-record-authorship-2026-10-19). Older artifacts, stream layouts and mixed representations fail strict reads, including old artifacts selected by previous heads for repair. Files current `card.json` is a versionless `card-current` projection; historical ordinary/tombstone wrappers use format3. Adoption chooses separately consented complete reset or explicitly requested [external migration](#external-migrations), preserving outside inputs. No core conversion/probing, selective installation restoration or incompatible binary. Source completion/prepared artifacts grant no deployment, reset or migration authority. Rollback needs a separately authorized matched-state/release decision; destructive reset loses history, whereas external fidelity must be evidenced.
 
 Earlier card stream and parent-owned `children` cutover labels describe historical formats only; they authorize no old-layout read path. Current format3 immutable ordinary payload uses `child_membership` plus `active_child_order`, not durable `children`.
 
-Ordinary same-format deployment is neither reset nor migration authority. Stop the old service, deploy and strictly start the new binary against retained current-format state only when both binaries match every durable contract: card head/mailbox1 and history3, execution log1, workflow input1, selected operation contracts, record head3/accepted2, Files projections, conversation12, initializer input1, process-result and required private-producer payloads. Equal outer versions do not establish compatibility; compare the [format reference](../architecture/durable-format-changes.md) and exact release source contracts, never startup probing/normalization. Unsupported/mixed/malformed state stays stopped, not implicit reset/migration/repair permission. Supported same-format corruption uses separately backed-up/consented exact-target repair; incompatible adoption chooses separately consented reset or explicitly requested external migration. Process-log URLs remain independently readable while available; reset removes them with the complete work root.
+Ordinary same-format deployment is neither reset nor migration authority. Stop the old service, deploy and strictly start the new binary against retained current-format state only when both binaries match every durable contract: card head/mailbox1 and history3, execution log1, workflow input2, selected operation contracts, record head3/accepted3, Files projections, conversation12, initializer input1, process-result and required private-producer payloads. Equal outer versions do not establish compatibility; compare the [format reference](../architecture/durable-format-changes.md) and exact release source contracts, never startup probing/normalization. Unsupported/mixed/malformed state stays stopped, not implicit reset/migration/repair permission. Supported same-format corruption uses separately backed-up/consented exact-target repair; incompatible adoption chooses separately consented reset or explicitly requested external migration. Process-log URLs remain independently readable while available; reset removes them with the complete work root.
 ## Publication-outcome-unknown exit
 
 The fixed `PublicationOutcomeUnknownError` stderr line means the process exited without

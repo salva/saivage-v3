@@ -193,7 +193,7 @@ card_types:
       brief.md: { format: markdown, schema: card-brief.v1, bootstrap: true }
       status.md: { format: markdown, schema: work-status.v1 }
     workflow:
-      format_version: 1
+      format_version: 2
       notification_recipient: planner
       entries: { BACKLOG: { node: plan }, CHANGED: { node: plan }, ... }
       nodes:
@@ -241,13 +241,21 @@ check:
       terminate_grace_ms: 2000
       artifacts: ['reports/test-summary.txt']
     inputs: { args: { literal: ['--runInBand'] } }
-  records: {}
+  stdout_record: check-report.md
+  records:
+    check-report.md: { mode: continue, gate: updated }
   edges:
     passed: { target: { node: assess } }
     failed: { target: { node: repair } }
     signalled: { target: { node: repair } }
     timed_out: { target: { node: repair } }
 ```
+
+The enclosing type must declare `check-report.md` as an ordinary nonbootstrap
+record, for example `{format: markdown, schema: check-report.v1, bootstrap: false}`.
+This is a node excerpt, not a complete configuration. Omit `stdout_record` and
+use `records: {}` for an unbound capture-only node. Every workflow, bound or not,
+requires `format_version: 2`; `shell.run` still selects operation contract1.
 
 All four outcomes are required. Commands produce ordinary captured stdout/stderr,
 not plugin JSON. Script is literal Bash with pipefail, no implicit `set -e`;
@@ -283,8 +291,16 @@ hooks additionally allow `committed_status`. Missing/duplicate suppliers fail
 compilation on every incoming route, and inputs are checked again at use.
 Agent handoff quotes only selected facts; it does not grant tools or instructions.
 
-Actions may require accepted records only with `continue/exists`; they cannot
-initialize, clean, update or close authored records. Notification recipients and
+The optional `stdout_record` binding is only for an exact declared nonbootstrap
+own-card destination on `shell.run`, with exactly `continue/updated`. An open
+draft blocks launch and publication. Eligible completed stdout is copied through
+normal acceptance, not parsed as JSON or a semantic verdict; it must be substantive
+valid UTF-8 without NUL and at most 1 MiB. No trimming/truncation or stderr fallback
+occurs. Nonzero/signal/deadline dispositions retain their actual meaning; cancelled
+ownership publishes nothing before acceptance. A new invocation may publish equal
+text as a new version. No writer permission is granted to agents, plugins or hooks.
+Other action requirements remain accepted-only `continue/exists`; actions cannot
+initialize, clean or close records. Notification recipients and
 STOPPED recovery remain actual agents. Edge prompts targeting actions are invalid.
 
 At most one `workflow.after_activation_commit` attachment may select an action
@@ -314,7 +330,7 @@ neutral review starters at review nodes (including both typed architecture revie
 Bootstrap briefs are excluded; a review starter is not a verdict and still requires
 authored assessment and acceptance. Creation-time initialization remains deferred. See the
 [example and incompatible adoption boundary](../runbook/index.md#optional-record-scaffolds)
-before changing an instance; head3/accepted2/conversation12 adoption is not authorized by
+before changing an instance; head3/accepted3/conversation12 adoption is not authorized by
 editing configuration or installing source.
 
 ## Compaction

@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { cardIdSchema, processStatusSchema, type ProcessStatus } from '../schemas/index.js';
+import {
+  cardIdSchema,
+  processIdSchema,
+  processStatusSchema,
+  type ProcessStatus,
+} from '../schemas/index.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 import {
   operatorSessionContract,
@@ -36,8 +41,6 @@ function isCanonicalProcessLogUrl(filename: string): (value: string | null) => b
     }
   };
 }
-
-const processResultIdSchema = z.string().regex(/^proc-[0-9a-f]{12}$/u);
 
 interface ProcessResultLogLocation {
   readonly cardId: string | null;
@@ -157,7 +160,7 @@ export const ProcessViewSchema = z
 
 export const ProcessToolResultSchema = z
   .object({
-    process_id: processResultIdSchema,
+    process_id: processIdSchema,
     exit_code: z.number().int().nullable(),
     status: processStatusSchema,
     stdout: processOutputHeadSchema,

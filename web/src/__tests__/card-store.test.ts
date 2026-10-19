@@ -18,7 +18,7 @@ const descriptors=[
   {name:'research-findings.md',format:'markdown' as const,schema:'research.v1',bootstrap:false,current:null},
   {name:'decision.md',format:'markdown' as const,schema:'decision.v1',bootstrap:false,current:null},
 ];
-const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_id:'11111111-1111-4111-8111-111111111111',revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,baseline:null,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
+const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_id:'11111111-1111-4111-8111-111111111111',revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,baseline:null,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',author:{kind:'agent' as const,agent:'analyst'},card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;

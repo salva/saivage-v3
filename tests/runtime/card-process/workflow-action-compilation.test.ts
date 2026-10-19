@@ -100,7 +100,63 @@ function compile(config = fixture()) {
   return compileProjectWorkflows(config, { operationPlugins: [plugin] });
 }
 
-describe('workflow1 typed action compilation', () => {
+describe('workflow2 typed action compilation', () => {
+  function stdoutFixture() {
+    const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
+    const type = config.card_types.code!;
+    type.records['check-report.md'] = { format: 'markdown', schema: 'check-report.v1', bootstrap: false };
+    const old = type.workflow.nodes.execute!;
+    type.workflow.nodes.assess = old;
+    type.workflow.entries.STOPPED = { ...type.workflow.entries.STOPPED, node: 'assess' };
+    type.workflow.nodes.execute = {
+      execution: { kind: 'action', action: 'shell.run', contract_version: 1, config: { script: 'printf report' }, inputs: { args: { literal: [] } } },
+      stdout_record: 'check-report.md',
+      records: { 'check-report.md': { mode: 'continue', gate: 'updated' } },
+      edges: Object.fromEntries(['passed', 'failed', 'signalled', 'timed_out'].map(outcome => [outcome, { target: { node: 'assess' } }])),
+    };
+    return config;
+  }
+  it('compiles exact shell stdout authority without granting agent record permissions', () => {
+    const config = stdoutFixture();
+    const workflow = compile(config).cardTypes.get('code')!;
+    const node = workflow.states.get('node:execute')!;
+    if (node.kind !== 'node') throw new Error('Expected node');
+    expect(node.stdoutRecord).toMatchObject({ name: 'check-report.md', bootstrap: false, declared: true });
+    expect(node.requirements).toMatchObject([{ definition: { name: 'check-report.md' }, mode: 'continue', gate: 'updated' }]);
+    expect(projectWorkflowPresentation(workflow).nodes[0]).toMatchObject({ stdout_record: 'check-report.md' });
+    expect(config.agents).toEqual(TEST_SAIVAGE_CONFIG.agents);
+    expect(() => effectiveSaivageConfigSchema.parse({ ...config, card_types: { ...config.card_types, code: { ...config.card_types.code, workflow: { ...config.card_types.code!.workflow, format_version: 1 } } } })).toThrow();
+  });
+  it.each(['undeclared.md', 'brief.md', '*.md', 'record:///check-report.md?card=project', 'check-report'])('rejects invalid stdout destination %s', destination => {
+    const config = stdoutFixture();
+    config.card_types.code!.workflow.nodes.execute!.stdout_record = destination;
+    expect(() => compile(effectiveSaivageConfigSchema.parse(config))).toThrow();
+  });
+  it.each(['missing', 'exists', 'clean', 'initialize'] as const)('requires exact continue/updated destination admission: %s', invalid => {
+    const config = stdoutFixture(); const node = config.card_types.code!.workflow.nodes.execute!;
+    if (invalid === 'missing') node.records = {};
+    if (invalid === 'exists') node.records['check-report.md']!.gate = 'exists';
+    if (invalid === 'clean') node.records['check-report.md']!.mode = 'clean';
+    if (invalid === 'initialize') node.initialize_records = ['check-report.md'];
+    expect(() => compile(config)).toThrow();
+  });
+  it('rejects stdout authority on agents, plugins and hooks while leaving unbound requirements narrow', () => {
+    const agent = stdoutFixture();
+    agent.card_types.code!.workflow.nodes.execute!.execution = structuredClone(TEST_SAIVAGE_CONFIG.card_types.code!.workflow.nodes.execute!.execution);
+    expect(() => compile(agent)).toThrow(/requires shell.run/);
+    const other = fixture(); other.card_types.code!.workflow.nodes.inspect!.stdout_record = 'status.md';
+    expect(() => compile(other)).toThrow(/requires shell.run/);
+    const hook = stdoutFixture();
+    const node = hook.card_types.code!.workflow.nodes.execute!;
+    hook.card_types.code!.workflow.after_activation_commit = { statuses: ['done'], execution: node.execution as Extract<typeof node.execution, { kind: 'action' }> };
+    const raw = hook as unknown as { card_types: { code: { workflow: { after_activation_commit: Record<string, unknown> } } } };
+    raw.card_types.code.workflow.after_activation_commit.stdout_record = 'check-report.md';
+    expect(() => effectiveSaivageConfigSchema.parse(hook)).toThrow();
+    const unbound = stdoutFixture(); delete unbound.card_types.code!.workflow.nodes.execute!.stdout_record;
+    expect(() => compile(unbound)).toThrow(/continue\/exists/);
+    unbound.card_types.code!.workflow.nodes.execute!.records['check-report.md']!.gate = 'exists';
+    expect(() => compile(unbound)).not.toThrow();
+  });
   it('projects exact action identity and distinct typed branches without agent bindings or executable config disclosure', () => {
     const config = fixture(),
       compiled = compile(config),

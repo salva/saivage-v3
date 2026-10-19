@@ -14,6 +14,7 @@
           <p v-if="value(record.name).current">Current revision {{ value(record.name).current?.record.revision }} · {{ value(record.name).current?.record.effective_content_source ?? 'empty' }}</p>
           <p v-if="value(record.name).current?.record.baseline">Baseline v0 — not authored or accepted</p>
           <p v-if="value(record.name).current?.record.draft">Draft for v{{ value(record.name).current?.record.draft?.target_version }}<template v-if="value(record.name).current?.record.draft?.version === 0"> · Baseline v0 — not authored or accepted</template></p>
+          <p v-if="value(record.name).current?.record.effective_content_source === 'accepted'">{{ authorLabel(value(record.name).current!.record.accepted!.author) }}</p>
           <div v-if="value(record.name).current?.record.accepted_version_url" class="record-locator">
             <router-link :to="recordLink(record.name, value(record.name).current!.record.accepted!.source_version)">Latest accepted v{{ value(record.name).current?.record.accepted?.source_version }}</router-link>
             <ExactValue :value="value(record.name).current!.record.accepted_version_url!" label="accepted record locator" />
@@ -26,6 +27,7 @@
           <ViewState v-else state="empty" :title="`No ${record.name} record yet.`" />
           <details v-if="value(record.name).current?.record.draft && value(record.name).current?.record.accepted">
             <summary>Prior accepted content</summary>
+            <p>{{ authorLabel(value(record.name).current!.record.accepted!.author) }}</p>
             <MarkdownText :source="value(record.name).current!.record.accepted!.content" />
           </details>
         </div>
@@ -41,6 +43,7 @@
         <ViewState v-if="value(record.name).selectedLoading" state="loading" title="Loading selected record version" />
         <div v-if="value(record.name).selected" class="selected-record">
           <strong>Selected accepted document v{{ value(record.name).selected?.version }}</strong>
+          <p>{{ authorLabel(value(record.name).selected!.artifact.accepted.author) }}</p>
           <ExactValue :value="value(record.name).selected!.version_url" label="selected record locator" />
           <p>Observed card mutation revision {{ value(record.name).selected!.artifact.accepted.card_version_seq }} · ordinary history
             <router-link :to="{ name: 'card-detail', params: { id: cardId }, query: { facet: 'records', version: String(value(record.name).selected!.artifact.accepted.card_history_version) } }">v{{ value(record.name).selected!.artifact.accepted.card_history_version }}</router-link>
@@ -62,7 +65,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { LiveSyncCardRecordName as RecordName } from '../../api/types';
+import type { LiveSyncCardRecordName as RecordName, RecordVersionContentResponse } from '../../api/types';
 import { useCardStore, type RecordSlotState } from '../../stores/cards';
 import Section from '../ui/Section.vue';
 import ViewState from '../ui/ViewState.vue';
@@ -76,6 +79,13 @@ const store = useCardStore();
 const records=computed(()=>store.selectedDetail?.cardId===props.cardId?store.recordDescriptors:[]);
 function value(name: RecordName): RecordSlotState { const value=store.cardRecords[name];if(!value)throw new Error(`Missing record state for '${name}'.`);return value; }
 function contentValue(name: RecordName) { const content = value(name).content; return content?.kind === 'content' ? content : null; }
+function authorLabel(author: RecordVersionContentResponse['artifact']['accepted']['author']): string {
+  switch (author.kind) {
+    case 'agent': return `Agent · ${author.agent}`;
+    case 'runtime': return `Runtime · ${author.purpose}`;
+    case 'shell-stdout': return `Shell stdout · shell.run · ${author.node_id} · ${author.outcome}`;
+  }
+}
 const initialLoadCompletedFor = ref<string | null>(null);
 const descriptorsReady = computed(() => store.selectedCardId === props.cardId &&
   store.selectedDetail?.cardId === props.cardId &&

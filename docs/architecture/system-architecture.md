@@ -10,7 +10,34 @@ second dispatcher. The invocation owner resolves exact typed inputs, records
 entry before launch, validates one return, joins its direct process scope and
 records only known evidence. Invalid results after effects are engine failures,
 never retries or no-effect claims. Action `continue/exists` requirements use
-accepted records, not effective drafts or document0, without record authorship.
+accepted records, not effective drafts or document0. A compiled `stdout_record`
+binding alone grants a shell node direct acceptance of its one declared nonbootstrap
+`continue/updated` destination. Entry rejects an open draft and captures the exact
+record head identity/revision; the ordinary publisher freshly rejects intervening drafts.
+
+After direct-scope cleanup settles, `invokeOperation` returns an internal stdout
+selection only for `shell.run` with observed absent group, EOF and no stdout error.
+It retains native leader facts, not presentation termination reasons. `NodeExecution`
+checks cancellation/currentness, reads the exact capture once (at most 1MiB+1),
+and closes the source before synchronous ordinary `CardService.acceptRecord` and
+common acceptance gates. Strict UTF-8 preserves BOM, CRLF and trailing bytes;
+NUL, whitespace-only, oversized and nonregular captures fail without publication.
+The accepted3 artifact embeds independent content and host-constructed shell-stdout
+provenance. A new invocation advances the accepted version even for equal text.
+Outcome routing is unchanged; complete nonzero, signalled and timed-out captures
+can publish. A later gate failure retains the factual report, without workflow
+approval or rollback. No log schema, operation result, tracker or storage owner is added.
+
+`schemas/record-author.ts`, exported through the browser-safe schema root, owns
+the single agent/runtime/shell-stdout union consumed by persistence and public
+contracts. Bootstrap and repair retain their exact runtime provenance restrictions.
+Current/history record projections and VFS read the selected ordinary accepted
+artifact, never the log/capture. `effectiveRecordContent` exposes accepted author
+only; draft/baseline author is null. Ordinary read data carries `content_author`,
+while typed selection observations remain unchanged and no action creates a fake
+tool settlement. Record-head3 and artifact-before-head/previous-slot publication
+are unchanged; accepted3/workflow2 require separate strict adoption as recorded in
+the [format reference](./durable-format-changes.md#shell-stdout-record-authorship-2026-10-19).
 
 One nullable processor-local nonagent in-flight binding spans the whole raw
 operation through its existing matching node delivery consumer. Halt chooses
@@ -2232,7 +2259,7 @@ Content-policy retry/refusal rows, typed refusal BLOCKED results and required er
 Generated-state test and E2E fixtures are reset to the singular current schemas; no omitted-field fixture, compatibility transport, legacy blocked/tool shape, migration, or normalization path remains.
 
 Within that inventory, complete parent-owned `children` names a historical milestone, not the current relationship model.
-Current card heads/messages use strict format1 and ordinary/tombstone documents format3; record heads use format3 and accepted documents format2. Conversation12 and initializer input1 remain unchanged. Cards retain monotonic `child_membership` and complete same-set `active_child_order`, without `tags`, `related`, durable `children` or nine null-only placeholders. Current reads consume selected documents only; historical traversal validates each reached predecessor. Old artifacts fail strict consumption, including previous-head repair selections; adoption follows the independent reset/external decision. Reset loses history; external candidate fidelity is evidenced, never promised or categorically denied. Missing required provenance blocks; unavoidable loss needs confirmation before cutover. Neither option weakens validators or authorizes orphan handling.
+Current card heads/messages use strict format1 and ordinary/tombstone documents format3; record heads and accepted documents use format3. Workflow input requires format2. Conversation12 and initializer input1 remain unchanged. Cards retain monotonic `child_membership` and complete same-set `active_child_order`, without `tags`, `related`, durable `children` or nine null-only placeholders. Current reads consume selected documents only; historical traversal validates each reached predecessor. Old artifacts fail strict consumption, including previous-head repair selections; adoption follows the independent reset/external decision. Reset loses history; external candidate fidelity is evidenced, never promised or categorically denied. Missing required provenance blocks; unavoidable loss needs confirmation before cutover. Neither option weakens validators or authorizes orphan handling.
 
 The `.saivage/locks` namespace is the exceptional lifecycle-exclusion boundary, not reset-owned generated persistence.
 Reset acquires the exact canonical `runtime.lock`, removes the four complete roots, publishes the new `project` root card while still holding the lock, and then uses exact-owner release.
@@ -2484,7 +2511,7 @@ The top-level inventory therefore includes the optional source fields, while eff
 | `card_types.entry.workflow.entries.BLOCKED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.entries.STOPPED` | `node,prompt` | `src/schemas/saivage-config.ts:224` |
 | `card_types.entry.workflow.entries.STOPPED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
-| `card_types.entry.workflow.nodes.entry` | `descendant_context,edges,execution,initialize_records,record_prompts,records` | `src/schemas/saivage-config.ts:321` |
+| `card_types.entry.workflow.nodes.entry` | `descendant_context,edges,execution,initialize_records,record_prompts,records,stdout_record` | `src/schemas/saivage-config.ts:321` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1` | `agent,correction_prompt,data_inputs,inputs,kind,prompt` | `src/schemas/saivage-config.ts:280` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:200` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.correction_prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |

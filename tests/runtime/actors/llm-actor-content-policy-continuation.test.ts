@@ -226,12 +226,12 @@ function fixture(
 it('freezes current bootstrap through real pinned admission and exact serialized retry, then refreshes on correction', async () => {
   let store!: CardService;
   const f = fixture([
-    () => { store.acceptRecord('project', 'brief.md', 'NEW B DURING REFUSAL', 'analyst'); return refusal(); },
+    () => { store.acceptRecord('project', 'brief.md', 'NEW B DURING REFUSAL', { kind: 'agent', agent: 'analyst' }); return refusal(); },
     () => chatSuccess('pinned result'),
     () => chatSuccess('corrected result'),
   ]);
   store = new CardService(f.root);
-  store.acceptRecord('project', 'brief.md', 'CAPTURED A', 'analyst');
+  store.acceptRecord('project', 'brief.md', 'CAPTURED A', { kind: 'agent', agent: 'analyst' });
   const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'synthetic-probe', recordPrompts: [] }));
   const read = jest.spyOn(store, 'readRecordCurrent');
   try {
@@ -269,7 +269,7 @@ it('sends prepared context and canonical repair/tool results through real admiss
     compiledTools: f.input.compiledToolContracts, stableBlocks, preparedCompaction: f.input.preparedCompaction,
   }) };
   const store = new CardService(f.root);
-  store.acceptRecord('project', 'brief.md', 'ACCEPTED RECORD FOR REAL COMPOSITION', 'analyst');
+  store.acceptRecord('project', 'brief.md', 'ACCEPTED RECORD FOR REAL COMPOSITION', { kind: 'agent', agent: 'analyst' });
   const supplier = bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'synthetic-probe', recordPrompts: [] });
   const actor = new ConversationLLMActor({
     purpose: { kind: 'autonomous-card', cardId: 'project' }, gate: new RuntimeGate(), agentId: input.sessionId,
@@ -399,10 +399,10 @@ describe('content-policy successful pin continuation ownership', () => {
     let changedDuringContinuation = false;
     const overload = () => {
       if (!changedDuringPin) {
-        store.acceptRecord('project', 'brief.md', 'B AFTER PIN ADMISSION', 'analyst');
+        store.acceptRecord('project', 'brief.md', 'B AFTER PIN ADMISSION', { kind: 'agent', agent: 'analyst' });
         changedDuringPin = true;
       } else if (f.requests.length >= 10 && !changedDuringContinuation) {
-        store.acceptRecord('project', 'brief.md', 'C AFTER CONTINUATION ADMISSION', 'analyst');
+        store.acceptRecord('project', 'brief.md', 'C AFTER CONTINUATION ADMISSION', { kind: 'agent', agent: 'analyst' });
         changedDuringContinuation = true;
       }
       return new Response(JSON.stringify({ error: { code: 'server_is_overloaded' } }), { status: 503 });
@@ -410,7 +410,7 @@ describe('content-policy successful pin continuation ownership', () => {
     const f = fixture([() => refusal(), ...Array.from({ length: 7 }, () => overload), toolResponse,
       ...Array.from({ length: 5 }, () => overload), () => chatSuccess('done')]);
     store = new CardService(f.root);
-    store.acceptRecord('project', 'brief.md', 'A BEFORE PIN ADMISSION', 'analyst');
+    store.acceptRecord('project', 'brief.md', 'A BEFORE PIN ADMISSION', { kind: 'agent', agent: 'analyst' });
     const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'synthetic-probe', recordPrompts: [] }));
     const read = jest.spyOn(store, 'readRecordCurrent');
     f.availability.markFailed(SECOND, { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 7_200_000, reason: 'rate_limit' });

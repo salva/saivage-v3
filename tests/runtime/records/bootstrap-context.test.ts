@@ -18,7 +18,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'bootstrap-context-')); roots.push(root);
   initProjectTree(root);
   const store = new CardService(root);
-  store.acceptRecord('project', 'brief.md', 'CURRENT ACCEPTED {{opaque}}\n"quoted body"', 'analyst');
+  store.acceptRecord('project', 'brief.md', 'CURRENT ACCEPTED {{opaque}}\n"quoted body"', { kind: 'agent', agent: 'analyst' });
   const card = store.read('project')!;
   const supplier = bootstrapContextSupplier(store, card, { nodeId: 'plan', recordPrompts: [] });
   const prepare = () => supplier({ inputId: randomUUID(), conversation: readConversation(root, SESSION) });

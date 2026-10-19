@@ -117,6 +117,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         child_activation_types: [...node.childActivationTypes],
         readable_records: [...node.readableRecords.keys()],
         initialize_records: node.initializeRecords.map((record) => record.name),
+        stdout_record: node.stdoutRecord?.name ?? null,
         requirements: node.requirements.map((requirement) => ({
           record_name: requirement.definition.name,
           mode: requirement.mode,

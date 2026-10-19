@@ -22,6 +22,7 @@ export function projectWorkflowPresentation(
               provider: node.execution.operation.provider,
             },
       initialize_records: node.initializeRecords.map((record) => record.name),
+      stdout_record: node.stdoutRecord?.name ?? null,
     })),
     entries: (['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const).map((entry) => ({
       entry,

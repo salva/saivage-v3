@@ -76,7 +76,7 @@ describe('WebProvider', () => {
       if (condition === 'accepted') {
         expect(result).toMatchObject({ success: true, data: { write: { kind: 'record', data: { state: 'closed', propagation: { ok: true } } } } });
         expect(fetchSpy).toHaveBeenCalledTimes(1);
-        expect(cards.readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { state: 'closed', accepted: { content: 'fetched correction', writer_agent: 'analyst' } } } });
+        expect(cards.readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { state: 'closed', accepted: { content: 'fetched correction', author: { kind: 'agent', agent: 'analyst' } } } } });
         expect(notify.mock.calls.map(([id]) => id)).toEqual(['project']);
       } else {
         expect(result).toMatchObject({ success: false, data: { code: condition === 'draft' ? 'record_open_conflict' : 'record_mutation_denied', ...(condition === 'draft' ? {} : { reason: 'tool_not_authorized' }) } });

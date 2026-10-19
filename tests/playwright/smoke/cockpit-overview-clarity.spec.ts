@@ -64,7 +64,7 @@ function acceptedRecord(name: string, content: string, headRevision: number, doc
     card_id: smokeCardId,
     record: {
       head_id:'11111111-1111-4111-8111-111111111111', name, revision: headRevision, current_url: `record:///${name}?card=${smokeCardId}`, accepted_version_url: `record:///${name}?card=${smokeCardId}&v=${documentVersion}`, state: 'closed',
-      accepted: { source_version: documentVersion, source_entry_id: '55555555-5555-4555-8555-555555555555', committed_at: now, writer_agent: 'executor', card_version_seq: 8, card_history_version: 8, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
+      accepted: { source_version: documentVersion, source_entry_id: '55555555-5555-4555-8555-555555555555', committed_at: now, author: { kind: 'agent', agent: 'executor' }, card_version_seq: 8, card_history_version: 8, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
       baseline: null, draft: null, effective_content_source: 'accepted',
     },
   });
@@ -75,7 +75,7 @@ function objectiveRecord() {
     card_id: smokeCardId,
     record: {
       head_id:'11111111-1111-4111-8111-111111111111', name: objectiveName, revision: 5, current_url: `record:///${objectiveName}?card=${smokeCardId}`, accepted_version_url: `record:///${objectiveName}?card=${smokeCardId}&v=2`, state: 'open',
-      accepted: { source_version: 2, source_entry_id: '66666666-6666-4666-8666-666666666666', committed_at: now, writer_agent: 'analyst', card_version_seq: 4, card_history_version: 4, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective.', content_sha256: 'b'.repeat(64), size_bytes: 27 },
+      accepted: { source_version: 2, source_entry_id: '66666666-6666-4666-8666-666666666666', committed_at: now, author: { kind: 'agent', agent: 'analyst' }, card_version_seq: 4, card_history_version: 4, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective.', content_sha256: 'b'.repeat(64), size_bytes: 27 },
       baseline: null, draft: { version: 3, target_version: 3, opened_at: now, updated_at: now, content: objective, content_sha256: 'c'.repeat(64) },
       effective_content_source: 'draft',
     },
@@ -85,7 +85,7 @@ function objectiveRecord() {
 function largeGraph() {
   const nodes = Array.from({ length: 42 }, (_, index) => {
     const ordinal = String(index + 1).padStart(2, '0');
-    return { node_id: `node-${ordinal}`, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: descriptors.map((record) => record.name), requirements: [], descendant_context: null, outcomes: [`continue-along-the-long-custom-cycle-${ordinal}`], execution: { kind: 'agent', agent_name: `custom-worker-${ordinal}`, session: { scope: 'card', identity_pattern: `agent:custom-worker-${ordinal}:<card-id>` }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read'], record_write_patterns: ['*.md'] } };
+    return { node_id: `node-${ordinal}`, stdout_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: descriptors.map((record) => record.name), requirements: [], descendant_context: null, outcomes: [`continue-along-the-long-custom-cycle-${ordinal}`], execution: { kind: 'agent', agent_name: `custom-worker-${ordinal}`, session: { scope: 'card', identity_pattern: `agent:custom-worker-${ordinal}:<card-id>` }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read'], record_write_patterns: ['*.md'] } };
   });
   const edges = nodes.map((node, index) => ({ route_id: node.outcomes[0], test: null,
     source_node_id: node.node_id,
@@ -192,7 +192,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
     }
     if (path === `/api/workflows/${graph.card_type}/presentation`) return json(route, parseOperatorResponse('workflows.presentation', 200, {
       card_type: graph.card_type,
-      nodes: graph.nodes.map(({ node_id, execution, initialize_records }) => ({ node_id, execution: { kind: 'agent', agent_name: execution.agent_name }, initialize_records })),
+      nodes: graph.nodes.map(({ node_id, execution, initialize_records, stdout_record }) => ({ node_id, execution: { kind: 'agent', agent_name: execution.agent_name }, initialize_records, stdout_record })),
       entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
       edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
       terminals: graph.terminals,

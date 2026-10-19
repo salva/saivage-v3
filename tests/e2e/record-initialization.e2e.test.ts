@@ -58,7 +58,7 @@ describe('configured node-entry record initialization through production composi
           'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
           'assessment.md': { format: 'markdown', schema: 'assessment.v1', bootstrap: false, initialization: { format_version: 1, template: INITIAL } },
         },
-        workflow: { format_version: 1,
+        workflow: { format_version: 2,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: { execute: {
@@ -89,11 +89,11 @@ describe('configured node-entry record initialization through production composi
       writeFileSync(join(prompts, 'process/project/assess.md'), 'Assess the accepted brief against current evidence in assessment.md. Replace starter text with the actual current assessment and remaining work. Return blocked only for the unavailable required external evidence, after authoring this assessment.\n');
       initializeProject(root); app = await startProductionApp(root, TOKEN);
       const cards = app.server.runtimeApplication.cardStore;
-      cards.acceptRecord('project', 'brief.md', 'Assess current delivery; required external evidence is unavailable. Record the current assessment and this remaining input.', 'analyst');
+      cards.acceptRecord('project', 'brief.md', 'Assess current delivery; required external evidence is unavailable. Record the current assessment and this remaining input.', { kind: 'agent', agent: 'analyst' });
       const child = cards.create({ type: 'code', parent: 'project', title: 'Pre-entry author', bootstrap_content: 'Supplied child requirements.', created_by: 'analyst', priority: 0, urgency: 'normal', depends_on: [] });
       expect(cards.readRecordCurrent(child.id, 'status.md')).toMatchObject({ value: { projection: null } });
-      cards.acceptRecord(child.id, 'status.md', 'Analyst assessment before entry.', 'analyst');
-      expect(cards.readRecordCurrent(child.id, 'brief.md')).toMatchObject({ value: { projection: { accepted: { content: 'Supplied child requirements.', writer_agent: 'runtime:bootstrap' } } } });
+      cards.acceptRecord(child.id, 'status.md', 'Analyst assessment before entry.', { kind: 'agent', agent: 'analyst' });
+      expect(cards.readRecordCurrent(child.id, 'brief.md')).toMatchObject({ value: { projection: { accepted: { content: 'Supplied child requirements.', author: { kind: 'runtime', purpose: 'bootstrap' } } } } });
       expect(cards.readRecordCurrent('project', 'assessment.md')).toMatchObject({ value: { projection: null } });
       expect((await postStartProject(appOrigin(app), TOKEN)).status).toBe(200);
       await waitFor(() => calls === 2 || failure !== undefined, 'corrective operation after untouched seed');
@@ -126,7 +126,7 @@ describe('configured node-entry record initialization through production composi
       await runUntilStopped();
       expect(calls).toBe(2);
       const accepted = await getRecord();
-      expect(accepted).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Delivered current assessment with evidence.', writer_agent: 'executor' } });
+      expect(accepted).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Delivered current assessment with evidence.', author: { kind: 'agent', agent: 'executor' } } });
       const acceptedVersion = accepted.accepted.source_version;
       expect(acceptedVersion).toBe(1); expect(accepted.revision).toBeGreaterThan(1);
       await app.stop(); app = null;
@@ -136,7 +136,7 @@ describe('configured node-entry record initialization through production composi
       app = await startProductionApp(root, TOKEN);
       await runUntilStopped(); expect(calls).toBe(3);
       const final = await getRecord();
-      expect(final).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Reassessed current remaining work.', writer_agent: 'executor' } });
+      expect(final).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Reassessed current remaining work.', author: { kind: 'agent', agent: 'executor' } } });
       const conversation = readConversation(root, cardAgentSessionId('executor', 'project'));
       const drafts = conversation.physicalRows.flatMap(row => row.record_observations ?? []).filter(item => item.observed.record_name === 'assessment.md' && item.observed.selection.kind === 'draft');
       expect(drafts.some(item => item.observed.selection.kind === 'draft' && item.observed.selection.target_version === 2 && item.observed.selection.accepted_backing?.version === acceptedVersion)).toBe(true);

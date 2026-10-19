@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -28,7 +29,7 @@ import { cardExecutionFile } from '../../../src/persistence/layout.js';
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); jest.restoreAllMocks(); });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
-function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }, retainedRoot?: string) {
+function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }, retainedRoot?: string, stdoutRecord = false) {
   const root = retainedRoot ?? mkdtempSync(join(tmpdir(), 'action-runtime-'));
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
   const workflow = config.card_types.project!.workflow;
@@ -50,6 +51,12 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
     for (const edge of Object.values(workflow.nodes.check!.edges)) {
       if ('target' in edge && 'terminal' in edge.target) edge.target.export_records = ['status.md'];
     }
+  }
+  if (stdoutRecord) {
+    workflow.nodes.check!.stdout_record = 'status.md';
+    workflow.nodes.check!.records = { 'status.md': { mode: 'continue', gate: 'updated' } };
+    for (const edge of Object.values(workflow.nodes.check!.edges))
+      if ('target' in edge && 'terminal' in edge.target) edge.target.export_records = ['status.md'];
   }
   if (typedHandoff) {
     if (recovery.execution.kind !== 'agent') throw new Error();
@@ -124,6 +131,168 @@ async function launch(f: ReturnType<typeof fixture>) {
   internal.launchStartedProject(prepared.launch);
   return owner;
 }
+function stdoutFixture(script: string, config: Record<string, unknown> = {}) {
+  return fixture(undefined, script, false, false, false, config, undefined, undefined, true);
+}
+function acceptedReport(f: ReturnType<typeof fixture>) {
+  const result = f.cards.readRecordCurrent('project', 'status.md');
+  if (result.kind !== 'found') throw new Error('Missing fixture card.');
+  return result.value.projection;
+}
+const nodeCommand = (code: string) => `${JSON.stringify(process.execPath)} -e ${JSON.stringify(code)}`;
+
+it('publishes independent exact stdout twice with new ordinary provenance and retained history', async () => {
+  const content = '\uFEFFReport\r\nUnicode: λ 日本語\r\n \n';
+  const f = stdoutFixture(nodeCommand(`process.stdout.write(${JSON.stringify(content)}); process.stderr.write('NOT THE REPORT');`));
+  const close = jest.spyOn(f.cards, 'closeRecord');
+  const first = await launch(f);
+  await expect(first.settlement.promise).resolves.toMatchObject({ status: 'blocked', result: { outcome: 'passed', records: [{ name: 'status.md', version: 1 }] } });
+  const before = acceptedReport(f)!;
+  expect(before.accepted).toMatchObject({ content, source_version: 1,
+    content_sha256: createHash('sha256').update(content).digest('hex'),
+    size_bytes: Buffer.byteLength(content), author: { kind: 'shell-stdout', node_id: 'check', outcome: 'passed', leader_exit: { exit_code: 0, signal: null } } });
+  f.cards.setStatus('project', 'changed');
+  const second = await launch(f);
+  await expect(second.settlement.promise).resolves.toMatchObject({ status: 'blocked', result: { records: [{ version: 2 }] } });
+  const after = acceptedReport(f)!;
+  expect(after.headId).not.toBe(before.headId);
+  expect(after.revision).toBeGreaterThan(before.revision);
+  expect(after.accepted!.content).toBe(content);
+  expect(after.accepted!.author).not.toEqual(before.accepted!.author);
+  const history = f.cards.readRecordHistory('project', 'status.md');
+  const diff = f.cards.diffRecordVersions('project', 'status.md', { from: 1, to: 2 });
+  const old = f.cards.readRecordVersion('project', 'status.md', 1);
+  for (const row of readCardExecutions(f.root, 'project')) if (row.kind === 'process_started') {
+    const stdout = row.files.find((file) => file.kind === 'capture' && file.stream === 'stdout')!;
+    writeFileSync(join(f.root, stdout.path), 'changed capture');
+    rmSync(join(f.root, stdout.path));
+  }
+  expect(f.cards.readRecordVersion('project', 'status.md', 1)).toEqual(old);
+  expect(f.cards.readRecordHistory('project', 'status.md')).toEqual(history);
+  expect(f.cards.diffRecordVersions('project', 'status.md', { from: 1, to: 2 })).toEqual(diff);
+  expect(acceptedReport(f)!.accepted!.content).toBe(content);
+  expect(close).not.toHaveBeenCalled();
+  expect(f.provider).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['printf report; exit 7', 'failed', { exit_code: 7, signal: null }],
+  ['printf report; kill -TERM $$', 'signalled', { exit_code: null, signal: 'SIGTERM' }],
+  ['printf report; sleep 30', 'timed_out', { exit_code: null, signal: 'SIGTERM' }],
+] as const)('publishes completed capture without changing disposition: %s', async (script, outcome, leader) => {
+  const f = stdoutFixture(script);
+  const owner = await launch(f);
+  await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'blocked', result: { outcome } });
+  expect(acceptedReport(f)!.accepted).toMatchObject({ content: 'report', author: { kind: 'shell-stdout', outcome, leader_exit: leader } });
+  expect(readCardExecutions(f.root, 'project').at(-1)).toMatchObject({ outcome, leader_exit: leader });
+});
+
+it.each(['entry', 'publication'] as const)('preserves an open draft and accepted backing at %s', async (when) => {
+  const f = stdoutFixture('printf report');
+  f.cards.acceptRecord('project', 'status.md', 'Prior accepted', { kind: 'agent', agent: 'analyst' });
+  const draft = () => { f.cards.openRecord('project', 'status.md'); f.cards.editRecord('project', 'status.md', 'Do not overwrite'); };
+  let preserved: ReturnType<typeof acceptedReport>;
+  const spawn = jest.spyOn(f.processes.processRunner, 'spawnCaptured');
+  if (when === 'entry') { draft(); preserved = acceptedReport(f); }
+  else {
+    const close = f.processes.processRunner.closeAndTerminateDirectScope.bind(f.processes.processRunner);
+    jest.spyOn(f.processes.processRunner, 'closeAndTerminateDirectScope').mockImplementation(async (args) => {
+      const result = await close(args); draft(); preserved = acceptedReport(f); return result;
+    });
+  }
+  const owner = await launch(f);
+  await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'failed' });
+  expect(acceptedReport(f)).toEqual(preserved!);
+  expect(spawn).toHaveBeenCalledTimes(when === 'entry' ? 0 : 1);
+});
+
+it.each([
+  ['cap', "process.stdout.write('x'.repeat(1024*1024))", true],
+  ['oversize', "process.stdout.write('x'.repeat(1024*1024+1))", false],
+  ['invalid UTF8', 'process.stdout.write(Buffer.from([0xff]))', false],
+  ['NUL', "process.stdout.write('report\\0')", false],
+  ['empty', "process.stdout.write(' \\r\\n\\t')", false],
+] as const)('admits complete stdout text only: %s', async (_name, code, valid) => {
+  const f = stdoutFixture(nodeCommand(code));
+  f.cards.acceptRecord('project', 'status.md', 'Prior accepted', { kind: 'agent', agent: 'analyst' });
+  const before = acceptedReport(f);
+  const owner = await launch(f);
+  await expect(owner.settlement.promise).resolves.toMatchObject({ status: valid ? 'blocked' : 'failed' });
+  if (valid) expect(acceptedReport(f)!.accepted).toMatchObject({ source_version: 2, content: 'x'.repeat(1024*1024) });
+  else expect(acceptedReport(f)).toEqual(before);
+});
+
+it('Stop before publication joins completed raw cleanup without a report or late acceptance', async () => {
+  const f = stdoutFixture('printf report');
+  const closed = deferred(); const release = deferred();
+  const close = f.processes.processRunner.closeAndTerminateDirectScope.bind(f.processes.processRunner);
+  jest.spyOn(f.processes.processRunner, 'closeAndTerminateDirectScope').mockImplementation(async (args) => {
+    const result = await close(args); closed.resolve(); await release.promise; return result;
+  });
+  const publish = jest.spyOn(f.cards, 'acceptRecord');
+  await launch(f); await closed.promise;
+  const stop = f.supervisor.stopProject();
+  release.resolve();
+  await expect(stop).resolves.toMatchObject({ contained: true });
+  expect(publish).not.toHaveBeenCalled();
+  expect(acceptedReport(f)).toBeNull();
+  expect(f.processes.processRunner.list()).toEqual([]);
+  // The process completed before Stop; the log remains factual, not a publication receipt.
+  expect(readCardExecutions(f.root, 'project').at(-1)).toMatchObject({ disposition: 'returned', outcome: 'passed' });
+});
+
+it.each(['stdout-artifact-publication', 'stdout-head-publication'])('halts at the real record publisher before late acknowledgement or cleanup: %s', (mode) => {
+  const root = mkdtempSync(join(tmpdir(), 'stdout-fatal-'));
+  cleanups.push(async () => { rmSync(root, { recursive: true, force: true }); });
+  const marker = join(root, 'marker'); writeFileSync(marker, '');
+  const fatal = spawnSync(process.execPath, ['--import', 'tsx',
+    join(process.cwd(), 'tests/fixtures/publication-fatal-boundaries.ts'), mode, marker],
+    { cwd: process.cwd(), encoding: 'utf8', timeout: 30_000 });
+  expect(fatal.status).toBe(1);
+  expect(fatal.stdout).toBe('');
+  expect(fatal.stderr).toBe('Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown. Cause: record publication uncertain\n');
+  expect(readFileSync(marker, 'utf8')).toBe('publishing\nuncertain\n');
+}, 35_000);
+
+it.each(['missing', 'directory'] as const)('rejects a %s completed capture without replacing accepted content', async (kind) => {
+  const f = stdoutFixture('printf report');
+  f.cards.acceptRecord('project', 'status.md', 'Prior accepted', { kind: 'agent', agent: 'analyst' });
+  const before = acceptedReport(f);
+  let capture = '';
+  const spawn = f.processes.processRunner.spawnCaptured.bind(f.processes.processRunner);
+  jest.spyOn(f.processes.processRunner, 'spawnCaptured').mockImplementation((args) => {
+    const record = spawn(args); capture = record.stdout_path; return record;
+  });
+  const close = f.processes.processRunner.closeAndTerminateDirectScope.bind(f.processes.processRunner);
+  jest.spyOn(f.processes.processRunner, 'closeAndTerminateDirectScope').mockImplementation(async (args) => {
+    const result = await close(args); rmSync(capture); if (kind === 'directory') mkdirSync(capture); return result;
+  });
+  const owner = await launch(f);
+  await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'failed' });
+  expect(acceptedReport(f)).toEqual(before);
+});
+
+it('keeps the factual report when a later real descendant gate refuses DONE', async () => {
+  const f = fixture(undefined, 'printf report', false, false, false, {}, {}, undefined, true);
+  f.cards.create({ type: 'goal', parent: 'project', title: 'Incomplete child', bootstrap_content: 'Work remains', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  const owner = await launch(f);
+  await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'failed', result: { summary: expect.stringContaining('descendant') } });
+  expect(acceptedReport(f)!.accepted).toMatchObject({ content: 'report', source_version: 1, author: { kind: 'shell-stdout' } });
+  expect(readCardExecutions(f.root, 'project')).toHaveLength(3);
+});
+
+it('rejects a positive short stdout read without publishing its prefix or replacing prior acceptance', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'stdout-short-read-'));
+  cleanups.push(async () => { rmSync(root, { recursive: true, force: true }); });
+  const marker = join(root, 'marker'); writeFileSync(marker, '');
+  const child = spawnSync(process.execPath, ['--import', 'tsx',
+    join(process.cwd(), 'tests/fixtures/publication-fatal-boundaries.ts'), 'stdout-short-read', marker],
+    { cwd: process.cwd(), encoding: 'utf8', timeout: 30_000 });
+  expect(child.stderr).toBe('');
+  expect(child.status).toBe(0);
+  expect(readFileSync(marker, 'utf8')).toBe('short-read\nclosed\npreserved\n');
+}, 35_000);
+
 it.each([['printf "real action"; exit 0', 'passed'], ['exit 9', 'failed'], ['kill -TERM $$', 'signalled'], ['sleep 30', 'timed_out']])(
   'executes a real action on the graph: %s', async (script, outcome) => {
     const f = fixture(undefined, script); const owner = await launch(f);
@@ -182,7 +351,7 @@ it.each([0, 3])('selects the typed plugin branch and feeds only declared factual
 });
 
 it('selects cancel-and-settle before an action raw body is entered', async () => {
-  const f = fixture();
+  const f = stdoutFixture('printf report');
   const run = ActivationOperationTracker.prototype.run;
   let stop!: ReturnType<typeof f.supervisor.stopProject>;
   jest.spyOn(ActivationOperationTracker.prototype, 'run').mockImplementation(function (this: ActivationOperationTracker, ...args: Parameters<typeof run>) {
@@ -195,10 +364,11 @@ it('selects cancel-and-settle before an action raw body is entered', async () =>
   expect(f.processes.processRunner.list()).toEqual([]);
   expect(readCardExecutions(f.root, 'project')).toEqual([]);
   expect(f.provider).not.toHaveBeenCalled();
+  expect(acceptedReport(f)).toBeNull();
 });
 
 it.each(['Stop', 'shutdown', 'urgent'] as const)('joins a real action command on %s without replay or false outcome', async (mode) => {
-  const f = fixture(undefined, 'sleep 30', false, mode === 'urgent');
+  const f = fixture(undefined, 'printf report; sleep 30', false, mode === 'urgent', false, {}, undefined, undefined, true);
   const spawned = deferred();
   const original = f.processes.processRunner.spawnCaptured.bind(f.processes.processRunner);
   jest.spyOn(f.processes.processRunner, 'spawnCaptured').mockImplementation((args) => original({ ...args,
@@ -224,11 +394,12 @@ it.each(['Stop', 'shutdown', 'urgent'] as const)('joins a real action command on
   expect(rows.at(-1)).toMatchObject({ disposition: 'cancelled', outcome: null, process: { group: 'absent' } });
   expect(f.processes.processRunner.list()).toEqual([]);
   expect(f.provider).toHaveBeenCalledTimes(mode === 'urgent' ? 1 : 0);
+  expect(acceptedReport(f)).toBeNull();
 });
 
 it.each(['accepted-with-empty-draft', 'draft-only', 'baseline0'] as const)('action record requirements consume accepted content only: %s', async (state) => {
   const f = fixture(undefined, 'exit 0', false, false, true);
-  if (state === 'accepted-with-empty-draft') f.cards.acceptRecord('project', 'status.md', 'Accepted factual status.', 'analyst');
+  if (state === 'accepted-with-empty-draft') f.cards.acceptRecord('project', 'status.md', 'Accepted factual status.', { kind: 'agent', agent: 'analyst' });
   if (state === 'baseline0') f.cards.initializeRecord('project', 'status.md', () => 'Unfilled template.');
   else {
     f.cards.openRecord('project', 'status.md');
@@ -384,7 +555,7 @@ it('Stop, direct status changes, record writes and stopped-chain recovery do not
   const fresh = createSupervisorRuntimeApi(f.supervisorOptions);
   await fresh.start();
   expect(f.cards.read('project')!.lifecycle.status).toBe('stopped');
-  f.cards.acceptRecord('project', 'status.md', 'Direct factual record update', 'analyst');
+  f.cards.acceptRecord('project', 'status.md', 'Direct factual record update', { kind: 'agent', agent: 'analyst' });
   f.cards.setStatus('project', 'cancelled');
   expect(readCardExecutions(f.root, 'project')).toEqual(rows);
   expect(f.provider).not.toHaveBeenCalled();
@@ -444,7 +615,7 @@ it('reopening an actually completed card does not dispatch another attachment', 
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'done' });
   const rows = readCardExecutions(f.root, 'project');
   f.cards.setStatus('project', 'changed');
-  f.cards.acceptRecord('project', 'status.md', 'Updated requirement after reopen', 'analyst');
+  f.cards.acceptRecord('project', 'status.md', 'Updated requirement after reopen', { kind: 'agent', agent: 'analyst' });
   expect(readCardExecutions(f.root, 'project')).toEqual(rows);
   expect(f.cards.read('project')!.lifecycle.status).toBe('changed');
 });

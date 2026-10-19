@@ -23,6 +23,51 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Shell stdout record authorship (2026-10-19)
+
+Exact implementation parent: `ed4aa204f4a2f0aec32baa025f5813226f41b91b`.
+Accepted-record artifacts advance **2→3**: required discriminated `author` replaces
+`writer_agent`. Agent, bootstrap/repair runtime and shell-stdout authors remain
+distinct; a new shell invocation may publish equal content as a new factual
+accepted version, without reusing an agent verdict. Ordinary content/hash/size,
+immutable card provenance, predecessor chain and artifact-before-head publication
+remain. Record-head **3** is unchanged; a head selecting an old accepted2 artifact
+fails when that artifact is consumed. Current/history/API and repair consumers
+use the same strict author contract. There is no old-author normalization.
+
+Workflow input advances **1→2**, including unbound workflows. Optional node-level
+`stdout_record: check-report.md` names exactly one declared nonbootstrap own-card
+record with a `continue/updated` requirement. Only `shell.run` nodes can select
+it; agents, other operations and hooks cannot. Initializer **1** is unchanged.
+
+Ordinary/tombstone card **3**, card-head/mailbox **1**, execution evidence **1**,
+`shell.run` operation contract **1** and provider/app-log shared envelope **1**
+remain unchanged. Conversation index/genesis/segment **12** and typed record
+selection observations are unchanged: ordinary tool data is opaque under
+`contracts/tool-result.ts`; author metadata is not a new typed observation or
+specialized process result. Retained observations are factual, never rewritten
+to the new author shape. `tests/contracts/record-observation-foundation.test.ts`
+publishes real current/historical record-read settlements with `content_author`,
+strictly reads retained format12 history, materializes it, projects public rows
+and an actual OpenAI request, and publishes/consumes a compacted successor with
+unchanged typed selection facts. An old opaque `writer_agent` observation remains
+unchanged through those consumers. `tests/tools/card-version-provider.test.ts`
+independently retains old opaque card observations. The real process producers in
+`tests/e2e/process-inline-output.e2e.test.ts` retain their specialized result shape
+through strict format12 current/history consumption, actual compaction and
+provider/public projection; no record author fields or shell-publication mutation observations
+are added to those results. `tests/e2e/execution-evidence.e2e.test.ts` and the
+existing production-server browser journey exercise workflow2 capture-to-record3
+publication, equal-content versions, independent capture deletion, normal record
+history/diffs and privacy-filtered display/download. These are source-contract
+proofs, not installed-state or model-comprehension claims.
+
+Deployment applicability is unknown; no unreleased version reuse is claimed.
+Old/mixed state stays a stopped blocker. Adoption requires matching configuration
+and release plus a separately consented reset or explicitly requested external
+offline migration; this source change authorizes neither. Binary-only rollback
+after new writes is unsupported.
+
 ### Stateless node operations (2026-10-19)
 
 Exact implementation parent: `a768ee4a0bf341738c5ebfa55fa8b85cf219f2ed`.
@@ -971,10 +1016,10 @@ changes to that historical tree.
 | Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:3`, `card-version` / `card-tombstone`; minimal ordinary/final payload with agent/action executor results, predecessor-linked sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
 | Record head | `records/record-<stem>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; current head UUID/mutation revision, nullable current-only baseline0, draft document/target versions and latest accepted reference. Baseline0/draft0 and empty drafts are ineligible. Previous slot shares head3. |
-| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:2`, `kind:accepted-record`; consecutive document versions, immutable body/attribution and ordinary card provenance, exact predecessor. Historical projection has null head/revision. |
+| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:3`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated author and ordinary card provenance, exact predecessor. Historical projection has null head/revision. |
 | Record initialization input | Owning card-type YAML declaration; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; replaces formerly unversioned content/triggers, without old-input reader. |
 | Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, invocation owner `runtime/actors/operation-execution.ts` | `version:1`, `type:card-execution`; strict entry/spawn/finish associations and exact file selections. Incomplete evidence is valid, not resumable workflow state; generated artifacts select mutable current source. |
-| Workflow input | Owning card-type YAML `workflow`; `schemas/saivage-config.ts`, workflow compiler | `format_version:1`; singular agent/action execution, bounded fields/cases/input bindings and optional advisory natural-postcommit attachment. |
+| Workflow input | Owning card-type YAML `workflow`; `schemas/saivage-config.ts`, workflow compiler | `format_version:2`; singular agent/action execution, optional exact shell-node stdout record binding, bounded fields/cases/input bindings and optional advisory natural-postcommit attachment. |
 | Operation selection | Exact explicitly compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; preserved in action results and execution observations. Not a package or shared envelope version. |
 | Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/current selection, source/cutoff/continuation and latest current record facts with baseline0 and draft version/target/backing; historical selections carry no current head. Existing protected prompts, excerpts and structural omission retained. |
 | Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; baseline/draft/current/historical observation meanings, nested tool results and strict activation/message/private-context semantics. Ordered text/image successful-result blocks select raw PNGs under this owning conversation contract, with no independent image envelope/catalog version. |

@@ -16,6 +16,14 @@ bounded record/history access. Operators must not infer absent requirements,
 complete-body exposure or accepted authority from a preview. The separate accepted
 bootstrap remains full; no new UI workflow is required.
 Accepted selections, effective drafts and accepted backing evidence stay distinct.
+Operators need to distinguish agent-authored records from runtime bootstrap/repair
+and shell stdout reports. A report's node, shell operation and actual disposition
+must remain visible without implying an agent verdict, successful program work or
+workflow acceptance. Normal accepted versions/history/diffs retain their own author
+even for equal-content invocations; capture inspection remains separate. Drafts
+and baselines must never borrow accepted backing's attribution. Confidentiality
+applies equally to report text, metadata, previews and downloads.
+
 Operators must distinguish absent records, established empty heads, baseline0,
 draft0/target1, authored drafts for vN and accepted work. **Baseline v0 — not authored
 or accepted** makes no progress or completeness claim; positive drafts remain

@@ -67,7 +67,7 @@ function planningCardType(): CardTypeSource {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
-      format_version: 1,
+      format_version: 2,
       notification_recipient: 'planner',
       entries: {
         BACKLOG: { node: 'plan' },
@@ -143,7 +143,7 @@ function codeCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 1,
+      format_version: 2,
       entries: executionEntries('red'),
       nodes: {
         red: executorNode('code-red', {
@@ -175,7 +175,7 @@ function testCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 1,
+      format_version: 2,
       entries: executionEntries('diagnose'),
       nodes: {
         diagnose: executorNode('test-diagnose', {
@@ -215,7 +215,7 @@ function researchCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 1,
+      format_version: 2,
       entries: executionEntries('explore'),
       nodes: {
         explore: executorNode('research-explore', {
@@ -248,7 +248,7 @@ function dataCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 1,
+      format_version: 2,
       entries: executionEntries('schema'),
       nodes: {
         schema: executorNode('data-schema', {
@@ -285,7 +285,7 @@ function architectureCardType(): CardTypeSource {
     workflow: {
       notification_recipient: 'executor',
       entries: executionEntries('draft'),
-      format_version: 1,
+      format_version: 2,
       nodes: {
         draft: executorNode('architecture-draft', {
           ready_for_component_review: transition(
@@ -343,7 +343,7 @@ function simpleExecutionCardType(): CardTypeSource {
     workflow: {
       notification_recipient: 'executor',
       entries: executionEntries('execute'),
-      format_version: 1,
+      format_version: 2,
       nodes: {
         execute: executorNode('execute', {
           done: terminal('DONE', 'status.md'),

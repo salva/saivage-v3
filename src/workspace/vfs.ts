@@ -73,6 +73,7 @@ export type VfsResolved =
             | null;
           content: string;
           committedAt: string | null;
+          contentAuthor: import('../schemas/record-author.js').RecordAuthor | null;
           size: number;
         }
     ));
@@ -305,6 +306,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
       acceptedVersionUrl: null,
       content: '',
       committedAt: null,
+      contentAuthor: null,
       size: 0,
       recordUrl: target.currentUrl,
       currentSelection: true,
@@ -341,6 +343,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
     acceptedVersionUrl: projection?.acceptedVersionUrl ?? null,
     content,
     committedAt: effective?.modifiedAt ?? null,
+    contentAuthor: effective?.author ?? null,
     size: Buffer.byteLength(content),
     recordUrl: currentSelection
       ? target.parsed.currentUrl

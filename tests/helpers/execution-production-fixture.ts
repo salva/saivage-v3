@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { CardService } from '../../src/cards/card-service.js';
 import { createResolvedConfigAuthority } from '../../src/config/index.js';
 import { join } from 'node:path';
+import { quoteBashWord } from './bash-word.js';
 import {
   appOrigin,
   closeServer,
@@ -21,7 +22,8 @@ import {
 } from './production-composition-e2e.js';
 
 /** Existing production composition + local scripted provider, finite real commands only. */
-export async function executionProductionFixture(exitCode = 0) {
+export const executionReport = '\uFEFFACTUAL-ACTION-OUTPUT\r\nUnicode: λ 🌍\r\napi_key: stdout-record-private-canary\r\n';
+export async function executionProductionFixture(exitCode = 0, deadline = false) {
   const root = mkdtempSync(join(tmpdir(), 'executions-production-'));
   const token = 'disposable-executions-token';
   let analystStarted = false;
@@ -42,7 +44,7 @@ export async function executionProductionFixture(exitCode = 0) {
     if (tools.includes('emit_result')) {
       workflowCalls++;
       sendToolCall(response, `workflow-${workflowCalls}`, 'emit_result', {
-        outcome: workflowCalls === 1 ? 'ready' : 'complete',
+        outcome: workflowCalls % 2 === 1 ? 'ready' : 'complete',
         summary:
           workflowCalls === 1 ? 'Prepared finite command.' : 'Assessed finite command evidence.',
       });
@@ -53,6 +55,7 @@ export async function executionProductionFixture(exitCode = 0) {
   });
   const port = await listen(provider);
   const config = productionTestConfig(port, (config) => {
+    config.card_types.project!.records['check-report.md'] = { format: 'markdown', schema: 'check-report.v1', bootstrap: false };
     const workflow = config.card_types.project!.workflow;
     const original = workflow.nodes.plan!;
     if (original.execution.kind !== 'agent') throw new Error('Expected fixture Planner.');
@@ -79,15 +82,16 @@ export async function executionProductionFixture(exitCode = 0) {
           action: 'shell.run',
           contract_version: 1,
           config: {
-            script: `${JSON.stringify(process.execPath)} -e 'require("node:fs").writeFileSync("action-report.txt", "mutable action report"); console.log("ACTUAL-ACTION-OUTPUT"); process.exit(${exitCode})'`,
-            timeout_ms: 3000,
+             script: `timeout --kill-after=1s 8s ${quoteBashWord(process.execPath)} -e ${quoteBashWord(`require('node:fs').writeFileSync('action-report.txt', 'mutable action report'); process.stdout.write(${JSON.stringify(executionReport)}); process.stderr.write('DISTINCT-STDERR-ONLY\\n'); ${deadline ? 'setInterval(()=>{},1000)' : `process.exitCode=${exitCode}`}`)}`,
+             timeout_ms: deadline ? 1000 : 3000,
             env: { CI: 'synthetic-env-not-public' },
             terminate_grace_ms: 100,
             artifacts: ['action-report.txt', 'absent-report.txt'],
           },
           inputs: { args: { literal: [] } },
         },
-        records: {},
+        stdout_record: 'check-report.md',
+        records: { 'check-report.md': { mode: 'continue', gate: 'updated' } },
         edges: {
           passed: { target: { node: 'assess' } },
           failed: { target: { node: 'repair' } },
@@ -113,7 +117,7 @@ export async function executionProductionFixture(exitCode = 0) {
         action: 'shell.run',
         contract_version: 1,
         config: {
-          script: `${JSON.stringify(process.execPath)} -e 'require("node:fs").writeFileSync("hook-report.txt", "mutable hook report"); console.log("ACTUAL-HOOK-OUTPUT")'`,
+           script: `timeout --kill-after=1s 8s ${quoteBashWord(process.execPath)} -e 'require("node:fs").writeFileSync("hook-report.txt", "mutable hook report"); console.log("ACTUAL-HOOK-OUTPUT")'`,
           timeout_ms: 3000,
           terminate_grace_ms: 100,
           artifacts: ['hook-report.txt'],
@@ -152,6 +156,7 @@ export async function executionProductionFixture(exitCode = 0) {
     cards,
     counts: () => ({ workflowCalls, providerCalls }),
     async run() {
+      analystStarted = false;
       const result = await postStartProject(origin, token);
       if (result.status !== 200) throw new Error(`Fixture admission failed: ${result.status}`);
       await waitFor(

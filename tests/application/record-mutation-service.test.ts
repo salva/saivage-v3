@@ -220,6 +220,6 @@ describe('card-agent record mutation', () => {
     expect(resumed).toMatchObject({kind:'applied',data:{state:'open'}});
     if(resumed.kind !== 'applied')throw new Error('Expected resumed mutation success.');
     const closed=cards.closeRecord('project','brief.md','planner');
-    expect(closed).toMatchObject({state:'closed',accepted:{content:'resumed draft',writer_agent:'planner'}});
+    expect(closed).toMatchObject({state:'closed',accepted:{content:'resumed draft',author: { kind: 'agent', agent: 'planner' }}});
   });
 });

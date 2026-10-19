@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   sha256Hex,
   type AgentName,
+  type RecordAuthor,
   type CardRecord,
   type RecordDefinition,
 } from '../schemas/index.js';
@@ -164,15 +165,17 @@ function readAccepted(
   if (
     definition.bootstrap &&
     artifact.predecessor === null &&
-    (artifact.version !== 1 ||
-      !['runtime:bootstrap', 'runtime:repair'].includes(artifact.accepted.writer_agent))
+    (artifact.version !== 1 || artifact.accepted.author.kind !== 'runtime')
   )
     throw new Error('Invalid bootstrap accepted origin.');
   if (
-    artifact.accepted.writer_agent === 'runtime:bootstrap' &&
+    artifact.accepted.author.kind === 'runtime' &&
+    artifact.accepted.author.purpose === 'bootstrap' &&
     (!definition.bootstrap || artifact.version !== 1 || artifact.predecessor !== null)
   )
     throw new Error('Invalid runtime bootstrap acceptance.');
+  if (definition.bootstrap && artifact.accepted.author.kind === 'shell-stdout')
+    throw new Error('Shell stdout cannot author a bootstrap record.');
   return artifact;
 }
 function project(
@@ -455,7 +458,7 @@ function publishAcceptance(
   definition: RecordDefinition,
   prior: RecordHead | null,
   content: string,
-  writer: AgentName | 'runtime:bootstrap' | 'runtime:repair',
+  author: RecordAuthor,
   cardVersionSeq: number,
   cardHistory: AcceptedRecordSnapshot['card_history'],
   io?: ReplacementFileIo,
@@ -467,7 +470,7 @@ function publishAcceptance(
   const version = (prior?.accepted?.version ?? 0) + 1;
   const artifact = authoredRecordVersionArtifactSchema.parse({
     ...identity(cardId, definition),
-    format_version: 2,
+    format_version: 3,
     kind: 'accepted-record',
     entry_id: entryId,
     version,
@@ -477,7 +480,7 @@ function publishAcceptance(
       source_version: version,
       source_entry_id: entryId,
       committed_at: stamp,
-      writer_agent: writer,
+      author,
       card_version_seq: cardVersionSeq,
       card_history: cardHistory,
       content,
@@ -514,15 +517,17 @@ export function acceptAuthoredRecord(
   projection: CanonicalCardProjection,
   definition: RecordDefinition,
   content: string,
-  writer: AgentName,
+  author: RecordAuthor,
   io?: ReplacementFileIo,
   temporary?: PublicationTemporaryIdFactory,
 ): CurrentRecordProjection {
   const cardId = projection.card.id;
+  if (definition.bootstrap && author.kind === 'shell-stdout')
+    throw new Error('Shell stdout cannot author a bootstrap record.');
   const prior = readHead(projectRoot, cardId, definition);
   if (prior?.draft) throw new Error('Record already has an open workflow draft.');
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
-  if ((prior?.baseline?.content ?? accepted?.content) === content)
+  if (author.kind !== 'shell-stdout' && (prior?.baseline?.content ?? accepted?.content) === content)
     throw new Error('Record content is unchanged.');
   const observed = acceptanceCard(projection);
   return publishAcceptance(
@@ -531,7 +536,7 @@ export function acceptAuthoredRecord(
     definition,
     prior,
     content,
-    writer,
+    author,
     observed.revision,
     observed.history,
     io,
@@ -557,7 +562,7 @@ export function closeOpenAuthoredRecord(
     definition,
     prior,
     prior.draft.content,
-    writer,
+    { kind: 'agent', agent: writer },
     observed.revision,
     observed.history,
     io,
@@ -598,7 +603,7 @@ export function initializeAuthoredRecord(
     definition,
     null,
     bootstrapContent,
-    'runtime:bootstrap',
+    { kind: 'runtime', purpose: 'bootstrap' },
     1,
     cardHistory,
     undefined,
@@ -620,7 +625,7 @@ export function initializeRepairAuthoredRecord(
     definition,
     null,
     content,
-    'runtime:repair',
+    { kind: 'runtime', purpose: 'repair' },
     1,
     cardHistory,
   );

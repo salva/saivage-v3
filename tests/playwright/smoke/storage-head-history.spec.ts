@@ -19,7 +19,7 @@ const deliveredText = 'Delivered operator notification retained in the conversat
 const acceptedText = 'Exact accepted objective, observed at card mutation revision three.';
 const hash = (content: string) => createHash('sha256').update(content).digest('hex');
 const accepted = {
-  source_version: 1, source_entry_id: acceptedId, committed_at: now, writer_agent: 'analyst',
+  source_version: 1, source_entry_id: acceptedId, committed_at: now, author: { kind: 'agent', agent: 'analyst' },
   card_version_seq: 3, card_history_version: 1, card_history_entry_id: firstId,
   content: acceptedText, content_sha256: hash(acceptedText), size_bytes: Buffer.byteLength(acceptedText),
 };

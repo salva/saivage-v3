@@ -321,6 +321,7 @@ const processEdgeSchema = z.union([
 const processNodeSchema = z
   .object({
     execution: z.discriminatedUnion('kind', [agentExecutionSchema, actionExecutionSchema]),
+    stdout_record: recordNameSchema.optional(),
     initialize_records: z
       .array(recordNameSchema)
       .refine((values) => new Set(values).size === values.length, 'Duplicate initialized record.')
@@ -354,7 +355,7 @@ const processNodeSchema = z
   .strict();
 const cardProcessSchema = z
   .object({
-    format_version: z.literal(1),
+    format_version: z.literal(2),
     after_activation_commit: z
       .object({
         statuses: z

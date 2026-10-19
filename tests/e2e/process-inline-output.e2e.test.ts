@@ -3,10 +3,13 @@ import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFil
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 import type { App } from '../../src/boot/app.js';
 import { quoteBashWord } from '../helpers/bash-word.js';
-import { readConversation } from '../../src/persistence/conversation-file.js';
+import { readConversation, readCurrentConversationSegment, readHistoricalConversationSegment, publishCompactedConversationSegment } from '../../src/persistence/conversation-file.js';
+import { versionFilename } from '../../src/persistence/canonical-conversation-artifacts.js';
+import { deriveRequiredModelFacts, selectConversationProtection } from '../../src/contracts/conversation-validation.js';
 import { parseActivationOpenPayload } from '../../src/schemas/index.js';
 import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
@@ -157,7 +160,7 @@ describe('process inline output production composition', () => {
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 1,
+          workflow: { format_version: 2,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute', prompt: { reference: 'correct-execution-result', compactable: true } }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
@@ -185,6 +188,10 @@ describe('process inline output production composition', () => {
       if (fixtureFailure) throw fixtureFailure;
 
       const durableRows = readConversation(projectRoot, 'agent:executor:project').physicalRows;
+      const segment = readCurrentConversationSegment(projectRoot, 'agent:executor:project')!;
+      expect(segment.index.format_version).toBe(12);
+      expect(segment.genesis.format_version).toBe(12);
+      expect(readHistoricalConversationSegment(projectRoot, 'agent:executor:project', 1).rows).toEqual(segment.rows);
       const markers = durableRows.filter(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
       expect(markers).toHaveLength(1);
       const marker = markers[0]!;
@@ -199,6 +206,7 @@ describe('process inline output production composition', () => {
       expect(providerRequests.every(request => !JSON.stringify(request).includes('instruction_origin'))).toBe(true);
       const processResults = durableRows.filter((row) => row.kind === 'tool_result' && ['run_command', 'wait_process', 'kill_process'].includes(row.tool ?? '')).map((row) => JSON.parse(row.content).data as Record<string, unknown>);
       expect(processResults).toHaveLength(7);
+      expect(processResults.every(result => !('content_author' in result) && !('author' in result))).toBe(true);
       expect(processResults.every((result) => typeof result.stdout_url === 'string' && typeof result.stderr_url === 'string')).toBe(true);
       expect(processResults[0]).toMatchObject({ stdout: 'short-out', stdout_complete: true, stderr_complete: false });
       const outsideResult = processResults.at(-1)!;
@@ -273,6 +281,23 @@ describe('process inline output production composition', () => {
       expect(retained).toEqual(historical);
       expect(JSON.stringify(retained.body)).not.toContain('CURRENT-CONFIG-ONLY-SENTINEL');
       expect(providerRequests.length).toBe(analystCalls + executorCalls);
+      apps.delete(app); await app.stop(); app = null;
+      // The same real specialized process settlements remain strict historical
+      // facts after ordinary compaction; record-author metadata changes none of them.
+      const session = 'agent:executor:project';
+      const source = readConversation(projectRoot, session);
+      const rows = readCurrentConversationSegment(projectRoot, session)!.rows;
+      const protection = selectConversationProtection({ inherited: [], rows, sourceVersion: 1, cutoffCount: rows.length });
+      const facts = deriveRequiredModelFacts({ inherited: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, coveredRows: rows, source });
+      const entryId = randomUUID();
+      publishCompactedConversationSegment({ projectRoot }, session, {
+        identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: new Date().toISOString(), filename: versionFilename(2, entryId) },
+        history: { summaryText: 'Finite process observations retained, no replay.', protectedPrompts: [...protection.protectedPrompts], requiredModelFacts: facts },
+        cutoffSourceIndex: rows.length - 1, cutoffMessageId: rows.at(-1)!.id, continuation: { kind: 'between_rounds' },
+      });
+      expect(readHistoricalConversationSegment(projectRoot, session, 1).rows).toEqual(rows);
+      expect(readCurrentConversationSegment(projectRoot, session)!.genesis.format_version).toBe(12);
+      expect(readConversation(projectRoot, session).effectiveRequiredModelFacts).toEqual(facts);
     } finally {
       jest.restoreAllMocks(); syncBuiltinESMExports();
       if (app) { apps.delete(app); await app.stop(); }

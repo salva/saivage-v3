@@ -132,7 +132,7 @@ async function installScaleFixture(page: Page): Promise<{ childrenReads: string[
             source_version: 1,
             source_entry_id: '11111111-1111-4111-8111-111111111111',
             committed_at: now,
-            writer_agent: name === 'brief.md' ? 'runtime:bootstrap' : 'executor',
+            author: name === 'brief.md' ? { kind: 'runtime', purpose: 'bootstrap' } : { kind: 'agent', agent: 'executor' },
             card_version_seq: 1,
             card_history_version: 1,
             card_history_entry_id: '11111111-1111-4111-8111-111111111111',

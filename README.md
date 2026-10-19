@@ -1,5 +1,11 @@
 # Saivage v3
 
+Shell action nodes can optionally bind `stdout_record` to one declared own-card
+record: completed substantive UTF-8 stdout (maximum 1 MiB, no NUL) becomes an
+ordinary versioned report with truthful shell provenance, not an agent verdict.
+See [configuration](docs/guides/configuration.md#action-execution-and-typed-handoff)
+and the strict [workflow2/accepted3 adoption boundary](docs/architecture/durable-format-changes.md#shell-stdout-record-authorship-2026-10-19).
+
 Managed process evidence can become **unavailable** after lost group authority.
 Leader exit and EOF do not confirm cleanup; failed scopes remain blockers and later
 activations cannot take ownership. See [operator diagnosis](docs/runbook/index.md#unavailable-process-evidence).
@@ -387,10 +393,12 @@ not node re-entry; latest descriptor facts do not imply body recall. See
   this payload also requires the separate incompatible-adoption decision, even
   with matching outer versions; those alone are not compatibility.
   Current card heads/mailbox remain format1; ordinary/tombstone history bodies
-  require format3 with discriminated agent/action executor results. Workflow input1,
+   require format3 with discriminated agent/action executor results. Workflow input2,
   operation `shell.run` contract1 and lazy card execution JSONL1 accompany this
   [source cutover](docs/architecture/durable-format-changes.md#stateless-node-operations-2026-10-19).
-  Record heads3, accepted documents2, conversation12 and initializer input1 are unchanged.
+   Accepted documents3 require discriminated author under the later
+   [stdout cutover](docs/architecture/durable-format-changes.md#shell-stdout-record-authorship-2026-10-19).
+   Record heads3, conversation12 and initializer input1 are unchanged.
   Source completion authorizes no deployment, external migration or destructive reset.
 - New projects enable an independent two-hour
   [Project Oversight](docs/spec/system-specification.md#project-oversight)

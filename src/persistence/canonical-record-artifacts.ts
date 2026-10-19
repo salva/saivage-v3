@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import {
   sha256Hex,
-  agentNameSchema,
+  recordAuthorSchema,
   cardIdSchema,
   positiveSafeIntegerSchema,
   recordNameSchema,
@@ -27,11 +27,7 @@ const acceptedRecordSnapshotSchema = z
     source_version: positiveSafeIntegerSchema,
     source_entry_id: uuidV4Schema,
     committed_at: z.string().datetime(),
-    writer_agent: z.union([
-      agentNameSchema,
-      z.literal('runtime:bootstrap'),
-      z.literal('runtime:repair'),
-    ]),
+    author: recordAuthorSchema,
     card_version_seq: positiveSafeIntegerSchema,
     card_history: cardArtifactReferenceSchema,
     content: z.string(),
@@ -127,7 +123,7 @@ export const recordHeadSchema = z
 export const authoredRecordVersionArtifactSchema = z
   .object({
     ...identity,
-    format_version: z.literal(2),
+    format_version: z.literal(3),
     kind: z.literal('accepted-record'),
     entry_id: uuidV4Schema,
     version: positiveSafeIntegerSchema,
@@ -149,7 +145,8 @@ export const authoredRecordVersionArtifactSchema = z
         message: 'Accepted document versions must be consecutive.',
       });
     if (
-      value.accepted.writer_agent === 'runtime:repair' &&
+      value.accepted.author.kind === 'runtime' &&
+      value.accepted.author.purpose === 'repair' &&
       (value.version !== 1 ||
         value.predecessor !== null ||
         value.accepted.card_version_seq !== 1 ||
@@ -187,7 +184,7 @@ export function effectiveRecordContent(record: {
       content: record.draft.content,
       source: 'draft' as const,
       modifiedAt: record.draft.updated_at,
-      writer: null,
+      author: null,
       version: record.draft.version,
       targetVersion: record.draft.target_version,
     };
@@ -196,7 +193,7 @@ export function effectiveRecordContent(record: {
       content: record.baseline.content,
       source: 'baseline' as const,
       modifiedAt: record.baseline.created_at,
-      writer: null,
+      author: null,
       version: 0,
     };
   if (record.accepted)
@@ -204,7 +201,7 @@ export function effectiveRecordContent(record: {
       content: record.accepted.content,
       source: 'accepted' as const,
       modifiedAt: record.accepted.committed_at,
-      writer: record.accepted.writer_agent,
+      author: record.accepted.author,
       version: record.accepted.source_version,
     };
   return null;

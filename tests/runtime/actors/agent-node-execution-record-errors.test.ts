@@ -91,7 +91,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
   });
   it.each(gateCases)('preserves %s/%s admission and A→B→A mutable freshness on real heads', (mode, gate) => {
     const root=mkdtempSync(join(tmpdir(),'saivage-record-gates-')); roots.push(root); initProjectTree(root);
-    const store=new CardService(root); store.acceptRecord('project','status.md','baseline','analyst');
+    const store=new CardService(root); store.acceptRecord('project','status.md','baseline',{ kind: 'agent', agent: 'analyst' });
     store.openRecord('project','status.md'); store.editRecord('project','status.md','A');
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const node={execution:{kind:'agent'},initializeRecords:[],requirements:[{mode,gate,definition:{name:'status.md'}}]};
@@ -184,7 +184,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
   });
 
   it('closes a tool-less continue-exists resumed draft under glob-authorized accepting provenance', () => {
-    const closeRecord=jest.fn((_card:string,name:string,writer:string)=>({revision:8,currentUrl:`record:///${name}?card=project`,accepted:{source_version:8,writer_agent:writer}}));
+    const closeRecord=jest.fn((_card:string,name:string,writer:string)=>({revision:8,currentUrl:`record:///${name}?card=project`,accepted:{source_version:8,author: { kind: 'agent', agent: writer }}}));
     const runner=new AgentNodeExecution({cardId:'project',store:{closeRecord}} as never,{} as never) as unknown as RecordMethods;
     const requirement={mode:'continue',gate:'exists',definition:{name:'resume.md'}};
     const node={execution:{kind:'agent',agent:{name:'worker',tools:[],recordWrites:[{source:'resume.md',matcher:/^resume\.md$/u}]}},requirements:[requirement]};

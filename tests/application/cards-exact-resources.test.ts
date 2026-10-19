@@ -71,7 +71,7 @@ describe('exact Card operator resources',()=>{
   it('diffs projected record views without disclosing raw secret changes',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
     const secrets=['sentinel-alpha-SEC1','sentinel-bravo-SEC1','sentinel-charlie-SEC1','sentinel-delta-SEC1'];
-    cards.acceptRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[0]}`,'analyst');
+    cards.acceptRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[0]}`,{ kind: 'agent', agent: 'analyst' });
     cards.openRecord(card.id,'status.md');
     cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[1]}`);
     const draft=model.diffRecord(card.id,'status.md',{from:1,to:'current',view:'draft'});

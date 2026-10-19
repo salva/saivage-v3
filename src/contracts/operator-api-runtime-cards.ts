@@ -1,11 +1,10 @@
 import { z } from 'zod';
-import { uuidV4Schema } from '../schemas/index.js';
+import { uuidV4Schema, recordAuthorSchema } from '../schemas/index.js';
 import {
   outboundCardRecordSchema,
   runtimeStateSchema,
   cardIdSchema,
   cardTypeSchema,
-  agentNameSchema,
   recordNameSchema,
   positiveSafeIntegerSchema,
   cardStatusSchema,
@@ -193,11 +192,7 @@ const RecordAcceptedWireSchema = z
     source_version: positiveSafeIntegerSchema,
     source_entry_id: z.string().uuid(),
     committed_at: z.string().datetime(),
-    writer_agent: z.union([
-      agentNameSchema,
-      z.literal('runtime:bootstrap'),
-      z.literal('runtime:repair'),
-    ]),
+    author: recordAuthorSchema,
     card_version_seq: positiveSafeIntegerSchema,
     card_history_version: positiveSafeIntegerSchema,
     card_history_entry_id: z.string().uuid(),

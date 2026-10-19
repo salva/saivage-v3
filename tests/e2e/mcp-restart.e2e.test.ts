@@ -117,7 +117,7 @@ it.each([true, false])('restarts through ordinary production card composition (E
       if (!executorControls) config.agents.reviewer = { ...config.agents.reviewer!, tools: [...config.agents.reviewer!.tools, 'mcp_server_control', 'mcp_tools', 'mcp_tool_call'] };
       config.card_types.project = {
         permitted_child_types: [], records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-        workflow: { format_version: 1,
+        workflow: { format_version: 2,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: {

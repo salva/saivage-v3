@@ -622,7 +622,7 @@ describe('fresh logical bootstrap preparation and retained operation snapshots',
   it.each(['tool', 'correction'] as const)('replaces A with current accepted B only at a fresh %s input', async (continuation) => {
     const f = actorFixture(withTool(invocation()));
     const store = new CardService(f.root);
-    store.acceptRecord('project', 'brief.md', 'A ACCEPTED BODY', 'analyst');
+    store.acceptRecord('project', 'brief.md', 'A ACCEPTED BODY', { kind: 'agent', agent: 'analyst' });
     const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'work', recordPrompts: [] }));
     const read = jest.spyOn(store, 'readRecordCurrent');
     const terminal = jest.fn<LlmTerminalHandoff>();
@@ -639,7 +639,7 @@ describe('fresh logical bootstrap preparation and retained operation snapshots',
       const recordedA = readConversation(f.root, f.input.sessionId).physicalRows.find(row => row.kind === 'record_observation')!;
       expect(recordedA.record_observations![0]!.observed.exposure).toEqual({ kind: 'full_body' });
       expect(recordedA.content).toBe('');
-      store.acceptRecord('project', 'brief.md', 'B ACCEPTED BODY {{opaque-data}}', 'analyst');
+      store.acceptRecord('project', 'brief.md', 'B ACCEPTED BODY {{opaque-data}}', { kind: 'agent', agent: 'analyst' });
       if (continuation === 'tool')
         await f.actor.appendToolResult('call-new', { kind: 'executed', execution: executedToolOutcome('observational_query', toolSucceeded('known tool observation')) });
       else
@@ -673,7 +673,7 @@ describe('fresh logical bootstrap preparation and retained operation snapshots',
   it.each(['preventive', 'local_exact_admission', 'authoritative_context_recovery'] as const)('keeps A through %s when the record mutates during the same operation', async (strategy) => {
     const f = actorFixture();
     const store = new CardService(f.root);
-    store.acceptRecord('project', 'brief.md', 'RETAINED A', 'analyst');
+    store.acceptRecord('project', 'brief.md', 'RETAINED A', { kind: 'agent', agent: 'analyst' });
     const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'work', recordPrompts: [] }));
     const read = jest.spyOn(store, 'readRecordCurrent');
     if (strategy === 'preventive') f.shouldCompact.mockReturnValue(true);
@@ -683,7 +683,7 @@ describe('fresh logical bootstrap preparation and retained operation snapshots',
     f.prepareRecovery.mockResolvedValue({ kind: 'recovery_prepared' } as never);
     f.resume.mockResolvedValue({ result: { kind: 'message', content: 'recovered result' }, provider_exchanges: [] });
     f.compact.mockImplementation(async ({ input }) => {
-      store.acceptRecord('project', 'brief.md', 'LATER B', 'analyst');
+      store.acceptRecord('project', 'brief.md', 'LATER B', { kind: 'agent', agent: 'analyst' });
       // Real canonical composition with the operation's exact captured blocks.
       return { kind: 'compacted', summaryRefusal: null, providerConversation: providerConversationProjection(
         readConversation(f.root, input.sessionId), composedPreparedBlocks(input.preparedContext)), estimatedProviderMessageTokens: 1 };

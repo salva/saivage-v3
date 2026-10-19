@@ -467,6 +467,7 @@ export async function readProject(
       version: resolved.version,
       accepted_version_url: resolved.acceptedVersionUrl,
       committed_at: resolved.committedAt,
+      content_author: resolved.contentAuthor,
       total_bytes: resolved.size,
     };
     const offset = textOffset();

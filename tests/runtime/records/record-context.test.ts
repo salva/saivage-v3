@@ -89,7 +89,7 @@ function fixture(inputs: Input[]) {
     'project',
     'brief.md',
     'A {{recordSelection}} {{> missing}} "quoted"',
-    'analyst',
+    { kind: 'agent', agent: 'analyst' },
   );
   const card = store.read('project')!;
   const node = (id = 'plan') =>
@@ -241,7 +241,7 @@ describe('closed record-context compiler and same-read supplier', () => {
   ])('filters shipped supplier output without changing accepted/private bytes: %s', (body) => {
     expect(redactTextForOutbound(body)).not.toContain('SYNTHETIC_CANARY');
     const f = fixture([input('brief.md', 'accepted', 'required')]);
-    f.store.acceptRecord('project', 'brief.md', body, 'analyst');
+    f.store.acceptRecord('project', 'brief.md', body, { kind: 'agent', agent: 'analyst' });
     const prepared = f.prepare();
     const row = prompts(prepared.rows)[0]!;
     expect(row.content).toContain(canonicalJson(body));
@@ -325,7 +325,7 @@ describe('closed record-context compiler and same-read supplier', () => {
   it('shortens a custom body-bearing brief without changing the separate complete bootstrap or source', () => {
     const f = fixture([input('brief.md', 'accepted', 'required')]);
     const body = `START${'a'.repeat(40000)}OMITTED REQUIREMENT${'b'.repeat(40000)}END`;
-    f.store.acceptRecord('project', 'brief.md', body, 'analyst');
+    f.store.acceptRecord('project', 'brief.md', body, { kind: 'agent', agent: 'analyst' });
     const before = f.store.readRecordCurrent('project', 'brief.md');
     const read = jest.spyOn(f.store, 'readRecordCurrent');
     const first = f.prepare();
@@ -344,8 +344,8 @@ describe('closed record-context compiler and same-read supplier', () => {
   it('leaves exact selected record files unchanged and reads latest B through the preview pointer with ordinary bounded middle pages', async () => {
     const f = fixture([input('status.md', 'effective')]);
     const a = `A-START${'a'.repeat(40000)}A-OMITTED-REQUIREMENT${'a'.repeat(40000)}A-END`;
-    const predecessor = f.store.acceptRecord('project', 'status.md', 'Prior accepted status', 'planner');
-    const accepted = f.store.acceptRecord('project', 'status.md', a, 'planner');
+    const predecessor = f.store.acceptRecord('project', 'status.md', 'Prior accepted status', { kind: 'agent', agent: 'planner' });
+    const accepted = f.store.acceptRecord('project', 'status.md', a, { kind: 'agent', agent: 'planner' });
     const selectedFiles = [
       cardRecordHeadFile(f.root, 'project', { filename: 'status.md' }),
       cardRecordPreviousHeadFile(f.root, 'project', { filename: 'status.md' }),
@@ -470,7 +470,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     const f = fixture([declaration]);
     const body =
       'Notes\napi_key: SYNTHETIC_CANARY\n{{recordSelection}} {{> never-expand}}\nFINAL-SAFE-Z';
-    f.store.acceptRecord('project', 'brief.md', body, 'analyst');
+    f.store.acceptRecord('project', 'brief.md', body, { kind: 'agent', agent: 'analyst' });
     const prepared = f.prepare();
     const row = prompts(prepared.rows)[0]!;
     const before = structuredClone(row);
@@ -553,7 +553,7 @@ describe('closed record-context compiler and same-read supplier', () => {
       'project',
       'brief.md',
       'A {{recordSelection}} {{> missing}} "quoted"',
-      'analyst',
+      { kind: 'agent', agent: 'analyst' },
     );
     read.mockClear();
     const next = f.prepare();
@@ -608,7 +608,7 @@ describe('closed record-context compiler and same-read supplier', () => {
       f.publish(a.rows);
       const aVersion = a.rows.at(-1)!.record_observations![0]!.observed.selection;
       if (aVersion.kind !== 'accepted') throw new Error('Expected accepted fixture.');
-      f.store.acceptRecord('project', 'brief.md', 'B'.repeat(6000), 'analyst');
+      f.store.acceptRecord('project', 'brief.md', 'B'.repeat(6000), { kind: 'agent', agent: 'analyst' });
       const result = await readIntoConversation(
         f,
         'record:///brief.md?card=project',
@@ -654,7 +654,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     const f = fixture(inputs);
     const a = f.prepare();
     f.publish(a.rows);
-    f.store.acceptRecord('project', 'brief.md', 'new B', 'analyst');
+    f.store.acceptRecord('project', 'brief.md', 'new B', { kind: 'agent', agent: 'analyst' });
     f.store.openRecord('project', 'status.md');
     f.store.editRecord('project', 'status.md', 'status B');
     const b = f.prepare();

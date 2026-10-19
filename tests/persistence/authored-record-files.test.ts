@@ -40,6 +40,7 @@ import { CardService } from '../../src/cards/card-service.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { recordHeadSchema, authoredRecordVersionArtifactSchema, effectiveRecordContent } from '../../src/persistence/canonical-record-artifacts.js';
 import { observeRecordProjection } from '../../src/persistence/record-observation.js';
+import type { RecordAuthor } from '../../src/schemas/record-author.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -87,6 +88,49 @@ const definition = {
 };
 
 describe('exact record heads and accepted predecessor chains', () => {
+  it('accepts new shell occurrences with equal baseline/accepted text while preserving agent no-op and draft admission', () => {
+    const { root, cards, card } = setup();
+    const author = (): RecordAuthor => ({ kind: 'shell-stdout', action: 'shell.run', contract_version: 1,
+      activation_id: randomUUID(), invocation_id: randomUUID(), node_id: 'check', ordinal: 0,
+      process_id: 'proc-123456789abc', stream: 'stdout', outcome: 'failed', leader_exit: { exit_code: 9, signal: null } });
+    const baseline = cards.initializeRecord(card.id, 'status.md', () => 'same report\r\n');
+    expect(() => cards.acceptRecord(card.id, 'status.md', 'same report\r\n', { kind: 'agent', agent: 'analyst' })).toThrow(/unchanged/);
+    const firstAuthor = author();
+    const first = cards.acceptRecord(card.id, 'status.md', 'same report\r\n', firstAuthor);
+    const secondAuthor = author();
+    const second = cards.acceptRecord(card.id, 'status.md', 'same report\r\n', secondAuthor);
+    expect(first.accepted).toMatchObject({ source_version: 1, content: 'same report\r\n', author: firstAuthor });
+    expect(second.accepted).toMatchObject({ source_version: 2, content: 'same report\r\n', author: secondAuthor });
+    expect(first.headId).not.toBe(baseline.headId); expect(second.headId).not.toBe(first.headId);
+    const selected = cards.readRecordVersion(card.id, 'status.md', 1);
+    if (selected.kind !== 'found') throw new Error('Missing accepted record');
+    expect(selected.value.projection.artifact.format_version).toBe(3);
+    expect(selected.value.projection.accepted?.author).toEqual(firstAuthor);
+    expect(() => authoredRecordVersionArtifactSchema.parse({ ...selected.value.projection.artifact, format_version: 2 })).toThrow();
+    expect(() => cards.acceptRecord(card.id, 'status.md', 'same report\r\n', { kind: 'agent', agent: 'analyst' })).toThrow(/unchanged/);
+    cards.openRecord(card.id, 'status.md');
+    expect(effectiveRecordContent(current(cards, card.id, 'status.md'))?.author).toBeNull();
+    expect(() => cards.acceptRecord(card.id, 'status.md', 'different', author())).toThrow(/open workflow draft/);
+    expect(() => cards.acceptRecord(card.id, 'brief.md', 'replacement', author())).toThrow(/bootstrap/);
+    expect(JSON.parse(readFileSync(cardRecordHeadFile(root, card.id, definition), 'utf8')).format_version).toBe(3);
+  });
+  it('strictly rejects legacy authors and invalid bootstrap/repair provenance on exact consumption', () => {
+    const { root, cards, card } = setup();
+    const accepted = current(cards, card.id, 'brief.md').accepted!;
+    expect(accepted.author).toEqual({ kind: 'runtime', purpose: 'bootstrap' });
+    const path = cardAcceptedRecordFile(root, card.id, accepted.source_entry_id);
+    const artifact = JSON.parse(readFileSync(path, 'utf8'));
+    for (const author of [{ kind: 'agent', agent: 'executor' }, { kind: 'runtime', purpose: 'repair' }]) {
+      const changed = { ...artifact, accepted: { ...artifact.accepted, author,
+        ...(author.kind === 'runtime' ? { card_version_seq: 2 } : {}) } };
+      writeFileSync(path, JSON.stringify(changed));
+      expect(() => cards.readRecordCurrent(card.id, 'brief.md')).toThrow();
+      expect(() => cards.readRecordVersion(card.id, 'brief.md', 1)).toThrow();
+    }
+    const { author: _author, ...fields } = artifact.accepted;
+    writeFileSync(path, JSON.stringify({ ...artifact, accepted: { ...fields, writer_agent: 'runtime:bootstrap' } }));
+    expect(() => cards.readRecordCurrent(card.id, 'brief.md')).toThrow();
+  });
   it('publishes baseline0, authors document1 through several revisions, then document2 without historical currentness', () => {
     const { root, cards, card } = setup(); const render = jest.fn(() => 'starter');
     const baseline = cards.initializeRecord(card.id, 'status.md', render);
@@ -128,8 +172,8 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it.each(['replacement', 'initial'] as const)('fresh-restores exact previous accepted/draft selection in %s mode without predecessor reads', mode => {
     const { root, cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
-    cards.acceptRecord(card.id, 'status.md', 'second', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'first', { kind: 'agent', agent: 'analyst' });
+    cards.acceptRecord(card.id, 'status.md', 'second', { kind: 'agent', agent: 'analyst' });
     cards.openRecord(card.id, 'status.md'); cards.editRecord(card.id, 'status.md', 'retained draft');
     cards.editRecord(card.id, 'status.md', 'lost draft');
     const path = cardRecordHeadFile(root, card.id, definition); const prev = cardRecordPreviousHeadFile(root, card.id, definition);
@@ -147,7 +191,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     else expect(existsSync(prev)).toBe(false);
   });
   it('refuses previous record owner/definition mismatch and damaged selected accepted content without changing selectors', () => {
-    const { root, cards, card } = setup(); cards.acceptRecord(card.id, 'status.md', 'first', 'analyst'); cards.openRecord(card.id, 'status.md');
+    const { root, cards, card } = setup(); cards.acceptRecord(card.id, 'status.md', 'first', { kind: 'agent', agent: 'analyst' }); cards.openRecord(card.id, 'status.md');
     const path = cardRecordHeadFile(root, card.id, definition); const prev = cardRecordPreviousHeadFile(root, card.id, definition);
     const before = readFileSync(path); const candidate = readFileSync(prev);
     expect(() => inspectAuthoredRecordSelection(root, card.id, {...definition, schema:'different.v1'}, candidate)).toThrow(/identity/);
@@ -162,9 +206,9 @@ describe('exact record heads and accepted predecessor chains', () => {
     const { root, cards, card } = setup();
     const path = cardRecordHeadFile(root, card.id, definition);
     const previous = cardRecordPreviousHeadFile(root, card.id, definition);
-    cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'first', { kind: 'agent', agent: 'analyst' });
     expect(existsSync(previous)).toBe(false);
-    for (const publish of [() => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'draft'), () => cards.discardRecord(card.id, 'status.md'), () => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'accepted'), () => cards.closeRecord(card.id, 'status.md', 'executor'), () => cards.acceptRecord(card.id, 'status.md', 'second', 'analyst')]) {
+    for (const publish of [() => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'draft'), () => cards.discardRecord(card.id, 'status.md'), () => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'accepted'), () => cards.closeRecord(card.id, 'status.md', 'executor'), () => cards.acceptRecord(card.id, 'status.md', 'second', { kind: 'agent', agent: 'analyst' })]) {
       const before = readFileSync(path); const inode = statSync(path).ino; const priorId = current(cards, card.id, 'status.md').headId;
       publish();
       expect(statSync(previous).ino).toBe(inode); expect(readFileSync(previous)).toEqual(before);
@@ -179,19 +223,19 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   function interveningRevisionsFixture() {
     const value = setup(); const { cards, card, root } = value;
-    cards.acceptRecord(card.id, 'status.md', 'one', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'one', { kind: 'agent', agent: 'analyst' });
     for (const content of ['two', 'three']) {
       cards.openRecord(card.id, 'status.md'); cards.discardRecord(card.id, 'status.md');
-      cards.acceptRecord(card.id, 'status.md', content, 'analyst');
+      cards.acceptRecord(card.id, 'status.md', content, { kind: 'agent', agent: 'analyst' });
     }
-    cards.acceptRecord(card.id, 'status.md', 'four', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'four', { kind: 'agent', agent: 'analyst' });
     const paths = new Map(history(cards, card.id, 'status.md').map(row => [row.version, cardAcceptedRecordFile(root, card.id, row.entry_id)]));
     return { ...value, paths };
   }
   it('selects numeric accepted pairs with one bounded traversal and exact content/provenance', () => {
     const { cards, card, paths } = interveningRevisionsFixture(); const reads: string[] = [];
     expect(cards.diffRecordVersions(card.id, 'status.md', { from: 2, to: 4 }, { onRead: path => reads.push(path) })).toMatchObject({
-      kind: 'found', value: { from: { revision: null, headId: null, accepted: { source_version: 2, content: 'two', writer_agent: 'analyst', card_version_seq: 1 } }, to: { revision: null, headId: null, accepted: { source_version: 4, content: 'four' } }, target: { kind: 'version', version: 4 } },
+      kind: 'found', value: { from: { revision: null, headId: null, accepted: { source_version: 2, content: 'two', author: { kind: 'agent', agent: 'analyst' }, card_version_seq: 1 } }, to: { revision: null, headId: null, accepted: { source_version: 4, content: 'four' } }, target: { kind: 'version', version: 4 } },
     });
     for (const version of [2, 3, 4]) expect(reads.filter(path => path === paths.get(version))).toHaveLength(1);
     expect(reads).not.toContain(paths.get(1));
@@ -242,7 +286,7 @@ describe('exact record heads and accepted predecessor chains', () => {
         content: 'brief',
         card_version_seq: 1,
         card_history: ordinary,
-        writer_agent: 'runtime:bootstrap',
+        author: { kind: 'runtime', purpose: 'bootstrap' },
       },
     });
     expect(existsSync(cardRecordHeadFile(root, card.id, definition))).toBe(false);
@@ -288,7 +332,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       draft: null,
       accepted: closed.accepted,
     });
-    const next = cards.acceptRecord(card.id, 'status.md', 'accepted B', 'analyst');
+    const next = cards.acceptRecord(card.id, 'status.md', 'accepted B', { kind: 'agent', agent: 'analyst' });
     expect(next.revision).toBe(9);
     expect(history(cards, card.id, 'status.md').map((entry) => entry.version)).toEqual([1, 2]);
     expect(history(cards, card.id, 'status.md')[1]!.predecessor).toEqual({
@@ -329,7 +373,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it.each(['accept', 'close'] as const)('captures queue-only revision and ordinary provenance on %s', (mutation) => {
     const { root, cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'prior', { kind: 'agent', agent: 'analyst' });
     const prior = history(cards, card.id, 'status.md')[0]!;
     if (mutation === 'close') {
       cards.openRecord(card.id, 'status.md');
@@ -344,11 +388,11 @@ describe('exact record heads and accepted predecessor chains', () => {
     cards.enqueueNotification(card.id, notification);
     cards.removeNotifications(card.id, [notification.id]);
     const accepted = mutation === 'accept'
-      ? cards.acceptRecord(card.id, 'status.md', 'accepted', 'analyst')
+      ? cards.acceptRecord(card.id, 'status.md', 'accepted', { kind: 'agent', agent: 'analyst' })
       : cards.closeRecord(card.id, 'status.md', 'executor');
     const expected = {
       content: 'accepted',
-      writer_agent: mutation === 'accept' ? 'analyst' : 'executor',
+      author: { kind: 'agent', agent: mutation === 'accept' ? 'analyst' : 'executor' },
       card_version_seq: 3,
       card_history: ordinary,
     };
@@ -376,7 +420,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       state: 'open',
       draft: { content: 'unfinished' },
     });
-    expect(() => restarted.acceptRecord(card.id, 'status.md', 'replacement', 'analyst')).toThrow(
+    expect(() => restarted.acceptRecord(card.id, 'status.md', 'replacement', { kind: 'agent', agent: 'analyst' })).toThrow(
       /draft/,
     );
     expect(history(restarted, card.id, 'status.md')).toEqual([]);
@@ -389,7 +433,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     const missing = 'card-z';
     const invalid = '../invalid.md';
     const write = () => {
-      if (mutation === 'accept') return cards.acceptRecord(missing, invalid, '', 'analyst');
+      if (mutation === 'accept') return cards.acceptRecord(missing, invalid, '', { kind: 'agent', agent: 'analyst' });
       if (mutation === 'close') return cards.closeRecord(missing, invalid, 'executor');
       if (mutation === 'edit') return cards.editRecord(missing, invalid, '');
       if (mutation === 'discard') return cards.discardRecord(missing, invalid);
@@ -399,33 +443,33 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it.each(['accept', 'close'] as const)('rejects malformed record heads before draft/content conditions on %s', (mutation) => {
     const { root, cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'prior', { kind: 'agent', agent: 'analyst' });
     cards.openRecord(card.id, 'status.md'); // Open draft would otherwise reject direct acceptance.
     const path = cardRecordHeadFile(root, card.id, definition);
     writeFileSync(path, '{broken');
     const before = readFileSync(path);
     expect(() => mutation === 'accept'
-      ? cards.acceptRecord(card.id, 'status.md', '', 'analyst')
+      ? cards.acceptRecord(card.id, 'status.md', '', { kind: 'agent', agent: 'analyst' })
       : cards.closeRecord(card.id, 'status.md', 'executor')).toThrow(SyntaxError);
     expect(readFileSync(path)).toEqual(before);
   });
   it('rejects direct acceptance of an open draft before consuming a corrupt accepted body', () => {
     const { root, cards, card } = setup();
-    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', { kind: 'agent', agent: 'analyst' });
     cards.openRecord(card.id, 'status.md');
     writeFileSync(cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id), '{broken');
     const path = cardRecordHeadFile(root, card.id, definition);
     const before = readFileSync(path);
-    expect(() => cards.acceptRecord(card.id, 'status.md', '', 'analyst')).toThrow('Record already has an open workflow draft.');
+    expect(() => cards.acceptRecord(card.id, 'status.md', '', { kind: 'agent', agent: 'analyst' })).toThrow('Record already has an open workflow draft.');
     expect(readFileSync(path)).toEqual(before);
   });
   it.each(['', 'prior'])('consumes corrupt selected acceptance before checking requested content %j', (content) => {
     const { root, cards, card } = setup();
-    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', { kind: 'agent', agent: 'analyst' });
     writeFileSync(cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id), '{broken');
     const path = cardRecordHeadFile(root, card.id, definition);
     const before = readFileSync(path);
-    expect(() => cards.acceptRecord(card.id, 'status.md', content, 'analyst')).toThrow(SyntaxError);
+    expect(() => cards.acceptRecord(card.id, 'status.md', content, { kind: 'agent', agent: 'analyst' })).toThrow(SyntaxError);
     expect(readFileSync(path)).toEqual(before);
   });
   it('rejects close without a draft before empty content and rejects an empty draft without publication', () => {
@@ -442,14 +486,14 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it('closes a valid draft without consuming its broken prior accepted body', () => {
     const { root, cards, card } = setup();
-    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', { kind: 'agent', agent: 'analyst' });
     cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'replacement');
     const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
     const brokenPath = cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id);
     writeFileSync(brokenPath, '{broken');
     const closed = cards.closeRecord(card.id, 'status.md', 'executor');
-    const expected = { content: 'replacement', writer_agent: 'executor', card_version_seq: 1, card_history: ordinary };
+    const expected = { content: 'replacement', author: { kind: 'agent', agent: 'executor' }, card_version_seq: 1, card_history: ordinary };
     expect(closed.accepted).toMatchObject(expected);
     expect(current(cards, card.id, 'status.md')).toEqual(closed);
     const stored = JSON.parse(readFileSync(cardAcceptedRecordFile(root, card.id, closed.accepted!.source_entry_id), 'utf8'));
@@ -461,12 +505,12 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it.each(['accept', 'close'] as const)('freshly admits later %s after queue and ordinary card changes', (mutation) => {
     const { root, cards, card } = setup();
-    const first = cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
+    const first = cards.acceptRecord(card.id, 'status.md', 'first', { kind: 'agent', agent: 'analyst' });
     expect(first.accepted?.card_version_seq).toBe(1);
     const notification = { id: randomUUID(), content: 'notice', created_at: new Date().toISOString() };
     const observe = () => expect(cards.readRecordCurrent(card.id, 'status.md').kind).toBe('found');
     const write = (content: string) => {
-      if (mutation === 'accept') return cards.acceptRecord(card.id, 'status.md', content, 'analyst');
+      if (mutation === 'accept') return cards.acceptRecord(card.id, 'status.md', content, { kind: 'agent', agent: 'analyst' });
       cards.openRecord(card.id, 'status.md');
       cards.editRecord(card.id, 'status.md', content);
       return cards.closeRecord(card.id, 'status.md', 'executor');
@@ -491,7 +535,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it.each(['accept', 'close', 'open', 'edit', 'discard'] as const)('does not reuse earlier observation to authorize %s after legitimate deletion', (mutation) => {
     const { root, cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'prior', { kind: 'agent', agent: 'analyst' });
     cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'draft');
     expect(cards.readRecordCurrent(card.id, 'status.md').kind).toBe('found');
@@ -499,7 +543,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     const path = cardRecordHeadFile(root, card.id, definition);
     const before = readFileSync(path);
     const write = () => {
-      if (mutation === 'accept') return cards.acceptRecord(card.id, 'status.md', 'replacement', 'analyst');
+      if (mutation === 'accept') return cards.acceptRecord(card.id, 'status.md', 'replacement', { kind: 'agent', agent: 'analyst' });
       if (mutation === 'close') return cards.closeRecord(card.id, 'status.md', 'executor');
       if (mutation === 'edit') return cards.editRecord(card.id, 'status.md', 'replacement');
       if (mutation === 'discard') return cards.discardRecord(card.id, 'status.md');
@@ -510,8 +554,8 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it('consumes selected current only and detects corrupt or missing predecessors at history use without fallback', () => {
     const { root, cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
-    cards.acceptRecord(card.id, 'status.md', 'B', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'A', { kind: 'agent', agent: 'analyst' });
+    cards.acceptRecord(card.id, 'status.md', 'B', { kind: 'agent', agent: 'analyst' });
     const first = history(cards, card.id, 'status.md')[0]!;
     const path = cardAcceptedRecordFile(root, card.id, first.entry_id);
     writeFileSync(path, '{broken');
@@ -531,7 +575,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     'head-utf8',
   ] as const)('fails strictly at exact consumed %s without rewriting', (fault) => {
     const { root, cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'A', { kind: 'agent', agent: 'analyst' });
     const headPath = cardRecordHeadFile(root, card.id, definition);
     const head = JSON.parse(readFileSync(headPath, 'utf8'));
     const acceptedPath = cardAcceptedRecordFile(root, card.id, head.accepted.entry_id);
@@ -554,12 +598,12 @@ describe('exact record heads and accepted predecessor chains', () => {
     }
     const before = readFileSync(path);
     expect(() => current(cards, card.id, 'status.md')).toThrow();
-    expect(() => cards.acceptRecord(card.id, 'status.md', 'B', 'analyst')).toThrow();
+    expect(() => cards.acceptRecord(card.id, 'status.md', 'B', { kind: 'agent', agent: 'analyst' })).toThrow();
     expect(readFileSync(path)).toEqual(before);
   });
   it('tags current draft diff separately from immutable accepted selectors', () => {
     const { cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'A', { kind: 'agent', agent: 'analyst' });
     cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'B');
     expect(
@@ -584,7 +628,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it('stops immediately on uncertain head selection after accepted publication without follow-up reads', () => {
     const { root, cards, card } = setup();
-    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'A', { kind: 'agent', agent: 'analyst' });
     const headPath = cardRecordHeadFile(root, card.id, definition);
     const before = readFileSync(headPath);
     const calls: string[] = [];
@@ -603,7 +647,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       },
     };
     const observed = projection(root, card.id);
-    expect(() => acceptAuthoredRecord(root, observed, definition, 'B', 'analyst', io)).toThrow(
+    expect(() => acceptAuthoredRecord(root, observed, definition, 'B', { kind: 'agent', agent: 'analyst' }, io)).toThrow(
       PublicationOutcomeUnknownError,
     );
     expect(calls.at(-1)).toBe('rename');
@@ -657,7 +701,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     };
     const observed = projection(root, card.id);
     expect(() =>
-      acceptAuthoredRecord(root, observed, definition, 'new acceptance', 'analyst', io),
+      acceptAuthoredRecord(root, observed, definition, 'new acceptance', { kind: 'agent', agent: 'analyst' }, io),
     ).toThrow(
       fault.startsWith('parent-') || fault === 'rename' ? PublicationOutcomeUnknownError : error,
     );
@@ -697,7 +741,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   ])('ends record head selection at $operation stage $offset without hints or further effects', ({ operation, offset, unknown }) => {
     for (const mutation of ['accept', 'close'] as const) {
       const { root, cards, card } = setup();
-      cards.acceptRecord(card.id, 'status.md', 'baseline', 'analyst');
+      cards.acceptRecord(card.id, 'status.md', 'baseline', { kind: 'agent', agent: 'analyst' });
       if (mutation === 'close') {
         cards.openRecord(card.id, 'status.md');
         cards.editRecord(card.id, 'status.md', 'unfinished');
@@ -721,7 +765,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       const failing = new CardService(root, TEST_WORKFLOWS, freshness, io);
       let caught: unknown;
       try {
-        if (mutation === 'accept') failing.acceptRecord(card.id, 'status.md', 'new accepted', 'analyst');
+        if (mutation === 'accept') failing.acceptRecord(card.id, 'status.md', 'new accepted', { kind: 'agent', agent: 'analyst' });
         else failing.closeRecord(card.id, 'status.md', 'executor');
       } catch (error) { caught = error; }
       if (unknown) expect(caught).toBeInstanceOf(PublicationOutcomeUnknownError);

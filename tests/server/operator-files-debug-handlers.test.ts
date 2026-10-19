@@ -326,7 +326,7 @@ describe('operator files and debug contract handlers', () => {
   });
 
   it.each(['Ordinary café prose.', 'Ordinary café prose. token=synthetic_credential_longer_than_the_placeholder_123456789'])('projects document versions for current accepted, draft and accepted-only historical record URLs without changing canonical content: %s', async (source) => {
-    const accepted = cards.acceptRecord('project', 'status.md', source, 'analyst');
+    const accepted = cards.acceptRecord('project', 'status.md', source, { kind: 'agent', agent: 'analyst' });
     const original = accepted.accepted!;
     const artifactPath = cardAcceptedRecordFile(projectRoot, 'project', original.source_entry_id);
     const artifactBytes = readFileSync(artifactPath);
@@ -413,7 +413,7 @@ describe('operator files and debug contract handlers', () => {
   });
 
   it.each(['', '&v=1'])('keeps consumed record corruption as server failure for selector %s', async (selector) => {
-    const accepted = cards.acceptRecord('project', 'status.md', 'Status', 'analyst');
+    const accepted = cards.acceptRecord('project', 'status.md', 'Status', { kind: 'agent', agent: 'analyst' });
     const artifact = cardAcceptedRecordFile(projectRoot, 'project', accepted.accepted!.source_entry_id);
     writeFileSync(artifact, '{}');
     const path = `record:///status.md?card=project${selector}`;
@@ -425,7 +425,7 @@ describe('operator files and debug contract handlers', () => {
 
   it('preserves uncapped record-URL content and the separate raw-source virtual-record preview cap', async () => {
     const source = `${'Ordinary prose. '.repeat(70_000)}token=synthetic_long_credential_123456789`;
-    cards.acceptRecord('project', 'status.md', source, 'analyst');
+    cards.acceptRecord('project', 'status.md', source, { kind: 'agent', agent: 'analyst' });
     const path = 'record:///status.md?card=project';
     const response = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(path)}`, headers: authHeaders });
     expect(response.statusCode).toBe(200);

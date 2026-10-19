@@ -2,6 +2,9 @@ import { appendFileSync, closeSync, fstatSync, fsyncSync, mkdtempSync, openSync,
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import assert from 'node:assert/strict';
 
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { withDirectMutationComposition } from '../../src/boot/direct-mutation-composition.js';
@@ -50,7 +53,7 @@ import { CardService as ProductionCardService } from '../../src/cards/card-servi
 const mode = process.argv[2];
 const path = process.argv[3];
 const fatalPort = createApplicationFatalPort();
-if (mode === 'action-node-publication' || mode === 'card-hook-publication') {
+if (mode === 'action-node-publication' || mode === 'card-hook-publication' || mode === 'stdout-artifact-publication' || mode === 'stdout-head-publication' || mode === 'stdout-short-read') {
   if (!path) throw new Error('marker path required');
   const root = dirname(path);
   const mark = (label: string) => appendFileSync(path, `${label}\n`);
@@ -66,6 +69,16 @@ if (mode === 'action-node-publication' || mode === 'card-hook-publication') {
       edges: { finished: { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } } } },
   };
   const isHook = mode === 'card-hook-publication';
+  const shortRead = mode === 'stdout-short-read';
+  const isStdout = mode === 'stdout-artifact-publication' || mode === 'stdout-head-publication' || shortRead;
+  if (isStdout) {
+    workflow.nodes.check!.execution = { kind: 'action', action: 'shell.run', contract_version: 1,
+      config: { script: 'printf "retained report"', timeout_ms: 1000, terminate_grace_ms: 50 }, inputs: { args: { literal: [] } } };
+    workflow.nodes.check!.stdout_record = 'status.md';
+    workflow.nodes.check!.records = { 'status.md': { mode: 'continue', gate: 'updated' } };
+    workflow.nodes.check!.edges = Object.fromEntries(['passed', 'failed', 'signalled', 'timed_out'].map((outcome) =>
+      [outcome, { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } }]));
+  }
   if (isHook) {
     workflow.nodes.check!.execution = { kind: 'action', action: 'shell.run', contract_version: 1,
       config: { script: 'exit 0', timeout_ms: 1000, terminate_grace_ms: 50 }, inputs: { args: { literal: [] } } };
@@ -94,12 +107,71 @@ if (mode === 'action-node-publication' || mode === 'card-hook-publication') {
   initProjectTree(root);
   const processes = createTestProcessRunner(root);
   processes.processRunner = new ProcessRunner(root, processes.registry, fatalPort);
-  if (!isHook) {
+  if (!isHook && !isStdout) {
     processes.processRunner.closeAndTerminateDirectScope = async () => { mark('cleanup'); throw new Error('forbidden cleanup'); };
     ActivationOperationTracker.prototype.trackConsumer = async () => { mark('consumer'); throw new Error('forbidden acknowledgement'); };
   }
+  let publishing = false;
+  const cards = new ProductionCardService(root, compiled, undefined, isStdout && !shortRead ? {
+    open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+    rename(from, to) {
+      renameSync(from, to);
+      if (publishing && (mode === 'stdout-head-publication' ? String(to).endsWith('/record-status.json') : !String(to).endsWith('/record-status.json'))) {
+        mark('uncertain'); throw new Error('record publication uncertain');
+      }
+    },
+  } : undefined);
+  if (shortRead) {
+    cards.acceptRecord('project', 'status.md', 'Prior accepted', { kind: 'agent', agent: 'analyst' });
+    const prior = cards.readRecordCurrent('project', 'status.md');
+    assert.equal(prior.kind, 'found');
+    if (prior.kind !== 'found') throw new Error('Missing fixture card.');
+    const before = prior.value.projection;
+    let reads = 0;
+    let sourceFd: number | undefined;
+    let closed = false;
+    cards.acceptRecord = () => { throw new Error('Short read must never publish a prefix.'); };
+    const closeScope = processes.processRunner.closeAndTerminateDirectScope.bind(processes.processRunner);
+    processes.processRunner.closeAndTerminateDirectScope = async (...args) => {
+      const report = await closeScope(...args);
+      const read = fs.readSync;
+      const close = fs.closeSync;
+      fs.readSync = ((fd: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number | null) => {
+        if (length !== 1024 * 1024 + 1) return read(fd, buffer, offset, length, position);
+        assert.equal(++reads, 1);
+        sourceFd = fd;
+        const size = read(fd, buffer, offset, 3, position);
+        assert.equal(size, 3); mark('short-read'); return size;
+      }) as typeof fs.readSync;
+      fs.closeSync = (fd) => {
+        close(fd);
+        if (fd === sourceFd) { closed = true; sourceFd = undefined; mark('closed'); }
+      };
+      syncBuiltinESMExports();
+      return report;
+    };
+    const commit = cards.commitActivationOutcome.bind(cards);
+    cards.commitActivationOutcome = (...args) => {
+      assert.equal(reads, 1); assert.equal(closed, true);
+      assert.equal(args[1].status, 'failed');
+      assert.match(JSON.stringify(args[1]), /capture read is incomplete/u);
+      const current = cards.readRecordCurrent('project', 'status.md');
+      assert.equal(current.kind, 'found');
+      if (current.kind !== 'found') throw new Error('Missing fixture card.');
+      assert.deepEqual(current.value.projection, before);
+      mark('preserved'); return commit(...args);
+    };
+  } else if (isStdout) {
+    const accept = cards.acceptRecord.bind(cards);
+    cards.acceptRecord = (...args) => {
+      mark('publishing'); publishing = true;
+      processes.processRunner.closeAndTerminateDirectScope = async () => { mark('cleanup'); throw new Error('forbidden cleanup'); };
+      cards.commitActivationOutcome = () => { mark('ack'); throw new Error('forbidden acknowledgement'); };
+      const result = accept(...args); mark('accepted'); return result;
+    };
+  }
   const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, workflows, fatalPort,
-    runtimeGate: new RuntimeGate(), projectRoot: root, actorStore: new ProductionCardService(root, compiled),
+    runtimeGate: new RuntimeGate(), projectRoot: root, actorStore: cards,
     provider: scriptedAdmissionProvider(async () => { mark('provider'); throw new Error('forbidden provider'); }),
     conversations: { projectRoot: root }, freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,

@@ -211,10 +211,10 @@ async function seedRecordEvidence() {
   appendActivationMarker({ projectRoot: root }, session, { event: 'activation_open', agent_name: 'executor', card_id: card.id, input_id: inputId,
     instructions: { kind: 'prepared', activation_id: inputId, caller: { kind: 'parent', cardId: 'project', sessionId: planner, sourceInputId: inputId, toolCallId: 'activate-record-fixture', toolName: 'activate_card' }, card: { cardId: card.id, cardType: 'code', title: card.title }, parent_direction: { text: parent }, role_text: registry.render({ kind: 'workflow-agent', cardType: 'code' }, 'executor', { contractDescription: describeNodeResultContract(workflow, 'node:execute') }), node: { node_id: node.nodeId, text: workflow.processPrompts.get(agentExecution(node).prompt.promptId)!.text } } });
   const supplier = bootstrapContextSupplier(store, card, node);
-  store.acceptRecord(card.id, 'status.md', quotedRecordBody, 'analyst');
+  store.acceptRecord(card.id, 'status.md', quotedRecordBody, { kind: 'agent', agent: 'analyst' });
   const initial = supplier({ inputId, conversation: readConversation(root, session) });
   appendConversationBatch({ projectRoot: root }, initial.rows);
-  store.acceptRecord(card.id, 'brief.md', 'Accepted B token=record-egress-canary FINAL-RECORD-B-Z', 'analyst');
+  store.acceptRecord(card.id, 'brief.md', 'Accepted B token=record-egress-canary FINAL-RECORD-B-Z', { kind: 'agent', agent: 'analyst' });
   const tool = workspaceToolBinders.find(tool => tool.name === 'read')!.bind({ projectRoot: root, store, agentName: 'executor', cardId: card.id });
   const args = { path: `record:///brief.md?card=${card.id}`, metadata_only: true };
   const execution = await tool.executor(args, new AbortController().signal);
@@ -226,7 +226,7 @@ async function seedRecordEvidence() {
   const knownB = supplier({ inputId, conversation: readConversation(root, session) });
   expect(knownB.rows.every(row => row.kind !== 'record_prompt')).toBe(true);
   appendConversationBatch({ projectRoot: root }, knownB.rows);
-  store.acceptRecord(card.id, 'brief.md', 'Accepted C', 'analyst');
+  store.acceptRecord(card.id, 'brief.md', 'Accepted C', { kind: 'agent', agent: 'analyst' });
   const changed = supplier({ inputId, conversation: readConversation(root, session) });
   appendConversationBatch({ projectRoot: root }, changed.rows);
   recordEvidence = { session, rows: [...initial.rows, call, result, ...knownB.rows, ...changed.rows].map(row => row.id), parent: redactTextForOutbound(parent) };
@@ -505,7 +505,7 @@ test.beforeAll(async () => {
   for (const [session, cardType] of [[executor, 'code'], [analyst, 'code'], [planner, 'project']] as const)
     instructionFixtures.set(session, seedInstructionEvidence(session, cardType));
   const store = new CardService(root, workflows);
-  store.acceptRecord('project', 'status.md', quotedRecordBody, 'analyst');
+  store.acceptRecord('project', 'status.md', quotedRecordBody, { kind: 'agent', agent: 'analyst' });
   const node = workflows.cardTypes.get('project')!.states.get('node:plan')!;
   if (node.kind !== 'node') throw new Error('Expected plan node.');
   const protectedNode = { ...node, recordPrompts: node.recordPrompts.map(input => ({ ...input, prompt: { ...input.prompt, compactable: false } })) };

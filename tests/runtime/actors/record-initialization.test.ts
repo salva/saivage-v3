@@ -52,7 +52,7 @@ describe('real node preparation and document lifecycle', () => {
     const opened = f.store.openRecord('project', 'status.md');
     expect(opened.draft).toMatchObject({ version: 0, target_version: 1 });
     expect(() => f.store.closeRecord('project', 'status.md', 'planner')).toThrow(/document 0/);
-    expect(() => f.store.acceptRecord('project', 'status.md', 'operator edit', 'analyst')).toThrow(/open workflow draft/);
+    expect(() => f.store.acceptRecord('project', 'status.md', 'operator edit', { kind: 'agent', agent: 'analyst' })).toThrow(/open workflow draft/);
     f.store.editRecord('project', 'status.md', 'authored');
     // Returning to the same text is an ordinary authored mutation, not a fingerprint test.
     f.store.editRecord('project', 'status.md', opened.draft!.content);
@@ -65,7 +65,7 @@ describe('real node preparation and document lifecycle', () => {
   it.each((['classic', 'classic-typed', 'paad-typed'] as const).flatMap(profile =>
     (['baseline', 'draft', 'accepted', 'empty'] as const).map(state => [profile, state] as const)))('does not render or publish in %s for existing %s on entry/re-entry', (profile, state) => {
     const f = fixture(profile);
-    if (state === 'accepted') f.store.acceptRecord('project', 'status.md', 'Analyst before workflow', 'analyst');
+    if (state === 'accepted') f.store.acceptRecord('project', 'status.md', 'Analyst before workflow', { kind: 'agent', agent: 'analyst' });
     else f.runner.prepareRecordRequirements(f.node);
     if (state === 'draft' || state === 'empty') f.store.openRecord('project', 'status.md');
     if (state === 'draft') f.store.editRecord('project', 'status.md', 'ongoing');
@@ -155,7 +155,7 @@ describe('real node preparation and document lifecycle', () => {
     f.store.editRecord(f.cardId, 'review.md', 'Independent assessment against the accepted scope, with evidence.');
     expect(f.runner.validateRecords(first, baseline).candidates?.size).toBe(1);
     const accepted = f.store.closeRecord(f.cardId, 'review.md', 'reviewer').accepted!;
-    expect(accepted).toMatchObject({ source_version: 1, writer_agent: 'reviewer', content: 'Independent assessment against the accepted scope, with evidence.' });
+    expect(accepted).toMatchObject({ source_version: 1, author: { kind: 'agent', agent: 'reviewer' }, content: 'Independent assessment against the accepted scope, with evidence.' });
     const render = jest.fn((render: () => string) => render());
     const initialize = f.store.initializeRecord.bind(f.store);
     jest.spyOn(f.store, 'initializeRecord').mockImplementation((id, name, renderTemplate) => initialize(id, name, () => render(renderTemplate)));

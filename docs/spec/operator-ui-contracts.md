@@ -429,6 +429,21 @@ Plain resource reads cancel their pending request when their owner departs. Supe
 
 ## 5. Records, versions, and diffs
 
+Accepted records expose the strict `author` union, not `writer_agent`.
+Records shows **Agent · name**, **Runtime · bootstrap/repair**, or
+**Shell stdout · shell.run · node · disposition** for the selected accepted
+content, alongside its positive accepted document version. Shell stdout is a
+captured command report, not an agent verdict or approval. `failed`, `signalled`
+and `timed_out` remain factual dispositions even when a complete capture was
+published; complete capture does not mean complete program work. Executions and
+its capture inspection remain separate from normal retained record content.
+Baseline and effective drafts have no author; a prior accepted author's label
+appears only with explicitly separate prior accepted content. History preserves
+each invocation's author, even when two versions have equal bytes and an empty
+text diff. Record reads use `content_author` for the selected acceptance and null
+for baseline/draft; historical reads never borrow today's author. All content and
+metadata use the existing outbound confidentiality projection, including download.
+
 Current record body APIs expose nullable `baseline` and draft document
 `version,target_version` with content/hash/timestamps. Absence, established empty
 head, baseline0, draft0/target1, positive draft and acceptance remain distinct.
@@ -451,6 +466,9 @@ Compiled workflow `records[]` requires nullable `initialization:{format_version:
 through existing privacy filtering. These describe installed compiled configuration,
 not historical scaffold text, author evidence or hot-reload state. Nodes expose
 ordered `initialize_records` independently of record completion requirements.
+Workflow presentation and Debug Graphs also expose nullable `stdout_record`: the
+exact compiled own-card report name, or null for unbound nodes. This is structural
+configuration, not evidence that a report was published or a verdict accepted.
 
 - Record declarations render in declaration order; descriptor reads precede
   content reads; each record is fetched independently. Exactly one record is

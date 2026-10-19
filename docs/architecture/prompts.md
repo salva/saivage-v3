@@ -1,5 +1,17 @@
 # Prompt handling
 
+Bound shell stdout is ordinary quoted record evidence, not a role instruction or
+agent verdict. Actual `read` metadata/text results expose `content_author` from the
+selected acceptance (agent, runtime or shell-stdout); draft/baseline content has
+null author even over accepted shell backing. Historical reads retain historical
+authors. A report link in the existing handoff is enough: no new starter/template
+instruction, fake action tool call or synthetic mutation observation is introduced.
+Typed selection observations stay author-free; recorded opaque old tool data is
+not normalized. Static role/node/card/advisory-parent context, fresh bootstrap and
+record suppliers, two-field generated result (outcome and nonempty summary≤2000),
+correction, re-entry and compaction delivery are unchanged. Assessment still belongs
+to the admitted agent using the actual evidence and its existing permissions.
+
 This in-depth companion to [System architecture](./system-architecture.md) and [System specification](../spec/system-specification.md) explains prompt discovery, validation, rendering, and runtime use. Saivage has no prompt editor, hot reload, manifest, runtime selection, or prompt-builder framework. Prompt handling is deterministic and startup-only; actors consume immutable compiled artifacts.
 
 ::: v-pre
@@ -119,7 +131,7 @@ The global Analyst has no card type and checks project shared then bundled share
 
 `agents.<agent-name>.prompt` is the strict declaration `{reference,compactable?}` at every agent tier. `reference` is the filename reference and omitted `compactable` resolves to `true`. Static agent and node declarations accept explicit true or false but never `compaction_key`; their policy does not change delivery or create durable model-context occurrences. Once-per-activation structural prepared-instruction evidence is distinct and never becomes model context or protected instruction authority. Agent name remains runtime/session identity, not a file key. Agents sharing a prompt reference share the same applicable override; independent override content requires distinct configured references. This is a breaking no-compatibility contract.
 
-Within `workflow.format_version:1`, each agent node selects `execution.kind:agent` and declares its `agent`, `prompt:{reference,compactable?}` and `correction_prompt:{reference,compactable?,compaction_key?}` inside `execution`. Action nodes have no prompt or correction prompt. Lifecycle entries, nonterminal edge prompts, and pending-notification prompts use the durable declaration shape. At durable sites omitted/true means ordinary compactable content and forbids a key; false without a key retains every occurrence; false with a nonempty exact key retains only the latest occurrence of that key and releases the older occurrence into the next successful compaction summary. Keys are exact, including whitespace, and are neither trimmed nor synthesized. Policy belongs to the consuming declaration, so two sites may share one reference while choosing different retention.
+Within `workflow.format_version:2`, each agent node selects `execution.kind:agent` and declares its `agent`, `prompt:{reference,compactable?}` and `correction_prompt:{reference,compactable?,compaction_key?}` inside `execution`. Action nodes have no prompt or correction prompt. Lifecycle entries, nonterminal edge prompts, and pending-notification prompts use the durable declaration shape. At durable sites omitted/true means ordinary compactable content and forbids a key; false without a key retains every occurrence; false with a nonempty exact key retains only the latest occurrence of that key and releases the older occurrence into the next successful compaction summary. Keys are exact, including whitespace, and are neither trimmed nor synthesized. Policy belongs to the consuming declaration, so two sites may share one reference while choosing different retention.
 
 Prompt-related configuration excerpt (other required fields and routes omitted):
 
@@ -130,7 +142,7 @@ agents:
 card_types:
   code:
     workflow:
-      format_version: 1
+      format_version: 2
       entries:
         STOPPED:
           node: red
@@ -320,7 +332,7 @@ Roles and node context remain always prepared across continuation and fresh node
 no instruction moves to init-only memory and no retention/feeding policy changes.
 Creation-time seeding/preview remains deferred. Existing instance YAML and selected
 materialized/custom hosts require deliberate authorized stopped reconciliation and
-new-process compilation, not existing-config init or hot reload; the head3/accepted2/conversation12
+new-process compilation, not existing-config init or hot reload; the head3/accepted3/conversation12
 cutover independently requires incompatible-adoption authorization.
 
 ### Compilation and preparation

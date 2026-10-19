@@ -252,7 +252,10 @@ export function mutateRecord(
     });
   let result: CurrentRecordProjection;
   if (request.surface === 'analyst')
-    result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, request.agentName);
+    result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, {
+      kind: 'agent',
+      agent: request.agentName,
+    });
   else {
     if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
     result = store.editRecord(parsed.cardId, parsed.name, nextContent);

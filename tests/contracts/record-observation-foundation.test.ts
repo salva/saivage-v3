@@ -21,6 +21,10 @@ import { deriveRequiredModelFacts, selectConversationProtection, validateConvers
 import { conversationSegmentEnvelopeSchema, conversationVersionIndexSchema } from '../../src/persistence/canonical-conversation-artifacts.js';
 import { segmentContext, foldHistoricalConversationRows } from '../../src/application/read-models/agent-conversation-read-model.js';
 import { prepareRecordPromptContent } from '../../src/runtime/records/record-prompt-content.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { openAIChatAdapter } from '../../src/agents/llm-openai-chat-adapter.js';
+import { projectCanonicalConversationRow } from '../../src/application/read-models/canonical-conversation-outbound.js';
+import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 
 const INPUT = '11111111-1111-4111-8111-111111111111';
 const SESSION = cardAgentSessionId('planner', 'project');
@@ -52,6 +56,70 @@ function prompt(id: string, observed: RecordSelectionObservation, key?: string):
 }
 
 describe('owning record observations', () => {
+  it('retains actual stdout-author reads and old opaque writer facts through conversation12 history, public/provider projection and compaction', async () => {
+    const ctx = project();
+    const author = { kind: 'shell-stdout' as const, action: 'shell.run' as const, contract_version: 1 as const,
+      activation_id: INPUT, invocation_id: randomUUID(), node_id: 'check', ordinal: 0,
+      process_id: 'proc-123456789abc', stream: 'stdout' as const, outcome: 'failed' as const,
+      leader_exit: { exit_code: 9, signal: null } };
+    ctx.store.acceptRecord('project', 'status.md', 'Factual captured output\napi_key: nested-private-canary', author);
+    // Publication is a record operation, not a synthetic conversation mutation.
+    expect(readConversation(ctx.projectRoot, SESSION).physicalRows).toEqual([]);
+    const binder = workspaceToolBinders.find(t => t.name === 'read')!.bind(ctx);
+    const rows: AgentMessage[] = [];
+    const add = (id: string, args: object, execution: Parameters<typeof buildSettledToolResult>[0]['settlement'] & { kind: 'executed' }) => {
+      const p = policy();
+      const call = agentMessageSchema.parse({ id: `${INPUT}:tool-call:${id}`, session_id: SESSION, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: id,
+        content: JSON.stringify({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name: 'read', arguments: JSON.stringify(args) } }] }),
+        context_policy: { kind: 'tool_call', template: p.resultPolicyTemplate, template_bytes: p.resultPolicyTemplateBytes, template_sha256: p.resultPolicyTemplateSha256 },
+        round_id: `r-assistant-${INPUT.replaceAll('-', '')}`, message_index: rows.length, block_index: 0, timestamp: TS });
+      const result = buildSettledToolResult({ session_id: SESSION, source_input_id: INPUT, tool_call_id: id, tool_name: 'read', resultPolicy: p, settlement: execution }).message;
+      rows.push(call, result);
+      return result;
+    };
+    const oldData = { writer_agent: 'executor', content: 'Retained former opaque read observation' };
+    const old = add('old-opaque', {}, { kind: 'executed', execution: executedToolOutcome('observational_query', toolSucceeded(oldData)) });
+    for (const [id, path, metadata_only] of [
+      ['current-text', 'record:///status.md?card=project', false],
+      ['current-metadata', 'record:///status.md?card=project', true],
+      ['historical-text', 'record:///status.md?card=project&v=1', false],
+      ['historical-metadata', 'record:///status.md?card=project&v=1', true],
+    ] as const) {
+      const args = { path, metadata_only };
+      const row = add(id, args, { kind: 'executed', execution: await binder.executor(args, new AbortController().signal) });
+      expect(JSON.parse(row.content).data.content_author).toEqual(author);
+      expect(row.content).not.toContain('nested-private-canary');
+      expect(row.record_observations![0]!.observed).toMatchObject({ selection_kind: id.startsWith('historical') ? 'historical' : 'current', selection: { kind: 'accepted', version: 1 } });
+      expect(row.record_observations![0]!.observed).not.toHaveProperty('author');
+    }
+    appendConversationBatch({ projectRoot: ctx.projectRoot }, rows);
+    const source = readConversation(ctx.projectRoot, SESSION);
+    expect(source.physicalRows).toEqual(rows);
+    expect(readHistoricalConversationSegment(ctx.projectRoot, SESSION, 1).genesis.format_version).toBe(12);
+    const request = openAIChatAdapter.buildRequestBody({ candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, systemPrompt: 'Record facts.',
+      providerConversation: providerConversationProjection(source, []),
+      options: { providerSessionId: 'record-proof', inputId: INPUT, temperature: 0, max_tokens: 512, contract_id: 'record-proof', contractName: 'record-proof', terminalToolOffered: [], tools: [], tool_choice: 'auto' },
+      capabilities: { transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] } });
+    for (const row of rows.filter(row => row.kind === 'tool_result')) {
+      expect(request.messages).toContainEqual(expect.objectContaining({ role: 'tool', tool_call_id: row.tool_call_id, content: row.content }));
+      const publicRow = projectCanonicalConversationRow(row, projectToolInvocation);
+      expect(JSON.parse(publicRow.content).data).toEqual(JSON.parse(row.content).data);
+    }
+    expect(JSON.parse(old.content).data).toEqual(oldData);
+    const facts = deriveRequiredModelFacts({ inherited: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, coveredRows: rows, source });
+    const history = compactedHistorySchema.parse({ summaryText: 'Captured output is not an agent verdict.', protectedPrompts: [], requiredModelFacts: facts });
+    const entryId = randomUUID();
+    publishCompactedConversationSegment({ projectRoot: ctx.projectRoot }, SESSION, { identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: TS, filename: versionFilename(2, entryId) }, history, cutoffSourceIndex: rows.length - 1, cutoffMessageId: rows.at(-1)!.id, continuation: { kind: 'between_rounds' } });
+    const compacted = readConversation(ctx.projectRoot, SESSION);
+    expect(compacted.effectiveRequiredModelFacts.latestRecordObservations).toEqual(facts.latestRecordObservations);
+    const retained = readHistoricalConversationSegment(ctx.projectRoot, SESSION, 1);
+    expect(retained.rows).toEqual(rows);
+    expect(JSON.parse(foldHistoricalConversationRows(retained.rows)[1]!.content).data).toEqual(oldData);
+    const genesis = readHistoricalConversationSegment(ctx.projectRoot, SESSION, 2).genesis;
+    expect(genesis.format_version).toBe(12);
+    expect(segmentContext(genesis)!.required_model_facts.latestRecordObservations).toHaveLength(facts.latestRecordObservations.length);
+    expect(() => providerConversationProjection(compacted, [])).not.toThrow();
+  });
   it('keeps real current stamps but null historical tool stamps after many mutations before accepted1 and accepted2', async () => {
     const ctx = project();
     ctx.store.initializeRecord('project', 'status.md', () => 'template');
@@ -117,7 +185,7 @@ describe('owning record observations', () => {
 
   it('uses one current owning read for metadata/slice/full and separately exposes accepted backing of a draft', async () => {
     const ctx = project();
-    ctx.store.acceptRecord('project', 'brief.md', 'A accepted body', 'analyst');
+    ctx.store.acceptRecord('project', 'brief.md', 'A accepted body', { kind: 'agent', agent: 'analyst' });
     const read = jest.spyOn(ctx.store, 'readRecordCurrent');
     const metadata = await readProject(ctx, { path: 'record:///brief.md?card=project', metadata_only: true });
     expect(read).toHaveBeenCalledTimes(1);

@@ -33,6 +33,28 @@ const textSlice = (value: unknown): { content: string; utf8_bytes: number; offse
 };
 
 describe('project file tool read limits', () => {
+  it('reports the selected accepted author in text and metadata reads without attributing drafts or baselines', async () => withTempProject(async projectRoot => {
+    initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    const context = { projectRoot, store: cards, cardId: 'project', agentName: 'analyst' as const };
+    const path = 'record:///status.md?card=project';
+    cards.initializeRecord('project', 'status.md', () => 'baseline report');
+    expect(await readProject(context, { path })).toMatchObject({ content_author: null });
+    const author = { kind: 'shell-stdout' as const, action: 'shell.run' as const, contract_version: 1 as const,
+      activation_id: '11111111-1111-4111-8111-111111111111', invocation_id: '22222222-2222-4222-8222-222222222222',
+      node_id: 'check', ordinal: 0, process_id: 'proc-123456789abc', stream: 'stdout' as const, outcome: 'failed' as const,
+      leader_exit: { exit_code: 9, signal: null } };
+    cards.acceptRecord('project', 'status.md', 'captured report', author);
+    for (const metadata_only of [false, true])
+      expect(await readProject(context, { path, metadata_only })).toMatchObject({ content_author: author });
+    cards.openRecord('project', 'status.md');
+    for (const metadata_only of [false, true])
+      expect(await readProject(context, { path, metadata_only })).toMatchObject({ content_author: null });
+    expect(await readProject(context, { path: `${path}&v=1` })).toMatchObject({ content_author: author });
+    const observed = await readWithObservations(context, { path: `${path}&v=1` });
+    expect(observed.record_observations).toHaveLength(1);
+    expect(observed.record_observations![0]).not.toHaveProperty('author');
+  }));
   it('returns small file metadata with sliced path text only', async () => withTempProject(async (projectRoot) => {
     writeFileSync(join(projectRoot, 'notes.txt'), 'hello\nworld', 'utf8');
 

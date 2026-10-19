@@ -128,7 +128,7 @@ describe('reviewer rework completion E2E', () => {
           }, '2026-07-17T00:00:00.000Z');
         }
         for (const card of [sibling, nested]) {
-          const record = cards.acceptRecord(card.id, 'status.md', `${card.title} evidence.`, 'executor');
+          const record = cards.acceptRecord(card.id, 'status.md', `${card.title} evidence.`, { kind: 'agent', agent: 'executor' });
           acceptedVersions.set(card.id, record.accepted!.source_version);
         }
         // Known fixture preorder, not the inspection/formatting implementation under test.
@@ -197,7 +197,7 @@ describe('reviewer rework completion E2E', () => {
             }, '2026-07-17T00:00:01.000Z');
           } else if (change === 'record') {
             const id = descendants[0]!.id;
-            const record = cards.acceptRecord(id, 'status.md', 'New independently accepted evidence.', 'executor');
+            const record = cards.acceptRecord(id, 'status.md', 'New independently accepted evidence.', { kind: 'agent', agent: 'executor' });
             acceptedVersions.set(id, record.accepted!.source_version);
           }
           if (change !== 'empty') {
@@ -260,7 +260,7 @@ describe('reviewer rework completion E2E', () => {
         expect(cards.readRecordCurrent('project', 'review.md')).toMatchObject({
           kind: 'found', value: { projection: { state: 'closed', accepted: {
             content: change === 'empty' ? 'Initial review draft.' : 'Fresh review of changed evidence.',
-            writer_agent: 'reviewer',
+            author: { kind: 'agent', agent: 'reviewer' },
           } } },
         });
         const history = cards.readRecordHistory('project', 'review.md');
@@ -579,7 +579,7 @@ describe('reviewer rework completion E2E', () => {
       value: {
         projection: {
           state: 'closed',
-          accepted: { content: 'Repeatedly edited wildcard note.', writer_agent: 'reviewer' },
+          accepted: { content: 'Repeatedly edited wildcard note.', author: { kind: 'agent', agent: 'reviewer' } },
         },
       },
     });
@@ -954,14 +954,14 @@ describe('reviewer rework completion E2E', () => {
     expect(cards.readRecordVersion(goal.id, 'review.md', 1)).toMatchObject({
       kind: 'found',
       value: {
-        projection: { artifact: { accepted: { content: firstReview, writer_agent: 'reviewer' } } },
+        projection: { artifact: { accepted: { content: firstReview, author: { kind: 'agent', agent: 'reviewer' } } } },
       },
     });
     expect(cards.readRecordVersion(goal.id, 'review.md', 2)).toMatchObject({
       kind: 'found',
       value: {
         projection: {
-          artifact: { accepted: { content: approvedReview, writer_agent: 'reviewer' } },
+          artifact: { accepted: { content: approvedReview, author: { kind: 'agent', agent: 'reviewer' } } },
         },
       },
     });

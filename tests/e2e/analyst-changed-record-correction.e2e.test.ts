@@ -59,7 +59,7 @@ describe('Analyst corrections on CHANGED in production composition', () => {
             const result = JSON.parse(last.content);
             expect(result).toMatchObject({ success: true, data: { state: 'closed', propagation: { ok: true } } });
             const current = cards.readRecordCurrent('project', previous.record);
-            expect(current).toMatchObject({ kind: 'found', value: { projection: { revision: result.data.revision, state: 'closed', accepted: { content: previous.content, writer_agent: 'analyst' } } } });
+            expect(current).toMatchObject({ kind: 'found', value: { projection: { revision: result.data.revision, state: 'closed', accepted: { content: previous.content, author: { kind: 'agent', agent: 'analyst' } } } } });
             expect(result.data.accepted_version_url).toBe(`record:///${previous.record}?card=project&v=${result.data.version}`);
             expect(result.data.target_version).toBeNull();
             expect(result.data.current_url).toBe(`record:///${previous.record}?card=project`);
@@ -92,7 +92,7 @@ describe('Analyst corrections on CHANGED in production composition', () => {
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, 'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false } },
-          workflow: { format_version: 1,
+          workflow: { format_version: 2,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: { blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } } } } },

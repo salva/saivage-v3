@@ -35,7 +35,7 @@ describe('bundled record excerpt composition', () => {
       const node = workflows.cardTypes.get('project')!.states.get('node:plan')!;
       if (node.kind !== 'node') throw new Error('Missing plan node.');
       const store = new CardService(root, workflows);
-      store.acceptRecord('project', 'brief.md', 'Accepted requirement stays authoritative.', 'analyst');
+      store.acceptRecord('project', 'brief.md', 'Accepted requirement stays authoritative.', { kind: 'agent', agent: 'analyst' });
       store.openRecord('project', 'status.md');
       const source = 'FIRST\n' + 'ordinary status work remains unfinished.\n'.repeat(1000) + 'LAST';
       store.editRecord('project', 'status.md', source);
