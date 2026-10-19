@@ -8,13 +8,16 @@ import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { RESPONSES_A, RESPONSES_B, responsesBundle } from '../helpers/responses-producer-fixture.js';
+import { compileProjectWorkflows, nodeResultToolDefinition, processNodeOutcomes } from '../../src/runtime/card-process/card-process-config.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
 const ADAPTER = selectLlmProtocolAdapter('openai-responses');
 const CAPABILITIES = { transportProtocol: 'openai-responses' as const, imageInput: false, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, responsesReasoning: { effort: 'medium' as const }, quirks: [] };
 const MSG: AgentMessage = { id: 'm1', session_id: 'agent:analyst:global', role: 'user', kind: 'text', content: 'hi', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
 const TOOL: ToolDefinition = { type: 'function', function: { name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } };
-const TERMINAL_TOOL: ToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'finish', parameters: { type: 'object', properties: { summary: { type: 'string' } } } } };
+const PROCESS = compileProjectWorkflows(structuredClone(TEST_SAIVAGE_CONFIG)).cardTypes.get('project')!;
+const TERMINAL_TOOL = nodeResultToolDefinition(PROCESS, 'node:plan');
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -61,8 +64,14 @@ describe('OpenAI Responses request shape', () => {
     expect(body.tool_choice).toBe('auto');
     expect(body.tools).toEqual([
       { type: 'function', name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } },
-      { type: 'function', name: 'emit_result', description: 'finish', parameters: { type: 'object', properties: { summary: { type: 'string' } } } },
+      { type: 'function', ...TERMINAL_TOOL.function },
     ]);
+    expect(JSON.parse(JSON.stringify(body)).tools[1].parameters).toEqual({
+      type: 'object',
+      properties: { outcome: { type: 'string', enum: processNodeOutcomes(PROCESS, 'node:plan') }, summary: { type: 'string', minLength: 1, maxLength: 2000 } },
+      required: ['outcome', 'summary'],
+      additionalProperties: false,
+    });
     expect(JSON.stringify(body)).not.toContain('strict');
     expect(body.reasoning).toEqual({ effort: 'medium' });
   });

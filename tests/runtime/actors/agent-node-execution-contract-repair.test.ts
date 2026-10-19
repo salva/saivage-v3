@@ -445,7 +445,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
           type: 'object',
           properties: {
             outcome: { type: 'string', enum: ['complete'] },
-            summary: { type: 'string', minLength: 1 },
+            summary: { type: 'string', minLength: 1, maxLength: 2000 },
           },
           additionalProperties: false,
           required: ['outcome', 'summary'],

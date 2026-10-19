@@ -629,6 +629,8 @@ Bundled Planner/Executor/Reviewer methods favor the simplest coherent design mee
 
 ### Exact terminal-result limit
 
+Generated `emit_result` advertises the owning summary bound via `maxLength`; runtime trim, nonempty and length validation remains authoritative. This does not promise identical Unicode/trim acceptance or provider compliance.
+
 <!-- saivage:value-contract:emit-result-limit:start -->
 ```text
 constant.emit-result-summary-max-chars = {"unit":"characters","value":2000}

@@ -186,7 +186,11 @@ describe('zodToJsonSchemaMini production surface canary', () => {
           const key = `${template.name}/${cardType}/${state.nodeId}`;
           expect(coveredNodes.has(key)).toBe(false);
           coveredNodes.add(key);
-          expectObjectSchema(nodeResultToolDefinition(workflow, stateId).function.parameters, key);
+          const parameters = nodeResultToolDefinition(workflow, stateId).function.parameters;
+          expectObjectSchema(parameters, key);
+          expect(parameters).toMatchObject({
+            properties: { summary: { type: 'string', minLength: 1, maxLength: 2000 } },
+          });
         }
       }
     }

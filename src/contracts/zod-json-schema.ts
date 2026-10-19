@@ -1,7 +1,14 @@
 import { z } from 'zod';
 
 type JsonSchema =
-  | { type: 'string'; enum?: string[]; minLength?: number; pattern?: string; description?: string }
+  | {
+      type: 'string';
+      enum?: string[];
+      minLength?: number;
+      maxLength?: number;
+      pattern?: string;
+      description?: string;
+    }
   | { type: 'number'; description?: string }
   | { type: 'integer'; description?: string }
   | { type: 'boolean'; description?: string }
@@ -74,6 +81,8 @@ function convertNode(schema: z.ZodTypeAny): JsonSchema {
         minCheck && typeof minCheck.value === 'number'
           ? { type: 'string', minLength: minCheck.value }
           : { type: 'string' };
+      const maxCheck = checks.find((c) => c.kind === 'max');
+      if (maxCheck && typeof maxCheck.value === 'number') out.maxLength = maxCheck.value;
       const regexCheck = checks.find((c) => c.kind === 'regex');
       if (regexCheck?.regex) out.pattern = regexCheck.regex.source;
       break;

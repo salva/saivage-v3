@@ -35,14 +35,10 @@ const MESSAGES: AgentMessage[] = [
   },
 ];
 
-const PLANNER_TERMINAL_TOOL: ToolDefinition = {
-  type: 'function',
-  function: {
-    name: 'emit_result',
-    description: 'planner terminal envelope',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-  },
-};
+const PLANNER_TERMINAL_TOOL = nodeResultToolDefinition(
+  compileProjectWorkflows(structuredClone(TEST_SAIVAGE_CONFIG)).cardTypes.get('project')!,
+  'node:plan',
+);
 
 const SAMPLE_TOOL: ToolDefinition = {
   type: 'function',
@@ -75,7 +71,11 @@ describe('OpenAI Chat adapter request shape', () => {
     const plan = buildCandidateRequest({ candidate, capabilities, adapter, systemPrompt: SYSTEM, providerConversation, options: opts });
     expect(tools.map((tool) => tool.function.name)).toEqual([...selected, 'emit_result']);
     expect(JSON.stringify(plan.request.body)).not.toContain('mcp_server_register');
-    expect(terminal.function.parameters).toMatchObject({ required: ['outcome', 'summary'], additionalProperties: false });
+    expect(terminal.function.parameters).toMatchObject({ properties: { summary: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['outcome', 'summary'], additionalProperties: false });
+    const wireBody = JSON.parse(plan.request.serializedBody);
+    const wireTerminal = wireBody.tools.at(-1);
+    expect(capabilities.transportProtocol === 'openai-chat-completions' ? wireTerminal.function : wireTerminal)
+      .toMatchObject(terminal.function);
     expect({ bodyBytes: JSON.stringify(plan.request.body), serializedBody: plan.request.serializedBody, requestHash: plan.request.requestHash }).toMatchSnapshot();
     let dispatchedBytes: string | undefined;
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
@@ -149,14 +149,7 @@ describe('OpenAI Chat adapter request shape', () => {
           parameters: { type: 'object', properties: {}, additionalProperties: false },
         },
       },
-      {
-        type: 'function',
-        function: {
-          name: 'emit_result',
-          description: 'planner terminal envelope',
-          parameters: { type: 'object', properties: {}, additionalProperties: false },
-        },
-      },
+      PLANNER_TERMINAL_TOOL,
     ]);
   });
 

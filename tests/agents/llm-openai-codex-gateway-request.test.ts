@@ -9,6 +9,8 @@ import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 import { ProviderTurnFailure } from '../../src/contracts/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
+import { compileProjectWorkflows, nodeResultToolDefinition, processNodeOutcomes } from '../../src/runtime/card-process/card-process-config.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -31,14 +33,8 @@ const MESSAGES: AgentMessage[] = [
   },
 ];
 
-const PLANNER_TERMINAL_TOOL: ToolDefinition = {
-  type: 'function',
-  function: {
-    name: 'emit_result',
-    description: 'planner terminal envelope',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-  },
-};
+const PROCESS = compileProjectWorkflows(structuredClone(TEST_SAIVAGE_CONFIG)).cardTypes.get('project')!;
+const PLANNER_TERMINAL_TOOL = nodeResultToolDefinition(PROCESS, 'node:plan');
 
 const SAMPLE_TOOL: ToolDefinition = {
   type: 'function',
@@ -74,13 +70,14 @@ describe('OpenAI Codex adapter request shape', () => {
         description: 'find files',
         parameters: { type: 'object', properties: {}, additionalProperties: false },
       },
-      {
-        type: 'function',
-        name: 'emit_result',
-        description: 'planner terminal envelope',
-        parameters: { type: 'object', properties: {}, additionalProperties: false },
-      },
+      { type: 'function', ...PLANNER_TERMINAL_TOOL.function },
     ]);
+    expect(JSON.parse(JSON.stringify(body)).tools[1].parameters).toEqual({
+      type: 'object',
+      properties: { outcome: { type: 'string', enum: processNodeOutcomes(PROCESS, 'node:plan') }, summary: { type: 'string', minLength: 1, maxLength: 2000 } },
+      required: ['outcome', 'summary'],
+      additionalProperties: false,
+    });
     expect(JSON.stringify(body.tools)).not.toContain('"function":{');
     expect(Object.prototype.hasOwnProperty.call(body, 'max_output_tokens')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'temperature')).toBe(false);

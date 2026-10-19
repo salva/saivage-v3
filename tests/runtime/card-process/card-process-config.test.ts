@@ -2,6 +2,7 @@ import { afterEach,describe,expect,it } from '@jest/globals';
 import { mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Ajv } from 'ajv';
 
 import { DEFAULT_SAIVAGE_CONFIG,resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { EMIT_RESULT_SUMMARY_MAX_CHARS,bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows,describeNodeResultContract,nodeResultSchema,nodeResultToolDefinition,processNodeOutcomes } from '../../../src/runtime/card-process/card-process-config.js';
@@ -54,12 +55,28 @@ describe('named-agent card-type workflow compilation',()=>{
     for(const node of Object.values(goal.workflow.nodes)) if(node.agent==='planner') node.agent='advisor';
     expect(compileProjectWorkflows(custom).cardTypes.get('goal')?.planningNotificationTarget).toBe(false);
   });
-  it('uses the terminal-result summary character limit in validation and generated text',()=>{
+  it('uses the terminal-result summary character limit in runtime validation and the generated tool',()=>{
     const process=compileProjectWorkflows(source()).cardTypes.get('project')!;
     const [stateId]=[...process.states].find(([,candidate])=>candidate.kind==='node')!;
     const outcome=processNodeOutcomes(process,stateId)[0]!;
-    expect(nodeResultSchema(process,stateId).safeParse({outcome,summary:'x'.repeat(EMIT_RESULT_SUMMARY_MAX_CHARS)}).success).toBe(true);
-    expect(nodeResultSchema(process,stateId).safeParse({outcome,summary:'x'.repeat(EMIT_RESULT_SUMMARY_MAX_CHARS+1)}).success).toBe(false);
+    const schema=nodeResultSchema(process,stateId);
+    const parameters=nodeResultToolDefinition(process,stateId).function.parameters;
+    expect(parameters).toEqual({type:'object',properties:{outcome:{type:'string',enum:processNodeOutcomes(process,stateId)},summary:{type:'string',minLength:1,maxLength:2000}},required:['outcome','summary'],additionalProperties:false});
+    const validate=new Ajv().compile(parameters);
+    for(const [length,accepted] of [[2000,true],[2001,false]] as const){
+      const result={outcome,summary:'x'.repeat(length)};
+      expect(schema.safeParse(result).success).toBe(accepted);
+      expect(validate(result)).toBe(accepted);
+    }
+    expect(EMIT_RESULT_SUMMARY_MAX_CHARS).toBe(2000);
+    expect(schema.parse({outcome,summary:'  useful result  '}).summary).toBe('useful result');
+    expect(schema.safeParse({outcome,summary:'   '}).success).toBe(false);
+    expect(schema.safeParse({outcome,summary:''}).success).toBe(false);
+    expect(schema.safeParse({outcome:'not-a-node-outcome',summary:'result'}).success).toBe(false);
+    expect(validate({outcome:'not-a-node-outcome',summary:'result'})).toBe(false);
+    expect(validate({outcome,summary:''})).toBe(false);
+    expect(validate({outcome})).toBe(false);
+    expect(validate({outcome,summary:'result',extra:true})).toBe(false);
     expect(describeNodeResultContract(process,stateId)).toContain(`at most ${EMIT_RESULT_SUMMARY_MAX_CHARS} characters`);
   });
   it('compiles the classic template source and the derived default identically',()=>{
