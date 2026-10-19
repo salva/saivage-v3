@@ -26,7 +26,7 @@ export function classicRecordContext(definition: CardTypesSource[string]): CardT
                 initialization: {
                   format_version: 1 as const,
                   template:
-                    '# Review: {{cardTitle}}\n\nNot yet assessed against the accepted brief and this review node\'s criteria.\n',
+                    "# Review: {{cardTitle}}\n\nNot yet assessed against the accepted brief and this review node's criteria.\n",
                 },
               }
             : record,
