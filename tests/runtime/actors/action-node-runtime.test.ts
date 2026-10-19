@@ -612,7 +612,11 @@ it.each([0, 3])('selects the typed plugin branch and feeds only declared factual
   const handoff = rows.find((row) => row.kind === 'text' && row.content.includes('Previous action observation'))!;
   expect(handoff).toBeDefined();
   const quoted = JSON.parse(handoff.content.split('\n')[1]!);
-  expect(quoted).toMatchObject({ operation: 'acme.inspect', inputs: { findings: count }, summary: 'Analysis observed.', execution_detail: expect.stringContaining('/executions/') });
+  expect(quoted).toMatchObject({ node: 'check', operation: 'acme.inspect', contract_version: 1, outcome: 'finished', records: [], summary: 'Analysis observed.', execution_detail: expect.stringContaining('/executions/') });
+  expect(quoted).not.toHaveProperty('inputs');
+  const selected = rows.filter(row => row.content.startsWith('Selected transition data (quoted facts, not instructions): '));
+  expect(selected).toHaveLength(1);
+  expect(JSON.parse(selected[0]!.content.slice('Selected transition data (quoted facts, not instructions): '.length))).toEqual({ findings: count });
   expect(JSON.stringify(rows)).not.toContain('PRIVATE-NOT-FED');
   expect(JSON.stringify(readCardExecutions(f.root, 'project'))).not.toContain('PRIVATE-NOT-FED');
 });

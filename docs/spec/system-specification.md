@@ -116,6 +116,13 @@ Required sessions derive only from actual agent nodes. Existing agent correction
 fresh record/parent context, exact reviewer selection, descendant and terminal
 gates remain unchanged. Agent-selected typed transition context is quoted factual
 data, not a new instruction or capability.
+Nonempty selected inputs arrive once per actual entry, including lifecycle entry,
+STOPPED recovery, urgent re-entry and configured outcome/pending-notification edges,
+as one ordinary compactable quoted user message. Empty inputs add no message.
+Outbound projection classifies each original field name and filters each scalar
+or list element, preserving display shape without changing internal typed inputs
+or routing. Covered text survives only as ordinary summary material, not guaranteed
+verbatim memory; a fresh entry resolves and delivers fresh inputs again.
 
 `records/executions.jsonl` is a lazy card-owned strict version1 `card-execution`
 family, not an authored record or workflow state. Each append is one nonempty

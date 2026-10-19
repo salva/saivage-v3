@@ -24,7 +24,8 @@ This in-depth companion to [System architecture](./system-architecture.md) and [
 | Current accepted bootstrap / declared record inputs | Synchronous node-bound supplier at each new logical primary operation | Same-read current requirement snapshot; retained through that operation's maintenance/retries |
 | Conditional record prompt | Same supplier, compared against pre-existing conversation record/view knowledge | Actual rendered occurrence; declaration-controlled instruction retention |
 | Entries, accepted edges, correction, notifications | Existing event/result/recipient owner; once per actual occurrence | Attributed facts, immutable evidence and scoped direction, not current-node selection |
-| Action handoff | Accepted edge into an actual agent; existing durable text context | Quoted, outbound-redacted summary, exact invocation-detail reference and only declared selected typed inputs; observations, never instructions or tool authority |
+| Action handoff | Accepted edge into an actual agent; existing durable text context | Quoted, outbound-redacted summary, exact invocation-detail reference and immutable accepted-record links; observations, never instructions or tool authority |
+| Selected agent inputs | Once per actual lifecycle/recovery/urgent entry or configured outcome/pending-notification edge, after its prelude and optional prompt | One optional compactable quoted user message; original-name scalar/list-element redaction preserves display shape, not new instructions, protection or routing facts |
 | Latest record observations | Canonical source-order fact derivation plus retained suffix | Descriptor-only selection/exposure knowledge, not a subscription, body recall or write authority |
 | Global/non-model ingress | Existing Analyst/Oversight owners | Actual explicit read observations only; no synthetic card/parent feed; confirmation-only is model-free |
 
@@ -343,6 +344,18 @@ cutover independently requires incompatible-adoption authorization.
 
 Card-node preparation separates `stableBlocks` from per-logical-operation `recordBlocks`; their ordered accessor composes stable blocks first, then record blocks, without storing another combined array. Stable context contains canonical `{cardId,cardType,title}` orientation and the complete selected current-node prompt, never a frozen bootstrap body. Prefix, tools and stable blocks remain continuous across the node's continuations. Named role/node fields produce the historical activation evidence without positional block lookup. The compiled node—not prior transcript placement, lifecycle status or summary prose—selects the current step.
 
+`AgentExecutor` appends nonempty selected inputs through one common transition
+message after route-specific predecessor/recovery facts and any configured prompt.
+Notification/reviewer context still precedes these rows. Empty inputs add no row;
+action observations and agent preludes do not serialize another input object.
+Original field names govern outbound scalar/list-element filtering before JSON
+quoting; this is a display copy, never mutation of admitted inputs or accepted
+predecessor values. The message is ordinary compactable user text, without
+workflow-instruction provenance or required-fact promotion. An uncovered suffix
+retains it verbatim; covered text is ordinary summary material and may be omitted.
+No synthetic reappend follows compaction. A fresh entry resolves fresh inputs;
+full current accepted requirements remain the separate per-operation supplier.
+
 At each newly armed initial, tool or corrective logical operation, the deferred raw callback first checks its exact captured invocation lease. Then the LLM owner consumes current conversation knowledge and calls the node-bound synchronous bootstrap supplier. One exact owning record read selects the complete current accepted bootstrap, identity and full-body exposure; required missing acceptance fails before compaction/admission/provider work. Descriptor-only preparation evidence is appended when the latest actual observation does not already represent that exact identity/exposure. No body is stored in that row. Current bootstrap is supplied outside historical compaction on every operation even when the descriptor append is deduplicated. A new operation may replace A with B; preventive/local/authoritative compaction, pinned retry and admitted-byte transport retain that operation's captured blocks unchanged. There is no refresh during recovery or current-at-transport guarantee. Globals retain their ordinary stable preparation with no automatic bootstrap supplier.
 
 Current-node text is request context and is not appended as an ordinary conversation row. The existing activation marker records the rendered role instruction and exact frozen full node block once as structural evidence, not context fed back to the model. Existing unmarked node-looking rows remain unchanged ordinary history and are neither recognized nor suppressed. Lifecycle-entry, configured edge/pending-notification and correction prompt producers positively mark their existing user text/model-repair rows with `instruction_origin:'workflow_prompt'`. This display provenance changes no role, content, delivery, protection or append count; transition preludes, notification bodies and diagnostics remain unmarked. Summary prose never inherits this tag. Lifecycle-entry, edge, transition-handoff, correction, notification, and recovery context keeps its existing durable producer position. A transition handoff is delivered once, but its accepted facts, immutable record URLs, and still-applicable requirements do not expire merely because delivery is not repeated.
@@ -482,7 +495,8 @@ This is instruction policy, not runtime enforcement or evidence of model complia
 | --- | --- |
 | `src/runtime/card-process/card-process-config.ts` | roots, exact selection, fragment reads, workflow compilation, eager process rendering |
 | `src/utils/prompt-api.ts` | singular tokenizer/compiler, composition, discriminated host/placeholder policy, rendering, structurally scoped agent registry |
-| `src/runtime/actors/agent-node-execution.ts` | direct exact-workflow process-text consumption |
+| `src/runtime/actors/agent-executor.ts` | agent preparation, exact-workflow process-text consumption and transition composition |
+| `src/runtime/actors/node-execution.ts` | shared execution and typed input resolution |
 | `src/application/runtime-composition.ts` | runtime wiring |
 | `src/config/system-templates/<name>/prompts/**` | per-template bundled tree equal to that template's exact compiler-observed source closure, including the six shared project-guidance fragments and all process prompts selected by that template |
 | `scripts/copy-system-template-prompts.js` | per-template standalone closure validation and copy to `dist/src/config/system-templates/<name>/prompts/` |
