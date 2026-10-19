@@ -121,8 +121,13 @@ Compilation freezes the selected
 choice. Reconcile authorized config/selected prompt edits while stopped and start a
 genuinely new process; Run/refresh is not recompilation. Existing-YAML init preserves
 definitions and materialized/custom prompts rather than upgrading them. Shipped
-classic/classic-typed/paad-typed status declarations carry a brief-relative starter; custom
-selected hosts do not automatically acquire new guidance.
+classic/classic-typed/paad-typed declarations select brief-relative status starters
+at responsible work nodes and neutral review starters at review nodes, including
+both typed architecture reviews. Bootstrap briefs are excluded. The first review
+entry opens the unassessed starter, not a verdict; later clean entries open an
+empty draft with accepted evidence preserved, without regenerating the starter.
+Authored assessment and acceptance remain required. Custom selected hosts do not
+automatically acquire new guidance.
 
 Selected initialization renders only while the exact head is absent. Every present
 baseline/draft/accepted/empty-after-discard head suppresses rendering and publication,

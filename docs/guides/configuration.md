@@ -42,7 +42,7 @@ project. `saivage init` materializes it from a bundled template; after that
 the instance owns it, and every change takes effect on the next start.
 `${ENV_VAR}` references are interpolated from the service environment at
 startup, except literal record scaffold content at
-`card_types.<type>.records.<name>.initialization.content` — keep API keys out of
+`card_types.<type>.records.<name>.initialization.template` — keep API keys out of
 the file and scaffolds. Validation is strict: unknown or
 obsolete keys fail startup instead of being ignored.
 
@@ -230,7 +230,10 @@ open from baseline0 or otherwise empty for the next document version, preserving
 accepted backing without rerendering. Baseline0/draft0 and empty drafts cannot
 satisfy authored gates. Configuration changes need new-process compilation, never
 rewrite retained text and are not installed by existing-config init.
-Creation-time initialization remains deferred. See the
+All three shipped profiles select status starters at responsible work nodes and
+neutral review starters at review nodes (including both typed architecture reviews).
+Bootstrap briefs are excluded; a review starter is not a verdict and still requires
+authored assessment and acceptance. Creation-time initialization remains deferred. See the
 [example and incompatible adoption boundary](../runbook/index.md#optional-record-scaffolds)
 before changing an instance; head3/accepted2/conversation12 adoption is not authorized by
 editing configuration or installing source.

@@ -26,6 +26,48 @@ describe('system template registry',()=>{
   it('accepts the registered templates at load-time validation',()=>{
     expect(()=>validateSystemTemplates(SYSTEM_TEMPLATES)).not.toThrow();
   });
+
+  it.each(SYSTEM_TEMPLATES)('compiles the scoped status/review starters and existing authorship authority in $name',template=>{
+    const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot});
+    const typed=template.name!=='classic';
+    const statusNodes:Record<string,string[]>={
+      project:['plan','recover','handle-notifications'],goal:['plan','recover','handle-notifications'],
+      architecture:typed?['draft']:['execute'],code:typed?['red','green','refactor']:['execute'],
+      test:typed?['diagnose','add-coverage','repair','verify']:['execute'],
+      research:typed?['explore','assess','report']:['execute'],data:typed?['schema','validate','implement']:['execute'],
+      doc:['execute'],ops:['execute'],
+    };
+    for(const [cardType,workflow] of workflows.cardTypes){
+      expect(workflow.bootstrapRecord.name).toBe('brief.md');
+      expect(workflow.bootstrapRecord.initialization).toBeNull();
+      const reviewNodes=cardType==='project'||cardType==='goal'?['review']:typed&&cardType==='architecture'?['component-review','system-review']:[];
+      expect([...workflow.records.values()].filter(record=>record.initialization).map(record=>record.name).sort())
+        .toEqual(reviewNodes.length?['review.md','status.md']:['status.md']);
+      for(const node of workflow.states.values()){
+        if(node.kind!=='node')continue;
+        const status=statusNodes[cardType]!.includes(node.nodeId);
+        const review=reviewNodes.includes(node.nodeId);
+        expect(node.initializeRecords.map(record=>record.name)).toEqual(status?['status.md']:review?['review.md']:[]);
+        for(const requirement of node.requirements){
+          if(requirement.definition.name==='status.md')expect(requirement).toMatchObject({mode:'continue',gate:'updated'});
+          if(requirement.definition.name==='review.md')expect(requirement).toMatchObject({mode:'clean',gate:'updated'});
+        }
+        if(status||review){
+          expect(node.agent.tools.map(tool=>tool.name)).toContain('write');
+          expect(node.agent.recordWrites.map(pattern=>pattern.source)).toContain(status?'status.md':'review.md');
+        }
+      }
+      expect([...workflow.states.values()].filter(node=>node.kind==='node'&&node.initializeRecords.some(record=>record.name==='status.md')).map(node=>node.kind==='node'?node.nodeId:'').sort())
+        .toEqual([...statusNodes[cardType]!].sort());
+      expect([...workflow.states.values()].filter(node=>node.kind==='node'&&node.initializeRecords.some(record=>record.name==='review.md')).map(node=>node.kind==='node'?node.nodeId:'').sort())
+        .toEqual([...reviewNodes].sort());
+    }
+    expect(workflows.agents.get('planner')!.recordWrites.map(pattern=>pattern.source)).toEqual(['brief.md','status.md']);
+    expect(workflows.agents.get('executor')!.recordWrites.map(pattern=>pattern.source)).toEqual(['status.md']);
+    expect(workflows.agents.get('reviewer')!.recordWrites.map(pattern=>pattern.source)).toEqual(['review.md','review-*.md']);
+    expect(workflows.analyst.recordWrites.map(pattern=>pattern.source)).toEqual(['brief.md']);
+    expect(workflows.oversight.recordWrites).toEqual([]);
+  });
   it.each([0,-1,Number.POSITIVE_INFINITY])('rejects invalid required Oversight interval %s',(interval)=>{const value=structuredClone(resolveSystemTemplate('classic').config);value.oversight.interval_seconds=interval;expect(effectiveSaivageConfigSchema.safeParse(value).success).toBe(false);});
 
   it('load-time validation rejects duplicate names, empty names, and schema-invalid configs',()=>{

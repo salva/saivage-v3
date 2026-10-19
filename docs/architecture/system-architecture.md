@@ -549,7 +549,10 @@ detector or compatibility mechanism.
   direct fragments using ordinary card-host lookup and artifact closure accounting.
   No agent registry, prompt retention/authority or record-body macros are supplied.
   Insertions are single-pass data, `${NAME}` stays literal, and templates are frozen.
-  Shared classic construction selects status initialization in all three profiles.
+  Shared classic construction selects status starters at responsible work nodes
+  and neutral review starters at review nodes in all three profiles, including
+  both typed architecture reviews. Bootstrap briefs are never initialized;
+  starters do not replace authored work or acceptance.
 
   `AgentNodeExecution.prepareRecordRequirements` initializes before explicit clean
   requirements and then captures updated head/revision baselines. Existing heads,

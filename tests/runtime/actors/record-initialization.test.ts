@@ -23,18 +23,23 @@ type Methods = {
   captureRecordHead(name: string): { headId: string; revision: number } | null;
   validateRecords(node: unknown, baseline: Map<string, unknown>): { candidates?: Map<string, any>; violations?: string[] };
 };
-function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic', clean = false) {
+function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic', clean = false, options: { packaged?: boolean; cardType?: 'project' | 'architecture' } = {}) {
   const template = resolveSystemTemplate(profile); const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
-  config.card_types.project!.records['status.md']!.initialization = { format_version: 1, template: '{{cardType}}/{{cardId}}/{{cardTitle}}/{{nodeId}}/{{recordName}} ${LITERAL}' };
-  config.card_types.project!.workflow.nodes.plan!.records['status.md'] = { mode: clean ? 'clean' : 'continue', gate: 'updated' };
+  if (!options.packaged) {
+    config.card_types.project!.records['status.md']!.initialization = { format_version: 1, template: '{{cardType}}/{{cardId}}/{{cardTitle}}/{{nodeId}}/{{recordName}} ${LITERAL}' };
+    config.card_types.project!.workflow.nodes.plan!.records['status.md'] = { mode: clean ? 'clean' : 'continue', gate: 'updated' };
+  }
   const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config), { defaultPromptRoot: template.promptRoot });
   const root = mkdtempSync(join(tmpdir(), 'record-baseline-')); roots.push(root); publishInitialProjectRuntime(root, workflows);
   const store = new CardService(root, workflows);
-  const runner = new AgentNodeExecution({ cardId: 'project', store } as never, {} as never) as unknown as Methods;
-  const node = workflows.cardTypes.get('project')!.states.get('node:plan')!;
-  if (node.kind !== 'node') throw new Error('Missing plan node');
-  const read = () => { const result = store.readRecordCurrent('project', 'status.md'); if (result.kind !== 'found') throw new Error('missing card'); return result.value.projection; };
-  return { root, store, runner, read, node, workflows };
+  const cardId = options.cardType === 'architecture'
+    ? store.create({ type: 'architecture', parent: 'project', title: 'Architecture {{nodeId}}', bootstrap_content: 'Accepted architecture scope', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id
+    : 'project';
+  const runner = new AgentNodeExecution({ cardId, store } as never, {} as never) as unknown as Methods;
+  const node = workflows.cardTypes.get(options.cardType ?? 'project')!.states.get(options.cardType === 'architecture' ? 'node:draft' : 'node:plan')!;
+  if (node.kind !== 'node') throw new Error('Missing work node');
+  const read = (name = 'status.md') => { const result = store.readRecordCurrent(cardId, name); if (result.kind !== 'found') throw new Error('missing card'); return result.value.projection; };
+  return { root, store, runner, read, node, workflows, cardId };
 }
 describe('real node preparation and document lifecycle', () => {
   it.each(['classic', 'classic-typed', 'paad-typed'] as const)('renders exact entry context once in %s and excludes v0 from both gates', profile => {
@@ -82,7 +87,7 @@ describe('real node preparation and document lifecycle', () => {
   });
 
   it.each(['classic', 'classic-typed', 'paad-typed'] as const)('composes %s roles, nodes, tools, record entry/re-entry and compaction from the final compiled contracts', async profile => {
-    const f = fixture(profile); const session = 'agent:planner:project' as const;
+    const f = fixture(profile, false, { packaged: true }); const session = 'agent:planner:project' as const;
     const roles = [...f.workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states].flatMap(([stateId, node]) => {
       if (node.kind !== 'node') return [];
       const contract = describeNodeResultContract(workflow, stateId);
@@ -95,7 +100,10 @@ describe('real node preparation and document lifecycle', () => {
       }];
     }));
     expect(new Set(roles.map(item => item.agent))).toEqual(new Set(['planner', 'executor', 'reviewer']));
+    expect(f.read()).toBeNull(); expect(f.read('review.md')).toBeNull();
     f.runner.prepareRecordRequirements(f.node);
+    expect(f.read()).toMatchObject({ state: 'baseline', accepted: null, draft: null });
+    expect(f.read('review.md')).toBeNull();
     const prepare = (node = f.node) => bootstrapContextSupplier(f.store, f.store.read('project')!, node)({ inputId: '11111111-1111-4111-8111-111111111111', conversation: readConversation(f.root, session) });
     const initial = prepare(); appendConversationBatch({ projectRoot: f.root }, initial.rows);
     expect(initial.rows.find(row => row.kind === 'record_prompt' && row.record_observations?.some(item => item.observed.selection.kind === 'baseline'))!.content)
@@ -119,6 +127,57 @@ describe('real node preparation and document lifecycle', () => {
     expect(facts.content).not.toContain('Actual current assessment');
     const evidence = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
     if (evidence) { mkdirSync(evidence, { recursive: true }); writeFileSync(join(evidence, `record-v0-${profile}.json`), JSON.stringify({ kind: 'offline-final-source-compiled-composition-not-provider-wire', profile, roles, initial, changed, reentry, afterCompaction, latest, composition }, null, 2)); }
+  });
+
+  it.each([
+    ['classic', 'project'], ['classic-typed', 'architecture'], ['paad-typed', 'architecture'],
+  ] as const)('requires authored review and preserves accepted evidence on clean re-entry in %s %s', (profile, cardType) => {
+    const f = fixture(profile, false, { packaged: true, cardType });
+    const workflow = f.workflows.cardTypes.get(cardType)!;
+    const first = workflow.states.get(cardType === 'project' ? 'node:review' : 'node:component-review')!;
+    const next = workflow.states.get(cardType === 'project' ? 'node:review' : 'node:system-review')!;
+    if (first.kind !== 'node' || next.kind !== 'node') throw new Error('Missing review node');
+    expect(f.read('review.md')).toBeNull();
+    f.runner.prepareRecordRequirements(f.node);
+    expect(f.read('review.md')).toBeNull();
+    f.runner.prepareRecordRequirements(first);
+    const starter = `# Review: ${f.store.read(f.cardId)!.title}\n\nNot yet assessed against the accepted brief and this review node's criteria.\n`;
+    expect(f.read('review.md')).toMatchObject({ baseline: null, accepted: null, draft: { version: 0, target_version: 1, content: starter } });
+    const baseline = new Map([['review.md', f.runner.captureRecordHead('review.md')]]);
+    for (const gate of ['exists', 'updated']) expect(f.runner.validateRecords({ ...first, requirements: first.requirements.map(item => ({ ...item, gate })) }, baseline).violations).toBeDefined();
+    expect(() => f.store.closeRecord(f.cardId, 'review.md', 'reviewer')).toThrow(/document 0/);
+    const session = `agent:reviewer:${f.cardId}` as const;
+    const prepare = (node: typeof first) => bootstrapContextSupplier(f.store, f.store.read(f.cardId)!, node)({ inputId: '11111111-1111-4111-8111-111111111111', conversation: readConversation(f.root, session) });
+    const initial = prepare(first); appendConversationBatch({ projectRoot: f.root }, initial.rows);
+    const initialComposition = providerConversationProjection(readConversation(f.root, session), initial.recordBlocks);
+    expect(initial.rows.find(row => row.kind === 'record_prompt' && row.record_observations?.some(item => item.observed.record_name === 'review.md'))!.content).toContain(JSON.stringify(starter));
+    f.store.editRecord(f.cardId, 'review.md', 'Independent assessment against the accepted scope, with evidence.');
+    expect(f.runner.validateRecords(first, baseline).candidates?.size).toBe(1);
+    const accepted = f.store.closeRecord(f.cardId, 'review.md', 'reviewer').accepted!;
+    expect(accepted).toMatchObject({ source_version: 1, writer_agent: 'reviewer', content: 'Independent assessment against the accepted scope, with evidence.' });
+    const render = jest.fn((render: () => string) => render());
+    const initialize = f.store.initializeRecord.bind(f.store);
+    jest.spyOn(f.store, 'initializeRecord').mockImplementation((id, name, renderTemplate) => initialize(id, name, () => render(renderTemplate)));
+    f.runner.prepareRecordRequirements(next);
+    expect(render).not.toHaveBeenCalled();
+    expect(f.read('review.md')).toMatchObject({ accepted, draft: { version: 2, target_version: 2, content: '' } });
+    const nextBaseline = new Map([['review.md', f.runner.captureRecordHead('review.md')]]);
+    expect(f.runner.validateRecords(next, nextBaseline).violations).toBeDefined();
+    const reentry = prepare(next);
+    f.store.editRecord(f.cardId, 'review.md', 'Unfinished next assessment');
+    f.runner.prepareRecordRequirements(next);
+    expect(render).not.toHaveBeenCalled();
+    expect(f.read('review.md')).toMatchObject({ accepted, draft: { content: '' } });
+    expect(f.runner.validateRecords(next, new Map([['review.md', f.runner.captureRecordHead('review.md')]])).violations).toBeDefined();
+    const evidence = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+    if (evidence) { mkdirSync(evidence, { recursive: true }); writeFileSync(join(evidence, `record-review-${profile}.json`), JSON.stringify({ kind: 'offline-final-source-compiled-composition-not-provider-wire', profile, cardType, initial, initialComposition, accepted, reentry,
+      composition: providerConversationProjection(readConversation(f.root, session), reentry.recordBlocks),
+      nodes: [first, next].map(node => ({ nodeId: node.nodeId,
+        role: renderCompiledPrompt({ kind: 'workflow-agent', cardType }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: describeNodeResultContract(workflow, `node:${node.nodeId}`) }),
+        node: workflow.processPrompts.get(node.prompt.promptId)!.text,
+        handoffs: [...node.on.values()].flatMap(route => 'prompt' in route.semantic && route.semantic.prompt ? [workflow.processPrompts.get(route.semantic.prompt.promptId)!.text] : []),
+      })),
+    }, null, 2)); }
   });
 
   it('keeps explicit clean separate and captures updated stamps after preparation', () => {

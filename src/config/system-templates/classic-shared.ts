@@ -20,7 +20,16 @@ export function classicRecordContext(definition: CardTypesSource[string]): CardT
                   '# Current assessment\n\nNot yet assessed. Replace this scaffold with the current brief-relative state, supporting evidence and remaining work.\n',
               },
             }
-          : record,
+          : name === 'review.md'
+            ? {
+                ...record,
+                initialization: {
+                  format_version: 1 as const,
+                  template:
+                    '# Review: {{cardTitle}}\n\nNot yet assessed against the accepted brief and this review node\'s criteria.\n',
+                },
+              }
+            : record,
       ]),
     ),
     workflow: {
@@ -30,7 +39,7 @@ export function classicRecordContext(definition: CardTypesSource[string]): CardT
           id,
           {
             ...node,
-            initialize_records: node.records?.['status.md'] ? ['status.md'] : [],
+            initialize_records: ['status.md', 'review.md'].filter((name) => node.records?.[name]),
             record_prompts: [
               {
                 record: bootstrap,
