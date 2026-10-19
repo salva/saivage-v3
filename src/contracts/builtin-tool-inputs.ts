@@ -251,7 +251,7 @@ export const readRecordVersionInputSchema = z
     card_id: cardIdSchema,
     record_name: recordNameSchema.describe('The exact record name.'),
     version: positiveSafeIntegerSchema.describe(
-      'The exact AuthoredRecordVersionArtifact.version; accepted source_version is never an alias.',
+      "The exact accepted document version N from the immutable record URL's v=N; not a draft or head/mutation revision.",
     ),
     byte_offset: z.number().int().min(0).optional(),
     response_bytes: responseBytesSchema.optional(),

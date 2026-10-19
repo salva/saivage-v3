@@ -439,7 +439,8 @@ ordered `initialize_records` independently of record completion requirements.
   Retry does not reload unrelated successful records. Parent-detail 404 tears
   down card-owned reads.
 - Selected card/record history is a committed immutable ordinary/accepted predecessor document: a
-  failed history or exact sparse selected-version request is an ordinary selection-local
+  failed history or exact selected-version request (sparse card versions or consecutive
+  accepted record document versions) is an ordinary selection-local
   error that preserves accepted current and metadata state, never a separate
   availability state.
 - Records-facet record/version query refinement waits for matching card,

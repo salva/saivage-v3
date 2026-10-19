@@ -29,6 +29,79 @@ import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provi
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
 import { submitNotificationTool } from '../../src/tools/notification-tool.js';
+import { readRecordVersionInputSchema } from '../../src/contracts/builtin-tool-inputs.js';
+import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import {
+  composeContextProjection,
+  providerConversationFromComposedContext,
+} from '../../src/runtime/actors/context/composition-projector.js';
+
+function expectRecordReaderPreparedDelivery(surface: Parameters<typeof surfaceToolDefinitions>[0]) {
+  const tools = surfaceToolDefinitions(surface);
+  const reader = tools.find((tool) => tool.function.name === 'read_record_version');
+  const boundReader = surface.tools.get('read_record_version');
+  if (!reader || !boundReader) throw new Error('Missing selected record reader.');
+  expect(boundReader.description).toEqual(expect.any(String));
+  expect(readRecordVersionInputSchema.shape.version.description).toEqual(expect.any(String));
+  expect(reader.function.description).toBe(boundReader.description);
+  expect(reader.function.parameters).toMatchObject({
+    properties: {
+      version: { description: readRecordVersionInputSchema.shape.version.description },
+    },
+  });
+  const providerConversation = providerConversationFromComposedContext(
+    composeContextProjection({
+      sourceSessionId: 'agent:reviewer:project',
+      effectiveHistory: null,
+      dynamicBlocks: [],
+      uncoveredRows: [],
+    }),
+  );
+  for (const transportProtocol of [
+    'openai-chat-completions',
+    'openai-responses',
+    'openai-codex-backend',
+  ] as const) {
+    const plan = buildCandidateRequest({
+      candidate: { provider: 'openai', account: null, model: 'gpt-5.6' },
+      adapter: selectLlmProtocolAdapter(transportProtocol),
+      capabilities: {
+        transportProtocol,
+        imageInput: false,
+        toolsMode: 'native',
+        exclusiveToolChoiceSupport: 'native',
+        quirks: [],
+      },
+      systemPrompt: 'offline selected-tool delivery check',
+      providerConversation,
+      options: {
+        providerSessionId: 'offline-selected-tools',
+        inputId: 'selected-tools',
+        temperature: 0,
+        max_tokens: 512,
+        contract_id: 'selected-tools',
+        contractName: 'selected-tools',
+        terminalToolOffered: [],
+        tools,
+        tool_choice: 'auto',
+      },
+    });
+    const prepared = JSON.parse(plan.request.serializedBody) as {
+      tools: Array<
+        { type: string; function?: typeof reader.function } & Partial<typeof reader.function>
+      >;
+    };
+    const wireReader = prepared.tools.find(
+      (tool) => (tool.function?.name ?? tool.name) === reader.function.name,
+    );
+    expect(wireReader).toEqual(
+      transportProtocol === 'openai-chat-completions'
+        ? reader
+        : { type: 'function', ...reader.function },
+    );
+  }
+}
 
 const roots: string[] = [];
 afterEach(() => {
@@ -311,9 +384,11 @@ describe('named-agent inventories and composition', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-named-reviewer-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const toolSet = new BoundAgentToolSet(
-      expected.reviewer.map((name) => resolveRuntimeTool('card', name)),
+    const selected = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never).agents.get(
+      'reviewer',
     );
+    if (!selected) throw new Error('Missing configured Reviewer.');
+    const toolSet = new BoundAgentToolSet(selected.tools);
     const surface = toolSet.bind({
       scope: 'card',
       agentName: 'reviewer',
@@ -350,6 +425,7 @@ describe('named-agent inventories and composition', () => {
       'skill',
     ]);
     expect(surface.tools.has('mcp_tool_call')).toBe(false);
+    expectRecordReaderPreparedDelivery(surface);
   });
 
   it.each(['oversight', 'renamed-observer'])(
@@ -416,6 +492,7 @@ describe('named-agent inventories and composition', () => {
         ],
       });
       expect([...surface.tools.keys()]).toEqual(expected.oversight);
+      expectRecordReaderPreparedDelivery(surface);
       expect(surface.providers.map(({ providerName }) => providerName)).toEqual([
         'observation',
         'workspace',

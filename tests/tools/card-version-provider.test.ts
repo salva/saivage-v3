@@ -351,7 +351,7 @@ describe('card version provider', () => {
     await expect(invokeTestTool(freshSurface, 'get_card_version', { card_id: freshChild.id, version: 9, section: 'summary' })).resolves.toEqual({ success: false, error: 'Card version not found.', data: { code: 'card_version_not_found', card_id: freshChild.id, version: 9 } });
   });
 
-  it('reads retained accepted versions with stable locators and rejects draft revision selectors', async () => {
+  it('reads exact accepted document versions with stable locators during draft mutations', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-record-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create(childInput('Card'));

@@ -74,7 +74,7 @@ export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderCont
     defineToolBinder({
       name: 'read_record_version',
       description:
-        'Read one retained immutable accepted record by exact sparse source version. Draft revisions are not historical versions. Record content uses a plaintext TextSlice with UTF-8 byte offsets and is not hex encoded.',
+        'Read one retained immutable accepted record by its exact accepted document version from the immutable record URL. Draft and head/mutation revisions are not accepted-history selectors. Record content uses a plaintext TextSlice with UTF-8 byte offsets and is not hex encoded.',
       resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE,
       inputSchema: () => readRecordVersionInputSchema,
       executor: (ctx, args) =>
