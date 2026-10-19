@@ -2648,11 +2648,11 @@ Analyst parses protocol arguments before passing the parsed object and the same 
 Planner activation, cancellation, and direct-child reopening delegate through a port bound to the exact parent owner.
 The provider performs only schema and immediate-child ID checks.
 Supervisor ownership is consulted before target I/O.
-Fresh child admission installs owner, relationship, and admitted lease before the one running append; currentness remains at the parent until publication succeeds.
+Fresh child admission installs owner, relationship, and admitted lease before the one running publication; currentness remains at the parent until publication succeeds.
 Exact same-parent/same-lease active or settling calls join without I/O.
 Normal terminal work claims its winner before publication, joins local work, atomically removes structure/restores currentness/releases the lease, invalidates, and only then delivers the outcome.
 
-A lifecycle append failure is outcome-unknown only when the direct primitive has attempted canonical mutation.
+A lifecycle publication failure is outcome-unknown only when the direct primitive has attempted canonical mutation.
 No reread, retry, rollback, replay, compensation, inferred outcome, owner settlement, process termination, or Supervisor halt is permitted; immediate fatal delivery exits and leaves the lifecycle lock abandoned.
 Ordinary Stop, application close, and actor-main containment retain the singular halt: successful containment publishes `stopped`, which admits intervention, while failed containment publishes `error`, which rejects it.
 
