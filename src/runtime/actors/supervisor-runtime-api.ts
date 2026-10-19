@@ -1083,10 +1083,17 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           if (item.parentRelationship) item.parentRelationship.invocation.markSettling();
         }
       });
-      for (const item of suffix) {
-        const cancellation = new Error(reason);
-        item.abortController.abort(cancellation);
-        item.processor.disposeActivation(cancellation);
+      const cancellations = suffix.map((item) => ({ item, cancellation: new Error(reason) }));
+      try {
+        for (const { item, cancellation } of cancellations)
+          item.processor.prepareForRuntimeHalt(cancellation);
+        for (const { item, cancellation } of cancellations)
+          item.abortController.abort(cancellation);
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError)
+          this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        void this.beginHalt('runtime_failure').catch(() => undefined);
+        throw error;
       }
       const cancelled: string[] = [];
       const settlementOrder = [...suffix].reverse();
@@ -1282,6 +1289,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       try {
         await owner.processor.joinActivation();
       } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError)
+          this.behavior.fatalPort.publicationOutcomeUnknown(error);
         void this.beginHalt('runtime_failure').catch(() => undefined);
         throw error;
       }

@@ -279,6 +279,7 @@ export class CardProcessActor extends BaseActor {
       );
   }
 
+  // Stop and active-card cancellation select local settlement policy before activation abort.
   prepareForRuntimeHalt(reason: unknown): void {
     if (!this.#nonagentInFlight && !this.#retiringNode && this.#interruptionReason === null) {
       this.disposeActivation(reason);

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -123,7 +123,7 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
 }
 async function launch(f: ReturnType<typeof fixture>) {
   await f.supervisor.start();
-  const internal = f.supervisor as unknown as { beginStartProject(): Promise<{ accepted: boolean; launch: { owner: { settlement: { promise: Promise<unknown> }; processor: { executingLlmSnapshot(): unknown } } } }>; launchStartedProject(plan: unknown): void };
+  const internal = f.supervisor as unknown as { beginStartProject(): Promise<{ accepted: boolean; launch: { owner: CardActivationOwner } }>; launchStartedProject(plan: unknown): void };
   const prepared = await internal.beginStartProject();
   if (!prepared.accepted) throw new Error('Rejected test launch.');
   const owner = prepared.launch.owner;
@@ -321,16 +321,283 @@ it.each([false, true])('Stop joins actual delayed raw plugin cleanup beyond comm
   const f = fixture(definition); const owner = await launch(f); await commandExited.promise;
   let settled = false;
   const stop = f.supervisor.stopProject();
-  const assertion = failCleanup ? expect(stop).rejects.toBe(cleanupFailure) : expect(stop).resolves.toMatchObject({ contained: true });
   void stop.then(() => { settled = true; }, () => { settled = true; });
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  expect(settled).toBe(false); expect(callbacks).toBe(0);
-  expect(readCardExecutions(f.root, 'project').some(({ kind }) => kind === 'invocation_finished')).toBe(false);
-  finishCleanup.resolve(); await assertion;
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(settled).toBe(false); expect(callbacks).toBe(0);
+    expect(readCardExecutions(f.root, 'project').some(({ kind }) => kind === 'invocation_finished')).toBe(false);
+    finishCleanup.resolve();
+    if (failCleanup) await expect(stop).rejects.toBe(cleanupFailure);
+    else await expect(stop).resolves.toMatchObject({ contained: true });
+  } finally {
+    finishCleanup.resolve();
+    await stop.catch(() => undefined);
+  }
   expect(callbacks).toBe(1); expect(f.provider).not.toHaveBeenCalled();
   expect(readCardExecutions(f.root, 'project').at(-1)).toMatchObject({ disposition: failCleanup ? 'unavailable' : 'cancelled', outcome: null });
   expect(owner.processor.executingLlmSnapshot()).toBeNull();
   if (failCleanup) expect(f.supervisor.getStatus().status).toBe('error');
+});
+
+it.each([false, true])('cancelCard retains finite cleanup and exact root/child authority until settlement; child=%s', async (child) => {
+  const commandExited = deferred(); const aborted = deferred(); const finishCleanup = deferred(); const rawFinished = deferred();
+  let interruption: unknown;
+  const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
+    async run(_config, _inputs, capabilities, signal) {
+      await capabilities.command!({ script: 'exit 0', args: [], cwd: '.', env: {}, timeoutMs: 1000, terminateGraceMs: 50 }, signal);
+      commandExited.resolve();
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => { interruption = signal.reason; aborted.resolve(); resolve(); }, { once: true }));
+      await finishCleanup.promise;
+      rawFinished.resolve();
+      throw signal.reason;
+    } };
+  const f = fixture(definition, '', false, false, false, {}, child ? { child: true } : undefined);
+  const rootOwner = await launch(f);
+  let cancellation: Promise<unknown> | undefined;
+  try {
+    await commandExited.promise;
+    const id = child ? f.childId : 'project';
+    const owners = (f.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
+    const actionOwner = owners.get(id)!;
+    const invocation = actionOwner.parentRelationship?.invocation;
+    let cancellationSettled = false; let actionSettled = false; let delivered = false;
+    void actionOwner.settlement.promise.then(() => { actionSettled = true; }, () => { actionSettled = true; });
+    if (invocation) void invocation.activation.then(() => { delivered = true; }, () => { delivered = true; });
+    cancellation = f.supervisor.cancelCard(id, 'cancel finite action');
+    // Observe rejections immediately, including when a pending-state assertion fails.
+    void cancellation.then(() => { cancellationSettled = true; }, () => { cancellationSettled = true; });
+    await aborted.promise;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(interruption).toBe(actionOwner.abortController.signal.reason);
+    expect(cancellationSettled).toBe(false);
+    expect(actionSettled).toBe(false);
+    expect(f.cards.read(id)!.lifecycle.status).toBe('running');
+    expect(owners.get('project')).toBe(rootOwner);
+    expect(owners.get(id)).toBe(actionOwner);
+    if (invocation) {
+      expect(invocation.phase()).toBe('settling');
+      expect(delivered).toBe(false);
+      expect(f.provider).toHaveBeenCalledTimes(1);
+    }
+    finishCleanup.resolve();
+    await expect(cancellation).resolves.toMatchObject({ card_id: id, status: 'cancelled', cancelled_card_ids: [id] });
+    await expect(actionOwner.settlement.promise).resolves.toMatchObject({ status: 'cancelled' });
+    expect(f.cards.read(id)!.lifecycle.status).toBe('cancelled');
+    expect(owners.has(id)).toBe(false);
+    if (invocation) {
+      expect(invocation.phase()).toBe('released');
+      await expect(invocation.activation).resolves.toMatchObject({ status: 'cancelled' });
+      await expect(rootOwner.settlement.promise).resolves.toMatchObject({ status: 'done' });
+    }
+    expect(readCardExecutions(f.root, id).at(-1)).toMatchObject({ disposition: 'cancelled', outcome: null });
+  } finally {
+    finishCleanup.resolve();
+    if (cancellation) {
+      await rawFinished.promise;
+      await cancellation.catch(() => undefined);
+    }
+    await f.supervisor.stopProject().catch(() => undefined);
+  }
+});
+
+it('cancelCard surfaces a distinct late finite cleanup failure instead of successful CANCELLED release', async () => {
+  const commandExited = deferred(); const aborted = deferred(); const finishCleanup = deferred(); const rawFinished = deferred();
+  const cleanupFailure = new Error('distinct cancelCard finite cleanup failure');
+  let interruption: unknown;
+  const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
+    async run(_config, _inputs, capabilities, signal) {
+      await capabilities.command!({ script: 'exit 0', args: [], cwd: '.', env: {}, timeoutMs: 1000, terminateGraceMs: 50 }, signal);
+      commandExited.resolve();
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => { interruption = signal.reason; aborted.resolve(); resolve(); }, { once: true }));
+      await finishCleanup.promise;
+      rawFinished.resolve();
+      throw cleanupFailure;
+    } };
+  const f = fixture(definition); await launch(f);
+  let observed: Promise<{ result: unknown } | { error: unknown }> | undefined;
+  try {
+    await commandExited.promise;
+    observed = f.supervisor.cancelCard('project', 'cancel before distinct cleanup failure').then(
+      (result) => ({ result }), (error: unknown) => ({ error }));
+    await aborted.promise;
+    expect(interruption).not.toBe(cleanupFailure);
+    finishCleanup.resolve();
+    const outcome = await observed;
+    expect(outcome).toHaveProperty('error');
+    expect('error' in outcome && outcome.error).toBe(cleanupFailure);
+    await expect(f.supervisor.stopProject()).rejects.toBe(cleanupFailure);
+    expect(f.supervisor.getStatus().status).toBe('error');
+    expect(f.cards.read('project')!.lifecycle.status).not.toBe('cancelled');
+    expect(readCardExecutions(f.root, 'project').at(-1)).toMatchObject({ disposition: 'unavailable', outcome: null });
+  } finally {
+    finishCleanup.resolve();
+    if (observed) { await rawFinished.promise; await observed; }
+    await f.supervisor.stopProject().catch(() => undefined);
+  }
+});
+
+it('cancelCard joins real managed shell TERM cleanup, capture and direct scope before releasing the child lease', async () => {
+  const script = `
+    trap 'printf term > cancel-term; deadline=$((SECONDS + 3)); while [[ ! -f cancel-release && $SECONDS -lt $deadline ]]; do sleep 0.02; done; printf "term cleanup complete"; exit 0' TERM
+    printf ready > cancel-ready
+    deadline=$((SECONDS + 10))
+    while [[ $SECONDS -lt $deadline ]]; do sleep 0.02; done
+  `;
+  const f = fixture(undefined, script, false, false, false, { timeout_ms: 15000, terminate_grace_ms: 2000 }, { child: true });
+  const directClosed = deferred(); const finishDirectCleanup = deferred();
+  const close = f.processes.processRunner.closeAndTerminateDirectScope.bind(f.processes.processRunner);
+  jest.spyOn(f.processes.processRunner, 'closeAndTerminateDirectScope').mockImplementation(async (args) => {
+    const result = await close(args);
+    directClosed.resolve();
+    await finishDirectCleanup.promise;
+    return result;
+  });
+  const waitForFile = async (name: string) => {
+    const deadline = Date.now() + 3000;
+    while (!existsSync(join(f.root, name))) {
+      if (Date.now() >= deadline) throw new Error(`Managed shell did not publish ${name}.`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  const rootOwner = await launch(f);
+  let cancellation: Promise<unknown> | undefined;
+  try {
+    await waitForFile('cancel-ready');
+    const owners = (f.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
+    const childOwner = owners.get(f.childId)!;
+    const lease = childOwner.parentRelationship!.invocation;
+    let settled = false; let delivered = false;
+    void lease.activation.then(() => { delivered = true; }, () => { delivered = true; });
+    cancellation = f.supervisor.cancelCard(f.childId, 'cancel managed shell');
+    void cancellation.then(() => { settled = true; }, () => { settled = true; });
+    await waitForFile('cancel-term');
+    expect(settled).toBe(false);
+    expect(lease.phase()).toBe('settling');
+    expect(delivered).toBe(false);
+    expect(f.cards.read(f.childId)!.lifecycle.status).toBe('running');
+    expect(f.processes.processRunner.list()).toHaveLength(1);
+    expect(readCardExecutions(f.root, f.childId).map(({ kind }) => kind)).toEqual(['invocation_started', 'process_started']);
+
+    writeFileSync(join(f.root, 'cancel-release'), 'release');
+    await directClosed.promise;
+    expect(settled).toBe(false);
+    expect(delivered).toBe(false);
+    expect(owners.get(f.childId)).toBe(childOwner);
+    expect(owners.get('project')).toBe(rootOwner);
+    expect(f.provider).toHaveBeenCalledTimes(1);
+    expect(f.processes.processRunner.list()).toEqual([]);
+    finishDirectCleanup.resolve();
+    await expect(cancellation).resolves.toMatchObject({ status: 'cancelled' });
+    await expect(lease.activation).resolves.toMatchObject({ status: 'cancelled' });
+    expect(lease.phase()).toBe('released');
+    await expect(rootOwner.settlement.promise).resolves.toMatchObject({ status: 'done' });
+    const rows = readCardExecutions(f.root, f.childId);
+    expect(rows).toHaveLength(3);
+    expect(rows.at(-1)).toMatchObject({ disposition: 'cancelled', outcome: null,
+      process: { group: 'absent', stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null },
+      leader_exit: { exit_code: 0, signal: null }, external_effects: 'unknown' });
+    const started = rows.find((row) => row.kind === 'process_started')!;
+    if (started.kind !== 'process_started') throw new Error('Missing actual managed process start.');
+    const stdout = started.files.find((file) => file.kind === 'capture' && file.stream === 'stdout')!;
+    expect(readFileSync(join(f.root, stdout.path), 'utf8')).toBe('term cleanup complete');
+  } finally {
+    // Both shell-side and owner-side gates open even when an observation fails.
+    writeFileSync(join(f.root, 'cancel-release'), 'release');
+    finishDirectCleanup.resolve();
+    if (cancellation) await cancellation.catch(() => undefined);
+    await f.supervisor.stopProject().catch(() => undefined);
+    expect(f.processes.processRunner.list()).toEqual([]);
+  }
+}, 15_000);
+
+it('cancelCard abandons an ordinary agent while its deferred provider remains unresolved', async () => {
+  const f = fixture(undefined, 'exit 0', false, false, false, {}, { child: true });
+  const entered = deferred(); const release = deferred();
+  const ordinary = f.provider.getMockImplementation()!;
+  let providerSettled = false;
+  let providerCompletion: ReturnType<typeof f.provider> | undefined;
+  f.provider.mockImplementationOnce(() => {
+    providerCompletion = (async () => {
+      entered.resolve();
+      await release.promise;
+      providerSettled = true;
+      return ordinary();
+    })();
+    return providerCompletion;
+  });
+  const owner = await launch(f);
+  const failsafe = setTimeout(() => release.resolve(), 3000);
+  try {
+    await entered.promise;
+    await expect(f.supervisor.cancelCard('project', 'abandon deferred provider')).resolves.toMatchObject({ status: 'cancelled' });
+    expect(providerSettled).toBe(false);
+    await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'cancelled' });
+    expect((f.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners.size).toBe(0);
+    expect(f.cards.read('project')!.lifecycle.status).toBe('cancelled');
+    expect(readCardExecutions(f.root, f.childId)).toEqual([]);
+  } finally {
+    clearTimeout(failsafe);
+    release.resolve();
+    if (providerCompletion) await providerCompletion;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await f.supervisor.stopProject().catch(() => undefined);
+  }
+  expect(f.provider).toHaveBeenCalledTimes(1);
+  expect(f.cards.read('project')!.lifecycle.status).toBe('cancelled');
+  expect(readCardExecutions(f.root, f.childId)).toEqual([]);
+});
+
+it('cancelCard retains an urgent retiring action and its first interruption without admitting a successor', async () => {
+  const entered = deferred(); const aborted = deferred(); const finishCleanup = deferred(); const rawFinished = deferred();
+  let interruption: unknown; let finalReason: unknown;
+  const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
+    async run(_config, _inputs, _capabilities, signal) {
+      entered.resolve();
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => { interruption = signal.reason; aborted.resolve(); resolve(); }, { once: true }));
+      await finishCleanup.promise;
+      finalReason = signal.reason;
+      rawFinished.resolve();
+      throw signal.reason;
+    } };
+  const f = fixture(definition, '', false, true);
+  const child = f.cards.create({ type: 'goal', parent: 'project', title: 'Urgent context target', bootstrap_content: 'No active child invocation.', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  const owner = await launch(f);
+  let urgent: Promise<unknown> | undefined; let cancellation: Promise<unknown> | undefined;
+  try {
+    await entered.promise;
+    urgent = f.supervisor.submitNotification(child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent new context', created_at: new Date().toISOString() }, 'urgent');
+    void urgent.catch(() => undefined);
+    await aborted.promise;
+    const urgentReason = interruption;
+    const owners = (f.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
+    expect(owner.terminalWinner).toBe('open');
+    let settled = false;
+    cancellation = f.supervisor.cancelCard('project', 'cancel during urgent retirement');
+    void cancellation.then(() => { settled = true; }, () => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(settled).toBe(false);
+    expect(owners.get('project')).toBe(owner);
+    expect(f.cards.read('project')!.lifecycle.status).toBe('running');
+    expect(owner.abortController.signal.reason).not.toBe(urgentReason);
+    expect(f.provider).not.toHaveBeenCalled();
+    finishCleanup.resolve();
+    await expect(cancellation).resolves.toMatchObject({ status: 'cancelled' });
+    await urgent;
+    expect(finalReason).toBe(urgentReason);
+    expect(f.provider).not.toHaveBeenCalled();
+    expect(readCardExecutions(f.root, 'project')).toHaveLength(2);
+    expect(readCardExecutions(f.root, 'project').at(-1)).toMatchObject({ disposition: 'cancelled', outcome: null });
+    expect(f.cards.read('project')!.lifecycle.status).toBe('cancelled');
+    expect(owners.size).toBe(0);
+  } finally {
+    finishCleanup.resolve();
+    if (urgent) { await rawFinished.promise; await urgent.catch(() => undefined); }
+    if (cancellation) await cancellation.catch(() => undefined);
+    await f.supervisor.stopProject().catch(() => undefined);
+  }
 });
 
 it.each([0, 3])('selects the typed plugin branch and feeds only declared factual inputs to the real agent: %i', async (count) => {
@@ -482,6 +749,7 @@ it.each([false, true])('Stop retains hook owner through finite raw cleanup after
   const f = fixture(undefined, 'exit 0', false, false, false, {}, { definition });
   const owner = await launch(f); await exited.promise;
   expect(f.cards.read('project')!.lifecycle.status).toBe('done');
+  await expect(f.supervisor.cancelCard('project', 'cannot replace a natural hook winner')).rejects.toThrow("ownership is 'settling'");
   let stopped = false;
   const stop = f.supervisor.stopProject();
   const assertion = failure ? expect(stop).rejects.toBe(cleanupError) : expect(stop).resolves.toMatchObject({ contained: true });

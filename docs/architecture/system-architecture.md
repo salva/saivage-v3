@@ -40,10 +40,13 @@ are unchanged; accepted3/workflow2 require separate strict adoption as recorded 
 the [format reference](./durable-format-changes.md#shell-stdout-record-authorship-2026-10-19).
 
 One nullable processor-local nonagent in-flight binding spans the whole raw
-operation through its existing matching node delivery consumer. Halt chooses
-cancel-and-settle before abort, retaining exact interruption identity and joining
-finite plugin cleanup even beyond process exit. Distinct cleanup failures remain
-containment failures; no successor runs after halt. Ordinary provider abandonment
+operation through its existing matching node delivery consumer. Both Stop and
+active-card cancellation call the processor's interruption preparation before
+activation abort. That processor-local policy chooses cancel-and-settle, retaining
+exact interruption identity and joining finite plugin cleanup even beyond process
+exit. Supervisor still owns terminal winners and child-first cancellation
+publication/release. Distinct cleanup failures remain containment failures; no
+successor runs after Stop or cancellation. Ordinary provider abandonment
 is unchanged. Publication uncertainty reaches fatal before cleanup, consumer
 acknowledgement or in-flight retirement. Execution history is lazy and
 consumption-local, not startup admission, resumable state or replay authority.

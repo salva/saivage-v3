@@ -1049,6 +1049,102 @@ describe('Supervisor singular runtime halt concurrency', () => {
     expect(h.rootProcessor.dispose).not.toHaveBeenCalled();
   });
 
+  it('hands a cancellation preparation exception to the existing halt without stranding claimed owners', async () => {
+    const h = harness(true);
+    const failure = new Error('cancellation preparation failed');
+    jest.spyOn(h.rootProcessor.actor, 'prepareForRuntimeHalt').mockImplementationOnce(() => {
+      expect(h.root.terminalWinner).toBe('cancel');
+      expect(h.child!.terminalWinner).toBe('cancel');
+      throw failure;
+    });
+    const cancellation = h.supervisor.cancelCard('project', 'cancel suffix');
+    void cancellation.catch(() => undefined);
+    try {
+      await expect(cancellation).rejects.toBe(failure);
+      expect(h.internals.halt?.trigger).toBe('runtime_failure');
+      expect(h.internals.halt?.owners).toEqual([h.root, h.child]);
+      expect(h.root.abortController.signal.aborted).toBe(true);
+      expect(h.child!.abortController.signal.aborted).toBe(true);
+      expect(h.lease!.phase()).toBe('interrupted');
+      expect(h.store.setStatus).not.toHaveBeenCalled();
+    } finally {
+      h.rootProcessor.join.resolve([]);
+      h.childProcessor!.join.resolve([]);
+      h.processTermination.resolve(processReport);
+      await h.supervisor.stopProject();
+    }
+    expect(h.internals.activationOwners.size).toBe(0);
+    expect(h.supervisor.getStatus().status).toBe('stopped');
+  });
+
+  it('prepares the complete claimed cancellation suffix before any activation abort and releases child first', async () => {
+    const h = harness(true);
+    const prepared = new Map<CardActivationOwner, unknown>();
+    for (const owner of [h.root, h.child!]) {
+      jest.spyOn(owner.processor, 'prepareForRuntimeHalt').mockImplementation((reason) => {
+        expect(h.root.terminalWinner).toBe('cancel');
+        expect(h.child!.terminalWinner).toBe('cancel');
+        expect(h.root.abortController.signal.aborted).toBe(false);
+        expect(h.child!.abortController.signal.aborted).toBe(false);
+        prepared.set(owner, reason);
+      });
+    }
+    const cancellation = h.supervisor.cancelCard('project', 'cancel complete suffix');
+    void cancellation.catch(() => undefined);
+    try {
+      expect(prepared.size).toBe(2);
+      expect(h.root.abortController.signal.reason).toBe(prepared.get(h.root));
+      expect(h.child!.abortController.signal.reason).toBe(prepared.get(h.child!));
+      expect(prepared.get(h.root)).not.toBe(prepared.get(h.child!));
+      expect(h.childProcessor!.actor.joinActivation).toHaveBeenCalledTimes(1);
+      expect(h.rootProcessor.actor.joinActivation).not.toHaveBeenCalled();
+      expect(h.store.setStatus).not.toHaveBeenCalled();
+      h.childProcessor!.join.resolve([]);
+      await nextTurn();
+      expect(h.store.setStatus.mock.calls).toEqual([['card-a', 'cancelled']]);
+      expect(h.internals.activationOwners.has('card-a')).toBe(false);
+      expect(h.internals.activationOwners.get('project')).toBe(h.root);
+      expect(h.lease!.phase()).toBe('released');
+      expect(h.rootProcessor.actor.joinActivation).toHaveBeenCalledTimes(1);
+      h.rootProcessor.join.resolve([]);
+      await expect(cancellation).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['card-a', 'project'] });
+      expect(h.store.setStatus.mock.calls).toEqual([['card-a', 'cancelled'], ['project', 'cancelled']]);
+      expect(h.internals.activationOwners.size).toBe(0);
+    } finally {
+      h.childProcessor!.join.resolve([]);
+      h.rootProcessor.join.resolve([]);
+      h.processTermination.resolve(processReport);
+      await cancellation.catch(() => undefined);
+      await h.supervisor.stopProject().catch(() => undefined);
+    }
+  });
+
+  it.each(['preparation', 'join'] as const)('delivers cancellation %s uncertainty fatally without follow-on abort, halt or publication', async (phase) => {
+    const failure = new PublicationOutcomeUnknownError();
+    const publicationOutcomeUnknown = jest.fn((error: PublicationOutcomeUnknownError): never => { throw error; });
+    const h = harness(false, { publicationOutcomeUnknown });
+    if (phase === 'preparation')
+      jest.spyOn(h.rootProcessor.actor, 'prepareForRuntimeHalt').mockImplementationOnce(() => { throw failure; });
+    const cancellation = h.supervisor.cancelCard('project', 'cancel with uncertain publication');
+    void cancellation.catch(() => undefined);
+    if (phase === 'join') h.rootProcessor.join.reject(failure);
+    try {
+      await expect(cancellation).rejects.toBe(failure);
+      expect(publicationOutcomeUnknown).toHaveBeenCalledTimes(1);
+      expect(publicationOutcomeUnknown).toHaveBeenCalledWith(failure);
+      expect(h.root.abortController.signal.aborted).toBe(phase === 'join');
+      expect(h.internals.halt).toBeNull();
+      expect(h.terminateScopeTree).not.toHaveBeenCalled();
+      expect(h.store.setStatus).not.toHaveBeenCalled();
+      expect(h.internals.activationOwners.get('project')).toBe(h.root);
+    } finally {
+      // The fatal port never returns in production. Release only test-owned deferreds;
+      // do not simulate follow-on runtime cleanup after the fatal boundary.
+      if (phase === 'preparation') h.rootProcessor.join.resolve([]);
+      h.processTermination.resolve(processReport);
+    }
+  });
+
   it('interrupts a reserved child admission attempted after freeze without installing work', async () => {
     const h = harness();
     const stop = h.supervisor.stopProject();

@@ -15,7 +15,10 @@ Its four required outcomes are `passed`/`failed` with observed integer
 `exit_code`, `signalled` with actual leader `signal`, and `timed_out` with an
 explicit `reason` after termination/join. Spawn or evidence failure is an engine
 error, not nonzero. Cancellation returns the exact control interruption after
-cleanup, never a configured result. Captures have a5000ms post-group settlement
+cleanup, never a configured result. Active-card cancellation retains ownership
+through finite action cleanup and matching delivery settlement before successful
+CANCELLED publication and root/child release. A distinct cleanup failure is a
+containment failure, not successful cancellation. Captures have a5000ms post-group settlement
 deadline; unavailable evidence remains failure. External effects stay unknown.
 Pause still parks only autonomous provider admission: admitted action chains may
 continue until a provider frontier or natural completion. Stop contains them.
