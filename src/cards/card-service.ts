@@ -1069,7 +1069,7 @@ export class CardService {
     id: string,
     outcome: TerminalActivationOutcome,
     settledAt: string,
-  ): CardRecord {
+  ): { card: CardRecord; artifact: { entry_id: string; version: number } } {
     const existing = this.read(id);
     if (!existing) throw new Error(`Card '${id}' not found.`);
     if (existing.lifecycle.status !== 'running')
@@ -1128,13 +1128,21 @@ export class CardService {
       updated_at: settledAt,
       version_seq: existing.version_seq + 1,
     };
-    return this.publishVersion(
+    const parsed = cardRecordSchema.parse(candidate);
+    const change = versionChange(
       existing,
-      candidate,
+      parsed,
       'terminal',
       fields,
+      summarizeChangedFields(fields),
       'terminal lifecycle commit',
     );
+    const artifact = publishCardVersion(this.projectRoot, parsed, change, this.cardPublicationIo)!;
+    this.publishCardVersionEffects(change, cardParentId(existing.id), true);
+    return {
+      card: clone(parsed),
+      artifact: { entry_id: artifact.entry_id, version: artifact.version },
+    };
   }
 
   reorderChildren(

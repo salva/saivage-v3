@@ -495,7 +495,7 @@ test('card conversations retain cockpit context through automatic, explicit, fac
   const cockpit = page.getByTestId('route-cockpit');
   await expect(cockpit).toHaveCount(1);
   await expect(cockpit.getByTestId('card-flow-id')).toHaveText(smokeCardId);
-  await expect(cockpit.getByTestId('cockpit-facet-nav')).toContainText('OverviewConversationsRecords & HistoryEvidence');
+  await expect(cockpit.getByTestId('cockpit-facet-nav')).toContainText('OverviewConversationsExecutionsRecords & HistoryEvidence');
   await expect(cockpit.locator('.conversation-container')).toHaveCount(1);
   await expect(cockpit.locator('.tree-node.selected')).toContainText('Synthetic dashboard smoke card');
   await expect(expandedSibling).toBeVisible();
@@ -568,7 +568,7 @@ test('exact entry reload, unavailable card, global scope, narrow controls, and A
   await page.goto(`/agents/${encodeURIComponent(executor)}`);
   await expect(page.getByTestId('card-flow-unavailable')).toHaveText('Card flow unavailable');
   await expect(page.locator('.conversation-container')).toHaveCount(1);
-  await expect(page.getByTestId('cockpit-facet-nav').locator('[aria-disabled="true"]')).toHaveCount(3);
+  await expect(page.getByTestId('cockpit-facet-nav').locator('[aria-disabled="true"]')).toHaveCount(4);
 
   await page.goto('/agents/agent:oversight:global');
   await expect(page.getByTestId('session-global-header')).toContainText('Global session');

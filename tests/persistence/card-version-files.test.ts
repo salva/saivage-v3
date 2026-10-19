@@ -27,7 +27,7 @@ function notice() { return { id: randomUUID(), content: 'private mailbox body', 
 const io: ReplacementFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync };
 
 describe('card immutable history and pending-only mailbox', () => {
-  it.each(['card-version', 'card-tombstone'] as const)('publishes strict format2 %s bodies while selectors/messages remain format1', kind => {
+  it.each(['card-version', 'card-tombstone'] as const)('publishes strict format3 %s bodies while selectors/messages remain format1', kind => {
     const { root, cards, child } = fixture();
     const message = notice(); cards.enqueueNotification(child.id, message);
     expect(JSON.parse(readFileSync(cardMailboxFile(root, child.id, message.id), 'utf8')).format_version).toBe(1);
@@ -36,16 +36,18 @@ describe('card immutable history and pending-only mailbox', () => {
     const selected = head(root, child.id); expect(selected.format_version).toBe(1);
     const path = cardHistoryFile(root, child.id, selected.ordinary.entry_id);
     const artifact = JSON.parse(readFileSync(path, 'utf8'));
-    expect(artifact).toMatchObject({ format_version: 2, kind });
+    expect(artifact).toMatchObject({ format_version: 3, kind });
     const body = kind === 'card-version' ? artifact.card : artifact.final_card;
     expect(body).not.toHaveProperty('subtype'); expect(body).not.toHaveProperty('metadata');
     expect(cards.readCardVersion(child.id, artifact.version).kind).toBe('found');
     const files = new CanonicalCardFilesReadModel(() => cards).content(`.saivage/cards/project/children/a/card.json?v=${artifact.version}`);
     if (!('content' in files.body)) throw new Error('Expected historical Files body');
-    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 2, kind });
-    writeFileSync(path, JSON.stringify({ ...artifact, format_version: 1 }));
-    expect(() => cards.read(child.id)).toThrow();
-    expect(() => cards.readCardVersion(child.id, artifact.version)).toThrow();
+    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 3, kind });
+     for (const format_version of [1, 2]) {
+       writeFileSync(path, JSON.stringify({ ...artifact, format_version }));
+       expect(() => cards.read(child.id)).toThrow();
+       expect(() => cards.readCardVersion(child.id, artifact.version)).toThrow();
+     }
     writeFileSync(path, JSON.stringify({ ...artifact, [kind === 'card-version' ? 'card' : 'final_card']: { ...body, subtype: null } }));
     expect(() => cards.read(child.id)).toThrow();
     expect(() => inspectCardSelection(root, child.id, readFileSync(cardHeadFile(root, child.id)))).toThrow();
@@ -56,7 +58,7 @@ describe('card immutable history and pending-only mailbox', () => {
     const first = head(root, child.id); const path = cardHistoryFile(root, child.id, first.ordinary.entry_id);
     const artifact = JSON.parse(readFileSync(path, 'utf8'));
     cards.editCard(child.id, { title: 'current' });
-    writeFileSync(path, JSON.stringify({ ...artifact, format_version: 1 }));
+    writeFileSync(path, JSON.stringify({ ...artifact, format_version: 2 }));
     expect(cards.read(child.id)?.title).toBe('current');
     expect(() => cards.readCardVersion(child.id, 1)).toThrow();
     expect(() => inspectCardSelection(root, child.id, readFileSync(cardPreviousHeadFile(root, child.id)))).toThrow();

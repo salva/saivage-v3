@@ -107,7 +107,7 @@ describe('runtime ledger contract deletions', () => {
     expect('ReworkResult' in schemas).toBe(false);
     expect('reworkResultSchema' in schemas).toBe(false);
 
-    const blockedResult = { kind: 'workflow-result',terminal:'BLOCKED',agent_name:'executor',node_id:'execute',outcome:'blocked',summary:'waiting',records:[] };
+    const blockedResult = { kind: 'workflow-result',terminal:'BLOCKED',executor:{kind:'agent',agent:'executor'},node_id:'execute',outcome:'blocked',summary:'waiting',records:[] };
     const reworkResult = { kind: 'rework', summary: 'revise', feedback: 'incorrect' };
     expect(schemas.cardLifecycleStateSchema.parse({ status: 'blocked', result: blockedResult, error: 'waiting', completed_at: null }))
       .toEqual({ status: 'blocked', result: blockedResult, error: 'waiting', completed_at: null });

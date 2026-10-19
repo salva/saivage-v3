@@ -41,9 +41,12 @@ function executionEntries(node: string): CardTypeSource['workflow']['entries'] {
 
 function executorNode(prompt: string, edges: ProcessNode['edges']): ProcessNode {
   return {
-    agent: 'executor',
-    prompt: { reference: prompt, compactable: true },
-    correction_prompt: { reference: 'correct-execution-result', compactable: true },
+    execution: {
+      kind: 'agent',
+      agent: 'executor',
+      prompt: { reference: prompt, compactable: true },
+      correction_prompt: { reference: 'correct-execution-result', compactable: true },
+    },
     records: { 'status.md': { mode: 'continue', gate: 'updated' } },
     edges,
   };
@@ -64,6 +67,7 @@ function planningCardType(): CardTypeSource {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
+      format_version: 1,
       notification_recipient: 'planner',
       entries: {
         BACKLOG: { node: 'plan' },
@@ -73,16 +77,22 @@ function planningCardType(): CardTypeSource {
       },
       nodes: {
         plan: {
-          agent: 'planner',
-          prompt: prompt('specialized-plan'),
-          correction_prompt: prompt('correct-plan-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'planner',
+            prompt: prompt('specialized-plan'),
+            correction_prompt: prompt('correct-plan-result'),
+          },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: planningEdges,
         },
         review: {
-          agent: 'reviewer',
-          prompt: prompt('specialized-review'),
-          correction_prompt: prompt('correct-review-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'reviewer',
+            prompt: prompt('specialized-review'),
+            correction_prompt: prompt('correct-review-result'),
+          },
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           descendant_context: { records: ['status.md'], require_unchanged_until_accept: true },
           edges: {
@@ -99,16 +109,22 @@ function planningCardType(): CardTypeSource {
           },
         },
         recover: {
-          agent: 'planner',
-          prompt: prompt('specialized-recover'),
-          correction_prompt: prompt('correct-plan-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'planner',
+            prompt: prompt('specialized-recover'),
+            correction_prompt: prompt('correct-plan-result'),
+          },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: planningEdges,
         },
         'handle-notifications': {
-          agent: 'planner',
-          prompt: prompt('handle-notifications'),
-          correction_prompt: prompt('correct-plan-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'planner',
+            prompt: prompt('handle-notifications'),
+            correction_prompt: prompt('correct-plan-result'),
+          },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: {
             admit_review: transition('review', 'specialized-plan-to-review'),
@@ -127,6 +143,7 @@ function codeCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
+      format_version: 1,
       entries: executionEntries('red'),
       nodes: {
         red: executorNode('code-red', {
@@ -158,6 +175,7 @@ function testCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
+      format_version: 1,
       entries: executionEntries('diagnose'),
       nodes: {
         diagnose: executorNode('test-diagnose', {
@@ -197,6 +215,7 @@ function researchCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
+      format_version: 1,
       entries: executionEntries('explore'),
       nodes: {
         explore: executorNode('research-explore', {
@@ -229,6 +248,7 @@ function dataCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
+      format_version: 1,
       entries: executionEntries('schema'),
       nodes: {
         schema: executorNode('data-schema', {
@@ -265,6 +285,7 @@ function architectureCardType(): CardTypeSource {
     workflow: {
       notification_recipient: 'executor',
       entries: executionEntries('draft'),
+      format_version: 1,
       nodes: {
         draft: executorNode('architecture-draft', {
           ready_for_component_review: transition(
@@ -275,9 +296,12 @@ function architectureCardType(): CardTypeSource {
           failed: terminal('FAILED', 'status.md'),
         }),
         'component-review': {
-          agent: 'reviewer',
-          prompt: prompt('architecture-component-review'),
-          correction_prompt: prompt('correct-review-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'reviewer',
+            prompt: prompt('architecture-component-review'),
+            correction_prompt: prompt('correct-review-result'),
+          },
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           edges: {
             approved: transition('system-review', 'architecture-to-system-review'),
@@ -287,9 +311,12 @@ function architectureCardType(): CardTypeSource {
           },
         },
         'system-review': {
-          agent: 'reviewer',
-          prompt: prompt('architecture-system-review'),
-          correction_prompt: prompt('correct-review-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'reviewer',
+            prompt: prompt('architecture-system-review'),
+            correction_prompt: prompt('correct-review-result'),
+          },
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           edges: {
             approved: {
@@ -316,6 +343,7 @@ function simpleExecutionCardType(): CardTypeSource {
     workflow: {
       notification_recipient: 'executor',
       entries: executionEntries('execute'),
+      format_version: 1,
       nodes: {
         execute: executorNode('execute', {
           done: terminal('DONE', 'status.md'),

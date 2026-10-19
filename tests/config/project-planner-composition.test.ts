@@ -1,9 +1,11 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { AgentNodeExecution, type AcceptedNodeResult, type NodeTransition } from '../../src/runtime/actors/agent-node-execution.js';
+import { AgentExecutor as AgentNodeExecution } from '../../src/runtime/actors/agent-executor.js';
+import type { AcceptedNodeResult, NodeTransition } from '../../src/runtime/actors/node-execution.js';
 import { resolveSystemTemplate, type SystemTemplateDefinition } from '../../src/config/system-templates/registry.js';
 import {
   compileProjectWorkflows,
@@ -42,7 +44,8 @@ function accepted(node: CompiledNodeContract, outcome: string, cardId: string): 
   const recordName = node.nodeId === 'review' ? 'review.md' : 'status.md';
   return Object.freeze({
     nodeId: node.nodeId,
-    agentName: node.agent.name,
+    executor: { kind: 'agent' as const, agent: agentExecution(node).agent.name },
+    values: {},
     outcome,
     event: `result:${outcome}`,
     summary: `${node.nodeId} evidence retained`,
@@ -112,7 +115,7 @@ function renderedNode(template: SystemTemplateDefinition, compiled: ReturnType<t
   if (!process) throw new Error(`Missing ${template.name}/${cardType}.`);
   const node = requireNode(process, nodeId);
   const contract = describeNodeResultContract(process, `node:${nodeId}`);
-  const instruction = compiled.registry.render({ kind: 'workflow-agent', cardType }, node.agent.name, { contractDescription: contract });
+  const instruction = compiled.registry.render({ kind: 'workflow-agent', cardType }, agentExecution(node).agent.name, { contractDescription: contract });
   return { process, node, contract, instruction };
 }
 
@@ -124,13 +127,13 @@ describe('shipped project Planner semantic composition', () => {
       const compiled = compile(template);
       for (const role of ['planner', 'executor', 'reviewer'] as const) {
         const selected = [...compiled.workflows.cardTypes].flatMap(([cardType, process]) =>
-          [...process.states.values()].flatMap((state) => state.kind === 'node' && state.selectedAgentPrompt.reference === role ? [{ cardType, process, state }] : []),
+          [...process.states.values()].flatMap((state) => state.kind === 'node' && agentExecution(state).selectedAgentPrompt.reference === role ? [{ cardType, process, state }] : []),
         ).at(0);
         if (!selected) throw new Error(`Missing ${templateName}/${role} node.`);
         const contract = describeNodeResultContract(selected.process, `node:${selected.state.nodeId}`);
-        const instruction = compiled.registry.render({ kind: 'workflow-agent', cardType: selected.cardType }, selected.state.agent.name, { contractDescription: contract });
-        const source = readFileSync(selected.state.selectedAgentPrompt.path, 'utf8');
-        expect(selected.state.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: role });
+        const instruction = compiled.registry.render({ kind: 'workflow-agent', cardType: selected.cardType }, agentExecution(selected.state).agent.name, { contractDescription: contract });
+        const source = readFileSync(agentExecution(selected.state).selectedAgentPrompt.path, 'utf8');
+        expect(agentExecution(selected.state).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: role });
         expect(instruction.split(contract)).toHaveLength(2);
         renderedSources.set(`${templateName}:${role}`, source);
       }
@@ -147,7 +150,7 @@ describe('shipped project Planner semantic composition', () => {
     });
 
     for (const value of rendered) {
-      expect(value.node.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
+      expect(agentExecution(value.node).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
       expect(value.instruction.split(value.contract)).toHaveLength(2);
     }
     expect(new Set(rendered.map(({ instruction }) => instruction)).size).toBe(1);
@@ -159,9 +162,9 @@ describe('shipped project Planner semantic composition', () => {
     const projectPlanner = structuredClone(config.agents.planner!);
     config.agents['project-planner'] = projectPlanner;
     config.agents.planner!.tools = config.agents.planner!.tools.filter((name) => name !== 'reopen_card');
-    config.card_types.project!.workflow.nodes.plan!.agent = 'project-planner';
-    config.card_types.project!.workflow.nodes.recover!.agent = 'project-planner';
-    config.card_types.project!.workflow.nodes['handle-notifications']!.agent = 'project-planner';
+    agentExecution(config.card_types.project!.workflow.nodes.plan!).agent = 'project-planner';
+    agentExecution(config.card_types.project!.workflow.nodes.recover!).agent = 'project-planner';
+    agentExecution(config.card_types.project!.workflow.nodes['handle-notifications']!).agent = 'project-planner';
     config.card_types.project!.workflow.notification_recipient = 'project-planner';
 
     const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${templateName}-named-project-planner-`));
@@ -171,16 +174,16 @@ describe('shipped project Planner semantic composition', () => {
     const project = workflows.cardTypes.get('project')!;
     for (const nodeId of ['plan', 'recover', 'handle-notifications']) {
       const node = requireNode(project, nodeId);
-      expect(node.agent.name).toBe('project-planner');
-      expect(node.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
-      expect(node.agent.tools.map(({ name }) => name)).toContain('reopen_card');
+      expect(agentExecution(node).agent.name).toBe('project-planner');
+      expect(agentExecution(node).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
+      expect(agentExecution(node).agent.tools.map(({ name }) => name)).toContain('reopen_card');
       const contract = describeNodeResultContract(project, `node:${nodeId}`);
-      const rendered = registry.render({ kind: 'workflow-agent', cardType: 'project' }, node.agent.name, { contractDescription: contract });
+      const rendered = registry.render({ kind: 'workflow-agent', cardType: 'project' }, agentExecution(node).agent.name, { contractDescription: contract });
       expect(rendered.split(contract)).toHaveLength(2);
     }
 
     const goal = workflows.cardTypes.get('goal')!;
-    for (const nodeId of ['plan', 'recover']) expect(requireNode(goal, nodeId).agent.tools.map(({ name }) => name)).not.toContain('reopen_card');
+    for (const nodeId of ['plan', 'recover']) expect(agentExecution(requireNode(goal, nodeId)).agent.tools.map(({ name }) => name)).not.toContain('reopen_card');
   });
 
   it.each(['classic', 'classic-typed', 'paad-typed'] as const)('preserves source-derived %s project/goal process composition and transition values', (templateName) => {
@@ -206,14 +209,14 @@ describe('shipped project Planner semantic composition', () => {
       expect([...process.permittedChildTypes]).toEqual(['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']);
       expect([...plan.childCreationTypes]).toEqual([...process.permittedChildTypes]);
       expect([...plan.childActivationTypes]).toEqual([...process.permittedChildTypes]);
-      expect(plan.agent.tools.map(({ name }) => name)).toEqual(template.config.agents.planner!.tools);
-      expect(plan.agent.recordWrites.map(({ source }) => source)).toEqual(['brief.md', 'status.md']);
+      expect(agentExecution(plan).agent.tools.map(({ name }) => name)).toEqual(template.config.agents.planner!.tools);
+      expect(agentExecution(plan).agent.recordWrites.map(({ source }) => source)).toEqual(['brief.md', 'status.md']);
       expect(processNodeOutcomes(process, 'node:plan')).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
       expect(processNodeOutcomes(process, 'node:recover')).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
       expect(plan.requirements.map(({ definition, mode, gate }) => [definition.name, mode, gate])).toEqual([['status.md', 'continue', 'updated']]);
 
       for (const value of [composition, recover, review]) {
-        const compiledPrompt = process.processPrompts.get(value.node.prompt.promptId)!;
+        const compiledPrompt = process.processPrompts.get(agentExecution(value.node).prompt.promptId)!;
         expect(compiledPrompt.text).toBe(readFileSync(compiledPrompt.path, 'utf8').replaceAll('{{cardType}}', cardType));
       }
 
@@ -233,13 +236,13 @@ describe('shipped project Planner semantic composition', () => {
       expect(notificationHandoff).toContain(`record:///review.md?card=${cardId}&v=2`);
       expect(notificationHandoff.endsWith(routePrompt(process, 'node:review', 'result:approved:pending-notifications'))).toBe(true);
       const handler = requireNode(process, 'handle-notifications');
-      const handlerPrompt = process.processPrompts.get(handler.prompt.promptId)!;
+      const handlerPrompt = process.processPrompts.get(agentExecution(handler).prompt.promptId)!;
       expect(handlerPrompt.text).toBe(readFileSync(handlerPrompt.path, 'utf8').replaceAll('{{cardType}}', cardType));
       expect(processNodeOutcomes(process, 'node:handle-notifications')).toEqual(['admit_review', 'blocked', 'failed']);
       expect(processNodeOutcomes(process, 'node:handle-notifications')).not.toContain('complete_direct');
       if (templateName !== 'classic')
         expect(routePrompt(process, 'node:review', 'result:revision_required')).toContain('Preserve the immutable versioned `review.md` URL');
-      expect(requirePrompt(process, plan.correctionPrompt.promptId)).toBe(readFileSync(process.processPrompts.get(plan.correctionPrompt.promptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
+      expect(requirePrompt(process, agentExecution(plan).correctionPrompt.promptId)).toBe(readFileSync(process.processPrompts.get(agentExecution(plan).correctionPrompt.promptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
     }
 
     expect(compositions[0]!.instruction).toBe(compositions[1]!.instruction);

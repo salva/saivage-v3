@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -58,14 +59,14 @@ it.each(SYSTEM_TEMPLATES)('renders the complete standalone $name role/generated-
         for (const [stateId, state] of process.states) {
           if (state.kind !== 'node') continue;
           const contract = describeNodeResultContract(process, stateId);
-          const roleText = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: contract });
-          const nodeText = process.processPrompts.get(state.prompt.promptId)!.text;
-          const refs = effectiveCardNodeToolReferences(state.agent.tools, state.childCreationTypes);
-          const tools = [...definitions(refs, 'card', state.agent.name, { childCreationTypes: state.childCreationTypes, childActivationTypes: state.childActivationTypes }), nodeResultToolDefinition(process, stateId)];
-          inspectControl(tools, state.agent.name === 'executor' || configuredReviewer && state.agent.name === 'reviewer');
+          const roleText = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(state).agent.name, agentExecution(state).selectedAgentPrompt.compiled, { contractDescription: contract });
+          const nodeText = process.processPrompts.get(agentExecution(state).prompt.promptId)!.text;
+          const refs = effectiveCardNodeToolReferences(agentExecution(state).agent.tools, state.childCreationTypes);
+          const tools = [...definitions(refs, 'card', agentExecution(state).agent.name, { childCreationTypes: state.childCreationTypes, childActivationTypes: state.childActivationTypes }), nodeResultToolDefinition(process, stateId)];
+          inspectControl(tools, agentExecution(state).agent.name === 'executor' || configuredReviewer && agentExecution(state).agent.name === 'reviewer');
           expect(roleText.split(contract)).toHaveLength(2);
           expect(nodeText.length).toBeGreaterThan(0);
-          evidence.push({ configuredReviewer, cardType, stateId, role: state.agent.name, roleText, nodeText, contract, tools });
+          evidence.push({ configuredReviewer, cardType, stateId, role: agentExecution(state).agent.name, roleText, nodeText, contract, tools });
         }
         // Preserve the other entry/edge/correction prompt closure too, not just
         // the first node encountered for each role.

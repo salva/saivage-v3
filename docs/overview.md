@@ -69,8 +69,10 @@ All work is represented as **cards** in one rooted tree:
   record is a chain of immutable versions selected by a replaceable head
   (the latest accepted version plus the current draft), and additional names
   can be configured.
-- Each card runs a configured **workflow graph** whose nodes are agent sessions
-  and whose edges are validated outcomes. For example, bundled terminal `code`
+- Each card runs a configured **workflow graph** whose nodes select real agent
+  sessions or finite stateless actions and whose edges are validated outcomes.
+  Actions have separate execution evidence, not synthetic conversations.
+  For example, bundled terminal `code`
   cards use a red/green/refactor loop; `test` cards use
   diagnose/add-coverage/repair/verify.
 - Card identity is hierarchical and immutable (`project`, `card-a`,

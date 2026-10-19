@@ -1,5 +1,26 @@
 # System Architecture
 
+## Stateless node operations
+
+`CardProcessActor` remains the single graph and activation-memory owner.
+`NodeExecution` owns common record, descendant, promotion, notification and exact
+result-claim gates; `AgentExecutor` retains the real conversation/tool loop.
+Action nodes use `operation-execution.ts::invokeOperation`, not an LLM actor or a
+second dispatcher. The invocation owner resolves exact typed inputs, records
+entry before launch, validates one return, joins its direct process scope and
+records only known evidence. Invalid results after effects are engine failures,
+never retries or no-effect claims. Action `continue/exists` requirements use
+accepted records, not effective drafts or document0, without record authorship.
+
+One nullable processor-local nonagent in-flight binding spans the whole raw
+operation through its existing matching node delivery consumer. Halt chooses
+cancel-and-settle before abort, retaining exact interruption identity and joining
+finite plugin cleanup even beyond process exit. Distinct cleanup failures remain
+containment failures; no successor runs after halt. Ordinary provider abandonment
+is unchanged. Publication uncertainty reaches fatal before cleanup, consumer
+acknowledgement or in-flight retirement. Execution history is lazy and
+consumption-local, not startup admission, resumable state or replay authority.
+
 Child activation's existing parent relationship holds explicit instruction bytes and
 the exact invocation lease. Supervisor passes trusted parent card/session/source-input/
 tool-call/name to its activation input, without history reconstruction. The same owner
@@ -392,10 +413,10 @@ The runtime compiler consumes the concrete agent-owned Router and Registry only 
 Bindings sit beside and never rebuild the singular state tables.
 Server composition passes only the bound artifact to runtime actors; real invocation binds scope closures without source-config selection, and reconfigure's candidate compile is validation-only and is never installed.
 
-Node execution reads each process-prompt body by ID directly from the exact compiled workflow's `processPrompts` map, with no runtime registry or global re-lookup.
+Agent execution reads each process-prompt body by ID directly from the exact compiled workflow's `processPrompts` map, with no runtime registry or global re-lookup. Action execution has no prompt or synthetic session.
 
 All node-to-node and terminal edges share one acceptance owner.
-`AgentNodeExecution` prepares every required closed/open projection before mutation, terminal routes claim the existing winner before close, and updated streams close once in requirement order.
+`NodeExecution` prepares required closed/open projections before mutation, terminal routes claim the existing winner before close, and agent-updated streams close once in requirement order. Actions freshly select accepted requirements without opening/closing records.
 The returned immutable close projections are the only source for accepted URLs, transition context, and terminal exports.
 `CardProcessActor` retains the latest accepted result per node only in activation memory and applies `current` or graph-reachable `latest_node` promotion at the terminal route.
 A primitive-classified `PublicationOutcomeUnknownError` from a close reaches fatal delivery before result acceptance, Supervisor halt, lifecycle publication, or parent settlement.
@@ -405,7 +426,7 @@ One plain `CardActivationOwner` holds each mapped activation in exactly `prepare
 The sole `CardProcessActor` directly extends the narrow `BaseActor` and owns configured process position, activation tracking, exhaustive guarded activation settlement, LLM ownership, node transitions, and local join.
 BaseActor treats an event without a transition in a non-terminal state as an `InternalActorError`; the existing actor-main failure path invokes the fatal-task hook, latches that exact failure, rejects current and future lifecycle waiters, emits one main-failure notification, and never restarts the pump.
 Terminal completion remains unchanged.
-`AgentNodeExecution` owns one node's compiled named-agent surface, prompt, correction, record, notification, and cleanup behavior.
+`NodeExecution` owns common acceptance and the one direct executor scope; `AgentExecutor` owns the selected agent surface, prompt, corrections, notifications and conversation lifecycle. The bound surface retains other cleanup but does not duplicate direct-scope cleanup.
 The supervisor's one map, terminal winner, and nullable halt record are the sole publication, cancellation, currentness, and freeze authority.
 Durable running without an exact owner fails fast.
 
@@ -554,7 +575,7 @@ detector or compatibility mechanism.
   both typed architecture reviews. Bootstrap briefs are never initialized;
   starters do not replace authored work or acceptance.
 
-  `AgentNodeExecution.prepareRecordRequirements` initializes before explicit clean
+  `NodeExecution.prepareRecordRequirements` initializes before explicit clean
   requirements and then captures updated head/revision baselines. Existing heads,
   including empty-after-discard, suppress rendering and publication. Continue
   preserves state; clean discards an open draft and opens from baseline0 or empty
@@ -624,7 +645,7 @@ Linked-tree operations start at the exact root and recursively follow committed 
 Multi-root deletion uses that one fresh projection to form a subtree union, reject permissions and surviving dependents, and topologically order dependent-before-dependency plus child-before-parent tombstones.
 This graph is call-local write admission, not persistence coordination.
 
-Card heads and mailbox messages use format1; immutable ordinary/tombstone documents use format2.
+Card heads and mailbox messages use format1; immutable ordinary/tombstone documents use format3.
 Every parent snapshot has duplicate-free direct-child `child_membership` and `active_child_order` arrays with equal sets and lengths.
 Membership is monotonic link chronology; order is a complete carrier retaining tombstones.
 `CARD_RECORD_FIELDS` remains the exhaustive inventory—`id`, `type`, `child_membership`, `active_child_order`, `title`, `priority`, `urgency`, `created_by`, `created_at`, `updated_at`, `version_seq`, `depends_on`, `lifecycle`, `status_text`, `status_text_updated_at`, and `pending_notifications`—and derives business deltas, so link changes exactly both relationship fields while reorder changes only order. Nine null-only placeholders are absent, not optional or normalized. The strict parser also rejects removed `tags` and `related` members.
@@ -634,7 +655,7 @@ A real reorder appends requested active IDs followed by retained tombstones in p
 Card publication writes the immutable ordinary/tombstone document completely before selecting it through the fresh head publication; queue-only changes publish a fresh head without a new ordinary history artifact (enqueue first publishes its mailbox message). Previous slots and publication-uncertainty boundaries remain unchanged.
 
 CardService uses membership for exact reachability and linked-history traversal, active order for semantic hierarchy and `CardIndex.childrenOf()`, and writes both arrays only for `child_link`.
-Files keeps `children` as the active virtual directory name. A non-tombstoned current `card.json` is a `card-current` projection carrying exact `head_id`, mutable revision and selected history revision, with no `format_version` field. Current tombstones and historical ordinary/tombstone selections use artifact wrappers with format2. Both projection forms expose the durable arrays through queue-free outbound card content; only artifact wrappers include the ordinary-change projection.
+Files keeps `children` as the active virtual directory name. A non-tombstoned current `card.json` is a `card-current` projection carrying exact `head_id`, mutable revision and selected history revision, with no `format_version` field. Current tombstones and historical ordinary/tombstone selections use artifact wrappers with format3. Both projection forms expose the durable arrays through queue-free outbound card content; only artifact wrappers include the ordinary-change projection.
 The Cards REST hierarchy and web store remain ordered active projections and do not interpret durable arrays.
 Current inspection sections are exactly summary, workflow, dependencies, children, and records; immutable inspection sections are summary, dependencies, and children. `list_cards` filters only by status, type, and parent. Historical section `children` is intentionally the selected row's complete stored carrier. Planner/Analyst creation has no tag or generic relationship input, Planner edits only title/priority/urgency, and `depends_on` retains its caller-specific admission and read authority.
 Outbound history and selected artifacts expose both relationship fields, omit `pending_notifications`, and require nullable `{summary,changed_fields,actor}` ordinary change metadata. Initial and queue-only publications project null; mixed lifecycle/queue publications retain only ordinary metadata. Public diffs remain queue-free, and authored-record diffs continue to apply `projectRecordArtifact()` before `recordView()` comparison so redaction remains before comparison.
@@ -679,7 +700,7 @@ A direct `generic | codex | openai-responses` request switch copies only each ad
 Logged-event and control-action producers likewise apply their discriminated projector before append and readers reuse it: actionable `contract_response_violation` and `invalid_enum_value` state have direct variants, while event/action/actor/target/surface identities remain exact.
 Schemas validate these projected singular contracts but never sanitize canonical bytes, and neither persistence owner selects redaction behavior. Only successful primary evidence appends issue a canonical-session freshness hint; uncertain publication permits no follow-up.
 
-There is no app-log dependency forwarded through Supervisor, `CardActivationOwner`, `CardProcessActor`, or `AgentNodeExecution`.
+There is no app-log dependency forwarded through Supervisor, `CardActivationOwner`, `CardProcessActor`, `NodeExecution` or `AgentExecutor`.
 Planner reopen and reorder use canonical card/runtime evidence and append no control action. Public notifications are configured-global operations; internal notification producers remain independent.
 Analyst mutation settlement and Invocation Service retain their independent valid app-log ownership.
 `listControlActions()` is the shared HTTP/tool projection owner: it performs one complete strict app-log read, applies outbound control-action redaction, then optionally narrows by `card_id` and `since` and sorts newest first.
@@ -790,10 +811,23 @@ Those byte-identical shared Planner hosts also describe the existing bounded `ca
 
 `CardActivationOwner` retains the selected lifecycle entry and ready parked `CardProcessActor`.
 Direct state-entry and transition hooks execute the card type's startup-compiled state table.
+
+The optional `after_activation_commit` card attachment is separate from graph execution.
+Only Supervisor natural settlement invokes it, after a known `done`, `blocked` or
+`failed` publication and an owner/halt recheck, before processor suppression/join.
+The publication returns its committed card snapshot and immutable artifact reference;
+the attachment does not reread a selection or reuse the completed node's cleared input.
+Its tracked run immediately installs matching success/failure consumers and awaits that
+consumer before release. Actions and this attachment share one processor-local in-flight
+binding: Stop selects cancel-and-settle before abort, retaining raw cleanup/evidence and
+consumer ownership even after the last process exits. Ordinary advisory failure preserves
+the committed outcome; containment/storage failure remains a join failure. Publication
+uncertainty reaches fatal before acknowledgement, clearing, cleanup or further evidence.
+Recovery, Stop, cancellation, reopen and record writes do not dispatch the attachment.
 Entry queues its configured route without I/O; node entry starts the sole task; transitions invalidate runtime projection.
 If any transition, entry, task-result callback, or framework invariant escapes, BaseActor terminally latches and reports it; CardProcess rejects its unsettled activation before synchronously notifying the exact Supervisor owner.
 The first node ordinal is 0 and accepted node reentry advances it once.
-`AgentNodeExecution` consumes the compiled agent, prompt, tool, record, descendant-context, model, and outcome contract without role or family lookup.
+`NodeExecution` consumes common record, descendant-context and outcome contracts; `AgentExecutor` consumes the compiled agent, prompt, tool and model selection without role or family lookup. Operations consume an exact qualified/versioned definition, never a fake agent binding.
 
 The shared roles own [selected dedicated-file-tool preference](./prompts.md#dedicated-file-tool-preference), with legitimate role-authorized shell exceptions and no change to prepared delivery or permissions. Tool definitions, not that method prose, remain authoritative for invocation contracts; independently authored prompt references require deliberate adoption.
 
@@ -1142,12 +1176,12 @@ For example, the recovered state may be stale, redundant, or lossy: a done card 
 
 At startup settlement, Run preparation, and natural-root-settlement call sites, the one strict selector traverses every canonical committed child link reachable from project, exact-reads each linked card, validates parent identity, and proves that every linked `running` card belongs to one unique project-rooted chain.
 Branching, missing, malformed, and discontinuous running topology fails without repair or normalization.
-One private Supervisor loop handles selected cards as leaf-to-root units: a card's configured planning-cycle nodes stabilize in graph order—by default the plan node's configured agent, then the review node's—while single-node types stabilize that node's configured executor, and the Supervisor immediately stops that card before advancing to its ancestor. Startup invokes it with direct synchronous publication while uninitialized and ownerless; explicit Run invokes the same loop under per-session/per-card prepared-owner checks and the existing `publish` authority boundary. It does not bundle all operations into one publication.
+One private Supervisor loop handles selected cards leaf-to-root: each card's distinct configured agent sessions stabilize in graph order (skipping action nodes), then Supervisor immediately stops that card before advancing to its ancestor. Startup invokes it with direct synchronous publication while uninitialized and ownerless; explicit Run shares that loop under per-session/per-card prepared-owner checks and existing `publish` authority. It does not bundle operations into one publication or consume execution logs.
 The shared publication callback returns true only when the operation completed and its caller still authorizes progression. Startup returns true or throws its contextual failure (publication uncertainty goes to fatal); prepared Run may return false after a known publication failure or synchronous halt takeover following a write. False ends the loop before any further session/card effect, leaving Run rejection to the prepared owner's existing settlement. The diagnostic operation string supplies startup context, not a second recovery policy.
 These Supervisor-named defaults are examples only; participant discovery traverses every node of every selected compiled graph, including specialized nodes.
-This Supervisor path is the sole broad card-chain corrective-recovery exception and is card-session-only; it consumes canonical settlement facts before applying card interruption policy. Two distinct bounded actual-use owners exist. `AgentNodeExecution`, after preparing the selected node and required records, strictly folds only the exact configured card session. `AnalystSession`, after pure invocation preparation for a newly admitted explicit request in an already-running server, strictly folds only its configured global session. Either owner may append one uncertainty-only failed mate for a sole final unmatched call using the old call identity and persisted policy through the existing delivery-log primitive, then separately append the fresh activation marker/ingress. Neither classifies other interrupted states, appends a notice, continues the old invocation, or inspects another session. Malformed, nonfinal, or multiple-unmatched history fails at that use boundary, and publication uncertainty permits no follow-up.
+This Supervisor path is the sole broad card-chain corrective-recovery exception and is card-session-only; it consumes canonical settlement facts before applying card interruption policy. Two distinct bounded actual-use owners exist. `AgentExecutor`, after common node/record preparation, strictly folds only the exact configured card session. `AnalystSession`, after pure preparation for a newly admitted explicit request in an already-running server, strictly folds only its configured global session. Either may append one uncertainty-only failed mate for a sole final unmatched call using its old identity and persisted policy through the delivery-log primitive, then separately append fresh activation marker/ingress. Neither classifies other interrupted states, appends a notice, continues the old invocation or inspects another session. Malformed, nonfinal or multiple-unmatched history fails at use; publication uncertainty permits no follow-up. Actions have no session to stabilize and logs grant no replay authority.
 Fresh server composition additionally invokes runtime-owned `settleFinalUnmatchedCall`, published through `runtime/runtime-api.ts`, with a `ConversationFileContext` and `ConversationSessionId`. Analyst is required; composition selects optional Oversight through persistence-owned `isConversationCatalogEstablished`, published through `persistence/index.ts`. This helper freshly calls the strict `readConversationCatalog` exactly once: a valid index, including an empty one, returns true; only that exact index read's `ENOENT` returns false; all other errors propagate unchanged. It consumes no indexed segments. Generated-state admission independently calls the same helper before optional Oversight evidence consumption; composition calls it again before bounded settlement, with no cached or carried admission fact. Established Oversight is selected even with scheduling disabled; missing referenced content or evidence-consumption failures remain errors outside the helper's catch, not absence. No global notice, activation marker, ingress, provider/tool work, schedule restoration, or follow-up read is added.
-Composition, `AnalystSession`, and `AgentNodeExecution` share this bounded strict read/settle helper; local runtime callers import its defining `conversation-recovery.ts` module. It strictly reads the selected current conversation once and appends only the sole strict-valid final unmatched call's permanent uncertainty-only failed mate through the delivery-log payload operation. No unmatched call means no publication, including valid empty indexes and text-ended history. The helper grants no admission and selects no session: composition retains configured Analyst-then-established-Oversight startup timing before Supervisor start, Analyst retains admitted pure preparation before fresh ingress, and node execution retains preparation before activation publication. It adds no notice, replay, failure handling, or follow-up read. Supervisor `stabilizeAgentSession` remains the separate card-only classification/notice branch, not a caller of this helper.
+Composition, `AnalystSession` and `AgentExecutor` share the bounded strict `conversation-recovery.ts` helper. It reads the selected current conversation once and appends only the sole strict-valid final unmatched call's permanent uncertainty-only failed mate. No unmatched call means no publication, including valid empty indexes and text-ended history. The helper grants no admission and selects no session: composition retains configured Analyst-then-established-Oversight startup timing before Supervisor start, Analyst retains admitted pure preparation before fresh ingress, and agent execution retains preparation before activation publication. It adds no notice, replay, failure handling or follow-up read. Supervisor `stabilizeAgentSession` remains the separate card-only classification/notice branch.
 Both bounded settlement and Supervisor recovery use the delivery-log uncertainty-result payload operation. It accepts already consumed canonical call facts, uses the persisted template bytes/hash, and appends one `execution_failed` result with `{outcome_unknown:true}` and evidence `none`. Actual use and global startup retain the exact prior-activation/no-replay wording; Supervisor recovery retains its interrupted-activation wording and separately owned recovery notice. The payload helper does not read history, select sessions, validate a prospective fold, append notices, or handle publication failures. Existing strict writer consumption before append remains mandatory; no earlier read certifies a later write.
 `stabilizeAgentSession` is effect-only: it retains strict initial consumption and each append's independent writer read, then finishes after its last necessary append without returning a refreshed snapshot or adding post-write verification.
 The recovery module has its own exhaustive visibility decision for every current message kind and rejects unsupported runtime values in a complete pass before filtering or classification.
@@ -1500,7 +1534,7 @@ The global card-type vocabulary formatter lives with tool prompt contracts in `t
 
 The `application` root exposes the Analyst workspace-focus and orientation projections and consumed runtime actor read-model types. Shared freshness, intervention-admission, and application lifecycle declarations instead belong to `contracts/index.ts`; their defining modules import no implementation owners. SyncHub, runtime/Supervisor, and boot retain the respective effects and coordination. The `persistence` root explicitly re-exports the file operations and types used across package boundaries: canonical card, record, conversation, log, audit and provider-exchange reads/publication, artifact projections and hashing, layout, replacement and exact-write primitives, version filenames, plus CLI discovery, project identity, generated-state admission and reset-root selection. These public imports do not relocate direct synchronous file I/O from its domain or actor owner or create a repository/store lifecycle; audit persistence projects control actions through its local projector rather than invoking the aggregate outbound dispatcher. Runtime conversation owners use `persistence/session-api.ts` for current reads, append, missing-session initialization, current-segment reads and compaction publication, including their consumed context/publication types; implementation remains in `conversation-file.ts`. Existing persistence-root consumers remain ordinary public-surface consumers, not a compatibility path. `tools/tool-api.ts` publishes the consumed invocation/catalog contracts, policy constants, cleanup, process-result validation and tool-outcome settlement, while `cards/store-api.ts` publishes CardService and `PROJECT_CARD_ID`. `runtime/runtime-api.ts` is the sole cross-package runtime entry; neither agents→runtime nor runtime→agents is permitted. This routing completes runtime's backend leaf burn-down without promising cycle freedom. The CLI remains the command composition root, not an agent facade.
 The prompt compiler owns the provider-only static prefix bytes built from the rendered instruction, ordered provider tool-definition bytes, and terminal tool names.
-The tool catalog and binding own the separate compiled `CompiledInvocationToolContract` policy templates; settled results own result-derived evidence; `AgentNodeExecution` owns one unchanged prepared card block followed by one full actual-compiled-node block and producer-local durable prompt policy; the Analyst orientation builder owns the complete-observation commitment (`fullObservationSha256`) and rendered-content revision (`contentSha256`); the context composer owns represented-content verification, latest-replacement selection, complete tool-bundle policy derivation, bounded required-model-fact selection, exact recovery/refusal semantic rendering, inherited retained-instruction placement, successful-prefix-compaction omission, and the singular prefix/dynamic/boundary/canonical ordering; the conversation validator owns paired final bundle policy, round, atomic source-prefix, protected-list, and required-model-fact semantics; the compactor owns call-local latest-key selection, release, accumulated-history replacement, and candidate-specific protected lists; and persistence owns exactly one immutable successor publication.
+The tool catalog and binding own `CompiledInvocationToolContract` policy templates; settled results own result-derived evidence; `AgentExecutor` owns the unchanged prepared card block, full actual-compiled-node block and producer-local durable prompt policy. The Analyst orientation builder owns complete-observation (`fullObservationSha256`) and content (`contentSha256`) commitments. The context composer owns represented-content verification, latest-replacement selection, complete tool-bundle policy derivation, bounded model facts, exact recovery/refusal rendering, inherited retained instructions, successful-prefix omission and prefix/dynamic/boundary/canonical ordering. The conversation validator owns paired bundle policy, rounds, atomic source-prefix, protected-list and model-fact semantics; the compactor owns call-local latest-key selection, release, accumulated-history replacement and candidate-specific protected lists; persistence owns one immutable successor publication.
 
 Compaction is context construction by the stable session owner over one validated current segment.
 It publishes an immutable successor segment, then commits that segment by replacing the cumulative conversation index.
@@ -1535,9 +1569,9 @@ The application Agent conversation read model consumes those validated segments 
 Append performs that strict current consumption and admits incoming row schemas, session identity, and duplicate batch IDs without folding current-plus-candidate history again. Runtime producers own protocol correctness; a complete invalid durable sequence fails at its next consuming validator. Typed index/envelope publication does not reparse already admitted values, and no persistent validation state is retained.
 Every exact current-file read uses the uniform validated torn-suffix rule. Historical error mapping and downstream unavailable/not-found wrappers first preserve publication uncertainty unchanged for the existing fatal owner; no response, diagnostic append, settlement, or later effect follows uncertain truncation.
 
-`AgentNodeExecution` reads the selected node's already-compiled full process text once before record, notification, or ingress effects. It leaves the canonical card block byte-for-byte unchanged, appends one activation-local retained node block after it, and removes the future ordinary node-text append. The actual compiled state-machine node is selection authority. The same named-agent card session can cross nodes, but every later node prepares its own block; old node-looking rows remain unclassified ordinary history. Static role instruction plus generated outcome contract stay in the prefix, and the selected node's tools stay in the compiled tool contract. Its entry sequence is required-record preparation, strict exact-session fold and optional final-unmatched uncertainty mate, fresh activation marker and ordinary context, then provider projection/turn. The mate and marker reuse existing append primitives as separate appends; neither is a transaction.
+`AgentExecutor` reads the selected agent node's compiled full process text before common record preparation, notification or ingress effects. It leaves the canonical card block unchanged and appends one activation-local retained node block after it, not an ordinary node-text row. The actual compiled node is selection authority. A named-agent session can cross nodes, but each later node prepares its own block; old node-looking rows remain ordinary history. Static role instruction/generated outcome contract remain in the prefix; tools remain in the compiled tool contract. Entry order is required-record preparation, strict exact-session fold/optional unmatched uncertainty mate, fresh activation marker/ordinary context, then provider projection. Mate and marker are separate existing appends, not a transaction.
 
-`PreparedInvocationContext` names stable and record blocks separately. `composedPreparedBlocks` supplies their ordered concatenation to every primary/compactor projection without storing a duplicate combined array. Continuations share the frozen prefix, compiled tools and stable blocks by ownership, without a serialized logical-prefix blob or aggregate continuity hashes. Each compiled tool retains its provider definition and tool-local result-policy template/bytes/hash for settlement and unmatched-call recovery; per-block replacement/evidence commitments remain independent. `AgentNodeExecution` binds a transient synchronous bootstrap supplier to its exact card/node; the callback travels only in LLM-owned continuation callbacks, never provider input or durable data. After the deferred raw-entry exact lease check, each fresh logical operation reads conversation knowledge, selects accepted bootstrap with one owning record read, appends any needed full-exposure descriptor and constructs a new immutable input. Same-operation preventive/local/authoritative maintenance and pinned/transport retry retain it. No callback refresh occurs during recovery, and no admitted input is mutated. Named role/node evidence remains separate. Globals retain stable-only preparation; history-only public reads never fabricate past preparation.
+`PreparedInvocationContext` names stable and record blocks separately. `composedPreparedBlocks` supplies their ordered concatenation to primary/compactor projections without a duplicate array. Continuations share frozen prefix, compiled tools and stable blocks by ownership, not serialized prefix blobs or aggregate continuity hashes. Compiled tools retain provider definition and local result-policy bytes/hash for settlement/recovery; block commitments remain independent. `AgentExecutor` binds the transient synchronous bootstrap supplier to its exact card/node, only in LLM-owned callbacks, never provider input/durable data. After deferred raw-entry lease checking, each fresh logical operation reads conversation knowledge, selects accepted bootstrap in one owning record read, appends needed full-exposure descriptors and constructs immutable input. Same-operation maintenance and pinned/transport retry retain it. Recovery never refreshes it; admitted input is never mutated. Role/node evidence remains separate; globals retain stable-only preparation and public history reads never invent past preparation.
 
 That supplier also selects the node's finite ordered `record_prompts` inputs: one
 owning read per distinct record in their union with bootstrap. Accepted/effective
@@ -1757,7 +1791,7 @@ Error exchange payloads always carry that required nullable identity and never s
 A transport-successful attempt whose output fails local validation therefore links its assistant `model_issue` through `assistant_output_ids`; only provider error attempts use `terminal_conversation_output_id`.
 Ordinary provider-error model issues provide their row identity and direct summarizers provide null.
 Provider/summarizer projection and compaction consume the synthetic marker text, never physical raw evidence.
-`AgentNodeExecution` carries the explicit runtime-owned blocked union, every compiled node has the code-owned `execution:blocked` edge, CardProcess stages the strict result, and Supervisor/CardService publish running-to-blocked before the waiting parent receives the one nested safe `activate_card` result.
+`NodeExecution` carries the explicit runtime-owned blocked union, every compiled node has the code-owned `execution:blocked` edge, CardProcess stages the strict result, and Supervisor/CardService publish running-to-blocked before the waiting parent receives the one nested safe `activate_card` result.
 
 For Analyst continuations, the actor first settles the waiting call, appends exactly one tool result, allocates a fresh continuation UUID, and rereads canonical history while retaining the submission's prepared object.
 Preventive compaction then runs before the continuation provider call.
@@ -1971,7 +2005,7 @@ The Files key is not part of the SyncHub wire vocabulary.
 `projectCompiledGraphs()` is the source-adjacent non-disclosure projector for Debug Graphs.
 `projectWorkflowPresentation()` projects only one exact installed card type's nodes and full structural topology for `workflows.presentation`. It never projects all rich graphs and discards fields. The cockpit header and participant rail share a per-type presentation store; late detail arrival/type changes select the matching immutable facts, same-type pending reads are shared, and failure allows explicit retry. Accepted data is reused without reconnect refresh or invalidation, and never grants runtime/liveness/card authority. System retains DebugStore and rich installed workflow bindings.
 Server composition passes the one bound `CompiledRuntimeWorkflows` startup object directly to the operator handler.
-Projection derives selected global agents plus entries, nodes, configured edges, and runtime-owned edges from the singular immutable startup artifact. Selected globals expose their exact global identity, safe resolved static declaration/source, model binding, skills flag, and tools separately from card graphs. Workflow nodes resolve model candidates and operational tool names from the same immutable agent bindings used by execution; there is no actor-definition or node/edge index.
+Projection derives selected global agents, entries, nodes, configured edges and runtime-owned edges from the immutable startup artifact. Globals expose exact identity, safe static declaration/source, model binding, skills and tools separately. Agent nodes use the same immutable agent bindings as execution; action nodes show exact operation/contract/provider with no model, prompt or fake agent identity. Case routes retain semantic outcome, distinct route ID and typed predicate. There is no actor-definition or node/edge index.
 It omits prompt text/path and candidate account identity and validates the complete strict response schema.
 It never receives `ResolvedConfigAuthority`, source YAML, prompt registries, CardService, event queries, or runtime-state readers.
 Consequently a successful restart-only configuration replacement cannot alter the current Graphs response; only creating a new server and binding a new startup artifact changes it.
@@ -2198,7 +2232,7 @@ Content-policy retry/refusal rows, typed refusal BLOCKED results and required er
 Generated-state test and E2E fixtures are reset to the singular current schemas; no omitted-field fixture, compatibility transport, legacy blocked/tool shape, migration, or normalization path remains.
 
 Within that inventory, complete parent-owned `children` names a historical milestone, not the current relationship model.
-Current card heads/messages use strict format1 and ordinary/tombstone documents format2; record heads use format3 and accepted documents format2. Conversation12 and initializer input1 are unchanged by the card-body cutover. Cards retain monotonic `child_membership` and complete same-set `active_child_order`, without `tags`, `related`, durable `children` or the nine null-only placeholders. Current reads consume selected documents only; historical traversal validates each reached predecessor. Old artifacts fail strict consumption, including when selected by a previous head for repair; adoption follows the independent reset/external decision. Reset loses history; external candidate fidelity is evidenced, never promised or categorically denied. Missing required provenance blocks; actual unavoidable loss needs confirmation before effect/cutover. Neither option weakens current validators or authorizes orphan handling.
+Current card heads/messages use strict format1 and ordinary/tombstone documents format3; record heads use format3 and accepted documents format2. Conversation12 and initializer input1 remain unchanged. Cards retain monotonic `child_membership` and complete same-set `active_child_order`, without `tags`, `related`, durable `children` or nine null-only placeholders. Current reads consume selected documents only; historical traversal validates each reached predecessor. Old artifacts fail strict consumption, including previous-head repair selections; adoption follows the independent reset/external decision. Reset loses history; external candidate fidelity is evidenced, never promised or categorically denied. Missing required provenance blocks; unavoidable loss needs confirmation before cutover. Neither option weakens validators or authorizes orphan handling.
 
 The `.saivage/locks` namespace is the exceptional lifecycle-exclusion boundary, not reset-owned generated persistence.
 Reset acquires the exact canonical `runtime.lock`, removes the four complete roots, publishes the new `project` root card while still holding the lock, and then uses exact-owner release.
@@ -2222,6 +2256,10 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/agents` | Active compiled-workflow Agent session summaries. | `src/contracts/operator-api-agents.ts:382` |
 | `GET /api/agents/:id` | Exact historical Agent session summary. | `src/contracts/operator-api-agents.ts:394` |
 | `GET /api/cards/:id/agent-sessions` | One active card's Agent session summaries. | `src/contracts/operator-api-agents.ts:449` |
+| `GET /api/cards/:id/executions` | Strict exact-card chronological execution rows, bounded row cursor projection. | `src/contracts/operator-api-executions.ts:139` |
+| `GET /api/cards/:id/executions/:invocationId` | Bounded non-LLM invocation detail; missing completion is unknown, not live status. | `src/contracts/operator-api-executions.ts:163` |
+| `GET /api/cards/:id/executions/:invocationId/files/:fileKey` | Exact logged row/reference-selected bounded redacted text through Files privacy. | `src/contracts/operator-api-executions.ts:181` |
+| `GET /api/cards/:id/executions/:invocationId/files/:fileKey/download` | Same confidential bounded text as an attachment; no raw-byte bypass. | `src/contracts/operator-api-executions.ts:199` |
 | `GET /api/agents/:id/conversation` | Current indexed Agent conversation segment with segment-scoped cursor. | `src/contracts/operator-api-agents.ts:465` |
 | `GET /api/agents/:id/current-instructions` | Composed static instructions for every current loaded session binding. | `src/contracts/operator-api-agents.ts:364` |
 | `GET /api/agents/:id/conversation/versions` | Immutable conversation segment catalog metadata. | `src/contracts/operator-api-agents.ts:410` |
@@ -2429,33 +2467,66 @@ The top-level inventory therefore includes the optional source fields, while eff
 | `compaction` | `context_utilization_fraction,enabled,snap,summarizer_candidate,tail_fraction,trigger_fraction` | `src/schemas/saivage-config.ts:80` |
 | `compaction.summarizer_candidate` | `account,model,provider` | `src/schemas/saivage-config.ts:74` |
 | `oversight` | `agent,enabled,interval_seconds` | `src/schemas/saivage-config.ts:89` |
-| `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:185` |
-| `card_types.entry.records.entry` | `bootstrap,format,initialization,schema` | `src/schemas/saivage-config.ts:305` |
-| `card_types.entry.records.entry.initialization` | `format_version,template` | `src/schemas/saivage-config.ts:310` |
-| `card_types.entry.workflow` | `entries,nodes,notification_recipient` | `src/schemas/saivage-config.ts:170` |
-| `card_types.entry.workflow.entries` | `BACKLOG,BLOCKED,CHANGED,STOPPED` | `src/schemas/saivage-config.ts:171` |
-| `card_types.entry.workflow.entries.BACKLOG` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
-| `card_types.entry.workflow.entries.BACKLOG.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
-| `card_types.entry.workflow.entries.CHANGED` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
-| `card_types.entry.workflow.entries.CHANGED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
-| `card_types.entry.workflow.entries.BLOCKED` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
-| `card_types.entry.workflow.entries.BLOCKED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
-| `card_types.entry.workflow.entries.STOPPED` | `node,prompt` | `src/schemas/saivage-config.ts:149` |
-| `card_types.entry.workflow.entries.STOPPED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
-| `card_types.entry.workflow.nodes.entry` | `agent,correction_prompt,descendant_context,edges,initialize_records,prompt,record_prompts,records` | `src/schemas/saivage-config.ts:257` |
-| `card_types.entry.workflow.nodes.entry.record_prompts.item` | `presence,prompt,record,selection` | `src/schemas/saivage-config.ts:262` |
-| `card_types.entry.workflow.nodes.entry.record_prompts.item.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
-| `card_types.entry.workflow.nodes.entry.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:134` |
-| `card_types.entry.workflow.nodes.entry.correction_prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
-| `card_types.entry.workflow.nodes.entry.records.entry` | `gate,mode` | `src/schemas/saivage-config.ts:166` |
-| `card_types.entry.workflow.nodes.entry.descendant_context` | `records,require_unchanged_until_accept` | `src/schemas/saivage-config.ts:167` |
-| `card_types.entry.workflow.nodes.entry.edges.entry` | `pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:158` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant1` | `node` | `src/schemas/saivage-config.ts:155` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:156` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:153` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:138` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:135` |
+| `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:398` |
+| `card_types.entry.records.entry` | `bootstrap,format,initialization,schema` | `src/schemas/saivage-config.ts:381` |
+| `card_types.entry.records.entry.initialization` | `format_version,template` | `src/schemas/saivage-config.ts:386` |
+| `card_types.entry.workflow` | `after_activation_commit,entries,format_version,nodes,notification_recipient` | `src/schemas/saivage-config.ts:356` |
+| `card_types.entry.workflow.after_activation_commit` | `execution,statuses` | `src/schemas/saivage-config.ts:359` |
+| `card_types.entry.workflow.after_activation_commit.execution` | `action,config,contract_version,inputs,kind` | `src/schemas/saivage-config.ts:271` |
+| `card_types.entry.workflow.after_activation_commit.execution.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:251` |
+| `card_types.entry.workflow.after_activation_commit.execution.inputs.entry.variant2` | `source` | `src/schemas/saivage-config.ts:256` |
+| `card_types.entry.workflow.entries` | `BACKLOG,BLOCKED,CHANGED,STOPPED` | `src/schemas/saivage-config.ts:369` |
+| `card_types.entry.workflow.entries.BACKLOG` | `node,prompt` | `src/schemas/saivage-config.ts:218` |
+| `card_types.entry.workflow.entries.BACKLOG.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.entries.CHANGED` | `node,prompt` | `src/schemas/saivage-config.ts:218` |
+| `card_types.entry.workflow.entries.CHANGED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.entries.BLOCKED` | `node,prompt` | `src/schemas/saivage-config.ts:218` |
+| `card_types.entry.workflow.entries.BLOCKED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.entries.STOPPED` | `node,prompt` | `src/schemas/saivage-config.ts:224` |
+| `card_types.entry.workflow.entries.STOPPED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.nodes.entry` | `descendant_context,edges,execution,initialize_records,record_prompts,records` | `src/schemas/saivage-config.ts:321` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1` | `agent,correction_prompt,data_inputs,inputs,kind,prompt` | `src/schemas/saivage-config.ts:280` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:200` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.correction_prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant1` | `enum,type` | `src/schemas/saivage-config.ts:260` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant2` | `max,min,type` | `src/schemas/saivage-config.ts:263` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant3` | `type` | `src/schemas/saivage-config.ts:268` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant4` | `type` | `src/schemas/saivage-config.ts:269` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:251` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.inputs.entry.variant2` | `source` | `src/schemas/saivage-config.ts:256` |
+| `card_types.entry.workflow.nodes.entry.execution.variant2` | `action,config,contract_version,inputs,kind` | `src/schemas/saivage-config.ts:271` |
+| `card_types.entry.workflow.nodes.entry.execution.variant2.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:251` |
+| `card_types.entry.workflow.nodes.entry.execution.variant2.inputs.entry.variant2` | `source` | `src/schemas/saivage-config.ts:256` |
+| `card_types.entry.workflow.nodes.entry.record_prompts.item` | `presence,prompt,record,selection` | `src/schemas/saivage-config.ts:330` |
+| `card_types.entry.workflow.nodes.entry.record_prompts.item.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.nodes.entry.records.entry` | `gate,mode` | `src/schemas/saivage-config.ts:344` |
+| `card_types.entry.workflow.nodes.entry.descendant_context` | `records,require_unchanged_until_accept` | `src/schemas/saivage-config.ts:349` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1` | `inputs,pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:298` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant1` | `node` | `src/schemas/saivage-config.ts:232` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:236` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:228` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:245` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.inputs.entry` | `output` | `src/schemas/saivage-config.ts:258` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2` | `cases,otherwise` | `src/schemas/saivage-config.ts:308` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item` | `id,inputs,pending_notifications,prompt,target,when` | `src/schemas/saivage-config.ts:312` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant1` | `node` | `src/schemas/saivage-config.ts:232` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:236` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:228` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:245` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.inputs.entry` | `output` | `src/schemas/saivage-config.ts:258` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.when` | `field,op,value` | `src/schemas/saivage-config.ts:315` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise` | `inputs,pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:298` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant1` | `node` | `src/schemas/saivage-config.ts:232` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:236` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:228` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:245` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.inputs.entry` | `output` | `src/schemas/saivage-config.ts:258` |
 | `mcpServers.entry.variant1` | `args,autostart,command,disabled,env,transport` | `src/schemas/saivage-config.ts:126` |
 | `mcpServers.entry.variant2` | `autostart,disabled,transport,url` | `src/schemas/saivage-config.ts:135` |
 <!-- saivage:config-schema:end -->

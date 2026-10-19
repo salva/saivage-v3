@@ -97,15 +97,15 @@ it('uses ordinary opted-in card refresh with frozen gateways, retained observati
       config.agents.reviewer = { ...config.agents.reviewer!, tools: ['read', 'write'], skills: false };
       config.card_types.project = {
         permitted_child_types: [], records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-        workflow: {
+        workflow: { format_version: 1,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: {
-            execute: { agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true }, records: {}, edges: { review: { target: { node: 'review' } } } },
+            execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: {}, edges: { review: { target: { node: 'review' } } } },
             review: {
-              agent: 'reviewer',
+              execution: { kind: 'agent', agent: 'reviewer',
               prompt: { reference: 'review', compactable: true },
-              correction_prompt: { reference: 'correct-review-result', compactable: true },
+              correction_prompt: { reference: 'correct-review-result', compactable: true } },
               records: {},
               edges: {
                 approved: {

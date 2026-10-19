@@ -16,6 +16,7 @@ import {
 } from './operator-api-core.js';
 import { CurrentStateUnavailableSchema } from './operator-api-agents.js';
 import { HistoricalVersionNotFoundSchema } from './historical-version-not-found.js';
+import { WorkflowActionIdentitySchema, WorkflowRouteTestSchema } from './operator-api-workflows.js';
 
 const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() }).strict();
 const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() }).strict();
@@ -182,6 +183,8 @@ const DebugGraphEdgeSchema = z
   .object({
     source_node_id: z.string().min(1),
     outcome: z.string().min(1),
+    route_id: z.string().min(1),
+    test: WorkflowRouteTestSchema.nullable(),
     runtime_owned: z.boolean(),
     condition: z.enum(['default', 'pending_notifications']),
     prompt: ResolvedPromptDeclarationSchema.nullable(),
@@ -195,9 +198,9 @@ const DebugGraphEdgeSchema = z
     promotion: DebugGraphPromotionSchema.nullable(),
   })
   .strict();
-const DebugGraphNodeSchema = z
+const DebugGraphAgentExecutionSchema = z
   .object({
-    node_id: z.string().min(1),
+    kind: z.literal('agent'),
     agent_name: agentNameSchema,
     session: z.object({ scope: z.literal('card'), identity_pattern: z.string().min(1) }).strict(),
     prompt: z
@@ -211,10 +214,19 @@ const DebugGraphNodeSchema = z
     model: DebugGraphModelSchema,
     skills: z.boolean(),
     tools: z.array(z.string().min(1)),
+    record_write_patterns: z.array(z.string().min(1)),
+  })
+  .strict();
+const DebugGraphNodeSchema = z
+  .object({
+    node_id: z.string().min(1),
+    execution: z.discriminatedUnion('kind', [
+      DebugGraphAgentExecutionSchema,
+      WorkflowActionIdentitySchema,
+    ]),
     child_creation_types: z.array(cardTypeSchema),
     child_activation_types: z.array(cardTypeSchema),
     readable_records: z.array(recordNameSchema),
-    record_write_patterns: z.array(z.string().min(1)),
     initialize_records: z.array(recordNameSchema),
     requirements: z.array(
       z

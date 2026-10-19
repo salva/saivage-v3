@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { describe,expect,it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join,resolve } from 'node:path';
@@ -53,8 +54,8 @@ describe('system template registry',()=>{
           if(requirement.definition.name==='review.md')expect(requirement).toMatchObject({mode:'clean',gate:'updated'});
         }
         if(status||review){
-          expect(node.agent.tools.map(tool=>tool.name)).toContain('write');
-          expect(node.agent.recordWrites.map(pattern=>pattern.source)).toContain(status?'status.md':'review.md');
+          expect(agentExecution(node).agent.tools.map(tool=>tool.name)).toContain('write');
+          expect(agentExecution(node).agent.recordWrites.map(pattern=>pattern.source)).toContain(status?'status.md':'review.md');
         }
       }
       expect([...workflow.states.values()].filter(node=>node.kind==='node'&&node.initializeRecords.some(record=>record.name==='status.md')).map(node=>node.kind==='node'?node.nodeId:'').sort())

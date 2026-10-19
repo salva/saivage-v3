@@ -1,10 +1,10 @@
 import type { WorkflowResult } from '../../src/schemas/lifecycle.js';
 
-export function workflowResult(terminal: WorkflowResult['terminal'], summary: string, options: Partial<Pick<WorkflowResult, 'agent_name' | 'node_id' | 'outcome' | 'records'>> = {}): WorkflowResult {
+export function workflowResult(terminal: WorkflowResult['terminal'], summary: string, options: Partial<Pick<WorkflowResult, 'executor' | 'node_id' | 'outcome' | 'records'>> = {}): WorkflowResult {
   return {
     kind: 'workflow-result',
     terminal,
-    agent_name: options.agent_name ?? (terminal === 'DONE' ? 'executor' : 'executor'),
+    executor: options.executor ?? { kind: 'agent', agent: 'executor' },
     node_id: options.node_id ?? 'execute',
     outcome: options.outcome ?? terminal.toLowerCase(),
     summary,

@@ -8,7 +8,7 @@ import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervis
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import {
   ConversationLLMActor,
   type LLMProviderPort,

@@ -72,6 +72,7 @@ function appendInvalidRootPlannerContinuation(projectRoot: string): void {
 function installRootSettlementOwner(runtime: ReturnType<typeof createSupervisorRuntimeApi>, root: NonNullable<ReturnType<CardService['read']>>) {
   const processor = {
     start() {}, activate: async () => new Promise<never>(() => undefined), disposeActivation() {},
+    afterActivationCommit: async () => undefined,
     suppressContinuationAndPrepareJoin() {}, joinActivation: async () => [],
     processPosition: () => ({ cardType: 'project', stateId: 'ready', kind: 'ready' }), executingLlmSnapshot: () => null,
   } as unknown as CardProcessActor;

@@ -973,7 +973,14 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (!committed) return;
     if (this.halt?.owners.includes(owner)) return;
     this.requireOwnerAuthority(owner);
-    owner.cachedStatus = committed.lifecycle.status;
+    owner.cachedStatus = committed.card.lifecycle.status;
+    await owner.processor.afterActivationCommit(
+      committed,
+      owner.activationId,
+      owner.abortController.signal,
+    );
+    if (this.halt?.owners.includes(owner)) return;
+    this.requireOwnerAuthority(owner);
     owner.processor.suppressContinuationAndPrepareJoin(new Error('Activation settled.'));
     try {
       await owner.processor.joinActivation();
@@ -1671,7 +1678,9 @@ function eligibleAgents(
   return [
     ...new Set(
       [...workflow.states.values()].flatMap((state) =>
-        state.kind === 'node' ? [state.agent.name] : [],
+        state.kind === 'node' && state.execution.kind === 'agent'
+          ? [state.execution.agent.name]
+          : [],
       ),
     ),
   ];

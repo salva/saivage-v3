@@ -173,9 +173,11 @@ describe('source-derived publication owner inventory', () => {
   });
 
   it('closes every detached consumer/observer site under an explicit current owner decision', () => {
+    // CardProcessActor pairs node and post-commit hook deliveries with success/failure
+    // consumers; both raw owners reach fatal before acknowledgement on uncertainty.
     expect(fileCountInventory(/\.trackConsumer\(/gu)).toEqual({
       'src/runtime/actors/analyst-session.ts': 1,
-      'src/runtime/actors/card-process-actor.ts': 2,
+      'src/runtime/actors/card-process-actor.ts': 4,
       'src/runtime/actors/llm-actor.ts': 1,
     });
     expect(fileCountInventory(/\bobserve\(/gu)).toEqual({ 'src/runtime/actors/llm-actor.ts': 9 });
@@ -206,6 +208,11 @@ describe('source-derived publication owner inventory', () => {
       'src/application/runtime-composition.ts': 2,
       'src/mcp/mcp-manager.ts': 1,
       'src/mcp/server-runtime.ts': 1,
+      // Agent node resources close their exact direct scope after nonfatal settlement.
+      'src/runtime/actors/node-execution.ts': 1,
+      // Operations terminate timed-out/interrupted commands and close their own scope;
+      // publication uncertainty exits through the fatal port before cleanup.
+      'src/runtime/actors/operation-execution.ts': 2,
       'src/runtime/actors/supervisor-runtime-api.ts': 2,
       'src/tools/process-provider.ts': 3,
     });

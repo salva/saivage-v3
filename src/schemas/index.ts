@@ -94,6 +94,7 @@ export type {
   CardResult,
   DoneResult,
   FailedResult,
+  WorkflowExecutor,
 } from './lifecycle.js';
 export {
   COMPACTION_SUMMARY_BLOCKED_SUMMARY,

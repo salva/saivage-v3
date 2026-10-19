@@ -43,7 +43,7 @@ const card = {
   title: longCardTitle,
   lifecycle: {
     status: 'failed',
-    result: { kind: 'workflow-result', terminal: 'FAILED', agent_name: 'executor', node_id: 'node-01', outcome: 'execution:failed', summary: 'The source refresh failed after retaining the last useful observation.', records: [{ name: 'constraints.md', url: `record:///constraints.md?card=${smokeCardId}&v=2`, version: 2 }] },
+    result: { kind: 'workflow-result', terminal: 'FAILED', executor: { kind: 'agent', agent: 'executor' }, node_id: 'node-01', outcome: 'execution:failed', summary: 'The source refresh failed after retaining the last useful observation.', records: [{ name: 'constraints.md', url: `record:///constraints.md?card=${smokeCardId}&v=2`, version: 2 }] },
     error: 'Synthetic blocked source: upstream evidence could not be refreshed.',
     completed_at: now,
   },
@@ -85,19 +85,9 @@ function objectiveRecord() {
 function largeGraph() {
   const nodes = Array.from({ length: 42 }, (_, index) => {
     const ordinal = String(index + 1).padStart(2, '0');
-    return {
-      node_id: `node-${ordinal}`,
-      initialize_records: [],
-      record_prompts: [],
-      agent_name: `custom-worker-${ordinal}`,
-      session: { scope: 'card', identity_pattern: `agent:custom-worker-${ordinal}:<card-id>` },
-      prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } },
-      model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 },
-      skills: true, tools: ['read'], child_creation_types: [], child_activation_types: [], readable_records: descriptors.map((record) => record.name), record_write_patterns: ['*.md'], requirements: [], descendant_context: null,
-      outcomes: [`continue-along-the-long-custom-cycle-${ordinal}`],
-    };
+    return { node_id: `node-${ordinal}`, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: descriptors.map((record) => record.name), requirements: [], descendant_context: null, outcomes: [`continue-along-the-long-custom-cycle-${ordinal}`], execution: { kind: 'agent', agent_name: `custom-worker-${ordinal}`, session: { scope: 'card', identity_pattern: `agent:custom-worker-${ordinal}:<card-id>` }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read'], record_write_patterns: ['*.md'] } };
   });
-  const edges = nodes.map((node, index) => ({
+  const edges = nodes.map((node, index) => ({ route_id: node.outcomes[0], test: null,
     source_node_id: node.node_id,
     outcome: node.outcomes[0], runtime_owned: false,
     condition: 'default', prompt: null,
@@ -202,9 +192,9 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
     }
     if (path === `/api/workflows/${graph.card_type}/presentation`) return json(route, parseOperatorResponse('workflows.presentation', 200, {
       card_type: graph.card_type,
-      nodes: graph.nodes.map(({ node_id, agent_name, initialize_records }) => ({ node_id, agent_name, initialize_records })),
+      nodes: graph.nodes.map(({ node_id, execution, initialize_records }) => ({ node_id, execution: { kind: 'agent', agent_name: execution.agent_name }, initialize_records })),
       entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
-      edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
+      edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
       terminals: graph.terminals,
       records: graph.records.map(({ name, bootstrap, initialization }) => ({ name, bootstrap, initialization })),
     }));

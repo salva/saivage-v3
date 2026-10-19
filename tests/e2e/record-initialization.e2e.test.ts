@@ -58,11 +58,11 @@ describe('configured node-entry record initialization through production composi
           'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
           'assessment.md': { format: 'markdown', schema: 'assessment.v1', bootstrap: false, initialization: { format_version: 1, template: INITIAL } },
         },
-        workflow: {
+        workflow: { format_version: 1,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: { execute: {
-            agent: 'executor', prompt: { reference: 'assess', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true },
+            execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'assess', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } },
             records: { 'assessment.md': { mode: 'continue', gate: 'exists' } },
             initialize_records: ['assessment.md'],
             record_prompts: [{ record: 'assessment.md', selection: 'effective', presence: 'optional', prompt: { reference: 'changed-record-with-body', compactable: true } }],

@@ -42,7 +42,7 @@ describe('card activation admission projection call graph', () => {
     const invocation = readFileSync(join(root, 'src/tools/invocation.ts'), 'utf8');
     const snapshot = readFileSync(join(root, 'src/runtime/actors/executing-llm-snapshot.ts'), 'utf8');
     const llm = readFileSync(join(root, 'src/runtime/actors/llm-actor.ts'), 'utf8');
-    const autonomous = readFileSync(join(root, 'src/runtime/actors/agent-node-execution.ts'), 'utf8');
+    const autonomous = readFileSync(join(root, 'src/runtime/actors/agent-executor.ts'), 'utf8');
     const analyst = readFileSync(join(root, 'src/runtime/actors/analyst-session.ts'), 'utf8');
 
     expect(invocation).toMatch(/invokeToolForLlm\(\s*surface: InvocationSurface,\s*name: string,\s*args: unknown,\s*context: LlmToolInvocationContext,\s*signal\?: AbortSignal,?\s*\)/);

@@ -56,7 +56,7 @@ import {
 } from '../helpers/responses-producer-fixture.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
-import { AgentNodeExecution } from '../../src/runtime/actors/agent-node-execution.js';
+import { AgentExecutor as AgentNodeExecution } from '../../src/runtime/actors/agent-executor.js';
 import type { ContextBlock } from '../../src/contracts/prepared-invocation.js';
 import { prepareRecordPromptContent } from '../../src/runtime/records/record-prompt-content.js';
 

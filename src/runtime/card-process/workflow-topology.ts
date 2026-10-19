@@ -1,4 +1,5 @@
 import type { WorkflowPresentation } from '../../contracts/index.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 import type {
   CardProcessEntry,
   CompiledCardTypeWorkflow,
@@ -50,6 +51,21 @@ export function workflowEdge(
   return {
     source_node_id: node.nodeId,
     outcome,
+    route_id:
+      route.semantic.kind === 'configured-outcome' ||
+      route.semantic.kind === 'configured-pending-notifications'
+        ? route.semantic.routeId
+        : outcome,
+    test:
+      route.semantic.kind === 'configured-outcome' && route.semantic.test
+        ? {
+            ...route.semantic.test,
+            value:
+              typeof route.semantic.test.value === 'string'
+                ? redactTextForOutbound(route.semantic.test.value)
+                : route.semantic.test.value,
+          }
+        : null,
     condition,
     target:
       target.kind === 'node'

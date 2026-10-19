@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -239,10 +240,10 @@ function runtimeHarness(
         const node = [...process.states.values()].find(state => state.kind === 'node' && input.preparedContext!.stableBlocks[1]!.content.startsWith(`Current workflow node '${state.nodeId}':`));
         if (!node || node.kind !== 'node') throw new Error('Missing prepared PAAD node');
         const contract = describeNodeResultContract(process, `node:${node.nodeId}`);
-        const role = renderCompiledPrompt({kind:'workflow-agent', cardType: cards.read(cardId)!.type}, node.agent.name, node.selectedAgentPrompt.compiled, {contractDescription: contract});
+        const role = renderCompiledPrompt({kind:'workflow-agent', cardType: cards.read(cardId)!.type}, agentExecution(node).agent.name, agentExecution(node).selectedAgentPrompt.compiled, {contractDescription: contract});
         expect(input.systemPrompt).toContain(role);
         expect(input.systemPrompt.split(contract)).toHaveLength(2);
-        expect(input.tools.map(tool => tool.function.name).sort()).toEqual([...node.agent.tools.map(tool => tool.name), 'emit_result'].sort());
+        expect(input.tools.map(tool => tool.function.name).sort()).toEqual([...agentExecution(node).agent.tools.map(tool => tool.name), 'emit_result'].sort());
       }
       return provider(input, signal);
     })),
@@ -274,8 +275,8 @@ function harness(
     if (!capabilities) throw new Error('test provider capabilities are missing');
     capabilities.contextWindowTokens = 30_000;
     if (type === 'data') {
-      config.card_types.data!.workflow.nodes.schema!.correction_prompt = {
-        ...config.card_types.data!.workflow.nodes.schema!.correction_prompt,
+      agentExecution(config.card_types.data!.workflow.nodes.schema!).correction_prompt = {
+        ...agentExecution(config.card_types.data!.workflow.nodes.schema!).correction_prompt,
         compactable: false,
         compaction_key: 'schema-correction',
       };
@@ -1451,7 +1452,7 @@ else throw new Error('Unknown fixture mode');
         kind: 'synthetic_context',
         origin: 'dynamic',
         block_identity: `node-activation:${childId}:verify`,
-        content: `Current workflow node 'verify':\n\n${process.processPrompts.get(verify.prompt.promptId)!.text}`,
+        content: `Current workflow node 'verify':\n\n${process.processPrompts.get(agentExecution(verify).prompt.promptId)!.text}`,
       }),
     );
     expect(nodeInputs.some(({ node }) => node === 'add-coverage' || node === 'repair')).toBe(false);
@@ -1459,7 +1460,7 @@ else throw new Error('Unknown fixture mode');
       status: 'done',
       result: {
         kind: 'workflow-result',
-        agent_name: 'executor',
+        executor: { kind: 'agent', agent: 'executor' },
         node_id: 'verify',
         outcome: 'done',
         summary: 'Affected suite and coverage verified.',
@@ -2104,7 +2105,7 @@ else throw new Error('Unknown fixture mode');
     if (red.kind !== 'node') throw new Error('Missing red correction owner.');
     const correction = run.workflows.cardTypes
       .get('code')!
-      .processPrompts.get(red.correctionPrompt.promptId)!.text;
+      .processPrompts.get(agentExecution(red).correctionPrompt.promptId)!.text;
     const configuredCorrections = rows.filter((row) => row.content === correction);
     expect(
       configuredCorrections.map((row) => ({ kind: row.kind, origin: row.instruction_origin })),
@@ -2134,7 +2135,7 @@ else throw new Error('Unknown fixture mode');
       status: 'done',
       result: {
         kind: 'workflow-result',
-        agent_name: 'executor',
+        executor: { kind: 'agent', agent: 'executor' },
         node_id: 'refactor',
         outcome: 'done',
         summary: 'Repair complete.',
@@ -2283,7 +2284,7 @@ else throw new Error('Unknown fixture mode');
     await pendingApprovalAnnounced;
     const draft = run.workflows.cardTypes.get('architecture')!.states.get('node:draft')!;
     if (draft.kind !== 'node') throw new Error('Missing draft instruction owner.');
-    const notificationText = `Reconsider the accepted architecture against the new deployment boundary.\nRecorded workflow instruction:\n${run.workflows.cardTypes.get('architecture')!.processPrompts.get(draft.prompt.promptId)!.text}`;
+    const notificationText = `Reconsider the accepted architecture against the new deployment boundary.\nRecorded workflow instruction:\n${run.workflows.cardTypes.get('architecture')!.processPrompts.get(agentExecution(draft).prompt.promptId)!.text}`;
     expect(
       supervisor.notifyCard(childId, {
         id: '11111111-1111-4111-8111-111111111111',
@@ -2345,7 +2346,7 @@ else throw new Error('Unknown fixture mode');
       const process = run.workflows.cardTypes.get('architecture')!;
       const compiledNode = process.states.get(`node:${node}`)!;
       if (compiledNode.kind !== 'node') throw new Error(`missing compiled node ${node}`);
-      const selectedText = process.processPrompts.get(compiledNode.prompt.promptId)!.text;
+      const selectedText = process.processPrompts.get(agentExecution(compiledNode).prompt.promptId)!.text;
       expect(
         messages.filter(
           (row) =>
@@ -2383,7 +2384,7 @@ else throw new Error('Unknown fixture mode');
       status: 'done',
       result: {
         kind: 'workflow-result',
-        agent_name: 'executor',
+        executor: { kind: 'agent', agent: 'executor' },
         node_id: 'draft',
         outcome: 'ready_for_component_review',
         summary: 'Notification-aware draft ready.',
@@ -2449,7 +2450,7 @@ else throw new Error('Unknown fixture mode');
             const process = run.workflows.cardTypes.get('data')!;
             const implement = process.states.get('node:implement')!;
             if (implement.kind !== 'node') throw new Error('missing implement node');
-            const oldText = process.processPrompts.get(implement.prompt.promptId)!.text;
+            const oldText = process.processPrompts.get(agentExecution(implement).prompt.promptId)!.text;
             return complete({
               kind: 'message',
               content: `Current workflow node 'implement':\n\n${oldText}`,
@@ -2528,7 +2529,7 @@ else throw new Error('Unknown fixture mode');
     if (schemaForCorrection.kind !== 'node') throw new Error('missing schema correction owner');
     expect(summarizedSource).toContain('Owner constraint: preserve the supplied field names.');
     expect(summarizedSource).toContain(
-      process.processPrompts.get(schemaForCorrection.correctionPrompt.promptId)!.text,
+      process.processPrompts.get(agentExecution(schemaForCorrection).correctionPrompt.promptId)!.text,
     );
     expect(summarizedSource).toContain("Current workflow node 'implement':");
     const parentDirection = nodeInputs[0]!.input.preparedContext!.stableBlocks.find((block) =>
@@ -2543,7 +2544,7 @@ else throw new Error('Unknown fixture mode');
     for (const { node, input } of nodeInputs) {
       const compiled = process.states.get(`node:${node}`)!;
       if (compiled.kind !== 'node') throw new Error(`missing data node ${node}`);
-      const text = process.processPrompts.get(compiled.prompt.promptId)!.text;
+      const text = process.processPrompts.get(agentExecution(compiled).prompt.promptId)!.text;
       const prepared = `Current workflow node '${node}':\n\n${text}`;
       expect(
         input.providerConversation.messages.filter(
@@ -2600,10 +2601,10 @@ else throw new Error('Unknown fixture mode');
     expect(transition).toMatch(/record:\/\/\/status\.md\?card=card-[a-z-]+&v=\d+/u);
     const schemaState = process.states.get('node:schema')!;
     if (schemaState.kind !== 'node') throw new Error('missing schema node');
-    const schemaText = process.processPrompts.get(schemaState.prompt.promptId)!.text;
+    const schemaText = process.processPrompts.get(agentExecution(schemaState).prompt.promptId)!.text;
     const validateState = process.states.get('node:validate')!;
     if (validateState.kind !== 'node') throw new Error('missing validate node');
-    const validateText = process.processPrompts.get(validateState.prompt.promptId)!.text;
+    const validateText = process.processPrompts.get(agentExecution(validateState).prompt.promptId)!.text;
     expect(
       schemaRowsBeforeResult.some(
         (row) =>
@@ -2686,7 +2687,7 @@ else throw new Error('Unknown fixture mode');
         message: expect.objectContaining({
           kind: 'model_repair',
           instruction_origin: 'workflow_prompt',
-          content: process.processPrompts.get(schemaForCorrection.correctionPrompt.promptId)!.text,
+          content: process.processPrompts.get(agentExecution(schemaForCorrection).correctionPrompt.promptId)!.text,
         }),
       }),
     );
@@ -2708,7 +2709,7 @@ else throw new Error('Unknown fixture mode');
       status: 'blocked',
       result: {
         kind: 'workflow-result',
-        agent_name: 'executor',
+        executor: { kind: 'agent', agent: 'executor' },
         node_id: 'validate',
         outcome: 'blocked',
         records: [{ name: 'status.md', url: expect.stringMatching(/&v=\d+$/u) }],

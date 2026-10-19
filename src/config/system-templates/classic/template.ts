@@ -23,6 +23,7 @@ function planningCardType(): CardTypesSource[CardTypeName] {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
+      format_version: 1,
       notification_recipient: 'planner',
       entries: {
         BACKLOG: { node: 'plan' },
@@ -32,9 +33,12 @@ function planningCardType(): CardTypesSource[CardTypeName] {
       },
       nodes: {
         plan: {
-          agent: 'planner',
-          prompt: prompt('plan'),
-          correction_prompt: prompt('correct-plan-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'planner',
+            prompt: prompt('plan'),
+            correction_prompt: prompt('correct-plan-result'),
+          },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: {
             complete_direct: {
@@ -50,9 +54,12 @@ function planningCardType(): CardTypesSource[CardTypeName] {
           },
         },
         review: {
-          agent: 'reviewer',
-          prompt: prompt('review'),
-          correction_prompt: prompt('correct-review-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'reviewer',
+            prompt: prompt('review'),
+            correction_prompt: prompt('correct-review-result'),
+          },
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           descendant_context: { records: ['status.md'], require_unchanged_until_accept: true },
           edges: {
@@ -73,9 +80,12 @@ function planningCardType(): CardTypesSource[CardTypeName] {
           },
         },
         recover: {
-          agent: 'planner',
-          prompt: prompt('recover'),
-          correction_prompt: prompt('correct-plan-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'planner',
+            prompt: prompt('recover'),
+            correction_prompt: prompt('correct-plan-result'),
+          },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: {
             complete_direct: {
@@ -91,9 +101,12 @@ function planningCardType(): CardTypesSource[CardTypeName] {
           },
         },
         'handle-notifications': {
-          agent: 'planner',
-          prompt: prompt('handle-notifications'),
-          correction_prompt: prompt('correct-plan-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'planner',
+            prompt: prompt('handle-notifications'),
+            correction_prompt: prompt('correct-plan-result'),
+          },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: {
             admit_review: { target: { node: 'review' }, prompt: prompt('plan-to-review') },
@@ -119,6 +132,7 @@ function executionCardType(): CardTypesSource[CardTypeName] {
     },
     workflow: {
       notification_recipient: 'executor',
+      format_version: 1,
       entries: {
         BACKLOG: { node: 'execute' },
         CHANGED: { node: 'execute' },
@@ -127,9 +141,12 @@ function executionCardType(): CardTypesSource[CardTypeName] {
       },
       nodes: {
         execute: {
-          agent: 'executor',
-          prompt: prompt('execute'),
-          correction_prompt: prompt('correct-execution-result'),
+          execution: {
+            kind: 'agent',
+            agent: 'executor',
+            prompt: prompt('execute'),
+            correction_prompt: prompt('correct-execution-result'),
+          },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: {
             done: {

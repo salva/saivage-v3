@@ -100,6 +100,7 @@ function processor(
       disposeActivation: dispose,
       prepareForRuntimeHalt: jest.fn((reason: unknown) => dispose(reason)),
       suppressContinuationAndPrepareJoin: jest.fn(),
+      afterActivationCommit: jest.fn(async () => undefined),
       joinActivation: jest.fn(() => (activationJoin ??= join.promise)),
       processPosition: () => ({ cardType: 'project', stateId: 'ready', kind: 'ready' }),
       executingLlmSnapshot: () => snapshot,
@@ -171,8 +172,11 @@ function harness(withChild = false, fatalPort: ApplicationFatalPort = testApplic
     ),
     commitActivationOutcome: jest.fn(
       (_id: string, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => ({
-        ...card('project'),
-        lifecycle: { ...card('project').lifecycle, status: outcome.status },
+        card: {
+          ...card('project'),
+          lifecycle: { ...card('project').lifecycle, status: outcome.status },
+        },
+        artifact: { entry_id: '00000000-0000-4000-8000-000000000001', version: 2 },
       }),
     ),
     setStatus: jest.fn((id: string, status: CardRecord['lifecycle']['status']) => {

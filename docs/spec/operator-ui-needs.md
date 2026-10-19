@@ -265,10 +265,22 @@ Conversation freshness likewise pairs the immutable segment UUID with its displa
 
 ### C. Understand activity in its work context
 
+Non-LLM action nodes and postcommit advisory hooks need their own **Executions**
+facet alongside real agent Conversations. Operators can inspect chronological
+entry/process/finish observations, exact operation/version/provider and binding,
+committed hook selection, known leader/group/capture facts and selected files.
+An absent log is only absent retained evidence; an unfinished invocation says
+**no completion retained; effects unknown**, not live work. Show generated files
+as mutable current sources and absent/missing files honestly. Preview and download
+must share Files confidentiality and bounded text access, including alias/attic
+refusal, without publishing private configuration/environment or raw secrets.
+This evidence cannot promise historical artifact bytes, all effects stopped,
+workflow acceptance, or replay safety.
+
 **F11 — Must — Work-to-agent navigation.** From a selected card, reach its published
 named-agent sessions without locating them in a project-wide inventory. A card session,
 including one opened by direct link, remains inside the owning card cockpit with the
-selected card, represented tree, header, participant rail, and four facet tabs visible;
+selected card, represented tree, header, participant rail, and five facet tabs visible;
 participant selection changes the one exact reader without leaving that context. Wherever
 a session is inspected, expose its owning
 card's exact identity or global scope and the session's named-agent identity. For a card

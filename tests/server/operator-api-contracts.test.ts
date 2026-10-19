@@ -512,6 +512,10 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const cardRoutes = Object.values(operatorApiContracts).filter(({ path }) => path.startsWith('/api/cards'));
 
     expect(cardRoutes).toEqual([
+      expect.objectContaining({ operationId: 'cards.executions.list', method: 'GET', path: '/api/cards/:id/executions' }),
+      expect.objectContaining({ operationId: 'cards.executions.get', method: 'GET', path: '/api/cards/:id/executions/:invocationId' }),
+      expect.objectContaining({ operationId: 'cards.executions.file', method: 'GET', path: '/api/cards/:id/executions/:invocationId/files/:fileKey' }),
+      expect.objectContaining({ operationId: 'cards.executions.download', method: 'GET', path: '/api/cards/:id/executions/:invocationId/files/:fileKey/download' }),
       expect.objectContaining({ operationId: 'cards.children', method: 'GET', path: '/api/cards/:id/children' }),
       expect.objectContaining({ operationId: 'cards.get', method: 'GET', path: '/api/cards/:id' }),
       expect.objectContaining({ operationId: 'cards.records.list', method: 'GET', path: '/api/cards/:id/records' }),

@@ -172,8 +172,9 @@ export class AgentOperatorReadModelService {
           ]
         : [...resolved.workflow.states].flatMap(([nodeId, state]) =>
             state.kind === 'node' &&
-            state.agent.session === 'card' &&
-            state.agent.name === agentName
+            state.execution.kind === 'agent' &&
+            state.execution.agent.session === 'card' &&
+            state.execution.agent.name === agentName
               ? [
                   {
                     kind: 'workflow_node' as const,
@@ -341,7 +342,9 @@ export class AgentOperatorReadModelService {
     const names = [
       ...new Set(
         [...workflow.states.values()].flatMap((state) =>
-          state.kind === 'node' ? [state.agent.name] : [],
+          state.kind === 'node' && state.execution.kind === 'agent'
+            ? [state.execution.agent.name]
+            : [],
         ),
       ),
     ].sort();
@@ -381,8 +384,9 @@ export class AgentOperatorReadModelService {
     const configured = [...workflow.states.values()].some(
       (state) =>
         state.kind === 'node' &&
-        state.agent.session === 'card' &&
-        state.agent.name === identity.agentName,
+        state.execution.kind === 'agent' &&
+        state.execution.agent.session === 'card' &&
+        state.execution.agent.name === identity.agentName,
     );
     if (!configured) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
     return {

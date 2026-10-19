@@ -18,7 +18,7 @@ function card(id: string, title: string, children: string[] = [], status: 'backl
     child_membership: children,
     active_child_order: children,
     title,
-    lifecycle: { status, result: status === 'blocked' ? { kind: 'workflow-result', terminal: 'BLOCKED', agent_name: 'executor', node_id: 'execute', outcome: 'blocked', summary: 'blocked', records: [] } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },
+    lifecycle: { status, result: status === 'blocked' ? { kind: 'workflow-result', terminal: 'BLOCKED', executor: { kind: 'agent', agent: 'executor' }, node_id: 'execute', outcome: 'blocked', summary: 'blocked', records: [] } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },
     operator_summary: { blocked: status === 'blocked', hasError: false, error: null, completedAt: null, stale: false },
     priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
     depends_on: [], status_text: null, status_text_updated_at: null,

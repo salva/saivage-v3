@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,12 +32,12 @@ it('keeps every shipped profile unchanged and composes opted-in Analyst/card rep
       mcpToolInvocation: unusedMcpToolInvocation, cardTypeVocabulary: vocabulary,
       processScope: {}, processOwnerId: 'offline-composition', observationToolContext: globalContext, analystToolContext: globalContext, ...extra,
     } as never));
-    const selected = [...compiled.cardTypes].flatMap(([cardType, process]) => [...process.states].flatMap(([stateId, state]) => state.kind === 'node' && state.agent.name === 'reviewer' ? [{ cardType, process, stateId, state }] : []))[0]!;
+    const selected = [...compiled.cardTypes].flatMap(([cardType, process]) => [...process.states].flatMap(([stateId, state]) => state.kind === 'node' && agentExecution(state).agent.name === 'reviewer' ? [{ cardType, process, stateId, state }] : []))[0]!;
     const { cardType, process: workflow, stateId, state } = selected;
     const contract = describeNodeResultContract(workflow, stateId);
-    const roleText = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: contract });
-    const nodeText = workflow.processPrompts.get(state.prompt.promptId)!.text;
-    const tools = [...definitions(effectiveCardNodeToolReferences(state.agent.tools, state.childCreationTypes), 'card', state.agent.name, { childCreationTypes: state.childCreationTypes, childActivationTypes: state.childActivationTypes }), nodeResultToolDefinition(workflow, stateId)];
+    const roleText = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(state).agent.name, agentExecution(state).selectedAgentPrompt.compiled, { contractDescription: contract });
+    const nodeText = workflow.processPrompts.get(agentExecution(state).prompt.promptId)!.text;
+    const tools = [...definitions(effectiveCardNodeToolReferences(agentExecution(state).agent.tools, state.childCreationTypes), 'card', agentExecution(state).agent.name, { childCreationTypes: state.childCreationTypes, childActivationTypes: state.childActivationTypes }), nodeResultToolDefinition(workflow, stateId)];
     const analystText = renderCompiledPrompt({ kind: 'global-agent' }, compiled.analyst.name, compiled.analystPrompt.compiled, { vocabularySnippet: 'Offline vocabulary orientation; no project data.' });
     const analystTools = definitions(compiled.analyst.tools, 'global', 'analyst');
     for (const selectedTools of [tools, analystTools]) {

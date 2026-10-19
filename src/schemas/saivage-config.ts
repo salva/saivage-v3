@@ -247,18 +247,80 @@ const pendingNotificationsEdgeSchema = z
     prompt: durablePromptDeclarationSchema,
   })
   .strict();
-const processEdgeSchema = z
+const inputBindingSchema = z.union([
+  z
+    .object({
+      literal: z.union([z.string(), z.boolean(), z.number().int().safe(), z.array(z.string())]),
+    })
+    .strict(),
+  z.object({ source: z.enum(['card_id', 'card_type', 'card_title', 'committed_status']) }).strict(),
+]);
+const edgeInputsSchema = z.record(z.string(), z.object({ output: z.string() }).strict());
+const dataFieldSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('string'), enum: z.array(z.string()).optional() }).strict(),
+  z
+    .object({
+      type: z.literal('integer'),
+      min: z.number().int().safe().optional(),
+      max: z.number().int().safe().optional(),
+    })
+    .strict(),
+  z.object({ type: z.literal('boolean') }).strict(),
+  z.object({ type: z.literal('strings') }).strict(),
+]);
+const actionExecutionSchema = z
+  .object({
+    kind: z.literal('action'),
+    action: z.string(),
+    contract_version: z.literal(1),
+    config: z.unknown(),
+    inputs: z.record(z.string(), inputBindingSchema),
+  })
+  .strict();
+const agentExecutionSchema = z
+  .object({
+    kind: z.literal('agent'),
+    agent: agentNameSchema,
+    prompt: staticPromptDeclarationSchema,
+    correction_prompt: durablePromptDeclarationSchema,
+    data_inputs: z.record(z.string(), dataFieldSchema).optional(),
+    inputs: z.record(z.string(), inputBindingSchema).optional(),
+  })
+  .strict();
+const processRouteSchema = z
   .object({
     target: processEdgeTargetSchema,
     prompt: durablePromptDeclarationSchema.optional(),
     pending_notifications: pendingNotificationsEdgeSchema.optional(),
+    inputs: edgeInputsSchema.optional(),
   })
   .strict();
+const processEdgeSchema = z.union([
+  processRouteSchema,
+  z
+    .object({
+      cases: z
+        .array(
+          processRouteSchema.extend({
+            id: namedIdentifierSchema,
+            when: z
+              .object({
+                field: z.string(),
+                op: z.enum(['eq', 'gt', 'gte', 'lt', 'lte']),
+                value: z.union([z.string(), z.boolean(), z.number().int().safe()]),
+              })
+              .strict(),
+          }),
+        )
+        .min(1)
+        .max(8),
+      otherwise: processRouteSchema,
+    })
+    .strict(),
+]);
 const processNodeSchema = z
   .object({
-    agent: agentNameSchema,
-    prompt: staticPromptDeclarationSchema,
-    correction_prompt: durablePromptDeclarationSchema,
+    execution: z.discriminatedUnion('kind', [agentExecutionSchema, actionExecutionSchema]),
     initialize_records: z
       .array(recordNameSchema)
       .refine((values) => new Set(values).size === values.length, 'Duplicate initialized record.')
@@ -292,6 +354,17 @@ const processNodeSchema = z
   .strict();
 const cardProcessSchema = z
   .object({
+    format_version: z.literal(1),
+    after_activation_commit: z
+      .object({
+        statuses: z
+          .array(z.enum(['done', 'blocked', 'failed']))
+          .min(1)
+          .refine((values) => new Set(values).size === values.length, 'Duplicate hook status.'),
+        execution: actionExecutionSchema,
+      })
+      .strict()
+      .optional(),
     notification_recipient: agentNameSchema,
     entries: z
       .object({

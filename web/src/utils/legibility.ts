@@ -11,19 +11,31 @@ export function livenessPhrase(status: string, activity: string): string {
 
 interface CompiledWorkflowNode {
   node_id: string;
-  agent_name: string;
+  execution:
+    | { kind: 'agent'; agent_name: string }
+    | {
+        kind: 'action';
+        action: string;
+        contract_version: number;
+        provider: { kind: string; name: string };
+      };
 }
 
 interface CompiledWorkflowGraphLike {
   nodes?: readonly CompiledWorkflowNode[];
 }
 
-export function positionGloss(position: CardWorkflowPosition, graph: CompiledWorkflowGraphLike | null | undefined): string | null {
+export function positionGloss(
+  position: CardWorkflowPosition,
+  graph: CompiledWorkflowGraphLike | null | undefined,
+): string | null {
   if (!graph?.nodes) return null;
   if (position.kind === 'node') {
     const node = graph.nodes.find((candidate) => candidate.node_id === position.nodeId);
     if (!node) return null;
-    return `${node.agent_name}'s step in this workflow.`;
+    return node.execution.kind === 'agent'
+      ? `${node.execution.agent_name}'s step in this workflow.`
+      : `${node.execution.action} action (contract ${node.execution.contract_version}, ${node.execution.provider.kind} ${node.execution.provider.name}).`;
   }
   if (position.kind === 'terminal') {
     return 'Terminal positions are configured end states, not lifecycle status.';
@@ -42,9 +54,13 @@ export function resultOneLiner(result: ResultLike | null | undefined): string | 
   if (!result) return null;
   const summary = typeof result.summary === 'string' ? result.summary.trim() : '';
   if (summary) {
-    return summary.length > RESULT_ONE_LINER_MAX ? `${summary.slice(0, RESULT_ONE_LINER_MAX).trimEnd()}…` : summary;
+    return summary.length > RESULT_ONE_LINER_MAX
+      ? `${summary.slice(0, RESULT_ONE_LINER_MAX).trimEnd()}…`
+      : summary;
   }
-  const keys = Object.keys(result).filter((key) => key !== 'summary').slice(0, 3);
+  const keys = Object.keys(result)
+    .filter((key) => key !== 'summary')
+    .slice(0, 3);
   return keys.length > 0 ? keys.join(', ') : null;
 }
 

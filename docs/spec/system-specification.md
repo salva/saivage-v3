@@ -1,5 +1,84 @@
 # Saivage v3 System Specification
 
+## Stateless action nodes
+
+Workflow input format1 selects `execution.kind:agent` or `action` per node.
+Actions name an exact `namespace.operation` and contract version; only explicitly
+compiled operations exist. The builtin `shell.run` contract1 launches captured
+`bash --noprofile --norc -o pipefail -c <script> saivage-action <args...>`.
+Script and isolated argv remain separate; no implicit `set -e` is added.
+Project-relative cwd, explicit nonsecret env and at most16 exact generated
+artifact paths are configured, never inferred or scanned. Timeout defaults to
+120000ms (maximum600000); TERM grace defaults to2000ms (maximum10000).
+
+Its four required outcomes are `passed`/`failed` with observed integer
+`exit_code`, `signalled` with actual leader `signal`, and `timed_out` with an
+explicit `reason` after termination/join. Spawn or evidence failure is an engine
+error, not nonzero. Cancellation returns the exact control interruption after
+cleanup, never a configured result. Captures have a5000ms post-group settlement
+deadline; unavailable evidence remains failure. External effects stay unknown.
+Pause still parks only autonomous provider admission: admitted action chains may
+continue until a provider frontier or natural completion. Stop contains them.
+
+Flat required typed values support ordered cases (first match, mandatory
+otherwise) and selected successor inputs. Private fields cannot route or feed
+successors. An invalid return after effects fails without retry. Agent result
+tools and their2000-character summary bound remain unchanged. Actions cannot
+write, initialize, clean or close authored records; `continue/exists` requires
+fresh accepted authored content. Shared terminal/export/notification gates still
+apply. Workflow results identify the actual agent or action executor; actions
+create no agent session. Their lazy execution log distinguishes entry, observed
+spawn and retained completion; absent completion means effects unknown, not live
+status or permission to replay.
+
+The compiler requires exact qualified IDs, versions, providers and supported
+bindings from explicit trusted module declarations; it never discovers plugins.
+`shell`, `git` and `saivage` namespaces are reserved; only `shell.run` is builtin.
+Unknown operations, duplicate namespaces/IDs, shadows and unsupported bindings
+fail. Required flat fields are string, boolean, safe integer or string list;
+declarations may constrain string enums/integer ranges. Limits: 32 fields,
+4096 UTF-8 bytes/string, 256 strings/list, 64 KiB encoded values. Unknown,
+missing, invalid or oversized fields and undeclared outcomes are engine failures
+even after real effects; no retry or false no-change outcome is synthesized.
+Private fields cannot drive cases, successor inputs or retained public fields.
+Cases have stable IDs, one typed `eq|gt|gte|lt|lte` test, at most eight per outcome
+and mandatory `otherwise`; first matching case wins after strict validation.
+All routes participate in ordinary graph/export/notification admission.
+Node/hook input suppliers are explicit literals or card facts; only hooks admit
+committed status. Selected predecessor outputs bind destination fields, checked
+on every incoming route and again before effects. There is no prior-log replay,
+implicit merge/default, arbitrary JSON/expression or dynamic target.
+
+One optional `workflow.after_activation_commit` action may filter natural
+`done|blocked|failed` settlements. Supervisor invokes it only after known outcome
+commit/currentness check and before processor join/owner release. It receives
+the committed immutable selection, not card mutation authority. Ordinary failure
+is advisory and cannot undo the outcome; containment/storage failure still fails
+settlement and publication uncertainty is fatal before follow-up. It does not
+run for recovery, Stop, cancellation, reopen, creation, queue or record writes.
+No retries, recursive triggers, durable queue or replay occur. Required pre-DONE
+checks belong in normal action nodes. Halt joins the whole finite raw action/hook
+cleanup and matching delivery consumer; process exit alone is insufficient.
+Actions/hooks never receive notifications or fabricate agent/tool/provider rows.
+Required sessions derive only from actual agent nodes. Existing agent correction,
+fresh record/parent context, exact reviewer selection, descendant and terminal
+gates remain unchanged. Agent-selected typed transition context is quoted factual
+data, not a new instruction or capability.
+
+`records/executions.jsonl` is a lazy card-owned strict version1 `card-execution`
+family, not an authored record or workflow state. Each append is one nonempty
+newline-terminated envelope. Whole-log consumers validate identity/associations
+and all retained rows, not just a requested page. Entry precedes launch and does
+not assert effects; process start requires actual observed spawn. Missing finish
+is valid incomplete evidence. Only a torn final suffix after a valid complete
+prefix may be truncated; complete corruption fails at actual read/append, not
+a new startup scan. No reader closes or resumes an invocation. Selected captures
+are actual runner files; up to 16 exact generated artifact paths are observed
+after known settlement and remain mutable current-source references, never
+snapshots. Absent artifacts have no invented link and later missing files are
+unavailable. Authenticated execution list/detail/exact-reference files share
+Files privacy/alias/attic refusal and bounded redacted text downloads.
+
 Parent `activate_card` requires strict `{card_id,instructions}` with non-whitespace
 direction preserved byte-for-byte. Trusted parent card/session/input/call provenance
 comes from its exact existing lease. Direction remains advisory across that actual
@@ -615,7 +694,7 @@ No state ID or ordinal is durable.
 
 `CardProcessActor` executes one compiled node at a time and keeps graph position only in live activation memory.
 Each node's referenced named agent supplies the exact ordered operational tools.
-Prompt rendering receives that array without `emit_result`; `AgentNodeExecution` directly creates and appends `emit_result` exactly once and last.
+Prompt rendering receives that array without `emit_result`; `AgentExecutor` directly creates and appends `emit_result` exactly once and last.
 It first requires arguments to be a non-null, non-array JSON object, then directly applies the strict `{outcome,summary}` schema; failures remain in the same-node repair loop and consume its joint corrective re-arm budget.
 The schema accepts only a configured edge and a trimmed non-empty summary bounded by the [exact terminal-result limit](#exact-terminal-result-limit).
 Immediately before each direct terminal append or settlement, this owner parses exactly one strict settlement variant: accepted `{success:true,data:{accepted:true}}`, an ordinary nonempty-error failure with no data, or the pending-notification failure with exactly `{reason:'pending_notifications'}`.
@@ -906,7 +985,7 @@ After these bounded global operations, Supervisor startup strictly selects the c
 
 Startup and explicit Run use the same Supervisor selection across all canonical linked membership, proving that every linked `running` card belongs to one unique project-rooted chain; missing links, malformed parent identity, branching, and a running card below a non-running ancestor fail before card recovery correction writes. Earlier boot admission may already have consumed the app log or truncated a permitted tail, and fresh-startup global mates may already have committed.
 Every selected card is then processed as one leaf-to-root unit.
-Its configured planning-cycle nodes stabilize in graph order—by default the plan node's configured agent, then the review node's—while single-node types stabilize that node's configured executor; immediately after all of that card's sessions stabilize, that same card is published stopped before recovery advances to its ancestor.
+Its distinct configured agent sessions stabilize in graph order, skipping action nodes; immediately after all of that card's sessions stabilize, that card is published stopped before recovery advances to its ancestor. Execution logs are not recovery inputs.
 Planner/Reviewer/Executor are the default named agents, not runtime roles.
 The one Supervisor operation is the only broad card-chain corrective-recovery owner, invoked during startup and during explicit Run after same-process Stop; it accepts only configured card-scoped sessions and consumes canonical `ValidatedConversation` call facts before applying its card policy. Separately, the exact consuming card-session activation owner and, in an already-running server, the configured global Analyst owner for a newly admitted explicit submission may settle only the sole strict-valid final unmatched call of the exact session selected for imminent actual use. The bounded configured-global fresh-startup operation above has the same limited call-settlement policy. Each bounded operation performs no chain selection, state classification, notice append, old continuation, or session scan.
 Recovery makes an explicit local visibility decision for every current message kind before classification and rejects an unsupported runtime kind before filtering or state derivation.
@@ -1324,7 +1403,7 @@ A known-unsuccessful exclusive open publishes no new lock; a failure after that 
 After successful acquisition, ordinary failure releases the exact current lock record, whether bootstrap-unbound or bound, but does not roll back completed config, identity, or generated durable effects.
 Identity therefore remains if its creation completes but lock binding fails.
 Card and authored-record heads and every selected document are strict at consumption; required missing, unreadable, malformed, schema-invalid or identity-mismatched state fails directly without repair. Historical predecessors fail when reached by historical consumption, not by unrelated current reads.
-The three remaining growing JSONL families permit exact consuming owners to truncate only a torn final physical suffix after validating the nonempty complete retained prefix, including ordinary runtime/API/tool reads. Card/record heads and immutable JSON documents gain no such permission.
+Growing JSONL families (conversation, app log, provider evidence and lazy card execution evidence) permit exact consuming owners to truncate only a torn final physical suffix after validating the nonempty complete retained prefix, including ordinary runtime/API/tool reads. Execution history adds no startup scan. Card/record heads and immutable JSON documents gain no such permission.
 If truncation completion cannot be confirmed, the outcome is fatal/unknown and authorizes no follow-up read, retry, repair, or recovery.
 Publication uncertainty is fatal, may retain its target and lock, and authorizes no inspection, repair, or rollback; generated-publication failure may retain partial state.
 `saivage reset` is the separate explicit stopped-service operation over the four generated roots.
@@ -1661,11 +1740,11 @@ Publication is one post-effect append attempt immediately before returning the e
 
 Adding this durable event discriminator requires [incompatible adoption](../runbook/index.md#direct-runtime-control-event-adoption), not a core converter, mixed versions or binary-only rollback over new rows. No envelope-version bump is implied; source implementation authorizes no deployment, reset or external migration.
 
-Authenticated `GET /api/workflows/:cardType/presentation` (`workflows.presentation`) supplies the cockpit's compact structural facts for exactly one installed card type, directly from the immutable startup artifact with no file reads or all-types projection. Its strict response is `{card_type,nodes:[{node_id,agent_name}],entries:[{entry,node_id}],edges:[{source_node_id,outcome,condition,target}],terminals:[{terminal}],records:[{name,bootstrap}]}`. Entry, condition, terminal enums and node/terminal targets match Debug Graphs, including configured and runtime-owned edges. Unknown installed type returns strict HTTP 404 `{error:'workflow_type_not_found',card_type}`. Prompt declarations/bodies/paths, globals, model/provider bindings, tools, capabilities, secrets, and runtime position are absent. This is presentation evidence, not another workflow authority; System retains the richer Debug Graphs operation.
+Authenticated `GET /api/workflows/:cardType/presentation` (`workflows.presentation`) supplies compact structural facts for one installed card type from the immutable startup artifact, with no file reads or all-types projection. Its strict response is `{card_type,nodes:[{node_id,execution,initialize_records}],entries:[{entry,node_id}],edges:[{source_node_id,outcome,route_id,test,condition,target}],terminals:[{terminal}],records:[{name,bootstrap,initialization}]}`. Execution is `{kind:'agent',agent_name}` or `{kind:'action',action,contract_version,provider:{kind,name}}`; tests are nullable typed route tests, initializer declarations nullable format1/template objects. Entry, condition, terminal enums and targets match Debug Graphs, including runtime-owned edges. Unknown installed type returns HTTP 404 `{error:'workflow_type_not_found',card_type}`. Prompt declarations/bodies/paths, globals, agent model/provider bindings, tools, capabilities, secrets and runtime position are absent. Action provenance identifies the compiled operation, not an agent route. This is presentation evidence, not another workflow authority; System retains richer Debug Graphs.
 
 Authenticated `GET /api/debug/graphs` returns one strict graph projection for each canonical card type in canonical order.
 Its sole source is the immutable runtime workflow artifact compiled and bound during startup: the handler reads no configuration, prompt file, or runtime-state file.
-The response includes the selected global agents separately from card graphs, with each exact global session identity, safe resolved static prompt declaration/source, installed model route/candidates, skills flag, and tools. Card graphs include the designated notification recipient, permitted child types, record definitions, lifecycle entries, named-agent nodes, safe resolved prompt declarations and sources, model routes and provider/model candidate identities with account identity omitted, tool and record capabilities, requirements and descendant context, outcome edges, cycles, terminal exports and promotion, and all three terminal nodes. Configured result edges have `runtime_owned: false` and `condition: default | pending_notifications`. Runtime terminal edges use `execution:failed` or `execution:blocked`, `runtime_owned: true`, `condition: default`, and a terminal target. Runtime interruption edges use `outcome: notification:interrupt`, `runtime_owned: true`, and `condition: default`; they target the configured STOPPED-entry node, not a STOPPED terminal, and expose the safe STOPPED entry prompt declaration where configured, empty `export_records`, and null `promotion`. Runtime terminal edges likewise have null prompt, empty exports, and null promotion. Resolved declarations expose explicit `reference` and `compactable` plus only a legal optional exact `compaction_key`; bodies and paths remain absent. Projection remains derived from the immutable startup workflows, not runtime history.
+The response includes selected global agents separately, with exact session identity, safe static declaration/source, model route/candidates, skills and tools. Card graphs expose notification recipient, children, record/initializer definitions, lifecycle entries, discriminated agent/action nodes, requirements, descendant context, outcome/case routes, cycles, terminal exports/promotion and all three terminals. Only agent nodes expose safe prompts, model routes/candidates (no accounts), tools and record capabilities. Actions expose exact operation/version/provider, never fake agent bindings or private configuration. Configured routes retain semantic outcome, route ID, nullable typed test, `runtime_owned:false` and `condition:default|pending_notifications`. Runtime terminal edges use `execution:failed|execution:blocked`, `runtime_owned:true`, default condition and terminal targets. Runtime `notification:interrupt` edges target STOPPED's configured agent node, not a terminal; they expose its safe entry declaration, empty exports and null promotion. Runtime terminal edges have null prompt, empty exports and null promotion. Prompt declarations expose reference/compactable/legal optional compaction_key, never bodies/paths. Projection comes from startup compilation, not runtime history.
 Prompt bodies and paths, credentials, auth profiles, provider accounts/secrets, MCP schemas/descriptions, and mutable workflow position are not part of the contract.
 The complete response is validated before egress.
 Restart-only `reconfigure` may change next-start configuration, but this projection remains unchanged until a fresh server startup compiles and binds a replacement artifact.
@@ -2419,7 +2498,7 @@ Files authorization remains unchanged; canonical card traversal is the virtual b
 
 ## 12. Reset And Failure Consequences
 
-Incompatible hierarchical layout, card/record heads and immutable predecessor documents, deterministic child claims, terminal tombstones, complete parent-owned membership/order and indexed conversation segments are named incompatible durable-format cutovers. Current card heads/mailbox remain format1; ordinary/tombstone bodies require format2, with nine null-only card members removed. Record heads3, accepted documents2, conversation12 and initializer input1 are unchanged by this card-body cutover, retaining record document0/macros and strict compaction-summary BLOCKED results. Adoption follows [consented reset or explicit external migration](../runbook/index.md#external-migrations); core accepts only current contracts.
+Incompatible hierarchical layout, card/record heads and immutable predecessor documents, deterministic child claims, terminal tombstones, complete parent-owned membership/order and indexed conversation segments are named incompatible durable-format cutovers. Current card heads/mailbox remain format1; ordinary/tombstone bodies require format3 with discriminated executor results, following format2's removal of nine null-only members. New execution envelope1, workflow input1 and operation contracts are distinct. Record heads3, accepted documents2, conversation12 and initializer input1 remain unchanged, retaining record document0/macros and strict compaction-summary BLOCKED results. Adoption follows [consented reset or explicit external migration](../runbook/index.md#external-migrations); core accepts only current contracts.
 Notification query-surface removal and current-activation enqueue admission change no durable format. They require no reset, migration, prompt rematerialization, or special deployment operation; existing materialized prompts remain instance-owned.
 The current widening of the unchanged card-ID field grammar from the former bound of five to the maximum in the [exact card identity contract](#exact-card-identity-contract) is instead a same-format forward deployment: every previously valid ID remains valid, so deployment requires no reset.
 Once a deeper card is created, an old binary cannot read that state and must not be used against it.
@@ -2666,7 +2745,7 @@ Natural root release is valid from running, pausing, or paused and calls `Runtim
 Stop, application close, and ordinary actor-main failure start or join the same halt.
 Publication uncertainty exits before that halt or a status transition.
 
-Current card heads and mailbox messages use strict format1; ordinary/tombstone documents use strict format2. Former stream layouts and mixed representations are unsupported. Ordinary payload excludes `version_seq`, `updated_at` and `pending_notifications`; current projection derives those from the head, historical projection derives revision/time from immutable metadata and contains no historical queue. Identity, membership/order, immutable type and lifecycle grammar remain strict. The current card model has no `subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report` or `metadata`, even with null values; strict readers reject these keys. Retained `status_text` and `status_text_updated_at` and lifecycle provenance remain unchanged. There are no tags, generic related-card list, top-level status, persisted parent/depth, or allowedActions in durable ordinary payload.
+Current card heads and mailbox messages use strict format1; ordinary/tombstone documents use strict format3. Former stream layouts and mixed representations are unsupported. Ordinary payload excludes `version_seq`, `updated_at` and `pending_notifications`; current projection derives those from the head, historical projection derives revision/time from immutable metadata and contains no historical queue. Identity, membership/order, immutable type and lifecycle grammar remain strict. The current card model has no `subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report` or `metadata`, even with null values; strict readers reject these keys. Retained `status_text` and `status_text_updated_at` and lifecycle provenance remain unchanged. There are no tags, generic related-card list, top-level status, persisted parent/depth, or allowedActions in durable ordinary payload.
 Operator hierarchy and detail are separate strict projections.
 
 Applying the card/record head-and-predecessor cutover follows the [reset/external-migration decision](../runbook/index.md#external-migrations), preserving outside inputs. No core migration/conversion/probing or mixed-version rollback; exact-target repair is current-format only. Source completion grants no deployment/adoption/loss consent. Later same-format deployment retains only exact current head/document contracts.

@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 
@@ -98,7 +99,7 @@ describe('startup workflow binding authority', () => {
     source.agents.empty = { prompt: { reference: 'executor', compactable: true }, tools: [], model_route: 'empty', skills: false, session: 'card', can_create_children: false,record_writes:['status.md'] };
     source.providers.test!.models = [...(source.providers.test!.models ?? []), 'empty-model'];
     source.providers.test!.modelCapabilities = { 'empty-model': { toolsMode: 'unsupported' } };
-    source.card_types.code!.workflow.nodes.execute!.agent = 'empty';
+    agentExecution(source.card_types.code!.workflow.nodes.execute!).agent = 'empty';
     source.card_types.code!.workflow.notification_recipient = 'empty';
     source.card_types.code!.records['status.md']!.initialization = null;
     source.card_types.code!.workflow.nodes.execute!.initialize_records = [];

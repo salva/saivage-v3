@@ -7,6 +7,7 @@ import {
   type CompiledCardTypeWorkflow,
   type CompiledRuntimeWorkflows,
   runtimeAgentBinding,
+  processNodeOutcomes,
 } from './card-process-config.js';
 
 const entries = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
@@ -66,34 +67,55 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
     }));
     const nodeStates = [...workflow.states.values()].filter((state) => state.kind === 'node');
     const nodes = nodeStates.map((node) => {
-      const binding = runtimeAgentBinding(workflows, node.agent.name);
+      const execution = node.execution;
+      const binding =
+        execution.kind === 'agent' ? runtimeAgentBinding(workflows, execution.agent.name) : null;
+      const projectedExecution =
+        execution.kind === 'action'
+          ? {
+              kind: 'action' as const,
+              action: execution.operation.id,
+              contract_version: execution.operation.contractVersion,
+              provider: execution.operation.provider,
+            }
+          : {
+              kind: 'agent' as const,
+              agent_name: execution.agent.name,
+              session: {
+                scope: 'card' as const,
+                identity_pattern: `agent:${execution.agent.name}:<card-id>`,
+              },
+              prompt: {
+                source: execution.selectedAgentPrompt.source,
+                declaration: {
+                  reference: execution.agent.prompt.reference,
+                  compactable: execution.agent.prompt.compactable,
+                },
+                process: projectedPrompt(execution.prompt)!,
+                correction: projectedPrompt(execution.correctionPrompt)!,
+              },
+              model: {
+                route: execution.agent.modelRoute,
+                candidates: binding!.candidateChain.map(({ provider, model }) => ({
+                  provider,
+                  model,
+                })),
+                temperature: execution.agent.model.temperature,
+                max_tokens: execution.agent.model.maxTokens,
+              },
+              skills: execution.agent.skills,
+              tools: effectiveCardNodeToolReferences(
+                execution.agent.tools,
+                node.childCreationTypes,
+              ).map((reference) => reference.name),
+              record_write_patterns: execution.agent.recordWrites.map(({ source }) => source),
+            };
       return {
         node_id: node.nodeId,
-        agent_name: node.agent.name,
-        session: { scope: 'card' as const, identity_pattern: `agent:${node.agent.name}:<card-id>` },
-        prompt: {
-          source: node.selectedAgentPrompt.source,
-          declaration: {
-            reference: node.agent.prompt.reference,
-            compactable: node.agent.prompt.compactable,
-          },
-          process: projectedPrompt(node.prompt)!,
-          correction: projectedPrompt(node.correctionPrompt)!,
-        },
-        model: {
-          route: node.agent.modelRoute,
-          candidates: binding.candidateChain.map(({ provider, model }) => ({ provider, model })),
-          temperature: node.agent.model.temperature,
-          max_tokens: node.agent.model.maxTokens,
-        },
-        skills: node.agent.skills,
-        tools: effectiveCardNodeToolReferences(node.agent.tools, node.childCreationTypes).map(
-          (reference) => reference.name,
-        ),
+        execution: projectedExecution,
         child_creation_types: [...node.childCreationTypes],
         child_activation_types: [...node.childActivationTypes],
         readable_records: [...node.readableRecords.keys()],
-        record_write_patterns: node.agent.recordWrites.map(({ source }) => source),
         initialize_records: node.initializeRecords.map((record) => record.name),
         requirements: node.requirements.map((requirement) => ({
           record_name: requirement.definition.name,
@@ -117,9 +139,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
                 records: node.descendantContext.records.map((record) => record.name),
                 require_unchanged_until_accept: node.descendantContext.requireUnchangedUntilAccept,
               },
-        outcomes: [...node.on.values()].flatMap((route) =>
-          route.semantic.kind === 'configured-outcome' ? [route.semantic.outcome] : [],
-        ),
+        outcomes: processNodeOutcomes(workflow, `node:${node.nodeId}`),
       };
     });
     const edges = nodeStates.flatMap((node) =>

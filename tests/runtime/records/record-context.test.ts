@@ -1,3 +1,4 @@
+import { agentExecution } from '../../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,7 +48,7 @@ import {
 } from '../../../src/tools/global-observation-tools.js';
 import { executingLlmSnapshots } from '../../helpers/executing-llm-snapshot.js';
 import { prepareRecordPromptContent } from '../../../src/runtime/records/record-prompt-content.js';
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
 import { describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
 
@@ -130,9 +131,9 @@ it('composes shipped role, node and scaffold as observed data through edit and r
     const workflow = f.workflows.cardTypes.get('project')!;
     writeFileSync(process.env.SAIVAGE_TEST_SHIPPED_RECORD_COMPOSITION, JSON.stringify({
       kind: 'offline-shipped-render-and-real-supplier-not-provider-wire',
-      role: createPromptTemplateRegistry(f.workflows).render({ kind: 'workflow-agent', cardType: 'project' }, f.node().agent.name, { contractDescription: describeNodeResultContract(workflow, 'node:plan') }),
-      node: workflow.processPrompts.get(f.node().prompt.promptId)!.text,
-      recoveryNode: workflow.processPrompts.get(f.node('recover').prompt.promptId)!.text,
+      role: createPromptTemplateRegistry(f.workflows).render({ kind: 'workflow-agent', cardType: 'project' }, agentExecution(f.node()).agent.name, { contractDescription: describeNodeResultContract(workflow, 'node:plan') }),
+      node: workflow.processPrompts.get(agentExecution(f.node()).prompt.promptId)!.text,
+      recoveryNode: workflow.processPrompts.get(agentExecution(f.node('recover')).prompt.promptId)!.text,
       initial, changed, reentry,
       latest: readConversation(f.root, SESSION).effectiveRequiredModelFacts.latestRecordObservations,
     }, null, 2));

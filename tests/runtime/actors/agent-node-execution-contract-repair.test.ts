@@ -1,7 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 
-import { AgentNodeExecution, MAX_NODE_CORRECTIVE_REARMS, NodeCorrectiveBudgetExceededError } from '../../../src/runtime/actors/agent-node-execution.js';
+import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
+import { MAX_NODE_CORRECTIVE_REARMS, NodeCorrectiveBudgetExceededError } from '../../../src/runtime/actors/agent-executor.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
@@ -84,9 +85,10 @@ function harness(args: {
   const node = {
     kind: 'node',
     nodeId: 'work',
+    execution: { kind: 'agent', dataInputs: {}, inputs: {},
     prompt: { promptId: 'work', compactable: true },
     correctionPrompt: args.protectedCorrection ? { promptId: 'correct', compactable: false, compactionKey: ' correction key ' } : { promptId: 'correct', compactable: true },
-    agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
+    agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } } },
     initializeRecords: [],
     requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
     descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
@@ -137,7 +139,13 @@ function harness(args: {
     claimResultHandoff: () => undefined,
     claimedNodeInterruption: () => false,
   } as never);
-  const internals = execution as unknown as {
+  const recordInternals = execution as unknown as {
+    prepareRecordRequirements: () => void;
+    captureRecordHead: () => number | null;
+    closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
+    validateRecords: () => { candidates: Map<string, unknown> } | { violations: string[] };
+  };
+  const internals = (execution as unknown as { agentExecutor: unknown }).agentExecutor as {
     prepareNodeEntry: () => void;
     prepareRecordRequirements: () => void;
     captureRecordHead: () => number | null;
@@ -151,17 +159,17 @@ function harness(args: {
     reviewerStaleReason: () => string | null;
   };
   internals.prepareNodeEntry = () => undefined;
-  internals.prepareRecordRequirements = () => undefined;
-  internals.captureRecordHead = () => 1;
+  recordInternals.prepareRecordRequirements = () => undefined;
+  recordInternals.captureRecordHead = () => 1;
   internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: '00000000-0000-4000-8000-000000000001', activationInstructions: { kind: 'prepared',activation_id:'00000000-0000-4000-8000-000000000001',caller:{kind:'root'},card:{cardId:'project',cardType:'project',title:'Synthetic project'},parent_direction:null, role_text: 'fixture role', node: { node_id: 'work', text: 'fixture node' } }, preparedContext: {prefix:{instructionText:'fixture role'},stableBlocks:[{content:'fixture card'},{content:'fixture node'}]} }; };
   internals.enterNodeConversation = (prepared) => ({ ...prepared, providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } });
   internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
   if (!args.useRealCorrection) internals.correctionContext = (_process, _node, violations, remaining) => [{ role: 'user', content: `correction: ${violations.join('; ')}\nCorrective attempts remaining before this node fails: ${remaining}.` }];
-  internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
+  recordInternals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
   if (args.reviewerPreparationError) internals.captureReviewerPair = () => { throw args.reviewerPreparationError; };
   if (args.terminalVariant === 'records') {
     let validationCount = 0;
-    internals.validateRecords = () => validationCount++ === 0
+    recordInternals.validateRecords = () => validationCount++ === 0
       ? { violations: ['required record is invalid'] }
       : { candidates: new Map() };
   }
@@ -185,7 +193,7 @@ function harness(args: {
     continuationContextCallbacks,
     removeNotifications,
     createDirectScope,
-    run: () => execution.execute({ process, stateId, node, transition: {}, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
+    run: () => execution.execute({ process, stateId, node, transition: { context: { source: 'entry:BACKLOG', event: 'entry:route', target: stateId }, acceptedResult: null }, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
 }
 

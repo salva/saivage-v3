@@ -1,4 +1,19 @@
 import { z } from 'zod';
+import { uuidV4Schema } from './uuid.js';
+
+const workflowExecutorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('agent'), agent: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal('action'),
+      action: z.string().regex(/^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/u),
+      contract_version: z.number().int().positive(),
+      provider: z.object({ kind: z.enum(['builtin', 'plugin']), name: z.string().min(1) }).strict(),
+      invocation_id: uuidV4Schema,
+    })
+    .strict(),
+]);
+export type WorkflowExecutor = z.infer<typeof workflowExecutorSchema>;
 import {
   ConversationSessionIdSchema,
   type ConversationSessionId,
@@ -10,7 +25,7 @@ const timestampSchema = z.string().datetime();
 export interface WorkflowResult extends Record<string, unknown> {
   kind: 'workflow-result';
   terminal: 'DONE' | 'BLOCKED' | 'FAILED';
-  agent_name: string;
+  executor: WorkflowExecutor;
   node_id: string;
   outcome: string;
   summary: string;
@@ -60,7 +75,7 @@ const workflowResultSchema: z.ZodType<WorkflowResult> = z
   .object({
     kind: z.literal('workflow-result'),
     terminal: z.enum(['DONE', 'BLOCKED', 'FAILED']),
-    agent_name: nonEmptyStringSchema,
+    executor: workflowExecutorSchema,
     node_id: nonEmptyStringSchema,
     outcome: nonEmptyStringSchema,
     summary: nonEmptyStringSchema,

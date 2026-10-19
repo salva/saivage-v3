@@ -595,7 +595,7 @@ describe('named-agent inventories and composition', () => {
     expect(outcome.kind).toBe('executed');
   });
 
-  it('binds only selected process definitions and cleans the shared selected group once', async () => {
+  it('binds selected process definitions without duplicating the common card-node scope cleanup', async () => {
     const closeAndTerminateDirectScope = jest.fn(async () => ({ failed: [] }));
     const toolSet = new BoundAgentToolSet(
       ['wait_process', 'kill_process'].map((name) => resolveRuntimeTool('card', name)),
@@ -632,8 +632,8 @@ describe('named-agent inventories and composition', () => {
       'wait_process',
       'kill_process',
     ]);
-    expect(surface.providers[0]!.cleanup).toEqual(expect.any(Function));
+    expect(surface.providers[0]!.cleanup).toBeUndefined();
     await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: 'done' });
-    expect(closeAndTerminateDirectScope).toHaveBeenCalledTimes(1);
+    expect(closeAndTerminateDirectScope).not.toHaveBeenCalled();
   });
 });

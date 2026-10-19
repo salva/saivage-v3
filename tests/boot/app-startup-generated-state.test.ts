@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import {
   appendFileSync,
@@ -930,7 +931,7 @@ function renamedExecutorConfig() {
   const config = structuredClone(TEST_SAIVAGE_CONFIG);
   config.agents['executor-v2'] = { ...config.agents.executor! };
   config.card_types.code!.workflow.notification_recipient = 'executor-v2';
-  config.card_types.code!.workflow.nodes.execute!.agent = 'executor-v2';
+  agentExecution(config.card_types.code!.workflow.nodes.execute!).agent = 'executor-v2';
   config.mcpServers = {
     admission_probe: {
       transport: 'streamable-http',

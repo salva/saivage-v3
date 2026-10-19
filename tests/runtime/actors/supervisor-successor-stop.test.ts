@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { createAppTerminalCoordinator } from '../../../src/boot/app.js';
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
 import { ActivationOperationTracker } from '../../../src/runtime/actors/invocation-lifecycle.js';
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';

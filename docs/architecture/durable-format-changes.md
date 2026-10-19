@@ -23,6 +23,50 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Stateless node operations (2026-10-19)
+
+Exact implementation parent: `a768ee4a0bf341738c5ebfa55fa8b85cf219f2ed`.
+Ordinary `card-version` and `card-tombstone` artifact `format_version` advance
+**2→3** together. Embedded workflow results replace `agent_name` with strict
+`executor:{kind:'agent',agent}` or
+`executor:{kind:'action',action,contract_version,provider,invocation_id}`.
+No generic operation values or hook results become card results. Both ordinary
+publication sites, tombstone publication, strict current/history/repair readers
+and generated Files artifact projections use3. Card-head and mailbox remain1.
+Reached card2 history and previous selections fail strictly.
+No startup history scan, compatibility reader, normalization or stored observation rewrite is added.
+
+The new lazy card-owned `records/executions.jsonl` family starts at
+`version:1,type:'card-execution'`. Invocation entry, positive process spawn and
+known settlement observations are strict nonempty envelope rows. Exact recorded
+capture references select runner-owned files; declared artifacts are mutable
+current-source references, not historical snapshots. An unmatched entry is valid
+incomplete evidence, never permission to replay. Complete malformed rows fail
+on consumption; only an identifiable unterminated suffix may be truncated.
+
+The formerly unversioned workflow input establishes `format_version:1`, selecting
+agent or exact qualified/versioned stateless operations, typed routes and input
+bindings. `shell.run` declares operation contract1. Record-head **3**, accepted
+record **2**, conversation index/genesis/segment **12**, initializer **1** and
+provider/app-log shared envelope **1** remain unchanged. Actions consume exact
+accepted authored records but never author or close them, and create no synthetic
+conversation, tool call or provider attempt.
+
+Nested-owner evidence: `schemas/lifecycle.ts` strictly owns the changed card
+result; retained generic card-tool data remains `unknown` in conversation12.
+The card-version-provider regression exercises an old `agent_name` workflow
+result through actual strict segment consumption, materialization, OpenAI
+serialization and outbound projection without changing its digest or meaning.
+Specialized agent process-result contracts are untouched. Agent handoff appends
+quoted selected facts via existing text rows, not a new nested conversation field.
+
+Deployed applicability of parent/target contracts is unknown; no unreleased
+version reuse is claimed. These fresh source bumps make no deployment claim. Adoption
+requires a separately consented complete reset or explicitly requested external
+offline migration to the matching pinned release, with stopped exclusion,
+preserved complete backup and strict complete linked/indexed-history validation.
+Source completion authorizes no migration, deployment, restart or Run.
+
 ### Minimal card bodies EV01 (2026-10-19)
 
 Exact implementation parent: `54e04123885de26d8fa81a1677d2c80ecc18d815`.
@@ -924,11 +968,14 @@ changes to that historical tree.
 | Durable family | Exact path/owner | Actual discriminator and essential semantics |
 | --- | --- | --- |
 | Card current head | Card namespace `card-head.json`; `persistence/canonical-card-artifacts.ts`, `card-files.ts` | `format_version:1`, `kind:card-head`; required `head_id`, ordinary selection and ordered current-only pending mailbox UUIDs. |
-| Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:1`, `card-version` / `card-tombstone`; predecessor-linked ordinary/final payload, sparse ordinary revisions, no historical queue. |
+| Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:3`, `card-version` / `card-tombstone`; minimal ordinary/final payload with agent/action executor results, predecessor-linked sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
 | Record head | `records/record-<stem>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; current head UUID/mutation revision, nullable current-only baseline0, draft document/target versions and latest accepted reference. Baseline0/draft0 and empty drafts are ineligible. Previous slot shares head3. |
 | Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:2`, `kind:accepted-record`; consecutive document versions, immutable body/attribution and ordinary card provenance, exact predecessor. Historical projection has null head/revision. |
 | Record initialization input | Owning card-type YAML declaration; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; replaces formerly unversioned content/triggers, without old-input reader. |
+| Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, invocation owner `runtime/actors/operation-execution.ts` | `version:1`, `type:card-execution`; strict entry/spawn/finish associations and exact file selections. Incomplete evidence is valid, not resumable workflow state; generated artifacts select mutable current source. |
+| Workflow input | Owning card-type YAML `workflow`; `schemas/saivage-config.ts`, workflow compiler | `format_version:1`; singular agent/action execution, bounded fields/cases/input bindings and optional advisory natural-postcommit attachment. |
+| Operation selection | Exact explicitly compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; preserved in action results and execution observations. Not a package or shared envelope version. |
 | Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/current selection, source/cutoff/continuation and latest current record facts with baseline0 and draft version/target/backing; historical selections carry no current head. Existing protected prompts, excerpts and structural omission retained. |
 | Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; baseline/draft/current/historical observation meanings, nested tool results and strict activation/message/private-context semantics. Ordered text/image successful-result blocks select raw PNGs under this owning conversation contract, with no independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use the **shared** `version:1`, `type:rows` envelope, with distinct strict row schemas and owners; these are not independently numbered envelopes. |

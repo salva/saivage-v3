@@ -76,7 +76,7 @@ describe('new-format record publication, current/history API and restart', () =>
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: {
+          workflow: { format_version: 1,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },
@@ -89,9 +89,9 @@ describe('new-format record publication, current/history API and restart', () =>
             },
             nodes: {
               execute: {
-                agent: 'executor',
+                execution: { kind: 'agent', agent: 'executor',
                 prompt: { reference: 'execute', compactable: true },
-                correction_prompt: { reference: 'correct-execution-result', compactable: true },
+                correction_prompt: { reference: 'correct-execution-result', compactable: true } },
                 records: { 'status.md': { mode: 'continue', gate: 'updated' } },
                 edges: {
                   blocked: {

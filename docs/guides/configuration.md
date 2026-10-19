@@ -42,7 +42,8 @@ project. `saivage init` materializes it from a bundled template; after that
 the instance owns it, and every change takes effect on the next start.
 `${ENV_VAR}` references are interpolated from the service environment at
 startup, except literal record scaffold content at
-`card_types.<type>.records.<name>.initialization.template` — keep API keys out of
+`card_types.<type>.records.<name>.initialization.template` and action execution
+configuration/inputs — keep API keys out of
 the file and scaffolds. Validation is strict: unknown or
 obsolete keys fail startup instead of being ignored.
 
@@ -192,12 +193,16 @@ card_types:
       brief.md: { format: markdown, schema: card-brief.v1, bootstrap: true }
       status.md: { format: markdown, schema: work-status.v1 }
     workflow:
+      format_version: 1
       notification_recipient: planner
       entries: { BACKLOG: { node: plan }, CHANGED: { node: plan }, ... }
       nodes:
         plan:
-          agent: planner
-          prompt: { reference: plan }
+          execution:
+            kind: agent
+            agent: planner
+            prompt: { reference: plan }
+            correction_prompt: { reference: correction, compactable: true }
           edges: { ... }
 ```
 
@@ -215,6 +220,80 @@ Switching templates or replacing the map is a stopped configuration change;
 the runbook owns [identity-cutover rules](../runbook/index.md#agent-and-workflow-identity-cutovers)
 for instances with retained history. After a change, verify what actually
 compiled in the control room's [System > Installed workflows](./operating.md#system) view.
+
+### Action execution and typed handoff
+
+Nodes select either the agent execution object above or an action. Common
+`records` and `edges` remain on the node. For example, this node checks before
+an agent assesses acceptance (surrounding nodes/records/entries are omitted):
+
+```yaml
+check:
+  execution:
+    kind: action
+    action: shell.run
+    contract_version: 1
+    config:
+      script: 'npm test -- "$@"'
+      cwd: .
+      env: { CI: '1' }
+      timeout_ms: 120000
+      terminate_grace_ms: 2000
+      artifacts: ['reports/test-summary.txt']
+    inputs: { args: { literal: ['--runInBand'] } }
+  records: {}
+  edges:
+    passed: { target: { node: assess } }
+    failed: { target: { node: repair } }
+    signalled: { target: { node: repair } }
+    timed_out: { target: { node: repair } }
+```
+
+All four outcomes are required. Commands produce ordinary captured stdout/stderr,
+not plugin JSON. Script is literal Bash with pipefail, no implicit `set -e`;
+`args` are separate argv, so quote `"$@"` rather than injecting data into syntax.
+The environment is the existing sanitized command environment plus root variables
+and explicit nonsecret env; credentials and root-variable overrides are refused.
+`${NAME}` in action config is literal shell program text, not configuration
+interpolation. Cwd is project-relative (default `.`); artifact paths are exact,
+relative, no globs, at most 16. They select mutable current workspace content,
+not historical snapshots. See [action operations](../spec/system-specification.md#stateless-action-nodes)
+for timeout limits, interruption and evidence semantics.
+
+Plugins are trusted explicitly compiled modules, not discovered/installed services.
+IDs are exactly `namespace.operation` (each component lowercase letter followed by
+at most 47 lowercase letters/digits/hyphens); `shell`, `git`, `saivage` are reserved
+namespaces, not promises of available operations. Declarations select contract1,
+supported bindings, strict config, required flat input/output fields, finite named
+outcomes and concrete capabilities. Duplicate/shadowed/unresolved IDs fail compilation.
+
+Fields are `string`, `boolean`, safe `integer`, or `strings` (`string[]`), with
+optional declaration-time string enums/integer bounds. Limits are 32 fields,
+4096 UTF-8 bytes per string, 256 list entries and 64 KiB encoded values. Private
+output fields cannot route, feed successors or be retained as public observations.
+No nested JSON, defaults, coercion, dynamic target or expression language exists.
+An outcome edge is direct or has at most eight ordered cases and required
+`otherwise`. Each case has an ID and one `when: {field,op,value}`; `eq` is typed,
+`gt|gte|lt|lte` require integers. First match wins only after full validation.
+Edge `inputs: {findings: {output: count}}` passes selected predecessor data to a
+destination's declared input. An agent declares e.g.
+`data_inputs: {findings: {type: integer, min: 0, max: 1000}}` inside `execution`.
+Node inputs use `{literal: value}` or `{source: card_id|card_type|card_title}`;
+hooks additionally allow `committed_status`. Missing/duplicate suppliers fail
+compilation on every incoming route, and inputs are checked again at use.
+Agent handoff quotes only selected facts; it does not grant tools or instructions.
+
+Actions may require accepted records only with `continue/exists`; they cannot
+initialize, clean, update or close authored records. Notification recipients and
+STOPPED recovery remain actual agents. Edge prompts targeting actions are invalid.
+
+At most one `workflow.after_activation_commit` attachment may select an action
+and `statuses: [done]` (allowed: `done`, `blocked`, `failed`). It runs only after
+a natural outcome is committed. It is advisory: nonzero cannot undo DONE. Put a
+required build/test in an action node before DONE instead. No recovery, Stop,
+record write or startup replay invokes the hook. Neither an execution log nor
+a lost result authorizes retry. Pause gates providers only; an admitted action
+chain can continue until a provider frontier or natural completion.
 
 ### Optional record scaffolds
 

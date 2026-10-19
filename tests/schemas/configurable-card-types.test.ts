@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { describe, expect, it } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { cardTypeNameSchema } from '../../src/schemas/index.js';
@@ -54,23 +55,23 @@ describe('configuration-owned card types',()=>{
   it('uses strict site-owned prompt declarations and resolves omitted compactability to true',()=>{
     const omitted=structuredClone(projectOnly());
     delete (omitted.agents.planner!.prompt as {compactable?:boolean}).compactable;
-    delete (omitted.card_types.project!.workflow.nodes.plan!.prompt as {compactable?:boolean}).compactable;
-    delete (omitted.card_types.project!.workflow.nodes.plan!.correction_prompt as {compactable?:boolean}).compactable;
+    delete (agentExecution(omitted.card_types.project!.workflow.nodes.plan!).prompt as {compactable?:boolean}).compactable;
+    delete (agentExecution(omitted.card_types.project!.workflow.nodes.plan!).correction_prompt as {compactable?:boolean}).compactable;
     const parsed=effectiveSaivageConfigSchema.parse(omitted);
     expect(parsed.agents.planner!.prompt).toEqual({reference:'planner',compactable:true});
-    expect(parsed.card_types.project!.workflow.nodes.plan!.prompt).toEqual({reference:'plan',compactable:true});
-    expect(parsed.card_types.project!.workflow.nodes.plan!.correction_prompt).toEqual({reference:'correct-plan-result',compactable:true});
+    expect(agentExecution(parsed.card_types.project!.workflow.nodes.plan!).prompt).toEqual({reference:'plan',compactable:true});
+    expect(agentExecution(parsed.card_types.project!.workflow.nodes.plan!).correction_prompt).toEqual({reference:'correct-plan-result',compactable:true});
 
     const staticFalse=structuredClone(projectOnly());
     staticFalse.agents.planner!.prompt={reference:'planner',compactable:false};
-    staticFalse.card_types.project!.workflow.nodes.plan!.prompt={reference:'plan',compactable:false};
+    agentExecution(staticFalse.card_types.project!.workflow.nodes.plan!).prompt={reference:'plan',compactable:false};
     const parsedStaticFalse=effectiveSaivageConfigSchema.parse(staticFalse);
     expect(parsedStaticFalse.agents.planner!.prompt).toEqual({reference:'planner',compactable:false});
-    expect(parsedStaticFalse.card_types.project!.workflow.nodes.plan!.prompt).toEqual({reference:'plan',compactable:false});
+    expect(agentExecution(parsedStaticFalse.card_types.project!.workflow.nodes.plan!).prompt).toEqual({reference:'plan',compactable:false});
 
     const protectedPrompt=structuredClone(projectOnly());
-    protectedPrompt.card_types.project!.workflow.nodes.plan!.correction_prompt={reference:'correct-plan-result',compactable:false,compaction_key:'   '};
-    expect(effectiveSaivageConfigSchema.parse(protectedPrompt).card_types.project!.workflow.nodes.plan!.correction_prompt).toEqual({reference:'correct-plan-result',compactable:false,compaction_key:'   '});
+    agentExecution(protectedPrompt.card_types.project!.workflow.nodes.plan!).correction_prompt={reference:'correct-plan-result',compactable:false,compaction_key:'   '};
+    expect(agentExecution(effectiveSaivageConfigSchema.parse(protectedPrompt).card_types.project!.workflow.nodes.plan!).correction_prompt).toEqual({reference:'correct-plan-result',compactable:false,compaction_key:'   '});
 
     const stringDeclaration=structuredClone(projectOnly()) as any;
     stringDeclaration.card_types.project.workflow.nodes.plan.prompt='plan';

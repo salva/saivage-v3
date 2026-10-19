@@ -101,7 +101,7 @@ describe('shared cockpit conversation navigation', () => {
     installDefaults();
   });
 
-  it('renders a direct exact card session in the shared cockpit with four tabs and one entry-preserving reader', async () => {
+  it('renders a direct exact card session in the shared cockpit with five tabs and one entry-preserving reader', async () => {
     const sessionId = 'agent:reviewer:card-a';
     api.getCardAgentSessions.mockResolvedValue({ sessions: [agentSession(sessionId)] });
     const { wrapper, router } = await mountRoute(`/agents/${sessionId}?entry=${entryId}`);
@@ -110,7 +110,7 @@ describe('shared cockpit conversation navigation', () => {
     expect(wrapper.findAll('[data-testid="route-cockpit"]')).toHaveLength(1);
     expect(wrapper.get('[data-testid="cockpit-facet-nav"]').text()).toContain('Overview');
     expect(wrapper.get('[data-testid="cockpit-facet-nav"]').text()).toContain('Records & History');
-    expect(wrapper.findAll('.cockpit-facet-link')).toHaveLength(4);
+    expect(wrapper.findAll('.cockpit-facet-link')).toHaveLength(5);
     expect(wrapper.get('.cockpit-facet-link.active').text()).toBe('Conversations');
     expect(wrapper.findAll('[data-testid="exact-reader"]')).toHaveLength(1);
     expect(wrapper.get('[data-testid="exact-reader"]').attributes()).toMatchObject({
@@ -192,7 +192,7 @@ describe('shared cockpit conversation navigation', () => {
     expect(wrapper.findAll('[data-testid="exact-reader"]')).toHaveLength(1);
     expect(wrapper.text()).toContain('Network error');
     expect(wrapper.text()).toContain('card network unavailable');
-    expect(wrapper.findAll('[aria-disabled="true"]')).toHaveLength(3);
+    expect(wrapper.findAll('[aria-disabled="true"]')).toHaveLength(4);
     expect(wrapper.findAll('button').some((button) => button.text().includes('Retry'))).toBe(true);
     wrapper.unmount();
   });
@@ -210,7 +210,7 @@ describe('shared cockpit conversation navigation', () => {
     expect(wrapper.findAll('[data-testid="exact-reader"]')).toHaveLength(1);
     expect(wrapper.find('.participant-rail').exists()).toBe(false);
     expect(wrapper.get('[data-testid="card-flow-unavailable"]').text()).toBe('Card flow unavailable');
-    expect(wrapper.findAll('[aria-disabled="true"]')).toHaveLength(3);
+    expect(wrapper.findAll('[aria-disabled="true"]')).toHaveLength(4);
     wrapper.unmount();
   });
 });

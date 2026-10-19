@@ -1,10 +1,11 @@
+import { agentExecution, directEdge } from '../../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import {
   initializeConversation,
@@ -108,9 +109,10 @@ function harness(
   let node = {
     kind: 'node',
     nodeId: 'work',
+    execution: { kind: 'agent', dataInputs: {}, inputs: {},
     prompt: { promptId: 'work', compactable: true },
     correctionPrompt: { promptId: 'correct', compactable: true },
-    agent: { name: 'planner', tools: [], model: { temperature: 0, maxTokens: 100 } },
+    agent: { name: 'planner', tools: [], model: { temperature: 0, maxTokens: 100 } } },
     initializeRecords: [],
     requirements: [{ definition: { name: 'status.md' }, mode: 'clean', gate: 'exists' }],
     descendantContext: null,
@@ -178,7 +180,7 @@ function harness(
     const config = structuredClone(template.config);
     if (staticFalse) {
       config.agents.planner!.prompt.compactable = false;
-      config.card_types!.project!.workflow.nodes.plan!.prompt.compactable = false;
+      agentExecution(config.card_types!.project!.workflow.nodes.plan!).prompt.compactable = false;
     }
     const compiled = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config), {
       defaultPromptRoot: template.promptRoot,
@@ -202,7 +204,7 @@ function harness(
           'planner',
           {
             toolSet: { requiresProcessScope: false },
-            contract: compiledNode.agent,
+            contract: agentExecution(compiledNode).agent,
             candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }],
             routeUsableInputTokens: 20_000,
             capabilityRequest: {},
@@ -326,8 +328,8 @@ function harness(
       claimedNodeInterruption: () => false,
     } as never,
   );
-  const surfaceOverride = execution as unknown as {
-    buildSurface: (...args: unknown[]) => InvocationSurface;
+   const surfaceOverride = (execution as unknown as { agentExecutor: unknown }).agentExecutor as {
+      buildSurface: (...args: unknown[]) => InvocationSurface;
   };
   surfaceOverride.buildSurface = () => surface;
   const run = () =>
@@ -479,8 +481,8 @@ describe('AgentNodeExecution static preparation', () => {
         [{ systemPrompt: string; providerConversation: unknown }],
       ]
     )[0]![0];
-    expect(protectedDeclaration.productionNode?.agent.prompt.compactable).toBe(false);
-    expect(protectedDeclaration.productionNode?.prompt.compactable).toBe(false);
+    expect(agentExecution(protectedDeclaration.productionNode!).agent.prompt.compactable).toBe(false);
+    expect(agentExecution(protectedDeclaration.productionNode!).prompt.compactable).toBe(false);
     expect(protectedInput).toEqual(ordinaryInput);
   });
 
@@ -490,7 +492,7 @@ describe('AgentNodeExecution static preparation', () => {
       const test = harness({ kind: 'capacity', systemPrompt: 'unused' }, cardType, true);
       if (!test.productionNode) throw new Error('Missing compiled Planner node.');
       const selectedNodeText = test.process.processPrompts.get(
-        test.productionNode.prompt.promptId,
+        agentExecution(test.productionNode).prompt.promptId,
       )?.text;
       if (!selectedNodeText) throw new Error('Missing compiled Planner process prompt.');
 
@@ -510,8 +512,8 @@ describe('AgentNodeExecution static preparation', () => {
       };
       const expectedInstruction = renderCompiledPrompt(
         { kind: 'workflow-agent', cardType },
-        test.productionNode.agent.name,
-        test.productionNode.selectedAgentPrompt.compiled,
+        agentExecution(test.productionNode).agent.name,
+        agentExecution(test.productionNode).selectedAgentPrompt.compiled,
         { contractDescription: describeNodeResultContract(test.process as never, 'node:plan') },
       );
       const cardId = cardType === 'project' ? 'project' : 'card-a';
@@ -521,7 +523,7 @@ describe('AgentNodeExecution static preparation', () => {
         title: cardType === 'project' ? 'Project' : 'Delivery goal',
       });
       const expectedNode = `Current workflow node '${test.productionNode.nodeId}':\n\n${selectedNodeText}`;
-      expect(test.productionNode.selectedAgentPrompt).toMatchObject({
+      expect(agentExecution(test.productionNode).selectedAgentPrompt).toMatchObject({
         source: 'bundled-shared',
         reference: 'planner',
       });
@@ -586,7 +588,7 @@ describe('AgentNodeExecution static preparation', () => {
 
     expect(
       test.processPromptGet.mock.calls.filter(
-        ([promptId]) => promptId === test.node.prompt.promptId,
+        ([promptId]) => promptId === test.node.execution.prompt.promptId,
       ),
     ).toHaveLength(1);
     const input = (test.llm.turn.mock.calls as unknown as [[unknown]])[0][0] as {

@@ -115,3 +115,12 @@ export {
 export { replaceFile } from './replace-file.js';
 export type { PublicationTemporaryIdFactory, ReplacementFileIo } from './replace-file.js';
 export { parseRepairTarget, inspectRepairTarget } from './repair-target.js';
+export { readCardExecutions, appendCardExecutions } from './card-execution-log.js';
+export type {
+  CardExecutionRow,
+  CardExecutionStart,
+  CardExecutionFinish,
+  CardExecutionBinding,
+  CardExecutionFile,
+  CardExecutionObservation,
+} from './card-execution-log.js';

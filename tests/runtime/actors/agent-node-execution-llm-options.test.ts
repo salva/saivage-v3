@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { AgentExecutor as AgentNodeExecution } from '../../../src/runtime/actors/agent-executor.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../../src/contracts/index.js';
@@ -55,7 +55,7 @@ describe('AgentNodeExecution LLM options', () => {
     const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
     const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
     const prepared = runner.prepareNodeInvocation(
-      { nodeId: 'work', promptId: 'work', agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
+      { nodeId: 'work', execution: { kind: 'agent', prompt: { promptId: 'work', compactable: true }, agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } } },
       { card: { id: 'project', type: 'project', title: 'Project' }, activationId: '00000000-0000-4000-8000-000000000001', caller: { kind:'root' } },
       sessionId,
       'direct result contract',
@@ -107,7 +107,7 @@ describe('AgentNodeExecution LLM options', () => {
     } as never, {} as never) as unknown as {
       prepareNodeEntry(process: unknown, node: unknown, transition: unknown, input: unknown, sessionId: string, inputId: string, reviewerPair: null, instructions: import('../../../src/schemas/index.js').ActivationInstructions): void;
     };
-    const node = { nodeId: 'work', agent: { name: 'planner' }, promptId: 'work' };
+    const node = { nodeId: 'work', execution: { kind: 'agent', agent: { name: 'planner' }, prompt: { promptId: 'work', compactable: true } } };
     const process = {
       cardType: 'project',
       states: new Map([['entry:READY', { kind: 'entry', entry: 'READY', on: new Map([['begin', { targetStateId: 'node:work', semantic: { kind: 'entry-route', promptId: null } }]]) }]]),

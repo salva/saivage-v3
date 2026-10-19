@@ -37,9 +37,9 @@ describe('compact workflow presentation', () => {
       const presentation = projectWorkflowPresentation(workflow);
       expect(presentation).toEqual({
         card_type: graph.card_type,
-        nodes: graph.nodes.map(({ node_id, agent_name, initialize_records }) => ({ node_id, agent_name, initialize_records })),
+        nodes: graph.nodes.map(({ node_id, execution, initialize_records }) => ({ node_id, execution: execution.kind === 'agent' ? { kind: 'agent', agent_name: execution.agent_name } : execution, initialize_records })),
         entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
-        edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
+        edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
         terminals: graph.terminals,
         records: graph.records.map(({ name, bootstrap, initialization }) => ({ name, bootstrap, initialization })),
       });

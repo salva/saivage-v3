@@ -10,6 +10,7 @@ function minimalCardTypes(nodeAgent: 'executor' | 'specialist', prompt: string):
         'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
       },
       workflow: {
+        format_version: 1,
         notification_recipient: nodeAgent,
         entries: {
           BACKLOG: { node: 'execute' },
@@ -19,9 +20,9 @@ function minimalCardTypes(nodeAgent: 'executor' | 'specialist', prompt: string):
         },
         nodes: {
           execute: {
-            agent: nodeAgent,
+            execution: { kind: 'agent', agent: nodeAgent,
             prompt: { reference: prompt },
-            correction_prompt: { reference: 'correct-execution-result' },
+            correction_prompt: { reference: 'correct-execution-result' } },
             records: { 'status.md': { mode: 'continue', gate: 'updated' } },
             edges: {
               done: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },

@@ -297,7 +297,12 @@ export function inspectRepairTarget(
           });
         const names = new Set<string>();
         for (const state of workflow.states.values())
-          if (state.kind === 'node' && state.agent.session === 'card') names.add(state.agent.name);
+          if (
+            state.kind === 'node' &&
+            state.execution.kind === 'agent' &&
+            state.execution.agent.session === 'card'
+          )
+            names.add(state.execution.agent.name);
         for (const name of names)
           readCurrentConversationSegment(
             root,
@@ -396,8 +401,9 @@ export function inspectRepairTarget(
         ![...workflow.states.values()].some(
           (state) =>
             state.kind === 'node' &&
-            state.agent.session === 'card' &&
-            state.agent.name === identity.agentName,
+            state.execution.kind === 'agent' &&
+            state.execution.agent.session === 'card' &&
+            state.execution.agent.name === identity.agentName,
         )
       )
         throw new Error('Conversation is not a configured card session.');

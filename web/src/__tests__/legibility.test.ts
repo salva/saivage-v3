@@ -14,7 +14,7 @@ describe('livenessPhrase', () => {
 });
 
 describe('positionGloss', () => {
-  const graph = { nodes: [{ node_id: 'execute', agent_name: 'executor' }, { node_id: 'review', agent_name: 'reviewer' }] };
+  const graph = { nodes: [{ node_id: 'execute', execution: { kind: 'agent' as const, agent_name: 'executor' } }, { node_id: 'review', execution: { kind: 'agent' as const, agent_name: 'reviewer' } }] };
 
   it('glosses node positions with the configured agent', () => {
     expect(positionGloss({ cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 3 } as never, graph))

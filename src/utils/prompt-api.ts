@@ -213,11 +213,17 @@ type RegistryWorkflows = Readonly<{
     Readonly<{
       states: ReadonlyMap<
         string,
-        Readonly<{
-          kind: string;
-          agent?: Readonly<{ name: AgentName }>;
-          selectedAgentPrompt?: PromptArtifact;
-        }>
+        | Readonly<{
+            kind: 'node';
+            execution:
+              | Readonly<{
+                  kind: 'agent';
+                  agent: Readonly<{ name: AgentName }>;
+                  selectedAgentPrompt: PromptArtifact;
+                }>
+              | Readonly<{ kind: 'action' }>;
+          }>
+        | Readonly<{ kind: 'ready' | 'entry' | 'terminal' }>
       >;
     }>
   >;
@@ -228,8 +234,8 @@ export function createPromptTemplateRegistry(workflows: RegistryWorkflows): Prom
   for (const [cardType, workflow] of workflows.cardTypes) {
     const templates = new Map<AgentName, CompiledPromptTemplate>();
     for (const node of workflow.states.values())
-      if (node.kind === 'node' && node.agent && node.selectedAgentPrompt)
-        templates.set(node.agent.name, node.selectedAgentPrompt.compiled);
+      if (node.kind === 'node' && node.execution.kind === 'agent')
+        templates.set(node.execution.agent.name, node.execution.selectedAgentPrompt.compiled);
     workflowTemplates.set(cardType, templates);
   }
   return Object.freeze({

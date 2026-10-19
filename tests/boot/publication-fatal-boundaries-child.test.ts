@@ -36,6 +36,15 @@ function expectFatalOwner(mode: string, expectedDiagnostic = diagnostic): void {
 }
 
 describe('publication fatal owner boundaries', () => {
+  it.each(['action-node-publication', 'card-hook-publication'])('exits real %s raw ownership before cleanup or matching consumer acknowledgement', (mode) => {
+    const root = mkdtempSync('/home/salva/g/ml/tmp/publication-action-'); roots.push(root);
+    const marker = join(root, 'marker'); writeFileSync(marker, '');
+    const result = child(mode, marker);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe(mode === 'card-hook-publication' ? diagnosticWithCause('hook publication uncertain') : diagnostic);
+    expect(readFileSync(marker, 'utf8')).toBe('entered\n');
+  });
   it('exits synchronous bootstrap preparation publication before any later lease check, compaction, admission or settlement', () => {
     const root = mkdtempSync(join(tmpdir(), 'publication-bootstrap-preparation-')); roots.push(root);
     const marker = join(root, 'marker'); writeFileSync(marker, '');

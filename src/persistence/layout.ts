@@ -101,6 +101,9 @@ export function cardMailboxFile(
 export function cardRecordsRoot(projectRoot: string, cardId: string): string {
   return join(cardNamespace(projectRoot, cardId), 'records');
 }
+export function cardExecutionFile(projectRoot: string, cardId: string): string {
+  return join(cardRecordsRoot(projectRoot, cardId), 'executions.jsonl');
+}
 export function cardAcceptedRecordsRoot(projectRoot: string, cardId: string): string {
   return join(cardRecordsRoot(projectRoot, cardId), 'accepted');
 }

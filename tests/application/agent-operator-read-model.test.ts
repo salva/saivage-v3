@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -49,7 +50,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
       { agent: 'reviewer', cardId: 'project', cardType: 'project' },
     ]) {
       const workflow = TEST_WORKFLOWS.cardTypes.get(cardType)!;
-      const bindings = [...workflow.states].flatMap(([key, state]) => state.kind === 'node' && state.agent.name === agent
+      const bindings = [...workflow.states].flatMap(([key, state]) => state.kind === 'node' && agentExecution(state).agent.name === agent
         ? [{ kind: 'workflow_node', node_id: state.nodeId, instructions: redactTextForOutbound(templates.render(
           { kind: 'workflow-agent', cardType }, agent, { contractDescription: describeNodeResultContract(workflow, key) },
         )) }] : []);
@@ -85,7 +86,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
   it('renders every matching node in declaration order using actual outcome/gate builders and full-composition redaction', () => {
     const root = createRoot();
     const workflow = TEST_WORKFLOWS.cardTypes.get('project')!;
-    const selected = [...workflow.states].find(([, state]) => state.kind === 'node' && state.agent.name === 'planner')!;
+    const selected = [...workflow.states].find(([, state]) => state.kind === 'node' && agentExecution(state).agent.name === 'planner')!;
     const [stateId, state] = selected;
     if (state.kind !== 'node') throw new Error('Expected planner node');
     // Workflow templates require exactly one contract placeholder. Put the secret seam
@@ -93,7 +94,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const seamCompiled = compilePromptTemplate({ host: { kind: 'workflow-agent', cardType: 'project' },
       name: 'planner', path: '/fixture-only/prompt.md', text: '{{> safety}}seam-canary\n{{contractDescription}}\nFINAL',
       resolveFragment: () => ({ path: '/fixture-only/fragment.md', text: 'api_key=fragment-canary\nsk-' }) });
-    const node = { ...state, selectedAgentPrompt: { ...state.selectedAgentPrompt, compiled: seamCompiled },
+    const node = { ...state, execution: { ...agentExecution(state), selectedAgentPrompt: { ...agentExecution(state).selectedAgentPrompt, compiled: seamCompiled } },
       requirements: [{ definition: { ...workflow.bootstrapRecord, name: 'sk-substituted-canary.md' }, mode: 'clean' as const, gate: 'updated' as const }] };
     const outcomeRoute = [...node.on.values()].find(route => route.semantic.kind === 'configured-outcome')!;
     if (outcomeRoute.semantic.kind !== 'configured-outcome') throw new Error('Expected configured outcome');
@@ -106,7 +107,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const before = readFileSync(cardHeadFile(root, 'project'));
     const result = service.getCurrentInstructions(cardAgentSessionId('planner', 'project'));
     const templates = createPromptTemplateRegistry(workflows);
-    const expected = [...expanded.states].flatMap(([key, value]) => value.kind === 'node' && value.agent.name === 'planner'
+    const expected = [...expanded.states].flatMap(([key, value]) => value.kind === 'node' && agentExecution(value).agent.name === 'planner'
       ? [{ kind: 'workflow_node', node_id: value.nodeId, instructions: redactTextForOutbound(templates.render(
         { kind: 'workflow-agent', cardType: 'project' }, 'planner', { contractDescription: describeNodeResultContract(expanded, key) },
       )) }] : []);

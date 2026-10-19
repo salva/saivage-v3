@@ -9,6 +9,8 @@ import type { CardActivationInput, PlannerChildControlPort } from './card-activa
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from './llm-actor.js';
 import type { ConversationFileContext } from '../../persistence/session-api.js';
 import { RuntimeGate } from '../runtime-gate.js';
+import { invokeOperation } from './operation-execution.js';
+import { resolveExecutionInputs } from '../card-process/operation-routing.js';
 import type { CardService } from '../../cards/store-api.js';
 import type { McpToolInvocationPort } from '../../mcp/manager-api.js';
 import type { ProcessRunner } from '../process-runner.js';
@@ -22,11 +24,11 @@ import {
   type ProcessPosition,
 } from '../card-process/card-process-config.js';
 import {
-  AgentNodeExecution,
+  NodeExecution,
   type AcceptedNodeResult,
   type NodeExecutionResult,
   type NodeTransition,
-} from './agent-node-execution.js';
+} from './node-execution.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
@@ -55,7 +57,11 @@ export class CardProcessActor extends BaseActor {
   readonly #notifyActorMainFailure: (error: unknown) => void;
   readonly #fatalPort: ApplicationFatalPort;
   readonly #activeLlmActors = new Map<string, ConversationLLMActor>();
-  readonly #runner: AgentNodeExecution;
+  readonly #runner: NodeExecution;
+  readonly #operationResources: Pick<
+    import('./operation-execution.js').OperationInvocation,
+    'projectRoot' | 'processRunner' | 'runtimeProcessRootScope'
+  >;
   #result: Deferred<ProcessOutcome> | null = null;
   #activationInput: CardActivationInput | null = null;
   #activationSignal: AbortSignal | null = null;
@@ -83,6 +89,7 @@ export class CardProcessActor extends BaseActor {
     join: Promise<readonly InvocationJoinOutcome[]> | null;
   } | null = null;
   #successorGuard: Promise<void> | null = null;
+  #nonagentInFlight: { kind: 'node'; ordinal: number } | { kind: 'card-hook' } | null = null;
 
   constructor(args: {
     projectRoot: string;
@@ -91,7 +98,7 @@ export class CardProcessActor extends BaseActor {
     workflows: CompiledRuntimeWorkflows;
     store: CardService;
     parentControl: PlannerChildControlPort;
-    notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard'];
+    notifyCard: import('./node-execution.js').NodeExecutionDeps['notifyCard'];
     provider: LLMProviderPort;
     conversations: ConversationFileContext;
     processRunner: ProcessRunner;
@@ -118,7 +125,12 @@ export class CardProcessActor extends BaseActor {
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
     this.#notifyActorMainFailure = args.onActorMainFailure;
     this.#fatalPort = args.fatalPort;
-    this.#runner = new AgentNodeExecution(
+    this.#operationResources = {
+      projectRoot: args.projectRoot,
+      processRunner: args.processRunner,
+      runtimeProcessRootScope: args.runtimeProcessRootScope,
+    };
+    this.#runner = new NodeExecution(
       {
         projectRoot: args.projectRoot,
         cardId: args.cardId,
@@ -156,6 +168,7 @@ export class CardProcessActor extends BaseActor {
           this.#nodeControl = 'result';
         },
         claimedNodeInterruption: (ordinal) => this.#retiringNode?.ordinal === ordinal,
+        retainSettlementFailure: (error) => this.#retainPreJoinFailure(error),
       },
     );
   }
@@ -176,6 +189,10 @@ export class CardProcessActor extends BaseActor {
   }
 
   disposeActivation(reason: unknown): void {
+    if (this.#nonagentInFlight) {
+      this.prepareForRuntimeHalt(reason);
+      return;
+    }
     if (this.#result) this.#rejectActivation(reason, true);
     this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
     if (!this.#llmInvocationsDisposed) {
@@ -187,8 +204,83 @@ export class CardProcessActor extends BaseActor {
       this.#capturePreJoinFailure(() => this.#operationTracker!.revoke(reason));
   }
 
+  /** Natural settlement only; the Supervisor supplies the exact known committed publication. */
+  afterActivationCommit(
+    committed: ReturnType<CardService['commitActivationOutcome']>,
+    activationId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const hook = this.process.afterActivationCommit;
+    const status = committed.card.lifecycle.status;
+    if (!hook || !hook.statuses.some((selected) => selected === status)) return Promise.resolve();
+    if (status !== 'done' && status !== 'blocked' && status !== 'failed')
+      throw new Error('Card hook requires a natural committed outcome.');
+    const tracker = this.#operationTracker;
+    if (!tracker || this.#nonagentInFlight)
+      throw new Error('Card hook requires the settled node consumer and activation tracker.');
+    let settlementFailure: { error: unknown } | null = null;
+    this.#nonagentInFlight = { kind: 'card-hook' };
+    return tracker
+      .run(signal, async (operationSignal) => {
+        try {
+          operationSignal.throwIfAborted();
+          const inputs = resolveExecutionInputs(
+            hook.execution.operation.inputs,
+            hook.execution.inputs,
+            {},
+            {},
+            {
+              card_id: committed.card.id,
+              card_type: committed.card.type,
+              card_title: committed.card.title,
+              committed_status: status,
+            },
+          );
+          await invokeOperation({
+            ...this.#operationResources,
+            cardId: this.cardId,
+            execution: hook.execution,
+            inputs,
+            signal: operationSignal,
+            binding: {
+              kind: 'card-hook',
+              activation_id: activationId,
+              hook: 'after_activation_commit',
+              committed_card_artifact: committed.artifact,
+              status,
+            },
+            retainSettlementFailure: (error) => {
+              settlementFailure ??= { error };
+              this.#retainPreJoinFailure(error);
+            },
+          });
+        } catch (error) {
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.#fatalPort.publicationOutcomeUnknown(error);
+          throw error;
+        }
+      })
+      .then(
+        () =>
+          tracker.trackConsumer(() => {
+            this.#nonagentInFlight = null;
+          }),
+        (error) => {
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.#fatalPort.publicationOutcomeUnknown(error);
+          return tracker.trackConsumer(() => {
+            this.#nonagentInFlight = null;
+            if (settlementFailure) throw settlementFailure.error;
+            if (signal.aborted && error !== signal.reason) throw error;
+            // Ordinary operation failure is advisory. Exact halt interruption is consumed too;
+            // the Supervisor's owner/halt recheck, not this consumer, decides release.
+          });
+        },
+      );
+  }
+
   prepareForRuntimeHalt(reason: unknown): void {
-    if (!this.#retiringNode && this.#interruptionReason === null) {
+    if (!this.#nonagentInFlight && !this.#retiringNode && this.#interruptionReason === null) {
       this.disposeActivation(reason);
       return;
     }
@@ -450,6 +542,10 @@ export class CardProcessActor extends BaseActor {
     if (context.event === 'notification:interrupt' && !guard)
       throw new Error('Interrupted node successor has no settlement guard.');
     this.#nodeControl = guard ? 'interrupt' : 'open';
+    if (metadata.execution.kind === 'action') {
+      if (this.#nonagentInFlight) throw new Error('Nonagent operation is already in flight.');
+      this.#nonagentInFlight = { kind: 'node', ordinal };
+    }
     // Capture the guard into ordinary tracked work; execute owns all preparation and stays below it.
     this.runTask(
       () =>
@@ -480,10 +576,19 @@ export class CardProcessActor extends BaseActor {
         }),
       {
         onDone: (accepted) => {
-          void tracker.trackConsumer(() => this.#acceptNodeResult(context.target, accepted));
+          void tracker.trackConsumer(() => {
+            this.#retireNonagentNode(ordinal);
+            if (this.#interruptionReason !== null) return;
+            this.#acceptNodeResult(context.target, accepted);
+          });
         },
         onFailed: (error) => {
-          void tracker.trackConsumer(() => this.#acceptNodeFailure(error));
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.#fatalPort.publicationOutcomeUnknown(error);
+          void tracker.trackConsumer(() => {
+            this.#retireNonagentNode(ordinal);
+            this.#acceptNodeFailure(error);
+          });
         },
       },
     );
@@ -662,7 +767,7 @@ export class CardProcessActor extends BaseActor {
           : {
               kind: 'workflow-result' as const,
               terminal,
-              agent_name: promoted!.agentName,
+              executor: promoted!.executor,
               node_id: promoted!.nodeId,
               outcome: promoted!.outcome,
               summary,
@@ -720,11 +825,15 @@ export class CardProcessActor extends BaseActor {
     this.#runtimeProjectionChanged();
     return llm;
   }
-  #selectExecutingLlm(llm: ConversationLLMActor): void {
+  #retireNonagentNode(ordinal: number): void {
+    if (this.#nonagentInFlight?.kind === 'node' && this.#nonagentInFlight.ordinal === ordinal)
+      this.#nonagentInFlight = null;
+  }
+  #selectExecutingLlm(llm: ConversationLLMActor | null): void {
     const current = this.#currentExecutingLlm;
     if (!current) {
       this.#currentExecutingLlm = llm;
-      llm.resetExecutingActivity();
+      llm?.resetExecutingActivity();
       this.#runtimeProjectionChanged();
       return;
     }
@@ -733,7 +842,7 @@ export class CardProcessActor extends BaseActor {
     if (current.executingActivity().mode !== 'active')
       throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`);
     this.#currentExecutingLlm = llm;
-    llm.resetExecutingActivity();
+    llm?.resetExecutingActivity();
     this.#runtimeProjectionChanged();
   }
   #freshSourceInputId(): string {
@@ -778,7 +887,7 @@ export class CardProcessActor extends BaseActor {
 }
 
 function isRuntimeOwnedBlocked(
-  result: import('./agent-node-execution.js').NodeExecutionResult,
+  result: import('./node-execution.js').NodeExecutionResult,
 ): result is RuntimeOwnedBlockedResult {
   return (
     'kind' in result &&

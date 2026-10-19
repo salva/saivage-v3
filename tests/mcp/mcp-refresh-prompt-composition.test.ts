@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,14 +19,14 @@ it.each(SYSTEM_TEMPLATES)('renders $name selected role/generated-contract/node c
     const compiled = compileProjectWorkflows(config, { projectRoot: root, defaultPromptRoot: template.promptRoot });
     const renders: Array<{ role: string; roleText: string; nodeText?: string; toolNames: string[] }> = [];
     for (const role of ['executor', 'reviewer']) {
-      const selected = [...compiled.cardTypes].flatMap(([cardType, process]) => [...process.states].flatMap(([stateId, state]) => state.kind === 'node' && state.agent.name === role ? [{ cardType, process, stateId, state }] : []))[0]!;
+      const selected = [...compiled.cardTypes].flatMap(([cardType, process]) => [...process.states].flatMap(([stateId, state]) => state.kind === 'node' && agentExecution(state).agent.name === role ? [{ cardType, process, stateId, state }] : []))[0]!;
       expect(selected).toBeDefined();
       const { cardType, process, stateId, state } = selected;
       const contract = describeNodeResultContract(process, stateId);
-      const roleText = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: contract });
-      const nodeText = process.processPrompts.get(state.prompt.promptId)!.text;
-      const refs = state.agent.tools.filter(tool => tool.name.startsWith('mcp_'));
-      const surface = new BoundAgentToolSet(refs).bind({ scope: 'card', agentName: state.agent.name, projectRoot: root, mcpToolInvocation: unusedMcpToolInvocation } as never);
+      const roleText = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(state).agent.name, agentExecution(state).selectedAgentPrompt.compiled, { contractDescription: contract });
+      const nodeText = process.processPrompts.get(agentExecution(state).prompt.promptId)!.text;
+      const refs = agentExecution(state).agent.tools.filter(tool => tool.name.startsWith('mcp_'));
+      const surface = new BoundAgentToolSet(refs).bind({ scope: 'card', agentName: agentExecution(state).agent.name, projectRoot: root, mcpToolInvocation: unusedMcpToolInvocation } as never);
       const definitions = surfaceToolDefinitions(surface);
        const toolNames = definitions.map(tool => tool.function.name);
        expect(toolNames).toEqual(refs.map(tool => tool.name));

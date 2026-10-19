@@ -160,7 +160,7 @@ describe('work-first Overview clarity', () => {
 
   it('keeps result and reason language neutral across done, failed, and unexplained stopped states', async () => {
     const done = cardDetail('card-a', {
-      lifecycle: { status: 'done', completed_at: now, error: null, result: { kind: 'workflow-result', terminal: 'DONE', agent_name: 'reviewer', node_id: 'review', outcome: 'done', summary: 'Recorded output', records: [] } },
+      lifecycle: { status: 'done', completed_at: now, error: null, result: { kind: 'workflow-result', terminal: 'DONE', executor: { kind: 'agent', agent: 'reviewer' }, node_id: 'review', outcome: 'done', summary: 'Recorded output', records: [] } },
     });
     const { wrapper } = await mountOverview(done);
     expect(wrapper.get('[data-testid="overview-result-line"]').text()).toContain('Recorded result — Recorded output');

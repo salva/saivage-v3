@@ -20,7 +20,7 @@ export const smokeOperatorCard = {
   id: smokeCardId,
   type: 'code',
   title: 'Synthetic dashboard smoke card',
-  lifecycle: { status: 'done', result: { kind: 'workflow-result', terminal: 'DONE', agent_name: 'executor', node_id: 'execute', outcome: 'done', summary: 'synthetic result', records: [{ name: 'status.md', url: `record:///status.md?card=${smokeCardId}&v=1`, version: 1 }] }, error: null, completed_at: now },
+  lifecycle: { status: 'done', result: { kind: 'workflow-result', terminal: 'DONE', executor: { kind: 'agent', agent: 'executor' }, node_id: 'execute', outcome: 'done', summary: 'synthetic result', records: [{ name: 'status.md', url: `record:///status.md?card=${smokeCardId}&v=1`, version: 1 }] }, error: null, completed_at: now },
   urgency: 'normal',
   created_at: now,
   updated_at: now,
@@ -74,8 +74,8 @@ const codeDebugGraph = {
     card_type: 'code', notification_recipient: 'executor', permitted_child_types: [],
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, initialization: null }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, initialization: null }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
-    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, initialize_records: [], record_prompts: [], model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'] }],
-    edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
+    nodes: [{ node_id: 'execute', initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], record_write_patterns: ['status.md'] } }],
+    edges: [{ route_id: 'done', test: null, source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { route_id: 'execution:failed', test: null, source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { route_id: 'execution:blocked', test: null, source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
 const debugGraphs = parseOperatorResponse('debug.graphs', 200, {
@@ -84,12 +84,12 @@ const debugGraphs = parseOperatorResponse('debug.graphs', 200, {
 });
 const projectPresentation = parseOperatorResponse('workflows.presentation', 200, {
   card_type: 'project',
-  nodes: [{ node_id: 'plan', agent_name: 'planner', initialize_records: [] }],
+  nodes: [{ node_id: 'plan', initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }],
   entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'plan' })),
   edges: [
-    { source_node_id: 'plan', outcome: 'done', condition: 'default', target: { kind: 'terminal', terminal: 'DONE' } },
-    { source_node_id: 'plan', outcome: 'execution:blocked', condition: 'default', target: { kind: 'terminal', terminal: 'BLOCKED' } },
-    { source_node_id: 'plan', outcome: 'execution:failed', condition: 'default', target: { kind: 'terminal', terminal: 'FAILED' } },
+    { route_id: 'done', test: null, source_node_id: 'plan', outcome: 'done', condition: 'default', target: { kind: 'terminal', terminal: 'DONE' } },
+    { route_id: 'execution:blocked', test: null, source_node_id: 'plan', outcome: 'execution:blocked', condition: 'default', target: { kind: 'terminal', terminal: 'BLOCKED' } },
+    { route_id: 'execution:failed', test: null, source_node_id: 'plan', outcome: 'execution:failed', condition: 'default', target: { kind: 'terminal', terminal: 'FAILED' } },
   ],
   terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
   records: [{ name: 'brief.md', bootstrap: true, initialization: null }],
@@ -399,9 +399,9 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       if (!graph) return json(route, parseOperatorResponse('workflows.presentation', 404, { error: 'workflow_type_not_found', card_type: workflowMatch[1] }), 404);
       return json(route, parseOperatorResponse('workflows.presentation', 200, {
         card_type: graph.card_type,
-        nodes: graph.nodes.map(({ node_id, agent_name, initialize_records }) => ({ node_id, agent_name, initialize_records })),
+        nodes: graph.nodes.map(({ node_id, execution, initialize_records }) => ({ node_id, execution: execution.kind === 'agent' ? { kind: 'agent', agent_name: execution.agent_name } : execution, initialize_records })),
         entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
-        edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
+        edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
         terminals: graph.terminals,
         records: graph.records.map(({ name, bootstrap, initialization }) => ({ name, bootstrap, initialization })),
       }));

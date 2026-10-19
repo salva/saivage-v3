@@ -38,6 +38,26 @@ import {
 } from '../../tools/tool-api.js';
 import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/index.js';
+import {
+  compileOperations,
+  type OperationDefinition,
+  type OperationPlugin,
+  type OperationFields,
+} from './operation-contract.js';
+import { shellRunOperation } from './shell-operation.js';
+import {
+  compileActionExecution,
+  compileDataFields,
+  compileInputBindings,
+  compileEdgeInputs,
+  validateInputBindings,
+  validateIncomingInputs,
+  validateRouteTest,
+  type CompiledActionExecution,
+  type InputBindings,
+  type EdgeInputs,
+  type RouteTest,
+} from './operation-routing.js';
 
 interface WorkflowModelRouting {
   resolveModels(ids: readonly string[], request: CapabilityRequest): Candidate[];
@@ -67,6 +87,7 @@ type CompiledProcessPrompt = Readonly<{
   text: string;
 }>;
 export interface WorkflowCompileOptions {
+  readonly operationPlugins?: readonly OperationPlugin[];
   readonly projectRoot?: string;
   readonly defaultPromptRoot?: string;
   readonly artifactObserver?: (artifact: PromptArtifactObservation) => void;
@@ -136,12 +157,16 @@ type ProcessTransitionSemantic =
   | Readonly<{
       kind: 'configured-outcome';
       outcome: string;
+      routeId: string;
+      test: RouteTest | null;
+      inputs: EdgeInputs;
       prompt: CompiledPromptDeclaration | null;
       terminalBehavior: CompiledTerminalBehavior | null;
     }>
   | Readonly<{
       kind: 'configured-pending-notifications';
       outcome: string;
+      routeId: string;
       prompt: CompiledPromptDeclaration;
     }>
   | Readonly<{ kind: 'notification-interrupt'; prompt: CompiledPromptDeclaration }>
@@ -160,10 +185,7 @@ export type CompiledNodeContract = ProcessStateBase &
   Readonly<{
     kind: 'node';
     nodeId: string;
-    agent: CompiledAgentContract;
-    selectedAgentPrompt: CompiledAgentPrompt;
-    prompt: CompiledPromptDeclaration;
-    correctionPrompt: CompiledPromptDeclaration;
+    execution: CompiledAgentExecution | CompiledActionExecution;
     recordPrompts: readonly CompiledRecordPrompt[];
     requirements: readonly CompiledRecordRequirement[];
     initializeRecords: readonly CompiledRecordDefinition[];
@@ -172,6 +194,20 @@ export type CompiledNodeContract = ProcessStateBase &
     childActivationTypes: ReadonlySet<CardTypeName>;
     readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition>;
   }>;
+type CompiledAgentExecution = Readonly<{
+  kind: 'agent';
+  agent: CompiledAgentContract;
+  selectedAgentPrompt: CompiledAgentPrompt;
+  prompt: CompiledPromptDeclaration;
+  correctionPrompt: CompiledPromptDeclaration;
+  dataInputs: OperationFields;
+  inputs: InputBindings;
+}>;
+export function requireAgentExecution(node: CompiledNodeContract): CompiledAgentExecution {
+  if (node.execution.kind !== 'agent')
+    throw new Error(`Node '${node.nodeId}' requires agent execution.`);
+  return node.execution;
+}
 type CompiledProcessState =
   | (ProcessStateBase & Readonly<{ kind: 'ready' }>)
   | (ProcessStateBase & Readonly<{ kind: 'entry'; entry: CardProcessEntry }>)
@@ -194,6 +230,10 @@ export type ProcessPosition =
       terminal: CardProcessTerminal;
     }>;
 export interface CompiledCardTypeWorkflow {
+  readonly afterActivationCommit: Readonly<{
+    statuses: readonly ('done' | 'blocked' | 'failed')[];
+    execution: CompiledActionExecution;
+  }> | null;
   readonly cardType: CardTypeName;
   readonly notificationRecipient: AgentName;
   readonly planningNotificationTarget: boolean;
@@ -209,6 +249,7 @@ type SelectedGlobalParticipant = Readonly<{
   prompt: CompiledAgentPrompt;
 }>;
 export interface CompiledProjectWorkflows {
+  readonly operations: ReadonlyMap<string, OperationDefinition>;
   readonly analyst: CompiledAgentContract;
   readonly analystPrompt: CompiledAgentPrompt;
   readonly oversight: CompiledAgentContract;
@@ -596,6 +637,9 @@ type PendingNotificationsEdgeDraft = Readonly<{
 }>;
 type ProcessEdgeDraft = Readonly<{
   outcome: string;
+  routeId: string;
+  test: RouteTest | null;
+  inputs: EdgeInputs;
   targetStateId: string;
   targetNodeId: string | null;
   prompt: CompiledPromptDeclaration | null;
@@ -604,10 +648,7 @@ type ProcessEdgeDraft = Readonly<{
 }>;
 type ProcessNodeDraft = Readonly<{
   nodeId: string;
-  agent: CompiledAgentContract;
-  selectedAgentPrompt: CompiledAgentPrompt;
-  prompt: CompiledPromptDeclaration;
-  correctionPrompt: CompiledPromptDeclaration;
+  execution: CompiledAgentExecution | CompiledActionExecution;
   recordPrompts: readonly CompiledRecordPrompt[];
   requirements: readonly CompiledRecordRequirement[];
   initializeRecords: readonly CompiledRecordDefinition[];
@@ -617,6 +658,7 @@ type ProcessNodeDraft = Readonly<{
   childActivationTypes: ReadonlySet<CardTypeName>;
 }>;
 type CardTypeCompileDraft = Readonly<{
+  afterActivationCommit: CompiledCardTypeWorkflow['afterActivationCommit'];
   cardType: CardTypeName;
   location: string;
   notificationRecipient: AgentName;
@@ -636,6 +678,7 @@ function compileCardTypeInputs(
   agents: ReadonlyMap<AgentName, CompiledAgentContract>,
   roots: PromptRoots,
   configuredCardTypes: ReadonlySet<CardTypeName>,
+  operations: ReadonlyMap<string, OperationDefinition>,
 ): CardTypeCompileDraft {
   const location = `card_types.${cardType}`;
   const notificationRecipient = source.workflow.notification_recipient;
@@ -700,13 +743,23 @@ function compileCardTypeInputs(
   const nodes = new Map<string, ProcessNodeDraft>();
   for (const [rawNodeId, node] of Object.entries(source.workflow.nodes)) {
     const nodeId = identifier(rawNodeId, `${location}.workflow.nodes key`);
-    const agent = agents.get(node.agent);
-    if (!agent)
+    const selection = node.execution;
+    const agent = selection.kind === 'agent' ? agents.get(selection.agent) : null;
+    if (selection.kind === 'agent' && !agent)
       throw new Error(
-        `${location}.workflow.nodes.${nodeId}.agent references missing agent '${node.agent}'.`,
+        `${location}.workflow.nodes.${nodeId}.agent references missing agent '${selection.agent}'.`,
       );
-    if (agent.session !== 'card')
+    if (agent && agent.session !== 'card')
       throw new Error(`${location}.workflow.nodes.${nodeId}.agent must use card session scope.`);
+    if (
+      selection.kind === 'action' &&
+      (node.initialize_records !== undefined ||
+        node.record_prompts !== undefined ||
+        node.descendant_context !== undefined)
+    )
+      throw new Error(
+        `Action '${nodeId}' cannot initialize records or declare agent record/descendant prompts.`,
+      );
     const requirements: Array<CompiledRecordRequirement> = [];
     const initializeRecords = (node.initialize_records ?? []).map((name) => {
       const definition = records.get(parseRecordName(name));
@@ -714,7 +767,11 @@ function compileCardTypeInputs(
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.initialize_records requires a declared nonbootstrap initializer: '${name}'.`,
         );
-      if (!agentCanWriteRecord(agent, name) || !agent.tools.some((tool) => tool.name === 'write'))
+      if (
+        !agent ||
+        !agentCanWriteRecord(agent, name) ||
+        !agent.tools.some((tool) => tool.name === 'write')
+      )
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.initialize_records '${name}' requires record_writes authority and the write tool.`,
         );
@@ -723,12 +780,14 @@ function compileCardTypeInputs(
     for (const [rawRecord, requirement] of Object.entries(node.records)) {
       const name = parseRecordName(rawRecord);
       const definition = records.get(name) ?? genericRecordDefinition(name);
-      if (!agentCanWriteRecord(agent, name))
+      if (!agent && (requirement.mode !== 'continue' || requirement.gate !== 'exists'))
+        throw new Error(`Action '${nodeId}' records require continue/exists accepted records.`);
+      if (agent && !agentCanWriteRecord(agent, name))
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.records.${name} requires matching agent record_writes authority.`,
         );
       const requiresWrite = requirement.mode === 'clean' || requirement.gate === 'updated';
-      if (requiresWrite && !agent.tools.some((tool) => tool.name === 'write'))
+      if (requiresWrite && agent && !agent.tools.some((tool) => tool.name === 'write'))
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.records.${name} (${requirement.mode} + ${requirement.gate}) requires the write tool.`,
         );
@@ -737,79 +796,139 @@ function compileCardTypeInputs(
       );
     }
     const edges = new Map<string, ProcessEdgeDraft>();
-    for (const [rawOutcome, edge] of Object.entries(node.edges)) {
+    const execution: CompiledAgentExecution | CompiledActionExecution =
+      selection.kind === 'action'
+        ? compileActionExecution(selection, operations, 'node')
+        : Object.freeze({
+            kind: 'agent',
+            agent: agent!,
+            selectedAgentPrompt: selectAgentPrompt(
+              { kind: 'workflow-agent', cardType },
+              agent!,
+              roots,
+            ),
+            prompt: compilePromptDeclaration(
+              selection.prompt,
+              `${location}.workflow.nodes.${nodeId}.execution.prompt`,
+            ),
+            correctionPrompt: compilePromptDeclaration(
+              selection.correction_prompt,
+              `${location}.workflow.nodes.${nodeId}.execution.correction_prompt`,
+            ),
+            dataInputs: compileDataFields(selection.data_inputs ?? {}),
+            inputs: compileInputBindings(selection.inputs ?? {}),
+          });
+    if (execution.kind === 'agent') validateInputBindings(execution.dataInputs, execution.inputs);
+    if (
+      execution.kind === 'action' &&
+      (Object.keys(node.edges).length !== Object.keys(execution.operation.outcomes).length ||
+        Object.keys(execution.operation.outcomes).some(
+          (outcome) => !Object.hasOwn(node.edges, outcome),
+        ))
+    )
+      throw new Error(`Action '${nodeId}' must configure every exact operation outcome.`);
+    for (const [rawOutcome, configuredEdge] of Object.entries(node.edges)) {
       const outcome = outcomeIdentifier(
         rawOutcome,
         `${location}.workflow.nodes.${nodeId}.edges key`,
       );
-      if ('node' in edge.target) {
-        if (edge.pending_notifications)
-          throw new Error(
-            `${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications is allowed only on a nonrecipient DONE edge.`,
+      if ('cases' in configuredEdge && execution.kind !== 'action')
+        throw new Error('Cases require action execution.');
+      const branches =
+        'cases' in configuredEdge
+          ? [
+              ...configuredEdge.cases.map((branch) => ({
+                edge: branch,
+                routeId: `${outcome}:case:${branch.id}`,
+                test: branch.when,
+              })),
+              { edge: configuredEdge.otherwise, routeId: `${outcome}:otherwise`, test: null },
+            ]
+          : [{ edge: configuredEdge, routeId: outcome, test: null }];
+      if (
+        'cases' in configuredEdge &&
+        new Set(configuredEdge.cases.map((branch) => branch.id)).size !==
+          configuredEdge.cases.length
+      )
+        throw new Error(`Duplicate case IDs for '${outcome}'.`);
+      for (const { edge, routeId, test } of branches) {
+        if (test && execution.kind === 'action')
+          validateRouteTest(test, execution.operation.outcomes[outcome]!);
+        if ('node' in edge.target) {
+          if (edge.pending_notifications)
+            throw new Error(
+              `${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications is allowed only on a nonrecipient DONE edge.`,
+            );
+          edges.set(
+            routeId,
+            Object.freeze({
+              outcome,
+              routeId,
+              test: test ? Object.freeze({ ...test }) : null,
+              inputs: compileEdgeInputs(edge.inputs),
+              targetStateId: nodeState(edge.target.node),
+              targetNodeId: edge.target.node,
+              prompt:
+                edge.prompt === undefined
+                  ? null
+                  : compilePromptDeclaration(
+                      edge.prompt,
+                      `${location}.workflow.nodes.${nodeId}.edges.${outcome}.prompt`,
+                    ),
+              terminalBehavior: null,
+              pendingNotifications: null,
+            }),
           );
+          continue;
+        }
+        if (edge.prompt !== undefined)
+          throw new Error(
+            `${location}.workflow.nodes.${nodeId}.edges.${outcome} cannot have a terminal transition prompt.`,
+          );
+        const requiredNames = new Set(requirements.map((item) => item.definition.name));
+        const exportRecords = edge.target.export_records.map((raw) => {
+          const name = parseRecordName(raw);
+          const definition = requirements.find((item) => item.definition.name === name)?.definition;
+          if (!requiredNames.has(name))
+            throw new Error(
+              `${location}.workflow.nodes.${nodeId}.edges.${outcome} exports '${name}' without a source-node requirement.`,
+            );
+          return definition!;
+        });
+        const promotion =
+          edge.target.promote === 'current'
+            ? Object.freeze({ kind: 'current' as const })
+            : Object.freeze({
+                kind: 'latest-node' as const,
+                nodeId: edge.target.promote.latest_node,
+              });
         edges.set(
-          outcome,
+          routeId,
           Object.freeze({
             outcome,
-            targetStateId: nodeState(edge.target.node),
-            targetNodeId: edge.target.node,
-            prompt:
-              edge.prompt === undefined
-                ? null
-                : compilePromptDeclaration(
-                    edge.prompt,
-                    `${location}.workflow.nodes.${nodeId}.edges.${outcome}.prompt`,
+            routeId,
+            test: test ? Object.freeze({ ...test }) : null,
+            inputs: compileEdgeInputs(edge.inputs),
+            targetStateId: terminalState(edge.target.terminal),
+            targetNodeId: null,
+            prompt: null,
+            pendingNotifications: edge.pending_notifications
+              ? Object.freeze({
+                  targetStateId: nodeState(edge.pending_notifications.node),
+                  targetNodeId: edge.pending_notifications.node,
+                  prompt: compilePromptDeclaration(
+                    edge.pending_notifications.prompt,
+                    `${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications.prompt`,
                   ),
-            terminalBehavior: null,
-            pendingNotifications: null,
+                })
+              : null,
+            terminalBehavior: Object.freeze({
+              promotion,
+              exportRecords: Object.freeze(exportRecords),
+            }),
           }),
         );
-        continue;
       }
-      if (edge.prompt !== undefined)
-        throw new Error(
-          `${location}.workflow.nodes.${nodeId}.edges.${outcome} cannot have a terminal transition prompt.`,
-        );
-      const requiredNames = new Set(requirements.map((item) => item.definition.name));
-      const exportRecords = edge.target.export_records.map((raw) => {
-        const name = parseRecordName(raw);
-        const definition = requirements.find((item) => item.definition.name === name)?.definition;
-        if (!requiredNames.has(name))
-          throw new Error(
-            `${location}.workflow.nodes.${nodeId}.edges.${outcome} exports '${name}' without a source-node requirement.`,
-          );
-        return definition!;
-      });
-      const promotion =
-        edge.target.promote === 'current'
-          ? Object.freeze({ kind: 'current' as const })
-          : Object.freeze({
-              kind: 'latest-node' as const,
-              nodeId: edge.target.promote.latest_node,
-            });
-      edges.set(
-        outcome,
-        Object.freeze({
-          outcome,
-          targetStateId: terminalState(edge.target.terminal),
-          targetNodeId: null,
-          prompt: null,
-          pendingNotifications: edge.pending_notifications
-            ? Object.freeze({
-                targetStateId: nodeState(edge.pending_notifications.node),
-                targetNodeId: edge.pending_notifications.node,
-                prompt: compilePromptDeclaration(
-                  edge.pending_notifications.prompt,
-                  `${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications.prompt`,
-                ),
-              })
-            : null,
-          terminalBehavior: Object.freeze({
-            promotion,
-            exportRecords: Object.freeze(exportRecords),
-          }),
-        }),
-      );
     }
     if (edges.size === 0)
       throw new Error(`${location}.workflow.nodes.${nodeId}.edges must not be empty.`);
@@ -829,11 +948,6 @@ function compileCardTypeInputs(
           requireUnchangedUntilAccept: node.descendant_context.require_unchanged_until_accept,
         })
       : null;
-    const selectedAgentPrompt = selectAgentPrompt(
-      { kind: 'workflow-agent', cardType },
-      agent,
-      roots,
-    );
     const seenRecordViews = new Set<string>();
     const recordPrompts = Object.freeze(
       (node.record_prompts ?? []).map((input, index) => {
@@ -877,28 +991,22 @@ function compileCardTypeInputs(
       nodeId,
       Object.freeze({
         nodeId,
-        agent,
-        selectedAgentPrompt,
+        execution,
         recordPrompts,
-        prompt: compilePromptDeclaration(
-          node.prompt,
-          `${location}.workflow.nodes.${nodeId}.prompt`,
-        ),
-        correctionPrompt: compilePromptDeclaration(
-          node.correction_prompt,
-          `${location}.workflow.nodes.${nodeId}.correction_prompt`,
-        ),
         requirements: Object.freeze(requirements),
         initializeRecords: Object.freeze(initializeRecords),
         descendantContext,
         edges: immutableMap(edges),
         childCreationTypes:
-          agent.canCreateChildren && agent.tools.some((tool) => tool.name === 'create_card')
+          agent &&
+          agent.canCreateChildren &&
+          agent.tools.some((tool) => tool.name === 'create_card')
             ? permittedChildTypes
             : immutableSet([]),
-        childActivationTypes: agent.tools.some((tool) => tool.name === 'activate_card')
-          ? permittedChildTypes
-          : immutableSet([]),
+        childActivationTypes:
+          agent && agent.tools.some((tool) => tool.name === 'activate_card')
+            ? permittedChildTypes
+            : immutableSet([]),
       }),
     );
   }
@@ -924,6 +1032,16 @@ function compileCardTypeInputs(
     );
   }
   return Object.freeze({
+    afterActivationCommit: source.workflow.after_activation_commit
+      ? Object.freeze({
+          statuses: Object.freeze([...source.workflow.after_activation_commit.statuses]),
+          execution: compileActionExecution(
+            source.workflow.after_activation_commit.execution,
+            operations,
+            'after_activation_commit',
+          ),
+        })
+      : null,
     cardType,
     location,
     notificationRecipient,
@@ -935,7 +1053,13 @@ function compileCardTypeInputs(
   });
 }
 function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
-  if (![...draft.nodes.values()].some((node) => node.agent.name === draft.notificationRecipient))
+  if (
+    ![...draft.nodes.values()].some(
+      (node) =>
+        node.execution.kind === 'agent' &&
+        node.execution.agent.name === draft.notificationRecipient,
+    )
+  )
     throw new Error(
       `${draft.location}.workflow.notification_recipient '${draft.notificationRecipient}' is not used by any workflow node.`,
     );
@@ -945,12 +1069,27 @@ function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
         throw new Error(
           `${draft.location}.workflow.nodes.${nodeId} targets missing node '${edge.targetNodeId}'.`,
         );
+      if (edge.targetNodeId !== null) {
+        const target = draft.nodes.get(edge.targetNodeId)!;
+        if (edge.prompt && target.execution.kind === 'action')
+          throw new Error('Agent prompt cannot target an action.');
+        const fields =
+          target.execution.kind === 'agent'
+            ? target.execution.dataInputs
+            : target.execution.operation.inputs;
+        const outputs =
+          node.execution.kind === 'action' ? node.execution.operation.outcomes[edge.outcome]! : {};
+        validateIncomingInputs(fields, target.execution.inputs, edge.inputs, outputs);
+      } else if (Object.keys(edge.inputs).length)
+        throw new Error('Terminal routes cannot bind inputs.');
       if (edge.pendingNotifications && !draft.nodes.has(edge.pendingNotifications.targetNodeId))
         throw new Error(
           `${draft.location}.workflow.nodes.${nodeId}.edges.${edge.outcome}.pending_notifications targets missing node '${edge.pendingNotifications.targetNodeId}'.`,
         );
       const doneEdge = edge.targetStateId === terminalState('DONE');
-      const sourceIsRecipient = node.agent.name === draft.notificationRecipient;
+      const sourceIsRecipient =
+        node.execution.kind === 'agent' &&
+        node.execution.agent.name === draft.notificationRecipient;
       if (edge.pendingNotifications && (!doneEdge || sourceIsRecipient))
         throw new Error(
           `${draft.location}.workflow.nodes.${nodeId}.edges.${edge.outcome}.pending_notifications is allowed only on a nonrecipient DONE edge.`,
@@ -961,10 +1100,15 @@ function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
         );
       if (edge.pendingNotifications) {
         const target = draft.nodes.get(edge.pendingNotifications.targetNodeId)!;
-        if (target.agent.name !== draft.notificationRecipient)
+        if (
+          target.execution.kind !== 'agent' ||
+          target.execution.agent.name !== draft.notificationRecipient
+        )
           throw new Error(
             `${draft.location}.workflow.nodes.${nodeId}.edges.${edge.outcome}.pending_notifications target must run notification recipient '${draft.notificationRecipient}'.`,
           );
+        if (target.execution.kind === 'agent')
+          validateIncomingInputs(target.execution.dataInputs, target.execution.inputs, {}, {});
       }
     }
   for (const [entry, route] of draft.entries)
@@ -973,7 +1117,24 @@ function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
         `${draft.location}.workflow.entries.${entry} targets missing node '${route.targetNodeId}'.`,
       );
   const stopped = draft.entries.get('STOPPED')!;
-  if (draft.nodes.get(stopped.targetNodeId)!.agent.name !== draft.notificationRecipient)
+  for (const route of draft.entries.values()) {
+    const target = draft.nodes.get(route.targetNodeId)!;
+    if (route.prompt && target.execution.kind === 'action')
+      throw new Error('Entry prompt cannot target an action.');
+    validateIncomingInputs(
+      target.execution.kind === 'agent'
+        ? target.execution.dataInputs
+        : target.execution.operation.inputs,
+      target.execution.inputs,
+      {},
+      {},
+    );
+  }
+  const stoppedNode = draft.nodes.get(stopped.targetNodeId)!;
+  if (
+    stoppedNode.execution.kind !== 'agent' ||
+    stoppedNode.execution.agent.name !== draft.notificationRecipient
+  )
     throw new Error(
       `${draft.location}.workflow.entries.STOPPED must target a node run by notification recipient '${draft.notificationRecipient}'.`,
     );
@@ -1098,12 +1259,15 @@ function buildCardTypeStateTable(
     );
     for (const edge of node.edges.values()) {
       on.set(
-        `result:${edge.outcome}`,
+        `result:${edge.routeId}`,
         compiledProcessTransition(
           edge.targetStateId,
           Object.freeze({
             kind: 'configured-outcome',
             outcome: edge.outcome,
+            routeId: edge.routeId,
+            test: edge.test,
+            inputs: edge.inputs,
             prompt: edge.prompt,
             terminalBehavior: edge.terminalBehavior,
           }),
@@ -1112,12 +1276,13 @@ function buildCardTypeStateTable(
       );
       if (edge.pendingNotifications)
         on.set(
-          `result:${edge.outcome}:pending-notifications`,
+          `result:${edge.routeId}:pending-notifications`,
           compiledProcessTransition(
             edge.pendingNotifications.targetStateId,
             Object.freeze({
               kind: 'configured-pending-notifications',
               outcome: edge.outcome,
+              routeId: `${edge.routeId}:pending-notifications`,
               prompt: edge.pendingNotifications.prompt,
             }),
             edge.pendingNotifications.targetStateId === stateId,
@@ -1143,10 +1308,7 @@ function buildCardTypeStateTable(
       Object.freeze({
         kind: 'node',
         nodeId,
-        agent: node.agent,
-        selectedAgentPrompt: node.selectedAgentPrompt,
-        prompt: node.prompt,
-        correctionPrompt: node.correctionPrompt,
+        execution: node.execution,
         recordPrompts: node.recordPrompts,
         requirements: node.requirements,
         initializeRecords: node.initializeRecords,
@@ -1175,9 +1337,9 @@ function buildCardTypeStateTable(
   validateCompiledActorTable('lifecycle:ready', states);
   const ids = new Set<ProcessPromptId>();
   for (const state of states.values()) {
-    if (state.kind === 'node') {
-      ids.add(state.prompt.promptId);
-      ids.add(state.correctionPrompt.promptId);
+    if (state.kind === 'node' && state.execution.kind === 'agent') {
+      ids.add(state.execution.prompt.promptId);
+      ids.add(state.execution.correctionPrompt.promptId);
     }
     for (const route of state.on.values())
       if (
@@ -1193,12 +1355,14 @@ function buildCardTypeStateTable(
     [...ids].map((id) => [id, selectProcessPrompt(draft.cardType, id, roots)] as const),
   );
   return Object.freeze({
+    afterActivationCommit: draft.afterActivationCommit,
     cardType: draft.cardType,
     notificationRecipient: draft.notificationRecipient,
     planningNotificationTarget: [...states.values()].some(
       (state) =>
         state.kind === 'node' &&
-        state.agent.name === draft.notificationRecipient &&
+        state.execution.kind === 'agent' &&
+        state.execution.agent.name === draft.notificationRecipient &&
         state.childCreationTypes.size > 0 &&
         state.childActivationTypes.size > 0,
     ),
@@ -1247,6 +1411,7 @@ export function compileProjectWorkflows(
   options: WorkflowCompileOptions = {},
 ): CompiledProjectWorkflows {
   const roots = promptRoots(options);
+  const operations = compileOperations([shellRunOperation], options.operationPlugins);
   const knownModels = new Set<string>();
   for (const routeName of Object.keys(config.models.routes))
     for (const model of resolveRoute(config, routeName)) knownModels.add(model);
@@ -1297,7 +1462,10 @@ export function compileProjectWorkflows(
   const drafts = immutableMap(
     sourceEntries.map(
       ([type, source]) =>
-        [type, compileCardTypeInputs(type, source, agents, roots, configuredCardTypes)] as const,
+        [
+          type,
+          compileCardTypeInputs(type, source, agents, roots, configuredCardTypes, operations),
+        ] as const,
     ),
   );
   for (const draft of drafts.values()) validateCardTypeTopology(draft);
@@ -1306,6 +1474,7 @@ export function compileProjectWorkflows(
     [...drafts].map(([type, draft]) => [type, buildCardTypeStateTable(draft, roots)] as const),
   );
   return Object.freeze({
+    operations,
     analyst,
     analystPrompt,
     oversight,
@@ -1343,19 +1512,24 @@ export function bindRuntimeWorkflows(
   }
   for (const workflow of structural.cardTypes.values()) {
     for (const state of workflow.states.values()) {
-      if (state.kind !== 'node') continue;
+      if (state.kind !== 'node' || state.execution.kind !== 'agent') continue;
       const effectiveReferences = effectiveCardNodeToolReferences(
-        state.agent.tools,
+        state.execution.agent.tools,
         state.childCreationTypes,
       );
-      const toolSet = new BoundAgentToolSet(state.agent.tools);
+      const toolSet = new BoundAgentToolSet(state.execution.agent.tools);
       const request = Object.freeze(
         capabilityRequestForTools([...effectiveReferences, TERMINAL_RESULT_TOOL_NAME]),
       );
-      const existing = participants.get(state.agent.name);
+      const existing = participants.get(state.execution.agent.name);
       if (existing && JSON.stringify(existing.request) !== JSON.stringify(request))
-        throw new Error(`Agent '${state.agent.name}' has inconsistent node capability requests.`);
-      participants.set(state.agent.name, Object.freeze({ agent: state.agent, toolSet, request }));
+        throw new Error(
+          `Agent '${state.execution.agent.name}' has inconsistent node capability requests.`,
+        );
+      participants.set(
+        state.execution.agent.name,
+        Object.freeze({ agent: state.execution.agent, toolSet, request }),
+      );
     }
   }
   const bindings: Array<readonly [AgentName, BoundAgentContract]> = [];
@@ -1422,13 +1596,19 @@ export function processNodeOutcomes(
   const node = process.states.get(stateId);
   if (!node || node.kind !== 'node')
     throw new Error(`Workflow '${process.cardType}' has no node state '${stateId}'.`);
-  return Object.freeze(
-    [...node.on.values()].flatMap((route) =>
-      route.semantic.kind === 'configured-outcome' ? [route.semantic.outcome] : [],
+  return Object.freeze([
+    ...new Set(
+      [...node.on.values()].flatMap((route) =>
+        route.semantic.kind === 'configured-outcome' ? [route.semantic.outcome] : [],
+      ),
     ),
-  );
+  ]);
 }
 export function nodeResultSchema(process: CompiledCardTypeWorkflow, stateId: string) {
+  const node = process.states.get(stateId);
+  if (!node || node.kind !== 'node')
+    throw new Error(`Workflow '${process.cardType}' has no node '${stateId}'.`);
+  requireAgentExecution(node);
   return z
     .object({
       outcome: z.enum(processNodeOutcomes(process, stateId) as [string, ...string[]]),

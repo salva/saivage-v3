@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { agentExecution } from '../helpers/workflow-execution.js';
 //
 // Compiled per-template prompt-composition smoke.
 //
@@ -153,7 +154,7 @@ try {
   const classicSourceWorkflows = compileProjectWorkflows(classicTestConfig, { defaultPromptRoot: classicSourceRoot, projectRoot, artifactObserver: observeInside('classic source', classicSourceRoot) });
   const typedSourceWorkflows = compileProjectWorkflows(typedTestConfig, { defaultPromptRoot: typedSourceRoot, projectRoot, artifactObserver: observeInside('classic-typed source', typedSourceRoot) });
   const derivedDefaultWorkflows = compileProjectWorkflows(structuredClone(DEFAULT_SAIVAGE_CONFIG), { projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
-  const renderAgentPrompts = (workflows: ReturnType<typeof compileProjectWorkflows>) => [...workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states.values()].filter((state) => state.kind === 'node').map((state) => state.kind === 'node' ? renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' }) : ''));
+  const renderAgentPrompts = (workflows: ReturnType<typeof compileProjectWorkflows>) => [...workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states.values()].filter((state) => state.kind === 'node').map((state) => state.kind === 'node' ? renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(state).agent.name, agentExecution(state).selectedAgentPrompt.compiled, { contractDescription: 'contract' }) : ''));
   if (JSON.stringify(renderAgentPrompts(classicWorkflows)) !== JSON.stringify(renderAgentPrompts(derivedDefaultWorkflows))) throw new Error('Derived default rendered prompt baseline changed.');
   const analystText = renderCompiledPrompt({ kind: 'global-agent' }, typedWorkflows.analyst.name, typedWorkflows.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
   if (analystText.includes('{{')) throw new Error('Unresolved Analyst template syntax.');
@@ -164,8 +165,8 @@ try {
     if ((prompt.reference === 'execute' || prompt.reference === 'plan') && !prompt.text.includes(cardType)) throw new Error(`Missing eager cardType rendering for ${cardType}/${prompt.reference}`);
   }
   for (const [cardType, workflow] of typedWorkflows.cardTypes) for (const state of workflow.states.values()) if (state.kind === 'node') {
-    const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
-    if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${state.agent.name}`);
+    const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(state).agent.name, agentExecution(state).selectedAgentPrompt.compiled, { contractDescription: 'contract' });
+    if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${agentExecution(state).agent.name}`);
   }
   const assertRoleComposition = (
     templateName: string,
@@ -183,15 +184,15 @@ try {
         if (sourceState.kind !== 'node') throw new Error(`Source ${templateName}/${cardType}/${stateId} is not a node.`);
         const packagedContract = describeNodeResultContract(packagedProcess, stateId);
         const sourceContract = describeNodeResultContract(sourceProcess, stateId);
-        const packagedInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, packagedState.agent.name, packagedState.selectedAgentPrompt.compiled, { contractDescription: packagedContract });
-        const sourceInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, sourceState.agent.name, sourceState.selectedAgentPrompt.compiled, { contractDescription: sourceContract });
-        if (packagedState.agent.name !== sourceState.agent.name || packagedState.selectedAgentPrompt.reference !== sourceState.selectedAgentPrompt.reference || packagedContract !== sourceContract || packagedInstruction !== sourceInstruction) throw new Error(`Source/package role composition differs for ${templateName}/${cardType}/${stateId}.`);
+        const packagedInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(packagedState).agent.name, agentExecution(packagedState).selectedAgentPrompt.compiled, { contractDescription: packagedContract });
+        const sourceInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(sourceState).agent.name, agentExecution(sourceState).selectedAgentPrompt.compiled, { contractDescription: sourceContract });
+        if (agentExecution(packagedState).agent.name !== agentExecution(sourceState).agent.name || agentExecution(packagedState).selectedAgentPrompt.reference !== agentExecution(sourceState).selectedAgentPrompt.reference || packagedContract !== sourceContract || packagedInstruction !== sourceInstruction) throw new Error(`Source/package role composition differs for ${templateName}/${cardType}/${stateId}.`);
          if (packagedInstruction.split(packagedContract).length - 1 !== 1) throw new Error(`Generated role contract is not rendered exactly once for ${templateName}/${cardType}/${stateId}.`);
-         if (JSON.stringify(packagedState.agent.tools) !== JSON.stringify(sourceState.agent.tools)) throw new Error(`Source/package selected tools differ for ${templateName}/${cardType}/${stateId}.`);
-         const nodeText = requireValue(packagedProcess.processPrompts.get(packagedState.prompt.promptId), `Missing ${templateName}/${cardType}/${stateId} process prompt.`).text;
+         if (JSON.stringify(agentExecution(packagedState).agent.tools) !== JSON.stringify(agentExecution(sourceState).agent.tools)) throw new Error(`Source/package selected tools differ for ${templateName}/${cardType}/${stateId}.`);
+         const nodeText = requireValue(packagedProcess.processPrompts.get(agentExecution(packagedState).prompt.promptId), `Missing ${templateName}/${cardType}/${stateId} process prompt.`).text;
          if (nodeText.includes('{{')) throw new Error(`Unresolved node syntax for ${templateName}/${cardType}/${stateId}.`);
-         captureComposition(`compiled-${templateName}-${cardType}-${stateId.replace(':', '-')}`, { roleText: packagedInstruction, contract: packagedContract, nodeText, tools: packagedState.agent.tools });
-        const role = WORKFLOW_ROLES.find((candidate) => candidate === packagedState.selectedAgentPrompt.reference);
+         captureComposition(`compiled-${templateName}-${cardType}-${stateId.replace(':', '-')}`, { roleText: packagedInstruction, contract: packagedContract, nodeText, tools: agentExecution(packagedState).agent.tools });
+        const role = WORKFLOW_ROLES.find((candidate) => candidate === agentExecution(packagedState).selectedAgentPrompt.reference);
         if (role) {
           composedWorkflowRoles.add(role);
           assertGuidanceComposition(packagedInstruction, packagedRoot, role, `${templateName} packaged ${cardType}/${stateId}`);
@@ -227,12 +228,12 @@ try {
     const custom = structuredClone(config);
     custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, tools: ['read', 'write'], skills: false };
     for (const cardType of Object.values(custom.card_types)) for (const node of Object.values(cardType.workflow.nodes)) {
-      if (node.agent === 'reviewer') node.agent = 'evidence-reader';
+      if (agentExecution(node).agent === 'reviewer') agentExecution(node).agent = 'evidence-reader';
     }
     const selected = compileProjectWorkflows(custom, { defaultPromptRoot: template.promptRoot, projectRoot });
     const review = requireValue(selected.cardTypes.get('project')?.states.get('node:review'), 'Missing custom review.');
-    if (review.kind !== 'node' || review.agent.name !== 'evidence-reader' || review.selectedAgentPrompt.reference !== 'reviewer' || JSON.stringify(review.agent.tools.map((tool) => tool.name)) !== JSON.stringify(['read', 'write'])) throw new Error(`Reduced renamed role selection changed for ${template.name}.`);
-    const render = (state: typeof review) => renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'project' }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: describeNodeResultContract(requireValue(selected.cardTypes.get('project'), 'Missing custom project.'), 'node:review') });
+    if (review.kind !== 'node' || agentExecution(review).agent.name !== 'evidence-reader' || agentExecution(review).selectedAgentPrompt.reference !== 'reviewer' || JSON.stringify(agentExecution(review).agent.tools.map((tool) => tool.name)) !== JSON.stringify(['read', 'write'])) throw new Error(`Reduced renamed role selection changed for ${template.name}.`);
+    const render = (state: typeof review) => renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'project' }, agentExecution(state).agent.name, agentExecution(state).selectedAgentPrompt.compiled, { contractDescription: describeNodeResultContract(requireValue(selected.cardTypes.get('project'), 'Missing custom project.'), 'node:review') });
     assertGuidanceComposition(render(review), template.promptRoot, 'reviewer', `${template.name} reduced renamed role`);
 
     const independentRoot = join(projectRoot, '.saivage', 'config', 'prompts', 'agents', '_shared');
@@ -243,9 +244,9 @@ try {
     const independent = compileProjectWorkflows(custom, { defaultPromptRoot: template.promptRoot, projectRoot });
     const process = requireValue(independent.cardTypes.get('project'), 'Missing independent project.');
     const node = requireValue(process.states.get('node:review'), 'Missing independent review.');
-    if (node.kind !== 'node' || node.selectedAgentPrompt.reference !== 'independent-review' || node.selectedAgentPrompt.source !== 'override-shared') throw new Error('Independent reference was not selected.');
+    if (node.kind !== 'node' || agentExecution(node).selectedAgentPrompt.reference !== 'independent-review' || agentExecution(node).selectedAgentPrompt.source !== 'override-shared') throw new Error('Independent reference was not selected.');
     const contract = describeNodeResultContract(process, 'node:review');
-    const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'project' }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: contract });
+    const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'project' }, agentExecution(node).agent.name, agentExecution(node).selectedAgentPrompt.compiled, { contractDescription: contract });
     if (text !== independentText.replace('{{contractDescription}}', contract) || text.includes(roleMethodBlock(template.promptRoot, 'reviewer')) || text.includes('{{')) throw new Error('Independent prompt gained implied shipped-role inheritance.');
   }
   const assertPlanningComposition = (templateName: string, packaged: ReturnType<typeof compileProjectWorkflows>, source: ReturnType<typeof compileProjectWorkflows>) => {
@@ -258,11 +259,11 @@ try {
         if (packagedNode.kind !== 'node' || sourceNode.kind !== 'node') throw new Error(`Planning state is not a node for ${templateName}/${cardType}/${nodeId}.`);
         const packagedContract = describeNodeResultContract(packagedProcess, `node:${nodeId}`);
         const sourceContract = describeNodeResultContract(sourceProcess, `node:${nodeId}`);
-        const packagedAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, packagedNode.agent.name, packagedNode.selectedAgentPrompt.compiled, { contractDescription: packagedContract });
-        const sourceAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, sourceNode.agent.name, sourceNode.selectedAgentPrompt.compiled, { contractDescription: sourceContract });
-        const packagedProcessPrompt = requireValue(packagedProcess.processPrompts.get(packagedNode.prompt.promptId), `Missing packaged ${templateName}/${cardType}/${nodeId} process prompt.`);
-        const sourceProcessPrompt = requireValue(sourceProcess.processPrompts.get(sourceNode.prompt.promptId), `Missing source ${templateName}/${cardType}/${nodeId} process prompt.`);
-        if (packagedNode.selectedAgentPrompt.source !== 'bundled-shared' || sourceNode.selectedAgentPrompt.source !== 'bundled-shared' || packagedNode.selectedAgentPrompt.reference !== 'planner' || sourceNode.selectedAgentPrompt.reference !== 'planner') throw new Error(`Planner source selection changed for ${templateName}/${cardType}/${nodeId}.`);
+        const packagedAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(packagedNode).agent.name, agentExecution(packagedNode).selectedAgentPrompt.compiled, { contractDescription: packagedContract });
+        const sourceAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(sourceNode).agent.name, agentExecution(sourceNode).selectedAgentPrompt.compiled, { contractDescription: sourceContract });
+        const packagedProcessPrompt = requireValue(packagedProcess.processPrompts.get(agentExecution(packagedNode).prompt.promptId), `Missing packaged ${templateName}/${cardType}/${nodeId} process prompt.`);
+        const sourceProcessPrompt = requireValue(sourceProcess.processPrompts.get(agentExecution(sourceNode).prompt.promptId), `Missing source ${templateName}/${cardType}/${nodeId} process prompt.`);
+        if (agentExecution(packagedNode).selectedAgentPrompt.source !== 'bundled-shared' || agentExecution(sourceNode).selectedAgentPrompt.source !== 'bundled-shared' || agentExecution(packagedNode).selectedAgentPrompt.reference !== 'planner' || agentExecution(sourceNode).selectedAgentPrompt.reference !== 'planner') throw new Error(`Planner source selection changed for ${templateName}/${cardType}/${nodeId}.`);
         if (packagedContract !== sourceContract || packagedAgent !== sourceAgent || packagedProcessPrompt.reference !== sourceProcessPrompt.reference || packagedProcessPrompt.text !== sourceProcessPrompt.text) throw new Error(`Source/package Planner rendering differs for ${templateName}/${cardType}/${nodeId}.`);
         if (packagedAgent.split(packagedContract).length - 1 !== 1) throw new Error(`Generated Planner contract is not rendered exactly once for ${templateName}/${cardType}/${nodeId}.`);
       }
@@ -286,8 +287,8 @@ try {
   for (const nodeId of ['component-review', 'system-review']) {
     const node = requireValue(architecture.states.get(`node:${nodeId}`), `Missing ${nodeId}.`);
     if (node.kind !== 'node') throw new Error(`Missing ${nodeId}.`);
-    if (node.selectedAgentPrompt.source !== 'bundled-shared' || node.selectedAgentPrompt.reference !== 'reviewer') throw new Error(`${nodeId} does not select the shared Reviewer.`);
-    requireValue(architecture.processPrompts.get(node.prompt.promptId), `Missing ${nodeId} prompt.`);
+    if (agentExecution(node).selectedAgentPrompt.source !== 'bundled-shared' || agentExecution(node).selectedAgentPrompt.reference !== 'reviewer') throw new Error(`${nodeId} does not select the shared Reviewer.`);
+    requireValue(architecture.processPrompts.get(agentExecution(node).prompt.promptId), `Missing ${nodeId} prompt.`);
     if (!node.requirements.some(({ definition, mode, gate }) => definition.name === 'review.md' && mode === 'clean' && gate === 'updated')) throw new Error(`${nodeId} lacks its fresh updated review.md gate.`);
   }
   const providerRegistry = new ProviderRegistry(typedTestConfig);

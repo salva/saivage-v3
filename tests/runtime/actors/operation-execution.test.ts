@@ -1,0 +1,96 @@
+import { afterEach, expect, it, jest } from '@jest/globals';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { invokeOperation } from '../../../src/runtime/actors/operation-execution.js';
+import { shellRunOperation } from '../../../src/runtime/card-process/shell-operation.js';
+import { compileActionExecution } from '../../../src/runtime/card-process/operation-routing.js';
+import { compileOperations, type OperationDefinition } from '../../../src/runtime/card-process/operation-contract.js';
+import { ManagedProcessGroupRegistry } from '../../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { readCardExecutions } from '../../../src/persistence/card-execution-log.js';
+import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
+
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
+function fixture(script: string, extra: Record<string, unknown> = {}) {
+  const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/operation-execution-');
+  mkdirSync(join(projectRoot, '.saivage/cards/project/records'), { recursive: true });
+  const registry = new ManagedProcessGroupRegistry();
+  const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
+  const execution = compileActionExecution({ action: 'shell.run', contract_version: 1,
+    config: { script, timeout_ms: 3000, terminate_grace_ms: 50, ...extra }, inputs: { args: { literal: [] } } }, compileOperations([shellRunOperation]), 'node');
+  const controller = new AbortController();
+  const args = { projectRoot, cardId: 'project', execution, inputs: { args: [] },
+    binding: { kind: 'node' as const, activation_id: randomUUID(), node_id: 'check', ordinal: 0 },
+    processRunner: runner, runtimeProcessRootScope: registry.rootScope, signal: controller.signal,
+    retainSettlementFailure: jest.fn() };
+  cleanups.push(async () => {
+    await runner.terminateScopeTree({ rootScope: registry.rootScope, categories: ['runtime_card'], reason: 'test cleanup', graceMs: 50 });
+    rmSync(projectRoot, { recursive: true, force: true });
+  });
+  return { args, projectRoot, runner, controller };
+}
+
+it.each([0, 7])('runs real shell argv without interpolation, retaining actual captures and exit %i', async (code) => {
+  const f = fixture(`printf '%s' "$@"; printf 'err' >&2; printf 'artifact' > result.txt; exit ${code}`, { artifacts: ['result.txt', 'missing.txt'], env: { CI: '1' } });
+  f.args.inputs.args = ['$(not-a-command); "quoted"'] as never[];
+  const value = await invokeOperation(f.args);
+  expect(value.result).toMatchObject({ outcome: code ? 'failed' : 'passed', values: { exit_code: code } });
+  const rows = readCardExecutions(f.projectRoot, 'project');
+  expect(rows.map(({ kind }) => kind)).toEqual(['invocation_started', 'process_started', 'invocation_finished']);
+  expect(rows[0]).toMatchObject({ shell: { env: { CI: '1' }, argv: ['bash', '--noprofile', '--norc', '-o', 'pipefail', '-c', expect.any(String), 'saivage-action', '$(not-a-command); "quoted"'] } });
+  const finish = rows.at(-1)!;
+  if (finish.kind !== 'invocation_finished') throw new Error();
+  expect(finish).toMatchObject({ disposition: 'returned', leader_exit: { exit_code: code, signal: null }, process: { group: 'absent', stdout: 'eof' }, absent_artifacts: ['missing.txt'] });
+  const stdout = finish.files.find((file) => file.kind === 'capture' && file.stream === 'stdout')!;
+  expect(readFileSync(join(f.projectRoot, stdout.path), 'utf8')).toBe('$(not-a-command); "quoted"');
+  expect(finish.files).toContainEqual(expect.objectContaining({ kind: 'artifact', path: 'result.txt', size: 8, source: 'current' }));
+  expect(f.runner.list()).toEqual([]);
+});
+it('routes an observed leader signal separately from nonzero', async () => {
+  const f = fixture('kill -TERM $$');
+  await expect(invokeOperation(f.args)).resolves.toMatchObject({ result: { outcome: 'signalled', values: { signal: 'SIGTERM' } } });
+});
+it('terminates and joins before accepting timeout', async () => {
+  const f = fixture('sleep 30', { timeout_ms: 40 });
+  await expect(invokeOperation(f.args)).resolves.toMatchObject({ result: { outcome: 'timed_out' } });
+  expect(readCardExecutions(f.projectRoot, 'project').at(-1)).toMatchObject({ disposition: 'timed_out', process: { group: 'absent' }, leader_exit: { signal: 'SIGTERM', exit_code: null } });
+});
+it('joins cancellation with the exact reason, never returning a configured outcome', async () => {
+  const f = fixture('sleep 30');
+  const spawned = new Promise<void>((resolve) => {
+    const original = f.runner.spawnCaptured.bind(f.runner);
+    jest.spyOn(f.runner, 'spawnCaptured').mockImplementation((args) => original({ ...args, onSpawn: (record) => { args.onSpawn(record); resolve(); } }));
+  });
+  const invocation = invokeOperation(f.args);
+  const reason = new Error('exact interruption');
+  const assertion = expect(invocation).rejects.toBe(reason);
+  await spawned;
+  f.controller.abort(reason);
+  await assertion;
+  expect(readCardExecutions(f.projectRoot, 'project').at(-1)).toMatchObject({ disposition: 'cancelled', outcome: null, process: { group: 'absent' } });
+  expect(f.runner.list()).toEqual([]);
+});
+it('performs no entry or launch when already aborted', async () => {
+  const f = fixture('exit 0'); const reason = new Error('before entry'); f.controller.abort(reason);
+  await expect(invokeOperation(f.args)).rejects.toBe(reason);
+  expect(readCardExecutions(f.projectRoot, 'project')).toEqual([]);
+});
+it('treats launch failure as an engine error, not an exit or accepted outcome', async () => {
+  const f = fixture('exit 0', { cwd: 'absent-directory' });
+  await expect(invokeOperation(f.args)).rejects.toThrow(/no leader PID/);
+  expect(readCardExecutions(f.projectRoot, 'project').map(({ kind }) => kind)).toEqual(['invocation_started', 'invocation_finished']);
+  expect(readCardExecutions(f.projectRoot, 'project').at(-1)).toMatchObject({ outcome: null, leader_exit: null, process: null });
+});
+it('does not retry an invalid plugin return after its known effect', async () => {
+  const f = fixture('exit 0'); let effects = 0;
+  const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: { count: { type: 'integer', workflow: true } } }, retainFields: ['count'],
+    async run() { effects++; return { outcome: 'finished', summary: 'Effect happened.', values: {} }; } };
+  const execution = compileActionExecution({ action: 'acme.inspect', contract_version: 1, config: {}, inputs: {} }, compileOperations([], [{ namespace: 'acme', operations: { inspect: definition } }]), 'node');
+  await expect(invokeOperation({ ...f.args, execution, inputs: {} })).rejects.toThrow();
+  expect(effects).toBe(1);
+  expect(readCardExecutions(f.projectRoot, 'project').at(-1)).toMatchObject({ disposition: 'unavailable', outcome: null, values: [] });
+});

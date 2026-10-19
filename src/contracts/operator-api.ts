@@ -10,6 +10,7 @@ import { mcpOperatorApiContracts } from './operator-api-mcp.js';
 import { processesOperatorApiContracts } from './operator-api-processes.js';
 import { runtimeCardsOperatorApiContracts } from './operator-api-runtime-cards.js';
 import { workflowOperatorApiContracts } from './operator-api-workflows.js';
+import { executionOperatorApiContracts } from './operator-api-executions.js';
 
 export {
   AgentConversationResponseSchema,
@@ -85,6 +86,7 @@ export type {
 export { ProcessListResponseSchema, ProcessViewSchema } from './operator-api-processes.js';
 export type { ProcessView } from './operator-api-processes.js';
 export const operatorApiContracts: typeof workflowOperatorApiContracts &
+  typeof executionOperatorApiContracts &
   typeof authOperatorApiContracts &
   typeof runtimeCardsOperatorApiContracts &
   typeof mcpOperatorApiContracts &
@@ -95,6 +97,7 @@ export const operatorApiContracts: typeof workflowOperatorApiContracts &
   typeof eventsOperatorApiContracts &
   typeof configOperatorApiContracts = {
   ...workflowOperatorApiContracts,
+  ...executionOperatorApiContracts,
   ...authOperatorApiContracts,
   ...runtimeCardsOperatorApiContracts,
   ...mcpOperatorApiContracts,

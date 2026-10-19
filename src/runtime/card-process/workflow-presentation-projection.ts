@@ -12,7 +12,15 @@ export function projectWorkflowPresentation(
     card_type: workflow.cardType,
     nodes: nodes.map((node) => ({
       node_id: node.nodeId,
-      agent_name: node.agent.name,
+      execution:
+        node.execution.kind === 'agent'
+          ? { kind: 'agent', agent_name: node.execution.agent.name }
+          : {
+              kind: 'action',
+              action: node.execution.operation.id,
+              contract_version: node.execution.operation.contractVersion,
+              provider: node.execution.operation.provider,
+            },
       initialize_records: node.initializeRecords.map((record) => record.name),
     })),
     entries: (['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const).map((entry) => ({

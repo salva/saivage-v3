@@ -24,6 +24,21 @@ function header(detail: ReturnType<typeof cardDetail> | null = null) {
   return mount(CardFlowHeader, { props: { cardId: 'card-a', detail, position: { kind: 'node', cardType: 'code', stateId: 'node:execute', nodeId: 'execute', executionOrdinal: 1 } }, global: { plugins: [router] } });
 }
 describe('cockpit workflow presentation ownership', () => {
+  it('labels action identity and case routes without associating the action with an agent session', async () => {
+    const base=cyclicCodePresentation();
+    const action:WorkflowPresentation={...base,nodes:base.nodes.map((node)=>node.node_id==='execute'?{...node,execution:{kind:'action',action:'shell.run',contract_version:1,provider:{kind:'builtin',name:'shell'}}}:node),edges:base.edges.map((edge,index)=>index===0?{...edge,outcome:'passed',route_id:'passed:case:counts',test:{field:'exit_code',op:'eq',value:0},target:{kind:'node',node_id:'repair'}}:edge)};
+    api.getWorkflowPresentation.mockResolvedValue(action);
+    const detail=cardDetail('card-a',{type:'code'});
+    const flow=header(detail);
+    const rail=mount(ParticipantRail,{props:{cardId:'card-a',detail,selectedSessionId:null}});
+    await flushPromises();
+    expect(flow.get('[data-testid="card-flow-position"]').text()).toContain('shell.run action (contract 1, builtin shell)');
+    expect(flow.get('[data-testid="card-flow-outcomes"]').text()).toContain('passed:case:counts');
+    expect(flow.get('[data-testid="card-flow-outcomes"]').text()).toContain('when exit_code eq 0');
+    expect(rail.findAll('.rail-node-label').map((label)=>label.text())).toEqual(['Configured node/role: repair']);
+    expect(rail.text()).not.toContain('shell.run');
+    flow.unmount();rail.unmount();
+  });
   it('shares one pending per-type read across late detail arrival in both consumers and retains full topology', async () => {
     const pending = deferred<WorkflowPresentation>(); api.getWorkflowPresentation.mockReturnValueOnce(pending.promise);
     const flow = header();
@@ -49,7 +64,7 @@ describe('cockpit workflow presentation ownership', () => {
     await flow.setProps({ detail: cardDetail('card-a', { type: 'goal' }) });
     old.resolve(cyclicCodePresentation()); await flushPromises();
     expect(flow.text()).not.toContain("executor's step");
-    current.resolve({ ...cyclicCodePresentation(), card_type: 'goal', nodes: [{ node_id: 'execute', agent_name: 'planner', initialize_records: [] }] }); await flushPromises();
+    current.resolve({ ...cyclicCodePresentation(), card_type: 'goal', nodes: [{ node_id: 'execute', initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }] }); await flushPromises();
     expect(flow.text()).toContain("planner's step");
     await flow.setProps({ detail: cardDetail('card-a', { type: 'code' }) });
     expect(flow.text()).toContain("executor's step"); expect(api.getWorkflowPresentation).toHaveBeenCalledTimes(2);

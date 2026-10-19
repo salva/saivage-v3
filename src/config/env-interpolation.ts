@@ -25,7 +25,7 @@ function interpolateString(raw: string, env: EnvironmentSource): EnvInterpolatio
   return { value, warnings };
 }
 
-/** Initializer templates are data templates, never environment expansion hosts. */
+/** Initializers and action config/inputs are literal data, not expansion hosts. */
 export function interpolateValue(
   v: unknown,
   env: EnvironmentSource,
@@ -50,9 +50,28 @@ export function interpolateValue(
     };
   }
   if (v !== null && typeof v === 'object') {
+    const object = v as Record<string, unknown>;
+    const workflowExecution =
+      path[0] === 'card_types' &&
+      path[2] === 'workflow' &&
+      ((path.length === 6 && path[3] === 'nodes' && path[5] === 'execution') ||
+        (path.length === 5 && path[3] === 'after_activation_commit' && path[4] === 'execution'));
+    const executionKind = workflowExecution
+      ? interpolateValue(object.kind, env, [...path, 'kind'])
+      : null;
+    const actionExecution = executionKind?.value === 'action';
     const result: Record<string, unknown> = {};
     const warnings: string[] = [];
-    for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
+    for (const [key, val] of Object.entries(object)) {
+      if (key === 'kind' && executionKind) {
+        result[key] = executionKind.value;
+        warnings.push(...executionKind.warnings);
+        continue;
+      }
+      if (actionExecution && (key === 'config' || key === 'inputs')) {
+        result[key] = val;
+        continue;
+      }
       const { value: iv, warnings: iw } = interpolateValue(val, env, [...path, key]);
       result[key] = iv;
       warnings.push(...iw);

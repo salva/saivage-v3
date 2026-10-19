@@ -24,7 +24,7 @@ function card(id: string, title: string, status: FixtureStatus, children: string
     title,
     lifecycle: {
       status,
-      result: status === 'done' ? { kind: 'workflow-result', terminal: 'DONE', agent_name: 'executor', node_id: 'execute', outcome: 'done', summary: 'Done fixture', records: [] } : null,
+      result: status === 'done' ? { kind: 'workflow-result', terminal: 'DONE', executor: { kind: 'agent', agent: 'executor' }, node_id: 'execute', outcome: 'done', summary: 'Done fixture', records: [] } : null,
       error: null,
       completed_at: completed,
     },

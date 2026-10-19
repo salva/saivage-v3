@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import {
   existsSync,
@@ -246,7 +247,7 @@ describe('offline workflow compilation and publication', () => {
     const custom = structuredClone(DEFAULT_SAIVAGE_CONFIG);
     custom.agents['planner-v2'] = { ...custom.agents.planner! };
     for (const node of Object.values(custom.card_types.project!.workflow.nodes))
-      if (node.agent === 'planner') node.agent = 'planner-v2';
+      if (agentExecution(node).agent === 'planner') agentExecution(node).agent = 'planner-v2';
     if (custom.card_types.project!.workflow.notification_recipient === 'planner')
       custom.card_types.project!.workflow.notification_recipient = 'planner-v2';
     const configPath = join(projectRoot, '.saivage', 'saivage.yaml');

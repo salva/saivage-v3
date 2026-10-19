@@ -307,7 +307,7 @@ describe('Supervisor restart full-chain recovery', () => {
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: {
+          workflow: { format_version: 1,
             notification_recipient: 'planner',
             entries: {
               BACKLOG: { node: 'plan' },
@@ -320,9 +320,9 @@ describe('Supervisor restart full-chain recovery', () => {
             },
             nodes: {
               plan: {
-                agent: 'planner',
+                execution: { kind: 'agent', agent: 'planner',
                 prompt: { reference: 'plan', compactable: true },
-                correction_prompt: { reference: 'correct-plan-result', compactable: true },
+                correction_prompt: { reference: 'correct-plan-result', compactable: true } },
                 records: {},
                 edges: {
                   blocked: {
@@ -339,7 +339,7 @@ describe('Supervisor restart full-chain recovery', () => {
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: {
+          workflow: { format_version: 1,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },
@@ -352,9 +352,9 @@ describe('Supervisor restart full-chain recovery', () => {
             },
             nodes: {
               execute: {
-                agent: 'executor',
+                execution: { kind: 'agent', agent: 'executor',
                 prompt: { reference: 'execute', compactable: true },
-                correction_prompt: { reference: 'correct-execution-result', compactable: true },
+                correction_prompt: { reference: 'correct-execution-result', compactable: true } },
                 records: {},
                 edges: {
                   done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } },
@@ -574,7 +574,7 @@ describe('Supervisor restart full-chain recovery', () => {
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: {
+          workflow: { format_version: 1,
             notification_recipient: 'planner',
             entries: {
               BACKLOG: { node: 'plan' },
@@ -587,9 +587,9 @@ describe('Supervisor restart full-chain recovery', () => {
             },
             nodes: {
               plan: {
-                agent: 'planner',
+                execution: { kind: 'agent', agent: 'planner',
                 prompt: { reference: 'plan', compactable: true },
-                correction_prompt: { reference: 'correct-plan-result', compactable: true },
+                correction_prompt: { reference: 'correct-plan-result', compactable: true } },
                 records: {},
                 edges: {
                   blocked: {
@@ -606,7 +606,7 @@ describe('Supervisor restart full-chain recovery', () => {
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: {
+          workflow: { format_version: 1,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },
@@ -619,9 +619,9 @@ describe('Supervisor restart full-chain recovery', () => {
             },
             nodes: {
               execute: {
-                agent: 'executor',
+                execution: { kind: 'agent', agent: 'executor',
                 prompt: { reference: 'execute', compactable: true },
-                correction_prompt: { reference: 'correct-execution-result', compactable: true },
+                correction_prompt: { reference: 'correct-execution-result', compactable: true } },
                 records: {},
                 edges: {
                   done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } },

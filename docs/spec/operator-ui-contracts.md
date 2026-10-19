@@ -300,10 +300,58 @@ contracts the current Card Cockpit implements.
   grammar. Malformed session routes render a distinct invalid-session state
   without mounting detail; malformed card routes make no detail request and
   share the typed **Card not found** presentation.
+- **Executions** is a separate card facet, not an agent or conversation. It reads
+  `GET /api/cards/:id/executions` in retained row order (default 50, maximum 100
+  rows; optional exact `after` row UUID cursor), and
+  `GET /api/cards/:id/executions/:invocationId` for bounded detail. Both require
+  operator authentication and supported linked live-card or exact tombstone access.
+  Every request strictly consumes the complete exact card-owned log; pagination
+  never certifies only a prefix. A missing lazy log says **No retained execution
+  evidence**, not “never ran.” An unmatched start says **no completion retained;
+  effects unknown**, never “running,” “cancelled,” or “successful.” No process
+  probing, completion append, replay, orphan discovery, or synthetic session occurs.
+- Execution detail presents the exact qualified operation/contract/provider,
+  activation, node/ordinal or postcommit hook and committed artifact selection,
+  entry/finish times, safe command/cwd/argv, retained inputs/fields, disposition,
+  outcome, leader exit/signal/error, timeout/interruption and group/capture facts.
+  Private configuration and environment are not public fields. Text is escaped
+  and outbound-redacted. Detail bounds process starts to 100 and explicitly marks
+  omitted starts; it does not infer live invocation status from retained rows.
+- Execution files are selected only by source-row UUID plus reference ordinal:
+  `GET /api/cards/:id/executions/:invocationId/files/:fileKey` and
+  `GET /api/cards/:id/executions/:invocationId/files/:fileKey/download`.
+  No caller-chosen path is admitted. The existing Files owner applies containment,
+  alias/attic refusal, confidentiality and bounded text consumption before either
+  preview or download. Both return redacted text, never a raw secret/configuration
+  download. Unsupported binary/image content is refused; missing selected content
+  is unavailable, with no replacement search. Declared absent artifacts have no
+  link. Generated artifacts are labeled **mutable current workspace source (not
+  historical content)**; captured output references remain actual capture sources.
+  Errors omit private paths/content. Conversations continue to show real agents.
+
+For API clients, an empty retained execution list is exactly
+`{"rows":[],"next_cursor":null}`. Use the returned row UUID as `after`, not a
+timestamp or inferred ordinal. List rows carry `row_id`, `invocation_id`,
+`timestamp`, `kind`, `operation`, `contract_version`, `binding` and nullable
+`disposition`; the detail response adds exact `provider`, `completion`, safe shell
+facts, selected input/retained fields, known settlement/process observations and
+file selections. `completion:"no completion retained; effects unknown"` is not
+a process status. Example authenticated requests (substitute actual returned IDs;
+never place tokens in URLs):
+
+```bash
+curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
+  "$ORIGIN/api/cards/$CARD_ID/executions?limit=50"
+curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
+  "$ORIGIN/api/cards/$CARD_ID/executions/$INVOCATION_ID"
+curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
+  "$ORIGIN/api/cards/$CARD_ID/executions/$INVOCATION_ID/files/$FILE_KEY/download"
+```
+
 - The singular route table is `/` (cockpit home: accepted current work,
   accepted **No current work**, or honest unknown/loading/error before
   acceptance), `/cards` (explicit tree/selection surface),
-  `/cards/:id?facet=overview|conversations|records|evidence` (card cockpit),
+  `/cards/:id?facet=overview|conversations|executions|records|evidence` (card cockpit),
   `/agents/:id?entry=…` (the sole exact-session address, presented by the
   shared cockpit owner), `/files`, and
   `/system?section=…&process=…`. Retired destinations
@@ -319,7 +367,7 @@ contracts the current Card Cockpit implements.
   private rows are not promised rendered targets.
 - A resolved card-session address selects Conversations in its exact owning
   card cockpit. The represented tree, selected card, compact header, participant
-  rail, and four tabs persist across exact participant selection. Conversations
+  rail, and five tabs persist across exact participant selection. Conversations
   points to the current exact session (including a valid `entry`); another facet
   points to its exact card and drops session/entry refinements. Returning to
   Conversations opens the unselected card facet rather than retaining visit state.
@@ -468,7 +516,7 @@ ordered `initialize_records` independently of record completion requirements.
   revision and accepted source revision remain distinct.
 - Catalogs contain only retained ordinary card or accepted record entries; totals count entries, not maximum revisions. Current revision need not have a selectable artifact. Loaded catalogs do not veto exact card/record version requests: success or missing selection comes from the server, with selection-local errors preserving current detail. Explicit absent selectors show a local error, never a first-entry/nearest fallback. Current draft is not synthesized into history and has no immutable locator; current record URLs remain reusable, with nullable `accepted_version_url` separately linking latest acceptance.
 - Card diffs tag their target as `{kind:'version',version}` or `{kind:'current',head_id,version_seq,history_version}`. Record current-side diffs tag `head_id` and mutable revision separately from immutable accepted sides. Card detail and current record metadata/content require the exact published head UUID; numeric revisions alone are not current selection identity. Accepted browser resource scopes retain that identity without inventing an immutable draft locator or a new verdict from old reviewer text. Redaction precedes comparison. Files `card.json` projects current head identity/metadata and selected ordinary content; `card.json?v=N` projects exact immutable history. Sizes/hashes/times describe those virtual bytes, never physical heads/history/mailbox files. Previous slots have no UI/browser or ordinary read API and are never a fallback.
-- Card history `card`/`final_card` uses the strict minimal outbound card shape: no nine null-only placeholders (`subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report`, `metadata`). Status text/time, lifecycle results and history behavior remain unchanged. Files historical ordinary/tombstone wrappers use format2; current `card-current` remains versionless. Historical opaque tool results remain recorded facts, not current card objects.
+- Card history `card`/`final_card` uses the strict minimal outbound card shape: no nine null-only placeholders (`subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report`, `metadata`). Lifecycle workflow results identify the actual agent/action executor. Files historical ordinary/tombstone wrappers use format3; current `card-current` remains versionless. Historical opaque tool results remain recorded facts, not current card objects.
 - Accepted provenance displays observed `card_version_seq` separately from `card_history_version` and its immutable ordinary locator. Queue-only current revisions never become fabricated historical URLs. Current draft and latest accepted content remain visibly distinct. Pending-only mailbox reachability promises neither a queue audit nor physical erasure; delivered conversation text remains independently readable, and private mailbox paths/bodies never leak through Files.
 - A lifecycle result is neutrally labeled **Recorded result**, with its summary
   quoted through the existing bounded one-liner and complete JSON/provenance one
@@ -731,7 +779,7 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   then claims the existing CardStore selection/detail owner; no detached card
   context reader exists, while the transcript remains independently usable.
   Loading or initial card failure leaves Conversations active and disables the
-  other three facet labels. An unavailable card flow keeps the
+  other four facet labels. An unavailable card flow keeps the
   exact card identity and says **Card flow unavailable**; it does not
   identify tombstone state, search for a replacement, infer hierarchy, or mount
   card membership reads. A retained admitted detail stays visibly stale on

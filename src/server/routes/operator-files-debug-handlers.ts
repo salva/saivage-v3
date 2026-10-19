@@ -8,6 +8,7 @@ import {
   type OperatorProjectContext,
 } from './operator-handler-context.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
+import { CardExecutionsReadModel } from '../../application/index.js';
 
 export function buildFilesDebugOperatorContractHandlers(
   options: OperatorProjectContext & {
@@ -22,7 +23,21 @@ export function buildFilesDebugOperatorContractHandlers(
     options.configAuthority,
   );
 
+  const executions = new CardExecutionsReadModel(options.projectRoot, fileReadModel);
   return defineOperatorContractHandlers({
+    'cards.executions.list': ({ params, query }) =>
+      executions.list(params.id, query.after, query.limit),
+    'cards.executions.get': ({ params }) => executions.detail(params.id, params.invocationId),
+    'cards.executions.file': ({ params }) =>
+      executions.file(params.id, params.invocationId, params.fileKey),
+    'cards.executions.download': async ({ params, reply }) => {
+      const result = await executions.file(params.id, params.invocationId, params.fileKey);
+      if (result.statusCode !== 200) return result;
+      reply.header('Content-Type', 'text/plain; charset=utf-8');
+      reply.header('Content-Disposition', 'attachment; filename="execution-output.txt"');
+      reply.header('Cache-Control', 'no-store');
+      return { body: Buffer.from(result.body.content) };
+    },
     'files.list': ({ query }) => fileReadModel.listFiles(query.path || '.'),
     'files.content': ({ query }) => fileReadModel.readFileContent(query.path),
     'files.image': async ({ query, reply }) => {

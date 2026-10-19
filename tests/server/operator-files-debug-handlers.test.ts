@@ -258,7 +258,7 @@ describe('operator files and debug contract handlers', () => {
     expect(body.graphs).toHaveLength(9);
     expect(body.graphs.map((graph: { card_type: string }) => graph.card_type)).toEqual(['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']);
     expect(body.graphs[0]).toEqual(expect.objectContaining({ entries: expect.arrayContaining([expect.objectContaining({ entry: 'STOPPED', node_id: 'recover' })]), terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }] }));
-    expect(body.graphs[0].nodes[0].model.candidates[0]).toEqual({ provider: 'test', model: 'test-model' });
+    expect(body.graphs[0].nodes[0].execution.model.candidates[0]).toEqual({ provider: 'test', model: 'test-model' });
     const keys = (value: unknown): string[] => value && typeof value === 'object' ? Object.entries(value).flatMap(([key, child]) => [key, ...keys(child)]) : [];
     expect(keys(body)).not.toEqual(expect.arrayContaining(['account', 'text', 'path']));
     expect(JSON.stringify(body)).not.toMatch(/\.saivage|contractDescription/i);
@@ -444,7 +444,7 @@ describe('operator files and debug contract handlers', () => {
     for (const [response,version] of [[current,2],[historical,1]] as const) {
       expect(response.statusCode).toBe(200); const body=response.json(); const document=JSON.parse(body.content);
       expect(body).toMatchObject({contentType:'application/json',redacted:true,sensitivity:'sensitive-redacted',version});
-      expect(document).toMatchObject(version === 2 ? {kind:'card-current',card_id:'project',version_seq:2,history_version:2} : {format_version:2,kind:'card-version',card_id:'project',version:1});
+      expect(document).toMatchObject(version === 2 ? {kind:'card-current',card_id:'project',version_seq:2,history_version:2} : {format_version:3,kind:'card-version',card_id:'project',version:1});
       expect(document.card).toMatchObject({ child_membership: expect.any(Array), active_child_order: expect.any(Array) });
       expect(document.card).not.toHaveProperty('children');
       expect(body.content.endsWith('\n')).toBe(true); expect(body.content).not.toContain('filename');

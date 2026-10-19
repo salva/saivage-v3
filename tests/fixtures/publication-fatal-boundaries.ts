@@ -33,17 +33,81 @@ import { appLogEntrySchema } from '../../src/contracts/app-log.js';
 import { AnalystSession } from '../../src/runtime/actors/analyst-session.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
-import { AgentNodeExecution } from '../../src/runtime/actors/agent-node-execution.js';
+import { NodeExecution as AgentNodeExecution } from '../../src/runtime/actors/node-execution.js';
 import { ActivationOperationTracker, InvocationLifecycle } from '../../src/runtime/actors/invocation-lifecycle.js';
 import { bootstrapContextSupplier } from '../../src/runtime/records/bootstrap-context.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { compileProjectWorkflows, bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { ProviderRegistry } from '../../src/agents/provider.js';
+import { ModelRouter } from '../../src/agents/model-router.js';
+import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
 
 const mode = process.argv[2];
 const path = process.argv[3];
 const fatalPort = createApplicationFatalPort();
+if (mode === 'action-node-publication' || mode === 'card-hook-publication') {
+  if (!path) throw new Error('marker path required');
+  const root = dirname(path);
+  const mark = (label: string) => appendFileSync(path, `${label}\n`);
+  const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
+  const workflow = config.card_types.project!.workflow;
+  workflow.entries.BACKLOG = { node: 'check' };
+  workflow.entries.CHANGED = { node: 'check' };
+  workflow.entries.BLOCKED = { node: 'plan' };
+  workflow.entries.STOPPED = { ...workflow.entries.STOPPED, node: 'plan' };
+  workflow.nodes = {
+    plan: { ...workflow.nodes.plan!, initialize_records: [], records: {}, edges: { retry: { target: { node: 'check' } } } },
+    check: { execution: { kind: 'action', action: 'acme.inspect', contract_version: 1, config: {}, inputs: {} }, records: {},
+      edges: { finished: { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } } } },
+  };
+  const isHook = mode === 'card-hook-publication';
+  if (isHook) {
+    workflow.nodes.check!.execution = { kind: 'action', action: 'shell.run', contract_version: 1,
+      config: { script: 'exit 0', timeout_ms: 1000, terminate_grace_ms: 50 }, inputs: { args: { literal: [] } } };
+    workflow.nodes.check!.edges = Object.fromEntries(['passed', 'failed', 'signalled', 'timed_out'].map((outcome) =>
+      [outcome, { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } }]));
+    workflow.after_activation_commit = { statuses: ['blocked'], execution: { kind: 'action', action: 'acme.inspect', contract_version: 1, config: {}, inputs: {} } };
+  }
+  const compiled = compileProjectWorkflows(config, { operationPlugins: [{ namespace: 'acme', operations: { inspect: {
+    id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1, bindings: [isHook ? 'after_activation_commit' : 'node'],
+    config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
+    async run() {
+      if (isHook) {
+        processes.processRunner.closeAndTerminateDirectScope = async () => { mark('cleanup'); throw new Error('forbidden cleanup'); };
+        ActivationOperationTracker.prototype.trackConsumer = async () => { mark('consumer'); throw new Error('forbidden acknowledgement'); };
+      }
+      mark('entered');
+      if (isHook) publishFreshFile(join(root, 'hook-publication'), Buffer.from('known fixture effect'), undefined, {
+        open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+        rename(from, to) { renameSync(from, to); throw new Error('hook publication uncertain'); },
+      });
+      throw new PublicationOutcomeUnknownError();
+    },
+  } } }] });
+  const registry = new ProviderRegistry(config);
+  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+  initProjectTree(root);
+  const processes = createTestProcessRunner(root);
+  processes.processRunner = new ProcessRunner(root, processes.registry, fatalPort);
+  if (!isHook) {
+    processes.processRunner.closeAndTerminateDirectScope = async () => { mark('cleanup'); throw new Error('forbidden cleanup'); };
+    ActivationOperationTracker.prototype.trackConsumer = async () => { mark('consumer'); throw new Error('forbidden acknowledgement'); };
+  }
+  const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, workflows, fatalPort,
+    runtimeGate: new RuntimeGate(), projectRoot: root, actorStore: new ProductionCardService(root, compiled),
+    provider: scriptedAdmissionProvider(async () => { mark('provider'); throw new Error('forbidden provider'); }),
+    conversations: { projectRoot: root }, freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
+    processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+    promptTemplates: createTestPromptTemplateRegistry(),
+  });
+  await supervisor.start();
+  await supervisor.startProject();
+}
 async function submitThroughRest(submit: (input: { userContent: string }) => Promise<unknown>): Promise<void> {
   const app = await createFastifyApp({ nodeEnv: 'test', server: { logLevel: 'silent' } } as Environment, fatalPort);
   const runtime = new ContractRuntime({ fatalPort, authPolicy: new AuthPolicy({}), eventLogger: {} as never });

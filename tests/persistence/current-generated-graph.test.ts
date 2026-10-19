@@ -1,3 +1,4 @@
+import { agentExecution } from '../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import {
   appendFileSync,
@@ -459,7 +460,7 @@ describe('current generated state startup admission', () => {
       depends_on: [],
     });
     const agentName = [...TEST_WORKFLOWS.cardTypes.get('code')!.states.values()].flatMap((state) =>
-      state.kind === 'node' && state.agent.session === 'card' ? [state.agent.name] : [],
+      state.kind === 'node' && agentExecution(state).agent.session === 'card' ? [agentExecution(state).agent.name] : [],
     )[0]!;
     const sessionId = cardAgentSessionId(agentName, child.id);
     appendConversationBatch({ projectRoot: root }, [message('tombstone-sentinel', sessionId)]);
@@ -554,7 +555,7 @@ function renamedCardAgentWorkflows(): CompiledProjectWorkflows {
   const value = config();
   value.agents['executor-v2'] = { ...value.agents.executor! };
   value.card_types.code!.workflow.notification_recipient = 'executor-v2';
-  value.card_types.code!.workflow.nodes.execute!.agent = 'executor-v2';
+  agentExecution(value.card_types.code!.workflow.nodes.execute!).agent = 'executor-v2';
   return compileProjectWorkflows(value);
 }
 function renamedAnalystWorkflows(): CompiledProjectWorkflows {

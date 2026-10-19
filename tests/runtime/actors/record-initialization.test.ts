@@ -1,10 +1,11 @@
+import { agentExecution } from '../../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardService } from '../../../src/cards/card-service.js';
 import { publishInitialProjectRuntime } from '../../../src/boot/index.js';
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/index.js';
 import { compileProjectWorkflows, describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
@@ -91,11 +92,11 @@ describe('real node preparation and document lifecycle', () => {
     const roles = [...f.workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states].flatMap(([stateId, node]) => {
       if (node.kind !== 'node') return [];
       const contract = describeNodeResultContract(workflow, stateId);
-      const role = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: contract });
+      const role = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(node).agent.name, agentExecution(node).selectedAgentPrompt.compiled, { contractDescription: contract });
       expect(role.split(contract)).toHaveLength(2);
-      return [{ cardType, stateId, agent: node.agent.name, role, contract, tools: node.agent.tools,
-        node: workflow.processPrompts.get(node.prompt.promptId)!.text,
-        correction: workflow.processPrompts.get(node.correctionPrompt.promptId)!.text,
+      return [{ cardType, stateId, agent: agentExecution(node).agent.name, role, contract, tools: agentExecution(node).agent.tools,
+        node: workflow.processPrompts.get(agentExecution(node).prompt.promptId)!.text,
+        correction: workflow.processPrompts.get(agentExecution(node).correctionPrompt.promptId)!.text,
         handoffs: [...node.on.values()].flatMap(route => 'prompt' in route.semantic && route.semantic.prompt ? [workflow.processPrompts.get(route.semantic.prompt.promptId)!.text] : []),
       }];
     }));
@@ -173,8 +174,8 @@ describe('real node preparation and document lifecycle', () => {
     if (evidence) { mkdirSync(evidence, { recursive: true }); writeFileSync(join(evidence, `record-review-${profile}.json`), JSON.stringify({ kind: 'offline-final-source-compiled-composition-not-provider-wire', profile, cardType, initial, initialComposition, accepted, reentry,
       composition: providerConversationProjection(readConversation(f.root, session), reentry.recordBlocks),
       nodes: [first, next].map(node => ({ nodeId: node.nodeId,
-        role: renderCompiledPrompt({ kind: 'workflow-agent', cardType }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: describeNodeResultContract(workflow, `node:${node.nodeId}`) }),
-        node: workflow.processPrompts.get(node.prompt.promptId)!.text,
+        role: renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(node).agent.name, agentExecution(node).selectedAgentPrompt.compiled, { contractDescription: describeNodeResultContract(workflow, `node:${node.nodeId}`) }),
+        node: workflow.processPrompts.get(agentExecution(node).prompt.promptId)!.text,
         handoffs: [...node.on.values()].flatMap(route => 'prompt' in route.semantic && route.semantic.prompt ? [workflow.processPrompts.get(route.semantic.prompt.promptId)!.text] : []),
       })),
     }, null, 2)); }

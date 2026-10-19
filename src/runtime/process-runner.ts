@@ -45,6 +45,12 @@ interface InteractiveProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command' |
   env: NodeJS.ProcessEnv;
 }
 
+interface CapturedProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command'> {
+  file: string;
+  args: readonly string[];
+  onSpawn(record: ProcessRecord): void;
+}
+
 export interface ProcessRecord {
   id: string;
   card_id: string | null;
@@ -89,6 +95,7 @@ interface ProcessPresentation {
   terminationReason: string | null | undefined;
   terminalSettlement: Promise<void>;
   captureFailure: Error | null;
+  boundFailedSettlement: ((diagnostic: string) => void) | null;
 }
 
 export class ProcessEvidenceUnavailableError extends Error {
@@ -192,6 +199,24 @@ export class ProcessRunner {
     }).record;
   }
 
+  /** Captured argv launch shares the ordinary launch/capture and group owner. */
+  spawnCaptured(spec: CapturedProcessSpawnSpec): ProcessRecord {
+    return this.launch(
+      { ...spec, command: JSON.stringify([spec.file, ...spec.args]) },
+      spec.file,
+      spec.args,
+      ['ignore', 'pipe', 'pipe'],
+      true,
+      {
+        ...sanitizedCommandEnv(),
+        PROJECT_ROOT: this.projectRoot,
+        SAIVAGE_ROOT: this.projectRoot,
+        ...spec.env,
+      },
+      { onSpawn: spec.onSpawn, settlementDeadlineMs: 5000 },
+    ).record;
+  }
+
   spawnInteractive(spec: InteractiveProcessSpawnSpec): InteractiveProcessLaunch {
     const command = [spec.file, ...spec.args].join(' ');
     return this.launch(
@@ -258,6 +283,9 @@ export class ProcessRunner {
       reason: authority.reason ?? 'process killed',
       graceMs: authority.graceMs,
     });
+    for (const failure of report.failed) presentation.boundFailedSettlement?.(failure.diagnostic);
+    if (report.failed.length && presentation.boundFailedSettlement)
+      await presentation.terminalSettlement;
     if (report.failed.length === 0) await presentation.terminalSettlement;
     else await this.#joinStopped(report, new Map([[procId, presentation]]));
     this.assertStopSucceeded(report);
@@ -272,7 +300,14 @@ export class ProcessRunner {
   }): Promise<ProcessStopReport> {
     const presentations = new Map(this.presentations);
     const report = await this.#registry.terminateScopeTree(input);
-    const stopped = report.stopped.map((id) => {
+    for (const failure of report.failed)
+      presentations.get(failure.groupId)?.boundFailedSettlement?.(failure.diagnostic);
+    const stopped = [
+      ...report.stopped,
+      ...report.failed
+        .filter(({ groupId }) => presentations.get(groupId)?.boundFailedSettlement)
+        .map(({ groupId }) => groupId),
+    ].map((id) => {
       const presentation = presentations.get(id);
       if (!presentation)
         throw new Error(
@@ -315,8 +350,11 @@ export class ProcessRunner {
     } catch (error) {
       if (error instanceof PublicationOutcomeUnknownError)
         this.fatalPort.publicationOutcomeUnknown(error);
-      const alreadyTerminal = [...presentations.values()].filter((presentation) =>
-        isTerminal(presentation.record.status),
+      const alreadyTerminal = [...presentations.values()].filter(
+        (presentation) =>
+          isTerminal(presentation.record.status) ||
+          (presentation.record.status === 'unavailable' &&
+            presentation.boundFailedSettlement !== null),
       );
       const settlements = await Promise.allSettled(
         alreadyTerminal.map((presentation) => presentation.terminalSettlement),
@@ -333,8 +371,14 @@ export class ProcessRunner {
       }
       throw error;
     }
+    for (const failure of report.failed)
+      presentations.get(failure.groupId)?.boundFailedSettlement?.(failure.diagnostic);
     const joinable = [...presentations.entries()].filter(
-      ([id, presentation]) => report.stopped.includes(id) || isTerminal(presentation.record.status),
+      ([id, presentation]) =>
+        report.stopped.includes(id) ||
+        isTerminal(presentation.record.status) ||
+        (presentation.record.status === 'unavailable' &&
+          presentation.boundFailedSettlement !== null),
     );
     const settlements = await Promise.allSettled(
       joinable.map(([, presentation]) => presentation.terminalSettlement),
@@ -403,6 +447,7 @@ export class ProcessRunner {
     stdio: SpawnOptions['stdio'],
     captureOutput: boolean,
     childEnv: NodeJS.ProcessEnv,
+    captured?: { onSpawn(record: ProcessRecord): void; settlementDeadlineMs: number },
   ): InteractiveProcessLaunch {
     if (!spec.command) throw new Error('command must not be empty');
     if (!spec.ownerId || !spec.ownerKind)
@@ -445,6 +490,7 @@ export class ProcessRunner {
       stderr_path: stderrPath,
     };
     let resolveAbsence!: () => void;
+    let groupFailure: Error | null = null;
     const absence = new Promise<void>((resolveAbsent) => {
       resolveAbsence = resolveAbsent;
     });
@@ -458,6 +504,7 @@ export class ProcessRunner {
       terminationReason: undefined,
       terminalSettlement: Promise.resolve(),
       captureFailure: null,
+      boundFailedSettlement: null,
     };
     let resolveSettlement!: () => void;
     let rejectSettlement!: (error: Error) => void;
@@ -468,6 +515,29 @@ export class ProcessRunner {
     void presentation.terminalSettlement.catch(() => undefined);
     this.presentations.set(id, presentation);
     let child: ChildProcess;
+    let settlementTimer: ReturnType<typeof setTimeout> | null = null;
+    let captureSettled = false;
+    const boundCaptureSettlement = (): void => {
+      if (!captured || captureSettled || settlementTimer !== null) return;
+      settlementTimer = setTimeout(() => {
+        recordCaptureFailure(
+          new ProcessEvidenceUnavailableError(
+            id,
+            'Capture did not settle within 5000ms after group settlement.',
+          ),
+        );
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+      }, captured.settlementDeadlineMs);
+    };
+    if (captured)
+      presentation.boundFailedSettlement = (diagnostic) => {
+        groupFailure ??= new ProcessEvidenceUnavailableError(id, diagnostic);
+        record.status = 'unavailable';
+        record.evidence.group_diagnostic ??= diagnostic;
+        resolveAbsence();
+        boundCaptureSettlement();
+      };
     try {
       child = this.#registry.launch({
         groupId: id,
@@ -484,14 +554,16 @@ export class ProcessRunner {
           record.evidence.group = 'absent';
           presentation.terminationReason = reason;
           resolveAbsence();
+          boundCaptureSettlement();
         },
         onUnverifiable: (diagnostic) => {
           record.evidence.group = 'unverifiable';
           record.evidence.group_diagnostic = diagnostic;
           record.status = 'unavailable';
-          rejectSettlement(
-            presentation.captureFailure ?? new ProcessEvidenceUnavailableError(id, diagnostic),
-          );
+          boundCaptureSettlement();
+          groupFailure = new ProcessEvidenceUnavailableError(id, diagnostic);
+          if (captured) resolveAbsence();
+          else rejectSettlement(presentation.captureFailure ?? groupFailure);
         },
       });
     } catch (error) {
@@ -504,13 +576,18 @@ export class ProcessRunner {
     const stderrDrain = captureOutput
       ? this.#captureReadable(child.stderr, stderrPath, record, 'stderr', recordCaptureFailure)
       : Promise.resolve();
+    void Promise.all([stdoutDrain, stderrDrain]).then(() => {
+      captureSettled = true;
+      if (settlementTimer !== null) clearTimeout(settlementTimer);
+    });
     void Promise.all([absence, stdoutDrain, stderrDrain]).then(() => {
       this.finalize(
         presentation,
         presentation.terminationReason ?? null,
         presentation.captureFailure,
       );
-      if (presentation.captureFailure) rejectSettlement(presentation.captureFailure);
+      if (groupFailure || presentation.captureFailure)
+        rejectSettlement(groupFailure ?? presentation.captureFailure!);
       else resolveSettlement();
     });
     child.once('exit', (exitCode, signalCode) => {
@@ -530,6 +607,16 @@ export class ProcessRunner {
         signal: signalCode ?? null,
       };
     });
+    if (captured)
+      child.once('spawn', () => {
+        try {
+          captured.onSpawn(snapshot(record));
+        } catch (error) {
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.fatalPort.publicationOutcomeUnknown(error);
+          recordCaptureFailure(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
     child.once('error', (error) => {
       try {
         appendProcessOutputChunk(
@@ -559,7 +646,10 @@ export class ProcessRunner {
     const outcome = captureFailure
       ? {
           ...(presentation.leaderOutcome ?? { exit_code: null, signal: null }),
-          status: 'failed' as const,
+          status:
+            captureFailure instanceof ProcessEvidenceUnavailableError
+              ? ('unavailable' as const)
+              : ('failed' as const),
         }
       : terminationReason
         ? { status: 'killed' as const, exit_code: null, signal: 'SIGTERM' }

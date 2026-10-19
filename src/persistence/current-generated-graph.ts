@@ -44,7 +44,12 @@ interface AdmittedCard {
 function cardConversationAgents(workflow: CompiledCardTypeWorkflow): AgentName[] {
   const names = new Set<AgentName>();
   for (const state of workflow.states.values())
-    if (state.kind === 'node' && state.agent.session === 'card') names.add(state.agent.name);
+    if (
+      state.kind === 'node' &&
+      state.execution.kind === 'agent' &&
+      state.execution.agent.session === 'card'
+    )
+      names.add(state.execution.agent.name);
   return [...names].sort();
 }
 

@@ -32,7 +32,7 @@ const EXPECTED_CATALOG = {
   'constant.managed-process-post-kill-verification-ms': ['constants', PROCESS_PATHS],
   'constant.managed-process-term-grace-ms': ['constants', PROCESS_PATHS],
   'constant.maximum-card-depth-segments': ['constants', ['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']],
-  'constant.node-corrective-rearm-limit': ['constants', ['src/runtime/actors/agent-node-execution.ts']],
+  'constant.node-corrective-rearm-limit': ['constants', ['src/runtime/actors/agent-executor.ts']],
   'constant.summarizer-completion-tokens': ['constants', ['src/runtime/actors/compaction/summarizer.ts']],
   'constant.summarizer-output-target-bytes': ['constants', ['src/runtime/actors/compaction/summarizer.ts']],
   'constant.sync-hub-debounce-ms': ['constants', ['src/server/sync-hub.ts']],

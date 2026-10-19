@@ -12,7 +12,7 @@ function lifecycleFor(status: HistoryCard['lifecycle']['status']): HistoryCard['
 }
 
 function workflowResult(terminal: 'DONE' | 'BLOCKED' | 'FAILED', outcome: string, summary: string) {
-  return { kind: 'workflow-result' as const, terminal, agent_name: 'executor', node_id: 'execute', outcome, summary, records: [] };
+  return { kind: 'workflow-result' as const, terminal, executor: { kind: 'agent' as const, agent: 'executor' }, node_id: 'execute', outcome, summary, records: [] };
 }
 
 export function historyCard(id: string, overrides: Partial<HistoryCard> = {}): HistoryCard {

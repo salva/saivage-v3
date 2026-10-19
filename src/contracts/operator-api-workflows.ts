@@ -8,6 +8,26 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 
+export const WorkflowActionIdentitySchema = z
+  .object({
+    kind: z.literal('action'),
+    action: z.string().regex(/^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/u),
+    contract_version: z.literal(1),
+    provider: z.object({ kind: z.enum(['builtin', 'plugin']), name: z.string().min(1) }).strict(),
+  })
+  .strict();
+const WorkflowExecutionIdentitySchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('agent'), agent_name: agentNameSchema }).strict(),
+  WorkflowActionIdentitySchema,
+]);
+export const WorkflowRouteTestSchema = z
+  .object({
+    field: z.string(),
+    op: z.enum(['eq', 'gt', 'gte', 'lt', 'lte']),
+    value: z.union([z.string(), z.boolean(), z.number().int().safe()]),
+  })
+  .strict();
+
 export const WorkflowPresentationSchema = z
   .object({
     card_type: cardTypeSchema,
@@ -16,7 +36,7 @@ export const WorkflowPresentationSchema = z
         z
           .object({
             node_id: z.string().min(1),
-            agent_name: agentNameSchema,
+            execution: WorkflowExecutionIdentitySchema,
             initialize_records: z.array(recordNameSchema),
           })
           .strict(),
@@ -38,6 +58,8 @@ export const WorkflowPresentationSchema = z
           .object({
             source_node_id: z.string().min(1),
             outcome: z.string().min(1),
+            route_id: z.string().min(1),
+            test: WorkflowRouteTestSchema.nullable(),
             condition: z.enum(['default', 'pending_notifications']),
             target: z.discriminatedUnion('kind', [
               z.object({ kind: z.literal('node'), node_id: z.string().min(1) }).strict(),

@@ -63,7 +63,7 @@ export function ordinaryCardPayload(card: CardRecord): z.infer<typeof ordinaryCa
 
 export const cardVersionArtifactSchema = z
   .object({
-    format_version: z.literal(2),
+    format_version: z.literal(3),
     kind: z.literal('card-version'),
     entry_id: uuidV4Schema,
     card_id: cardIdSchema,
@@ -124,7 +124,7 @@ export const cardVersionArtifactSchema = z
 
 export const cardTombstoneArtifactSchema = z
   .object({
-    format_version: z.literal(2),
+    format_version: z.literal(3),
     kind: z.literal('card-tombstone'),
     entry_id: uuidV4Schema,
     card_id: nonRootCardIdSchema,

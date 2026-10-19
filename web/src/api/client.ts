@@ -109,7 +109,7 @@ export function isOperatorApiError<
 async function operatorRequest<K extends OperatorApiOperationId>(
   operationId: K,
   options: OperatorRequestOptions<K> = {},
-): Promise<K extends 'agents.conversationImage' | 'files.image' ? Blob : OperatorApiSuccess<K>> {
+): Promise<K extends 'agents.conversationImage' | 'files.image' | 'cards.executions.download' ? Blob : OperatorApiSuccess<K>> {
   const contract = operatorApiContracts[operationId];
   const method = contract.method;
   const path = buildOperatorPath(operationId, options.params);
@@ -145,10 +145,12 @@ async function operatorRequest<K extends OperatorApiOperationId>(
   let responseBody: unknown;
   if (response.status === 200 && 'responseEncoding' in contract && contract.responseEncoding === 'binary') {
     const blob = await response.blob();
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(blob.type) || blob.size === 0 || blob.size > 32 * 1024 * 1024) {
+    if (operationId === 'cards.executions.download') {
+      if (!blob.type.startsWith('text/plain') || blob.size > 4 * 1024 * 1024) throw new Error('Invalid execution download');
+    } else if (!['image/png', 'image/jpeg', 'image/webp'].includes(blob.type) || blob.size === 0 || blob.size > 32 * 1024 * 1024) {
       throw new Error('Invalid image response');
     }
-    return blob as K extends 'agents.conversationImage' | 'files.image' ? Blob : OperatorApiSuccess<K>;
+    return blob as K extends 'agents.conversationImage' | 'files.image' | 'cards.executions.download' ? Blob : OperatorApiSuccess<K>;
   }
   try {
     responseBody = await response.json();
@@ -161,7 +163,7 @@ async function operatorRequest<K extends OperatorApiOperationId>(
   const parsed = parseOperatorResponse(operationId, response.status, responseBody);
 
   if (response.status === 200) {
-    return parsed as K extends 'agents.conversationImage' | 'files.image' ? Blob : OperatorApiSuccess<K>;
+    return parsed as K extends 'agents.conversationImage' | 'files.image' | 'cards.executions.download' ? Blob : OperatorApiSuccess<K>;
   }
 
   throw new OperatorApiError(
@@ -206,6 +208,19 @@ function normalizeQuery(
 
 export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicket'>> {
   return operatorRequest('auth.wsTicket');
+}
+
+export function listCardExecutions(id: string, after?: string, signal?: AbortSignal) {
+  return operatorRequest('cards.executions.list', { params: { id }, query: { after }, signal });
+}
+export function getCardExecution(id: string, invocationId: string, signal?: AbortSignal) {
+  return operatorRequest('cards.executions.get', { params: { id, invocationId }, signal });
+}
+export function getCardExecutionFile(id: string, invocationId: string, fileKey: string, signal?: AbortSignal) {
+  return operatorRequest('cards.executions.file', { params: { id, invocationId, fileKey }, signal });
+}
+export function downloadCardExecutionFile(id: string, invocationId: string, fileKey: string, signal?: AbortSignal) {
+  return operatorRequest('cards.executions.download', { params: { id, invocationId, fileKey }, signal });
 }
 
 export function getCardChildren(id: string, signal?: AbortSignal): Promise<CardChildrenResponse> {

@@ -12,6 +12,7 @@ This in-depth companion to [System architecture](./system-architecture.md) and [
 | Current accepted bootstrap / declared record inputs | Synchronous node-bound supplier at each new logical primary operation | Same-read current requirement snapshot; retained through that operation's maintenance/retries |
 | Conditional record prompt | Same supplier, compared against pre-existing conversation record/view knowledge | Actual rendered occurrence; declaration-controlled instruction retention |
 | Entries, accepted edges, correction, notifications | Existing event/result/recipient owner; once per actual occurrence | Attributed facts, immutable evidence and scoped direction, not current-node selection |
+| Action handoff | Accepted edge into an actual agent; existing durable text context | Quoted, outbound-redacted summary, exact invocation-detail reference and only declared selected typed inputs; observations, never instructions or tool authority |
 | Latest record observations | Canonical source-order fact derivation plus retained suffix | Descriptor-only selection/exposure knowledge, not a subscription, body recall or write authority |
 | Global/non-model ingress | Existing Analyst/Oversight owners | Actual explicit read observations only; no synthetic card/parent feed; confirmation-only is model-free |
 
@@ -28,7 +29,20 @@ current-template reconstruction. Public notifications are configured-global advi
 not a second Planner task-direction channel; internal notifications and recipients
 retain their ordinary behavior.
 
-Agent prompts become provider static instructions. Process prompts are startup-compiled operational context: the actual current node's prompt is frozen as prepared request context, while lifecycle-entry, correction, configured non-terminal-edge, and pending-notification prompts remain durable conversation context at their producer-owned positions. Each consuming declaration owns its compaction policy; shared prompt text remains policy-free. Fragments are not prompts; they are directly included pieces compiled under the host prompt's policy.
+`NodeExecution` keeps common acceptance outside prompt execution. `AgentExecutor`
+retains preparation, real tool-result settlement, correction re-arm budget16,
+notification delivery, fresh bootstrap/record suppliers and compaction; it does
+not rewrite the LLM actor. Accepted action handoff supplies quoted selected typed
+facts, a redacted summary and exact invocation detail reference through existing
+text context. It is not a new result tool, role instruction or automatic output
+dump. Actions/hooks have no prompt, provider attempt or synthetic conversation;
+agent `emit_result` remains exactly outcome/summary with its 2000-character bound.
+Re-entry prepares the actual newly selected agent node; later Run reconstructs
+current facts, not prior action inputs from logs. Existing prepared role/node/card
+and advisory parent blocks, fresh logical-operation record snapshots and summary
+feeding remain unchanged. A log receipt never substitutes for agent acceptance.
+
+Agent prompts become provider static instructions. Process prompts are startup-compiled operational context: the actual current agent node's prompt is frozen as prepared request context, while lifecycle-entry, correction, configured non-terminal-edge, and pending-notification prompts remain durable conversation context at their producer-owned positions. Each consuming declaration owns its compaction policy; shared prompt text remains policy-free. Fragments are not prompts; they are directly included pieces compiled under the host prompt's policy.
 
 Bundled defaults and project overrides use the same tree:
 
@@ -105,7 +119,9 @@ The global Analyst has no card type and checks project shared then bundled share
 
 `agents.<agent-name>.prompt` is the strict declaration `{reference,compactable?}` at every agent tier. `reference` is the filename reference and omitted `compactable` resolves to `true`. Static agent and node declarations accept explicit true or false but never `compaction_key`; their policy does not change delivery or create durable model-context occurrences. Once-per-activation structural prepared-instruction evidence is distinct and never becomes model context or protected instruction authority. Agent name remains runtime/session identity, not a file key. Agents sharing a prompt reference share the same applicable override; independent override content requires distinct configured references. This is a breaking no-compatibility contract.
 
-Every process node likewise declares `prompt:{reference,compactable?}` and `correction_prompt:{reference,compactable?,compaction_key?}`. Lifecycle entries, nonterminal edge prompts, and pending-notification prompts use the durable declaration shape. At durable sites omitted/true means ordinary compactable content and forbids a key; false without a key retains every occurrence; false with a nonempty exact key retains only the latest occurrence of that key and releases the older occurrence into the next successful compaction summary. Keys are exact, including whitespace, and are neither trimmed nor synthesized. Policy belongs to the consuming declaration, so two sites may share one reference while choosing different retention.
+Within `workflow.format_version:1`, each agent node selects `execution.kind:agent` and declares its `agent`, `prompt:{reference,compactable?}` and `correction_prompt:{reference,compactable?,compaction_key?}` inside `execution`. Action nodes have no prompt or correction prompt. Lifecycle entries, nonterminal edge prompts, and pending-notification prompts use the durable declaration shape. At durable sites omitted/true means ordinary compactable content and forbids a key; false without a key retains every occurrence; false with a nonempty exact key retains only the latest occurrence of that key and releases the older occurrence into the next successful compaction summary. Keys are exact, including whitespace, and are neither trimmed nor synthesized. Policy belongs to the consuming declaration, so two sites may share one reference while choosing different retention.
+
+Prompt-related configuration excerpt (other required fields and routes omitted):
 
 ```yaml
 agents:
@@ -114,14 +130,18 @@ agents:
 card_types:
   code:
     workflow:
+      format_version: 1
       entries:
         STOPPED:
           node: red
           prompt: { reference: stopped-recovery }
       nodes:
         red:
-          prompt: { reference: code-red, compactable: false }
-          correction_prompt: { reference: correct-execution-result, compactable: false, compaction_key: execution.correction }
+          execution:
+            kind: agent
+            agent: executor
+            prompt: { reference: code-red, compactable: false }
+            correction_prompt: { reference: correct-execution-result, compactable: false, compaction_key: execution.correction }
 ```
 
 Fragments use the host card type even when the host itself came from a shared tier. Thus a shared code host may select a project `fragments/code/<id>.md`. The Analyst can use only shared fragments.

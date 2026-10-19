@@ -1,3 +1,4 @@
+import { agentExecution } from '../../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,7 +63,7 @@ describe('Supervisor initialization lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-configured-recovery-')); roots.push(root);
     const config = structuredClone(TEST_SAIVAGE_CONFIG);
     config.agents['quality-inspector'] = structuredClone(config.agents.reviewer!);
-    config.card_types.goal!.workflow.nodes.review!.agent = 'quality-inspector';
+    agentExecution(config.card_types.goal!.workflow.nodes.review!).agent = 'quality-inspector';
     const compiled = compileProjectWorkflows(config);
     publishInitialProjectRuntime(root, compiled);
     const registry = new ProviderRegistry(config);

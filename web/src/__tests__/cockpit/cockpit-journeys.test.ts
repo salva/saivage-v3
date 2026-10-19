@@ -305,7 +305,7 @@ describe('cockpit acceptance fixtures', () => {
     expect(wrapper.get('[data-testid="card-flow-unavailable"]').text()).toBe('Card flow unavailable');
     expect(wrapper.text()).toContain('No hierarchy is inferred');
     expect(wrapper.text()).not.toMatch(/deleted|tombstone|removed/i);
-    expect(wrapper.get('[data-testid="cockpit-facet-nav"]').findAll('[aria-disabled="true"]')).toHaveLength(3);
+    expect(wrapper.get('[data-testid="cockpit-facet-nav"]').findAll('[aria-disabled="true"]')).toHaveLength(4);
     expect(wrapper.find('[data-testid="back-to-card"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('Waiting for conversation');
     wrapper.unmount();

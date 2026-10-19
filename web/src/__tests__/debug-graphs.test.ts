@@ -16,8 +16,8 @@ const graph: DebugGraph = {
   permitted_child_types: ['code'],
   records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, initialization: null }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, initialization: null }],
   entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry: entry as 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED', node_id: 'plan', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
-  nodes: [{ initialize_records: [], record_prompts: [], node_id: 'plan', agent_name: 'planner', session: { scope: 'card', identity_pattern: 'agent:planner:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'planner', compactable: true }, process: { reference: 'plan', compactable: true }, correction: { reference: 'correct-plan-result', compactable: true } }, model: { route: 'planner', candidates: [{ provider: 'openai', model: 'gpt-5.6' }], temperature: 0.2, max_tokens: 4096 }, skills: false, tools: ['create_card', 'activate_card'], child_creation_types: ['code'], child_activation_types: ['code'], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['again', 'done'] }],
-  edges: [{ source_node_id: 'plan', outcome: 'again', runtime_owned: false, condition: 'default', prompt: { reference: 'retry', compactable: true }, target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
+  nodes: [{ initialize_records: [], record_prompts: [], node_id: 'plan', child_creation_types: ['code'], child_activation_types: ['code'], readable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['again', 'done'], execution: { kind: 'agent', agent_name: 'planner', session: { scope: 'card', identity_pattern: 'agent:planner:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'planner', compactable: true }, process: { reference: 'plan', compactable: true }, correction: { reference: 'correct-plan-result', compactable: true } }, model: { route: 'planner', candidates: [{ provider: 'openai', model: 'gpt-5.6' }], temperature: 0.2, max_tokens: 4096 }, skills: false, tools: ['create_card', 'activate_card'], record_write_patterns: ['status.md'] } }],
+  edges: [{ route_id: 'again', test: null, source_node_id: 'plan', outcome: 'again', runtime_owned: false, condition: 'default', prompt: { reference: 'retry', compactable: true }, target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }, { route_id: 'done', test: null, source_node_id: 'plan', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { route_id: 'execution:failed', test: null, source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { route_id: 'execution:blocked', test: null, source_node_id: 'plan', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
   terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
 const globalAgent:DebugGlobalAgent={agent_name:'analyst',session:{scope:'global',identity:'agent:analyst:global'},prompt:{source:'bundled-shared',declaration:{reference:'analyst',compactable:false}},model:{route:'analyst',candidates:[{provider:'openai',model:'gpt-5.6'}],temperature:.2,max_tokens:4096},skills:true,tools:['read']};
@@ -88,11 +88,13 @@ describe('Debug Graphs', () => {
   });
 
   it('accepts and renders a custom leaf type with its effective create_card-free tools',async()=>{
-    const custom:DebugGraph={...graph,card_type:'custom-leaf',notification_recipient:'planner',permitted_child_types:[],nodes:graph.nodes.map((node)=>({...node,tools:['activate_card'],child_creation_types:[],child_activation_types:[]}))};
+    const custom:DebugGraph={...graph,card_type:'custom-leaf',notification_recipient:'planner',permitted_child_types:[],nodes:graph.nodes.map((node)=>{if(node.execution.kind!=='agent')throw new Error('Expected agent fixture.');return {...node,execution:{...node.execution,tools:['activate_card']},child_creation_types:[],child_activation_types:[]};})};
     api.getDebugGraphs.mockResolvedValueOnce(DebugGraphsResponseSchema.parse({global_agents:[globalAgent],graphs:[custom]}));
     const store=useDebugStore();await store.fetchGraphs();
     expect(store.graphs?.[0]?.card_type).toBe('custom-leaf');
-    expect(store.graphs?.[0]?.nodes[0]?.tools).toEqual(['activate_card']);
+    const execution=store.graphs![0]!.nodes[0]!.execution;
+    if(execution.kind!=='agent')throw new Error('Expected agent fixture.');
+    expect(execution.tools).toEqual(['activate_card']);
     const wrapper=mount(DebugGraphDiagram,{props:{graph:store.graphs![0]!}});
     expect(wrapper.text()).toContain('custom-leaf');
     expect(wrapper.text()).toContain('activate_card');
@@ -100,16 +102,29 @@ describe('Debug Graphs', () => {
   });
 
   it('renders pending-notifications edges as explicit conditional routing', () => {
-    const conditional: DebugGraph = { ...graph, edges: [...graph.edges, { source_node_id: 'plan', outcome: 'approved', runtime_owned: false, condition: 'pending_notifications', prompt: { reference: 'review-to-notifications', compactable: true }, target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }] };
+    const conditional: DebugGraph = { ...graph, edges: [...graph.edges, { route_id: 'approved' + ':pending-notifications', test: null, source_node_id: 'plan', outcome: 'approved', runtime_owned: false, condition: 'pending_notifications', prompt: { reference: 'review-to-notifications', compactable: true }, target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }] };
     const wrapper = mount(DebugGraphDiagram, { props: { graph: conditional } });
     expect(wrapper.find('path.conditional-edge').exists()).toBe(true);
-    expect(wrapper.text()).toContain('approved · pending');
+    expect(wrapper.text()).toContain('approved:pending-notifications · pending');
     expect(wrapper.findAll('.graph-edge-group').at(-1)!.attributes('aria-label')).toContain('Pending-notifications conditional');
   });
 
   it('rejects malformed or disclosure-bearing graph payloads at the shared wire contract', () => {
-    expect(DebugGraphsResponseSchema.safeParse({ global_agents:[globalAgent],graphs: [{ ...graph, nodes: [{ ...graph.nodes[0], prompt: { ...graph.nodes[0]!.prompt, text: 'secret prompt body' } }] }] }).success).toBe(false);
+    const node=graph.nodes[0]!;
+    if(node.execution.kind!=='agent')throw new Error('Expected agent fixture.');
+    expect(DebugGraphsResponseSchema.safeParse({ global_agents:[globalAgent],graphs: [{ ...graph, nodes: [{ ...node, execution:{...node.execution,prompt: { ...node.execution.prompt, text: 'secret prompt body' }} }] }] }).success).toBe(false);
     expect(DebugGraphsResponseSchema.safeParse({ global_agents:[globalAgent],graphs: [{ ...graph, edges: [{ ...graph.edges[0], runtime_owned: undefined }] }] }).success).toBe(false);
     expect(DebugGraphsResponseSchema.safeParse({ global_agents:[{...globalAgent,prompt:{...globalAgent.prompt,path:'/secret'}}],graphs:[graph] }).success).toBe(false);
+  });
+  it('shows an action and its branch facts without a synthetic agent, model or session', () => {
+    const action:DebugGraph={...graph,nodes:graph.nodes.map((node)=>({...node,execution:{kind:'action',action:'acme-analysis.inspect',contract_version:1,provider:{kind:'plugin',name:'acme-analysis'}}})),edges:graph.edges.map((edge,index)=>index===0?{...edge,outcome:'finished',route_id:'finished:case:partial',test:{field:'count',op:'gt',value:0}}:edge)};
+    const parsed=DebugGraphsResponseSchema.parse({global_agents:[],graphs:[action]}).graphs[0]!;
+    const wrapper=mount(DebugGraphDiagram,{props:{graph:parsed}});
+    expect(wrapper.text()).toContain('acme-analysis.inspect');
+    expect(wrapper.text()).toContain('contract: 1');
+    expect(wrapper.text()).toContain('plugin: acme-analysis');
+    expect(wrapper.find('.graph-node').attributes('aria-label')).toContain('action node, acme-analysis.inspect');
+    expect(wrapper.find('.graph-edge-group').attributes('aria-label')).toContain('when count gt 0');
+    expect(wrapper.find('.graph-details pre').text()).not.toContain('identity_pattern');
   });
 });

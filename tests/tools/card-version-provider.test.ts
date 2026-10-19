@@ -64,7 +64,8 @@ describe('card version provider', () => {
     const obsolete = { subtype: null, assigned_to: null, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
     const { pending_notifications: _pending, ...currentCard } = child;
     // Factual opaque observation of a former card shape, not a current canonical artifact.
-    const oldCard = { ...currentCard, ...obsolete };
+     const oldCard = { ...currentCard, ...obsolete, lifecycle: { status: 'done', error: null, completed_at: '2026-10-10T00:00:00.000Z',
+       result: { kind: 'workflow-result', terminal: 'DONE', agent_name: 'executor', node_id: 'execute', outcome: 'done', summary: 'Historical agent result.', records: [] } } };
     const recordedDigest = createHash('sha256').update(canonicalJson(oldCard)).digest('hex');
     const data = { card_id: child.id, version: 1, artifact_sha256: recordedDigest, card: oldCard };
     const content = JSON.stringify({ success: true, data }, null, 2);

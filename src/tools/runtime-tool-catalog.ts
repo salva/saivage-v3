@@ -277,7 +277,7 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
         scope,
         binders: processToolBinders,
         context: process,
-        cleanup: cleanupProcessProvider,
+        ...(scope === 'global' ? { cleanup: cleanupProcessProvider } : {}),
       },
       { key: `${scope}:web`, providerName: 'web', scope, binders: webToolBinders, context: web },
       {

@@ -29,7 +29,9 @@ function createFixture(root, name, caller) {
   // Copy the selected working-tree source, including new nonignored source files
   // before staging. Ignored runtime/working artifacts are not fixture inputs.
   const listing = runChild(`${caller} (${name}) fixture source discovery`, repoRoot, 'git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...fixtureInputs]);
-  for (const path of listing.stdout.split('\0').filter((path) => path && !path.startsWith('docs/working/'))) {
+  const deleted = runChild(`${caller} (${name}) fixture source deletions`, repoRoot, 'git', ['ls-files', '-z', '--deleted', '--', ...fixtureInputs]);
+  const deletedPaths = new Set(deleted.stdout.split('\0'));
+  for (const path of listing.stdout.split('\0').filter((path) => path && !deletedPaths.has(path) && !path.startsWith('docs/working/'))) {
     const destination = join(fixture, path);
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(join(repoRoot, path), destination);

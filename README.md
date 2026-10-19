@@ -205,6 +205,14 @@ cd "$TARGET_PROJECT"
 env -u SAIVAGE_API_TOKEN "$SAIVAGE_BIN" start --host 127.0.0.1 --port 8080
 ```
 
+Custom workflows can combine real agents with finite captured `shell.run`
+action nodes and explicitly compiled typed plugins. Executions has its own cockpit
+facet, never a fake conversation. A post-natural-commit hook is advisory, not a
+required acceptance check; incomplete evidence means effects unknown, not replay
+authority. Pause still gates providers only: admitted action chains can continue
+until the next provider frontier or natural completion. See
+[configuration](docs/guides/configuration.md#action-execution-and-typed-handoff).
+
 On a config-absent project, `init` defaults to `classic`; use `init --profile
 classic-typed` for typed workflows or `init --profile paad-typed` for the same
 typed configuration with optional PAAD-derived pushback, alignment and structural
@@ -379,14 +387,15 @@ not node re-entry; latest descriptor facts do not imply body recall. See
   this payload also requires the separate incompatible-adoption decision, even
   with matching outer versions; those alone are not compatibility.
   Current card heads/mailbox remain format1; ordinary/tombstone history bodies
-  require format2 after removal of nine null-only card members. Record heads3,
-  accepted documents2, conversation12 and initializer input1 are unchanged by
-  that [card-body cutover](docs/architecture/durable-format-changes.md#minimal-card-bodies-ev01-2026-10-19).
+  require format3 with discriminated agent/action executor results. Workflow input1,
+  operation `shell.run` contract1 and lazy card execution JSONL1 accompany this
+  [source cutover](docs/architecture/durable-format-changes.md#stateless-node-operations-2026-10-19).
+  Record heads3, accepted documents2, conversation12 and initializer input1 are unchanged.
   Source completion authorizes no deployment, external migration or destructive reset.
 - New projects enable an independent two-hour
   [Project Oversight](docs/spec/system-specification.md#project-oversight)
   check by default; its only project effect is an evidenced notification.
-- The three remaining growing JSONL families (conversation, app log, provider evidence) use exact owner-at-use reads that may discard
+- Growing JSONL families (conversation, app log, provider evidence, lazy card execution evidence) use exact owner-at-use reads that may discard
   only a torn final suffix after full retained-prefix validation. Complete
   corruption remains strict, older conversation segments remain immutable,
   and uncertain truncation is fatal. See the

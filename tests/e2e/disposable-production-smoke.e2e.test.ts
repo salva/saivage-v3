@@ -157,7 +157,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
       'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
-    workflow: {
+    workflow: { format_version: 1,
       notification_recipient: 'executor',
       entries: {
         BACKLOG: { node: 'execute' },
@@ -167,9 +167,9 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
       },
       nodes: {
         execute: {
-          agent: 'executor',
+          execution: { kind: 'agent', agent: 'executor',
           prompt: { reference: 'execute', compactable: true },
-          correction_prompt: { reference: 'correct-execution-result', compactable: true },
+          correction_prompt: { reference: 'correct-execution-result', compactable: true } },
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: {
             verify: {
@@ -179,9 +179,9 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
           },
         },
         verify: {
-          agent: 'reviewer',
+          execution: { kind: 'agent', agent: 'reviewer',
           prompt: { reference: 'verify', compactable: true },
-          correction_prompt: { reference: 'correct-verify-result', compactable: true },
+          correction_prompt: { reference: 'correct-verify-result', compactable: true } },
           records: {
             'status.md': { mode: 'continue', gate: 'exists' },
             'review.md': { mode: 'clean', gate: 'updated' },
@@ -1078,7 +1078,7 @@ describe('disposable production-composition smoke', () => {
         (graph: any) => graph.card_type === 'project',
       );
       const codeGraph = firstGraphs.body.graphs.find((graph: any) => graph.card_type === 'code');
-      expect(projectGraph.nodes.find((node: any) => node.node_id === 'plan').model.route).toBe(
+      expect(projectGraph.nodes.find((node: any) => node.node_id === 'plan').execution.model.route).toBe(
         'planner',
       );
       expect(codeGraph.edges.find((edge: any) => edge.outcome === 'approved')).toMatchObject({
@@ -1086,7 +1086,7 @@ describe('disposable production-composition smoke', () => {
         promotion: { kind: 'latest-node', node_id: 'execute' },
       });
       expect(
-        projectGraph.nodes.find((node: any) => node.agent_name === 'reviewer').tools,
+        projectGraph.nodes.find((node: any) => node.execution.agent_name === 'reviewer').execution.tools,
       ).not.toContain('mcp_tool_call');
 
       const edited = await chat(app, 'Edit the root bootstrap record.');
@@ -1129,7 +1129,7 @@ describe('disposable production-composition smoke', () => {
       expect(
         unchangedGraphs.body.graphs
           .find((graph: any) => graph.card_type === 'project')
-          .nodes.find((node: any) => node.node_id === 'plan').model.route,
+          .nodes.find((node: any) => node.node_id === 'plan').execution.model.route,
       ).toBe('planner');
 
       const started = await chat(app, 'Start the project with the current startup artifact.');
@@ -1161,7 +1161,7 @@ describe('disposable production-composition smoke', () => {
       expect(
         restartedGraphs.body.graphs
           .find((graph: any) => graph.card_type === 'project')
-          .nodes.find((node: any) => node.node_id === 'recover').model.route,
+          .nodes.find((node: any) => node.node_id === 'recover').execution.model.route,
       ).toBe('executor');
       await chat(app, 'Recover and start the stopped project.');
       await waitUntil(
@@ -1178,11 +1178,7 @@ describe('disposable production-composition smoke', () => {
         success: true,
         data: { outcome: 'done', summary: 'Promoted executor summary.' },
       });
-      expect(activation.data.result).toMatchObject({
-        agent_name: 'executor',
-        node_id: 'execute',
-        summary: 'Promoted executor summary.',
-      });
+      expect(activation.data.result).toMatchObject({ node_id: 'execute', summary: 'Promoted executor summary.', executor: { kind: 'agent', agent: 'executor' } });
       expect(activation.data.result.records.map((record: any) => record.name)).toEqual([
         'status.md',
         'review.md',

@@ -1,3 +1,4 @@
+import { agentExecution, directEdge } from '../../helpers/workflow-execution.js';
 import { describe, expect, it } from '@jest/globals';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
@@ -29,10 +30,10 @@ describe('compiled Debug graph projection', () => {
       const before = projectCompiledGraphs(startup);
       expect(authority.applyChange({ kind: 'set_agent_model_route', agent: 'planner', modelRoute: 'executor' })).toMatchObject({ success: true, requires_restart: true });
       expect(projectCompiledGraphs(startup)).toEqual(before);
-      expect(before.graphs.find((graph) => graph.card_type === 'project')!.nodes.find((node) => node.agent_name === 'planner')!.model.route).toBe('planner');
+      expect(agentExecution(before.graphs.find((graph) => graph.card_type === 'project')!.nodes.find((node) => node.execution.kind === 'agent' && node.execution.agent_name === 'planner')!).model.route).toBe('planner');
       expect(before.global_agents.map(({agent_name})=>agent_name)).toEqual(['analyst','oversight']);
       const afterRestart = projectCompiledGraphs(bind(authority.loadEffective()));
-      expect(afterRestart.graphs.find((graph) => graph.card_type === 'project')!.nodes.find((node) => node.agent_name === 'planner')!.model.route).toBe('executor');
+      expect(agentExecution(afterRestart.graphs.find((graph) => graph.card_type === 'project')!.nodes.find((node) => node.execution.kind === 'agent' && node.execution.agent_name === 'planner')!).model.route).toBe('executor');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -66,7 +67,7 @@ describe('compiled Debug graph projection', () => {
         'execution:blocked',
       ]);
       expect(graph.edges).toEqual(expect.arrayContaining([
-        expect.objectContaining({
+        expect.objectContaining({ route_id: 'admit_review', test: null,
           source_node_id: 'plan',
           outcome: 'admit_review',
           runtime_owned: false,
@@ -74,10 +75,10 @@ describe('compiled Debug graph projection', () => {
           prompt: { reference: 'plan-to-review', compactable: true },
           target: { kind: 'node', node_id: 'review' },
         }),
-        expect.objectContaining({ source_node_id: 'review', outcome: 'revision_required', target: { kind: 'node', node_id: 'plan' } }),
+        expect.objectContaining({ route_id: 'revision_required', test: null, source_node_id: 'review', outcome: 'revision_required', target: { kind: 'node', node_id: 'plan' } }),
         expect.objectContaining({ source_node_id: 'review', outcome: 'approved', export_records: ['review.md'], promotion: { kind: 'current' } }),
-        expect.objectContaining({ source_node_id: 'review', outcome: 'approved', condition: 'pending_notifications', target: { kind: 'node', node_id: 'handle-notifications' }, prompt: { reference: 'review-to-notifications', compactable: true } }),
-        expect.objectContaining({ source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, target: { kind: 'terminal', terminal: 'FAILED' } }),
+        expect.objectContaining({ route_id: 'approved' + ':pending-notifications', test: null, source_node_id: 'review', outcome: 'approved', condition: 'pending_notifications', target: { kind: 'node', node_id: 'handle-notifications' }, prompt: { reference: 'review-to-notifications', compactable: true } }),
+        expect.objectContaining({ route_id: 'execution:failed', test: null, source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, target: { kind: 'terminal', terminal: 'FAILED' } }),
       ]));
       expect(JSON.stringify(graph)).not.toMatch(/prompt body|account|contractDescription|\.saivage/i);
     } finally {
@@ -99,15 +100,19 @@ describe('compiled Debug graph projection', () => {
       expect(graph.notification_recipient).toBe(source.workflow.notification_recipient);
       expect(graph.records).toEqual(Object.entries(source.records).map(([name,record])=>({name,...record,initialization:record.initialization??null})));
       expect(graph.entries).toEqual(Object.entries(source.workflow.entries).map(([entry,target])=>({entry,node_id:target.node,prompt:target.prompt?{reference:target.prompt.reference,compactable:target.prompt.compactable??true,...(target.prompt.compaction_key===undefined?{}:{compaction_key:target.prompt.compaction_key})}:null})));
-      expect(graph.nodes.map((node)=>({node_id:node.node_id,agent_name:node.agent_name,process:node.prompt.process,correction:node.prompt.correction,requirements:node.requirements,descendant_context:node.descendant_context,outcomes:node.outcomes}))).toEqual(Object.entries(source.workflow.nodes).map(([nodeId,node])=>({node_id:nodeId,agent_name:node.agent,process:{reference:node.prompt.reference,compactable:node.prompt.compactable??true},correction:{reference:node.correction_prompt.reference,compactable:node.correction_prompt.compactable??true,...(node.correction_prompt.compaction_key===undefined?{}:{compaction_key:node.correction_prompt.compaction_key})},requirements:Object.entries(node.records??{}).map(([record_name,{mode,gate}])=>({record_name,mode,gate})),descendant_context:node.descendant_context?{records:node.descendant_context.records,require_unchanged_until_accept:node.descendant_context.require_unchanged_until_accept}:null,outcomes:Object.keys(node.edges)})));
+      expect(graph.nodes.map((node)=>({ node_id:node.node_id, process:agentExecution(node).prompt.process, correction:agentExecution(node).prompt.correction, requirements:node.requirements, descendant_context:node.descendant_context, outcomes:node.outcomes, execution: { kind: 'agent', agent_name:agentExecution(node).agent_name } }))).toEqual(Object.entries(source.workflow.nodes).map(([nodeId,node])=>({ node_id:nodeId, process:{reference:agentExecution(node).prompt.reference,compactable:agentExecution(node).prompt.compactable??true}, correction:{reference:agentExecution(node).correction_prompt.reference,compactable:agentExecution(node).correction_prompt.compactable??true,...(agentExecution(node).correction_prompt.compaction_key===undefined?{}:{compaction_key:agentExecution(node).correction_prompt.compaction_key})}, requirements:Object.entries(node.records??{}).map(([record_name,{mode,gate}])=>({record_name,mode,gate})), descendant_context:node.descendant_context?{records:node.descendant_context.records,require_unchanged_until_accept:node.descendant_context.require_unchanged_until_accept}:null, outcomes:Object.keys(node.edges), execution: { kind: 'agent', agent_name:agentExecution(node).agent } })));
+      const declaredPrompt = (prompt: {reference:string;compactable?:boolean;compaction_key?:string}|undefined) => prompt ? {reference:prompt.reference,compactable:prompt.compactable??true,...(prompt.compaction_key===undefined?{}:{compaction_key:prompt.compaction_key})} : null;
       const expectedEdges=Object.entries(source.workflow.nodes).flatMap(([nodeId,node])=>[
-        {source_node_id:nodeId,outcome:'notification:interrupt',runtime_owned:true,condition:'default' as const,prompt:{reference:source.workflow.entries.STOPPED.prompt!.reference,compactable:source.workflow.entries.STOPPED.prompt!.compactable??true,...(source.workflow.entries.STOPPED.prompt!.compaction_key===undefined?{}:{compaction_key:source.workflow.entries.STOPPED.prompt!.compaction_key})},target:{kind:'node' as const,node_id:source.workflow.entries.STOPPED.node},export_records:[],promotion:null},
-        ...Object.entries(node.edges).flatMap(([outcome,edge])=>[
-          {source_node_id:nodeId,outcome,runtime_owned:false,condition:'default' as const,prompt:edge.prompt?{reference:edge.prompt.reference,compactable:edge.prompt.compactable??true,...(edge.prompt.compaction_key===undefined?{}:{compaction_key:edge.prompt.compaction_key})}:null,target:'node'in edge.target?{kind:'node' as const,node_id:edge.target.node}:{kind:'terminal' as const,terminal:edge.target.terminal},export_records:'terminal'in edge.target?edge.target.export_records:[],promotion:'terminal'in edge.target?(edge.target.promote==='current'?{kind:'current' as const}:{kind:'latest-node' as const,node_id:edge.target.promote.latest_node}):null},
-          ...(edge.pending_notifications?[{source_node_id:nodeId,outcome,runtime_owned:false,condition:'pending_notifications' as const,prompt:{reference:edge.pending_notifications.prompt.reference,compactable:edge.pending_notifications.prompt.compactable??true,...(edge.pending_notifications.prompt.compaction_key===undefined?{}:{compaction_key:edge.pending_notifications.prompt.compaction_key})},target:{kind:'node' as const,node_id:edge.pending_notifications.node},export_records:[],promotion:null}]:[]),
-        ]),
-        {source_node_id:nodeId,outcome:'execution:failed',runtime_owned:true,condition:'default' as const,prompt:null,target:{kind:'terminal' as const,terminal:'FAILED' as const},export_records:[],promotion:null},
-        {source_node_id:nodeId,outcome:'execution:blocked',runtime_owned:true,condition:'default' as const,prompt:null,target:{kind:'terminal' as const,terminal:'BLOCKED' as const},export_records:[],promotion:null},
+        { route_id:'notification:interrupt',test:null,source_node_id:nodeId,outcome:'notification:interrupt',runtime_owned:true,condition:'default',prompt:declaredPrompt(source.workflow.entries.STOPPED.prompt),target:{kind:'node',node_id:source.workflow.entries.STOPPED.node},export_records:[],promotion:null},
+        ...Object.entries(node.edges).flatMap(([outcome,configured])=>{
+          const edge=directEdge(configured),target=edge.target,pending=edge.pending_notifications;
+          return [
+            {route_id:outcome,test:null,source_node_id:nodeId,outcome,runtime_owned:false,condition:'default',prompt:declaredPrompt(edge.prompt),target:'node'in target?{kind:'node',node_id:target.node}:{kind:'terminal',terminal:target.terminal},export_records:'terminal'in target?target.export_records:[],promotion:'terminal'in target?(target.promote==='current'?{kind:'current'}:{kind:'latest-node',node_id:target.promote.latest_node}):null},
+            ...(pending?[{route_id:`${outcome}:pending-notifications`,test:null,source_node_id:nodeId,outcome,runtime_owned:false,condition:'pending_notifications',prompt:declaredPrompt(pending.prompt),target:{kind:'node',node_id:pending.node},export_records:[],promotion:null}]:[]),
+          ];
+        }),
+        {route_id:'execution:failed',test:null,source_node_id:nodeId,outcome:'execution:failed',runtime_owned:true,condition:'default',prompt:null,target:{kind:'terminal',terminal:'FAILED'},export_records:[],promotion:null},
+        {route_id:'execution:blocked',test:null,source_node_id:nodeId,outcome:'execution:blocked',runtime_owned:true,condition:'default',prompt:null,target:{kind:'terminal',terminal:'BLOCKED'},export_records:[],promotion:null},
       ]);
       expect(graph.edges).toEqual(expectedEdges);
     }

@@ -1,3 +1,4 @@
+import { agentExecution, directEdge } from '../../helpers/workflow-execution.js';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -157,13 +158,13 @@ function seedInstructionEvidence(session: ConversationSessionId, cardType: 'code
     }
     const node = process.states.get(`node:${name}`)!;
     if (node.kind !== 'node') throw new Error('Expected fixture compiled node.');
-    const role = registry.render({ kind: 'workflow-agent', cardType }, node.agent.name, { contractDescription: describeNodeResultContract(process, `node:${name}`) });
-    const compiledPrompt = process.processPrompts.get(node.prompt.promptId)!;
+    const role = registry.render({ kind: 'workflow-agent', cardType }, agentExecution(node).agent.name, { contractDescription: describeNodeResultContract(process, `node:${name}`) });
+    const compiledPrompt = process.processPrompts.get(agentExecution(node).prompt.promptId)!;
     const nodeText = `Current workflow node '${name}':\n\n${compiledPrompt.text}`;
     const cardId = session.split(':')[2]!;
     const parentId = cardParentId(cardId);
     const marker = appendActivationMarker({ projectRoot: root }, session, {
-      event: 'activation_open', agent_name: node.agent.name, card_id: session.split(':')[2]!, input_id: sourceId,
+      event: 'activation_open', agent_name: agentExecution(node).agent.name, card_id: session.split(':')[2]!, input_id: sourceId,
       instructions: { kind: 'prepared',activation_id:sourceId,caller:parentId===null?{kind:'root'}:{kind:'parent',cardId:parentId,sessionId:`agent:planner:${parentId}` as ConversationSessionId,sourceInputId:sourceId,toolCallId:`synthetic-parent-${ordinal}`,toolName:'activate_card'},card:{cardId,cardType,title:'Synthetic card'},parent_direction:parentId===null?null:{text:'Synthetic parent direction for this explicitly authored reading fixture.'}, role_text: role, node: { node_id: name, text: nodeText } },
     });
     markers.push(marker.id);
@@ -180,9 +181,9 @@ function seedInstructionEvidence(session: ConversationSessionId, cardType: 'code
     const neighbor = buildUserContextMessage(session, sourceId, 'process_transition', 1, { role: 'user', content: prompt.content });
     appendConversationBatch({ projectRoot: root }, [owned, neighbor]);
     promptRows.push(owned.id);
-    if (node.correctionPrompt) {
-      const correction = process.processPrompts.get(node.correctionPrompt.promptId)!;
-      const directive = { ...prompt, content: correction.text, protection: { compactable: node.correctionPrompt.compactable, ...(node.correctionPrompt.compactionKey === undefined ? {} : { compaction_key: node.correctionPrompt.compactionKey }) } };
+    if (agentExecution(node).correctionPrompt) {
+      const correction = process.processPrompts.get(agentExecution(node).correctionPrompt.promptId)!;
+      const directive = { ...prompt, content: correction.text, protection: { compactable: agentExecution(node).correctionPrompt.compactable, ...(agentExecution(node).correctionPrompt.compactionKey === undefined ? {} : { compaction_key: agentExecution(node).correctionPrompt.compactionKey }) } };
       const repair = buildModelRepairMessage({ sessionId: session, inputId: sourceId } as Parameters<typeof buildModelRepairMessage>[0], directive);
       const continuation = buildUserContextMessage(session, sourceId, 'continuation_hook', 0, directive);
       appendConversationBatch({ projectRoot: root }, [repair, continuation]);
@@ -208,7 +209,7 @@ async function seedRecordEvidence() {
   const parent = 'Inspect these accepted requirements; token=parent-egress-canary\nFINAL-PARENT-DIRECTION-Z';
   const registry = createPromptTemplateRegistry(workflows);
   appendActivationMarker({ projectRoot: root }, session, { event: 'activation_open', agent_name: 'executor', card_id: card.id, input_id: inputId,
-    instructions: { kind: 'prepared', activation_id: inputId, caller: { kind: 'parent', cardId: 'project', sessionId: planner, sourceInputId: inputId, toolCallId: 'activate-record-fixture', toolName: 'activate_card' }, card: { cardId: card.id, cardType: 'code', title: card.title }, parent_direction: { text: parent }, role_text: registry.render({ kind: 'workflow-agent', cardType: 'code' }, 'executor', { contractDescription: describeNodeResultContract(workflow, 'node:execute') }), node: { node_id: node.nodeId, text: workflow.processPrompts.get(node.prompt.promptId)!.text } } });
+    instructions: { kind: 'prepared', activation_id: inputId, caller: { kind: 'parent', cardId: 'project', sessionId: planner, sourceInputId: inputId, toolCallId: 'activate-record-fixture', toolName: 'activate_card' }, card: { cardId: card.id, cardType: 'code', title: card.title }, parent_direction: { text: parent }, role_text: registry.render({ kind: 'workflow-agent', cardType: 'code' }, 'executor', { contractDescription: describeNodeResultContract(workflow, 'node:execute') }), node: { node_id: node.nodeId, text: workflow.processPrompts.get(agentExecution(node).prompt.promptId)!.text } } });
   const supplier = bootstrapContextSupplier(store, card, node);
   store.acceptRecord(card.id, 'status.md', quotedRecordBody, 'analyst');
   const initial = supplier({ inputId, conversation: readConversation(root, session) });
@@ -480,8 +481,8 @@ test.beforeAll(async () => {
     config.card_types.project!.workflow.entries.BACKLOG.prompt = { reference: 'stopped-recovery', compactable: true };
     const nodes = config.card_types.code!.workflow.nodes;
     nodes.verify = structuredClone(nodes.execute!);
-    nodes.execute!.edges.done!.target = { node: 'verify' };
-    nodes.execute!.edges.done!.prompt = { reference: 'plan-to-review', compactable: true };
+    directEdge(nodes.execute!.edges.done!).target = { node: 'verify' };
+    directEdge(nodes.execute!.edges.done!).prompt = { reference: 'plan-to-review', compactable: true };
   });
   writeProductionConfig(root, config);
   // Preserve actual bundled image guidance and compose an explicit fragment seam.
@@ -549,9 +550,9 @@ function expectedBindings(session: ConversationSessionId) {
     { kind: 'global-agent' }, 'analyst', { vocabularySnippet: formatVocabularySnippet(workflows.cardTypeVocabulary) })) }];
   const cardType = session === planner ? 'project' : 'code';
   const workflow = workflows.cardTypes.get(cardType)!;
-  return [...workflow.states].flatMap(([id, state]) => state.kind === 'node' && state.agent.name === session.split(':')[1]
+  return [...workflow.states].flatMap(([id, state]) => state.kind === 'node' && agentExecution(state).agent.name === session.split(':')[1]
     ? [{ kind: 'workflow_node', node_id: state.nodeId, instructions: redactTextForOutbound(registry.render(
-      { kind: 'workflow-agent', cardType }, state.agent.name, { contractDescription: describeNodeResultContract(workflow, id) })) }] : []);
+      { kind: 'workflow-agent', cardType }, agentExecution(state).agent.name, { contractDescription: describeNodeResultContract(workflow, id) })) }] : []);
 }
 
 async function instructions(page: Page, reader: Locator, session: ConversationSessionId, historical: boolean) {

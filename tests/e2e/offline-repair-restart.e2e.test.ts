@@ -1,3 +1,4 @@
+import { directEdge } from '../helpers/workflow-execution.js';
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -494,8 +495,10 @@ it('spawned child discard preserves namespace/sibling/parent; restart launches n
         for (const node of Object.values(value.card_types[type]!.workflow.nodes)) {
           node.records = {};
           node.initialize_records = [];
-          for (const edge of Object.values(node.edges))
-            if ('terminal' in edge.target) edge.target.export_records = [];
+          for (const edge of Object.values(node.edges)) {
+            const target = directEdge(edge).target;
+            if ('terminal' in target) target.export_records = [];
+          }
         }
       }
     });

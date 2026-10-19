@@ -46,6 +46,7 @@ describe('verify-doc-routes operator contract discovery', () => {
       'src/contracts/operator-api-chats.ts',
       'src/contracts/operator-api-config.ts',
       'src/contracts/operator-api-events.ts',
+      'src/contracts/operator-api-executions.ts',
       'src/contracts/operator-api-files-debug.ts',
       'src/contracts/operator-api-mcp.ts',
       'src/contracts/operator-api-processes.ts',

@@ -677,7 +677,12 @@ function initializeCardConversations(
 ): void {
   const names = new Set<AgentName>();
   for (const state of workflow.states.values())
-    if (state.kind === 'node' && state.agent.session === 'card') names.add(state.agent.name);
+    if (
+      state.kind === 'node' &&
+      state.execution.kind === 'agent' &&
+      state.execution.agent.session === 'card'
+    )
+      names.add(state.execution.agent.name);
   for (const name of names)
     initializeConversation(projectRoot, cardAgentSessionId(name, card.id), temporary);
 }
@@ -882,7 +887,7 @@ export function publishCardVersion(
     card = cardRecordSchema.parse(card);
     validateInitialCard(card, path);
     const artifact = cardVersionArtifactSchema.parse({
-      format_version: 2,
+      format_version: 3,
       kind: 'card-version',
       entry_id: initialEntryId ?? randomUUID(),
       card_id: card.id,
@@ -960,7 +965,7 @@ export function publishCardVersion(
     return null;
   }
   const artifact = cardVersionArtifactSchema.parse({
-    format_version: 2,
+    format_version: 3,
     kind: 'card-version',
     entry_id: change.entry_id,
     card_id: card.id,
@@ -1010,7 +1015,7 @@ export function publishCardTombstone(
   if (!valuesEqual(fold.current.card, finalCard))
     throw new Error(`Card '${cardId}' tombstone final card must equal current.`);
   const artifact = cardTombstoneArtifactSchema.parse({
-    format_version: 2,
+    format_version: 3,
     kind: 'card-tombstone',
     entry_id: change.entry_id,
     card_id: cardId,

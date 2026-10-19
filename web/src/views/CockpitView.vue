@@ -109,6 +109,7 @@
             <CardFlowHeader :card-id="subjectCardId" :detail="subjectDetail" :position="subjectPosition" />
             <CardOverviewFacet v-if="facet === 'overview'" :card-id="subjectCardId" :detail="subjectDetail" />
             <CardConversationsFacet v-else-if="facet === 'conversations'" :card-id="subjectCardId" :detail="subjectDetail" :selected-session-id="null" :entry-id="null" :rail-admitted="true" />
+            <CardExecutionsFacet v-else-if="facet === 'executions'" :card-id="subjectCardId" />
             <CardRecordsFacet v-else-if="facet === 'records'" :card-id="subjectCardId" :record-refinement="recordRefinement" />
             <CardEvidenceFacet v-else :card-id="subjectCardId" />
           </template>
@@ -132,13 +133,14 @@ import AgentConversationView from '../components/agents/AgentConversationView.vu
 import CardFlowHeader from '../components/cockpit/CardFlowHeader.vue';
 import CardOverviewFacet from '../components/cockpit/CardOverviewFacet.vue';
 import CardConversationsFacet from '../components/cockpit/CardConversationsFacet.vue';
+import CardExecutionsFacet from '../components/cockpit/CardExecutionsFacet.vue';
 import CardRecordsFacet from '../components/cockpit/CardRecordsFacet.vue';
 import CardEvidenceFacet from '../components/cockpit/CardEvidenceFacet.vue';
 import ExactValue from '../components/ui/ExactValue.vue';
 import ViewState from '../components/ui/ViewState.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 
-type Facet = 'overview' | 'conversations' | 'records' | 'evidence';
+type Facet = 'overview' | 'conversations' | 'executions' | 'records' | 'evidence';
 const route = useRoute();
 const router = useRouter();
 const cardStore = useCardStore();
@@ -161,7 +163,7 @@ const subjectCardId = computed<string | null>(() => {
 const facet = computed<Facet>(() => {
   if (isCardSession.value) return 'conversations';
   const value = route.query.facet;
-  return value === 'conversations' || value === 'records' || value === 'evidence' ? value : 'overview';
+  return value === 'conversations' || value === 'executions' || value === 'records' || value === 'evidence' ? value : 'overview';
 });
 const recordRefinement = computed(() => ({
   record: typeof route.query.record === 'string' ? route.query.record : null,
@@ -179,6 +181,7 @@ const showFacetNav = computed(() => !!subjectCardId.value && (isCardSession.valu
 const facetItems = computed<Array<{ id: Facet; label: string; enabled: boolean }>>(() => [
   { id: 'overview', label: 'Overview', enabled: !isCardSession.value || !!subjectDetail.value },
   { id: 'conversations', label: 'Conversations', enabled: true },
+  { id: 'executions', label: 'Executions', enabled: !isCardSession.value || !!subjectDetail.value },
   { id: 'records', label: 'Records & History', enabled: !isCardSession.value || !!subjectDetail.value },
   { id: 'evidence', label: 'Evidence', enabled: !isCardSession.value || !!subjectDetail.value },
 ]);
