@@ -99,7 +99,7 @@ function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'acti
   }
   const compiled = compileProjectWorkflows(config, { projectRoot: root, operationPlugins: route === 'action' ? [{ namespace: 'acme', operations: { inspect: definition } }] : [] });
   const registry = new ProviderRegistry(config);
-  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
   initProjectTree(root);
   const cards = new CardService(root, compiled);
   cards.acceptRecord('project', 'brief.md', 'FULL CURRENT ACCEPTED BRIEF: implement the bounded request.', { kind: 'agent', agent: 'analyst' });

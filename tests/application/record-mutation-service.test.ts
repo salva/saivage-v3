@@ -30,7 +30,8 @@ const DENIAL_CASES:Array<[string,'active'|'cancelled'|null,'analyst'|'card_agent
   ['lifecycle_unsupported','cancelled','analyst',undefined,true,true],
 ];
 
-const analystPreflightRequest = { path: 'record:///brief.md?card=project', operation: 'write' as const, surface: 'analyst' as const, agentName: 'analyst' as const, requiredTools: ['write', 'webfetch'] as const };
+const analystAuthority = { author: { kind: 'agent' as const, agent: 'analyst' }, allowedTools: ['write', 'edit', 'webfetch'] };
+const analystPreflightRequest = { ...analystAuthority, path: 'record:///brief.md?card=project', operation: 'write' as const, surface: 'analyst' as const, agentName: 'analyst' as const, requiredTools: ['write', 'webfetch'] as const };
 
 function preflightHarness(cards: CardService, read: () => ReturnType<CardService['read']>, classifyCurrentRecord: () => ReturnType<CardService['classifyCurrentRecord']>) {
   jest.spyOn(cards, 'read').mockImplementation(read);
@@ -114,7 +115,7 @@ describe('card-agent record mutation', () => {
       ['record:///%ZZ?card=project', 'Invalid record URL encoding.'],
       ['record:///brief.md?card=project&v=1', 'Historical record URLs cannot be mutated.'],
     ]) {
-      const request: Parameters<typeof mutateRecord>[1] = operation === 'edit'
+      const request = operation === 'edit'
         ? { ...analystPreflightRequest, path: path!, operation, oldString: 'old', newString: 'new', onRecordWritten: written }
         : { ...analystPreflightRequest, path: path!, operation, content: 'changed', onRecordWritten: written };
       for (const surface of ['analyst', 'card_agent'] as const) {
@@ -176,7 +177,7 @@ describe('card-agent record mutation', () => {
     const classifyCurrentRecord=jest.fn(()=>{throw new Error('CLASSIFIER_MUST_NOT_RUN');});
     const configured={recordWrites:writerAllowed?[{matcher:/^brief\.md$/u}]:[],tools:toolAllowed?[{name:'write'}]:[]};
     const store={read:jest.fn(()=>state===null?null:card),classifyCurrentRecord,workflows:{analyst:configured,agents:new Map([['planner',configured]])}} as never;
-    const result=admitRecordMutation(store,{path:'record:///brief.md?card=project',operation:'write',surface,agentName:surface==='analyst'?'analyst':'planner',...(cardId?{cardId}:{}),requiredTools:['write']});
+    const result=admitRecordMutation(store,{...analystAuthority,path:'record:///brief.md?card=project',operation:'write',surface,agentName:surface==='analyst'?'analyst':'planner',...(cardId?{cardId}:{}),requiredTools:['write']});
     expect(result).toMatchObject({kind:'rejected',data:{code:'record_mutation_denied',reason}});expect(classifyCurrentRecord).not.toHaveBeenCalled();
   });
 
@@ -212,8 +213,8 @@ describe('card-agent record mutation', () => {
     cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
     cards.setStatus('project', 'changed');
     const current=cards.readRecordCurrent('project','brief.md');expect(current.kind==='found'&&current.value.projection?.draft?.content).toBe('interrupted draft');
-    expect(mutateRecord(cards,{path,operation:'write',content:'analyst replacement',surface:'analyst',agentName:'analyst',requiredTools:['write']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
-    expect(mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'stolen',surface:'analyst',agentName:'analyst',requiredTools:['edit']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
+    expect(mutateRecord(cards,{...analystAuthority,path,operation:'write',content:'analyst replacement',surface:'analyst',agentName:'analyst',requiredTools:['write']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
+    expect(mutateRecord(cards,{...analystAuthority,path,operation:'edit',oldString:'interrupted',newString:'stolen',surface:'analyst',agentName:'analyst',requiredTools:['edit']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
     expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(current);
     expect(cards.read('project')!.lifecycle.status).toBe('changed');
     const resumed=mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'resumed',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['edit']});

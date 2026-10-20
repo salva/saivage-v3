@@ -42,8 +42,10 @@ export interface ToolContext {
   >;
   mcpToolInvocation: McpToolInvocationPort;
   restartCapability: RestartCapability;
-  actor: import('../schemas/index.js').AgentName;
-  surface: 'web-chat';
+  /** Configured permissions, independently of the credential holder's attribution. */
+  policyAgentName: import('../schemas/index.js').AgentName;
+  actor: import('../schemas/index.js').OperationActor;
+  surface: 'web-chat' | 'mcp';
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;
   eventQueries: EventQueryService;

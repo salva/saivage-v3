@@ -155,7 +155,7 @@ export async function createInstructionFlow(scene: InstructionScene) {
       structural,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const groups = new ManagedProcessGroupRegistry();
     supervisor = createSupervisorRuntimeApi({

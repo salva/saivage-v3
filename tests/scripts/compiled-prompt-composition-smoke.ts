@@ -292,7 +292,7 @@ try {
     if (!node.requirements.some(({ definition, mode, gate }) => definition.name === 'review.md' && mode === 'clean' && gate === 'updated')) throw new Error(`${nodeId} lacks its fresh updated review.md gate.`);
   }
   const providerRegistry = new ProviderRegistry(typedTestConfig);
-  const workflows = bindRuntimeWorkflows(typedWorkflows, new ModelRouter(providerRegistry), providerRegistry, typedTestConfig.compaction.context_utilization_fraction);
+  const workflows = bindRuntimeWorkflows(typedWorkflows, new ModelRouter(providerRegistry), providerRegistry, typedTestConfig.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
   const configAuthority = createResolvedConfigAuthority({
     path: join(projectRoot, '.saivage', 'saivage.yaml'),
     interpolationEnvironment: process.env,
@@ -318,7 +318,7 @@ try {
     invokeTool() { return Promise.reject(new Error('Unexpected MCP invocation in compiled prompt smoke.')); },
   };
 
-  application = createRuntimeApplication({
+  application = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
     projectRoot,
     processIdentity: { pid: process.pid, startedAt: new Date().toISOString() },
     config: typedTestConfig,

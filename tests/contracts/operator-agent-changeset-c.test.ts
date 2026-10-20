@@ -37,8 +37,9 @@ describe('changeset C contracts', () => {
       AgentConversationResponseSchema.parse({ session_id: summary.id, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'z' } })
         .cursor,
     ).toEqual({ segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'z' });
-    expect(ChatIdentityResponseSchema.parse({ session_id: summary.id })).toEqual({
+    expect(ChatIdentityResponseSchema.parse({ session_id: summary.id, mode: 'internal', internal_enabled: true, external_enabled: false })).toEqual({
       session_id: summary.id,
+      mode: 'internal', internal_enabled: true, external_enabled: false,
     });
     expect(CardAgentSessionsResponseSchema.parse({ card_id: 'card-a', sessions: [] })).toEqual({
       card_id: 'card-a',

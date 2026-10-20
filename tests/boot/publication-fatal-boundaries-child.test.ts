@@ -17,7 +17,7 @@ jest.setTimeout(childTimeoutMs + 5_000);
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function child(mode: string, value?: string) {
-  const selected = mode.startsWith('read-owned-') || mode === 'log-append-torn' ? join(process.cwd(), 'tests', 'fixtures', 'growing-read-fatal-boundaries.ts') : fixture;
+  const selected = mode.startsWith('read-owned-') || mode === 'log-append-torn' || mode === 'external-analyst-receipt-publication' ? join(process.cwd(), 'tests', 'fixtures', 'growing-read-fatal-boundaries.ts') : fixture;
   return spawnSync(process.execPath, ['--import', 'tsx', selected, mode, ...(value ? [value] : [])], { cwd: process.cwd(), encoding: 'utf8', timeout: childTimeoutMs });
 }
 
@@ -36,6 +36,35 @@ function expectFatalOwner(mode: string, expectedDiagnostic = diagnostic): void {
 }
 
 describe('publication fatal owner boundaries', () => {
+  it('halts receipt append uncertainty before HTTP response, SDK disposal, follow-up audit or cleanup', () => {
+    const root = mkdtempSync(join(tmpdir(), 'publication-external-receipt-')); roots.push(root);
+    const marker = join(root, 'marker'); writeFileSync(marker, '');
+    const result = child('external-analyst-receipt-publication', marker);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe(diagnosticWithCause('external receipt append uncertain'));
+    expect(readFileSync(marker, 'utf8')).toBe('entered\nreceipt-write\n');
+    // Parent-only evidence: the child never inspects the uncertain publication.
+    expect(readAppLogEntries(root, 'external_tool_call')).toEqual([
+      expect.objectContaining({ data: expect.objectContaining({ tool: 'settled', execution: 'executed', outcome: 'ok' }) }),
+    ]);
+  });
+  it('halts external work before receipts, responses, ordinary failure handling or cleanup',()=>{
+    const root=mkdtempSync(join(tmpdir(),'publication-external-'));roots.push(root);
+    const marker=join(root,'marker');writeFileSync(marker,'');
+    const result=child('external-analyst-publication',marker);
+    expect(result.status).toBe(1);expect(result.stderr).toBe(diagnostic);
+    expect(readFileSync(marker,'utf8')).toBe('entered\n');
+    expect(existsSync(appLogFile(root))).toBe(false);
+  });
+  it('halts immediately on asynchronous external containment uncertainty without waiting for unrelated in-flight work',()=>{
+    const root=mkdtempSync(join(tmpdir(),'publication-external-cleanup-'));roots.push(root);
+    const marker=join(root,'marker');writeFileSync(marker,'');
+    const result=child('external-analyst-cleanup-publication',marker);
+    expect(result.status).toBe(1);expect(result.stderr).toBe(diagnostic);
+    expect(readFileSync(marker,'utf8')).toBe('entered\nuncertain-containment\n');
+    expect(existsSync(appLogFile(root))).toBe(false);
+  });
   it.each(['action-node-publication', 'card-hook-publication'])('exits real %s raw ownership before cleanup or matching consumer acknowledgement', (mode) => {
     const root = mkdtempSync(join(tmpdir(), 'publication-action-')); roots.push(root);
     const marker = join(root, 'marker'); writeFileSync(marker, '');

@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { agentNameSchema } from './agent-name.js';
 import { processIdSchema } from './process-id.js';
 import { uuidV4Schema } from './uuid.js';
+import { operationAuthorSchema } from './operation-author.js';
 
 /** Immutable authorship, not an assessment or a guarantee of command effects. */
 export const recordAuthorSchema = z
   .discriminatedUnion('kind', [
-    z.object({ kind: z.literal('agent'), agent: agentNameSchema }).strict(),
+    ...operationAuthorSchema.options,
     z.object({ kind: z.literal('runtime'), purpose: z.enum(['bootstrap', 'repair']) }).strict(),
     z
       .object({

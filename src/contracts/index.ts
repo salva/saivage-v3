@@ -190,7 +190,11 @@ export { ViewImageDataSchema, viewImageInputSchema, assertViewImageResult } from
 export type { ViewImageData } from './view-image.js';
 export type { ImageNormalizationFacts } from './image-normalization.js';
 export type { ToolResult, ToolActionOutcome, ToolResultContentBlock } from './tool-result.js';
-export { ANALYST_TURN_BUSY_ERROR, ChatToolInvocationSchema } from './operator-api-chats.js';
+export {
+  ANALYST_TURN_BUSY_ERROR,
+  ANALYST_DISABLED_ERROR,
+  ChatToolInvocationSchema,
+} from './operator-api-chats.js';
 export type { RestartChatAcknowledgement } from './operator-api-chats.js';
 export {
   parseRecordUrl,
@@ -278,7 +282,12 @@ export type {
   ListCardsInput,
 } from './builtin-tool-inputs.js';
 export { parseOperatorResponse } from './operator-api.js';
-export { appLogEntryLogicalId, appLogEntrySchema } from './app-log.js';
+export {
+  appLogEntryLogicalId,
+  appLogEntrySchema,
+  externalToolCallSchema,
+  type ExternalToolCall,
+} from './app-log.js';
 export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType } from './app-log.js';
 export {
   validateCompactedHistorySuccessor,

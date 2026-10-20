@@ -165,7 +165,7 @@ function readAccepted(
   if (
     definition.bootstrap &&
     artifact.predecessor === null &&
-    (artifact.version !== 1 || artifact.accepted.author.kind !== 'runtime')
+    (artifact.version !== 1 || artifact.accepted.author.kind === 'shell-stdout')
   )
     throw new Error('Invalid bootstrap accepted origin.');
   if (
@@ -470,7 +470,7 @@ function publishAcceptance(
   const version = (prior?.accepted?.version ?? 0) + 1;
   const artifact = authoredRecordVersionArtifactSchema.parse({
     ...identity(cardId, definition),
-    format_version: 3,
+    format_version: 4,
     kind: 'accepted-record',
     entry_id: entryId,
     version,
@@ -591,6 +591,7 @@ export function initializeAuthoredRecord(
   cardId: string,
   definition: RecordDefinition,
   cardHistory: AcceptedRecordSnapshot['card_history'],
+  author: RecordAuthor,
   bootstrapContent?: string,
   temporary?: PublicationTemporaryIdFactory,
 ): CurrentRecordProjection | null {
@@ -603,7 +604,7 @@ export function initializeAuthoredRecord(
     definition,
     null,
     bootstrapContent,
-    { kind: 'runtime', purpose: 'bootstrap' },
+    author,
     1,
     cardHistory,
     undefined,

@@ -4,17 +4,37 @@ import {
   throwIfPublicationOutcomeUnknown,
   zodToJsonSchemaMini,
   toolFailed,
+  toolContentSucceeded,
   type ToolDefinition as LlmToolDefinition,
   type ToolActionOutcome,
+  type ToolResultContentBlock,
 } from '../contracts/index.js';
 import type { AgentName, ToolResultPolicyTemplate } from '../schemas/index.js';
 import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
+import { publishConversationImage } from '../persistence/session-api.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-api.js';
 import {
   boundedToolError,
   DiscoveryBudgetTooSmallError,
   DiscoveryCollectionPositionError,
 } from './response-packer.js';
+
+export type ToolExecutionContext =
+  | LlmToolInvocationContext
+  | Readonly<{
+      kind: 'external';
+      invocationId: string;
+      principal: string;
+      signal: AbortSignal;
+    }>;
+/** Normalized call-local PNGs. Never part of the durable ToolResult union. */
+export type ProducedToolContent =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+      readonly type: 'image';
+      readonly bytes: Buffer;
+      readonly dimensions: { width: number; height: number };
+    };
 
 type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];
 
@@ -24,12 +44,19 @@ type ToolExecutionEvidenceInput<M extends ToolEvidenceMode> = M extends 'canonic
     ? { kind: 'observational_result_bytes' }
     : { kind: 'none' };
 
-export type ToolExecutionResult<M extends ToolEvidenceMode> =
+export type ToolExecutionResult<M extends ToolEvidenceMode> = (
   | Readonly<{ providerOutcome: ToolActionOutcome; evidence: { kind: 'none' } }>
   | Readonly<{
       providerOutcome: ToolActionOutcome;
       evidence: ToolExecutionEvidenceInput<M>;
-    }>;
+    }>
+) &
+  Readonly<{
+    producedContent?: {
+      readonly projectRoot: string;
+      readonly blocks: readonly ProducedToolContent[];
+    };
+  }>;
 
 export type ExecutedToolSettlement = Readonly<{
   kind: 'executed';
@@ -132,7 +159,7 @@ export interface ToolDefinition<Args = unknown, M extends ToolEvidenceMode = Too
   readonly executor: (
     args: Args,
     signal: AbortSignal,
-    context?: LlmToolInvocationContext,
+    context?: ToolExecutionContext,
   ) => Promise<ToolExecutionResult<M>>;
 }
 
@@ -198,7 +225,7 @@ export function defineTool<Schema extends z.ZodTypeAny, M extends ToolEvidenceMo
   readonly executor: (
     args: z.infer<Schema>,
     signal: AbortSignal,
-    context?: LlmToolInvocationContext,
+    context?: ToolExecutionContext,
   ) => Promise<ToolExecutionResult<M>>;
 }): ToolDefinition<z.infer<Schema>, M> {
   return definition;
@@ -217,7 +244,7 @@ export function defineToolBinder<
     context: Context,
     args: z.infer<Schema>,
     signal: AbortSignal,
-    invocation?: LlmToolInvocationContext,
+    invocation?: ToolExecutionContext,
   ) => Promise<ToolExecutionResult<M>>;
 }): ToolBinder<Context, z.infer<Schema>, M> {
   return Object.freeze({
@@ -236,24 +263,32 @@ export function defineToolBinder<
   });
 }
 
-export async function invokeToolForLlm(
+export async function invokeTool(
   surface: InvocationSurface,
   name: string,
   args: unknown,
-  context: LlmToolInvocationContext,
+  context: ToolExecutionContext,
   signal?: AbortSignal,
 ): Promise<ToolSettlementInput> {
+  signal = context.kind === 'external' ? context.signal : signal;
   let executorEntered = false;
   try {
     const definition = surface.tools.get(name);
     if (!definition)
       return syntheticToolSettlement(
         'unsupported_tool',
-        `Unsupported tool '${name}' for agent '${surface.agentName}'.`,
+        context.kind === 'external'
+          ? 'Unsupported or unavailable tool.'
+          : `Unsupported tool '${name}' for agent '${surface.agentName}'.`,
       );
     const parsed = definition.inputSchema.safeParse(args);
     if (!parsed.success)
-      return syntheticToolSettlement('rejected_before_execution', parsed.error.message);
+      return syntheticToolSettlement(
+        'rejected_before_execution',
+        context.kind === 'external'
+          ? 'Tool arguments do not match the selected tool schema.'
+          : parsed.error.message,
+      );
     if (signal?.aborted)
       return syntheticToolSettlement(
         'rejected_before_execution',
@@ -287,6 +322,47 @@ export async function invokeToolForLlm(
       );
     throw error;
   }
+}
+
+/** Only the real LLM owner selects immutable images into its conversation. */
+export async function invokeToolForLlm(
+  surface: InvocationSurface,
+  name: string,
+  args: unknown,
+  context: LlmToolInvocationContext,
+  signal?: AbortSignal,
+): Promise<ToolSettlementInput> {
+  const settlement = await invokeTool(surface, name, args, context, signal);
+  if (settlement.kind !== 'executed') return settlement;
+  if (settlement.execution.producedContent) signal?.throwIfAborted();
+  return { kind: 'executed', execution: settleToolExecutionForLlm(settlement.execution, context) };
+}
+
+export function settleToolExecutionForLlm<M extends ToolEvidenceMode>(
+  produced: ToolExecutionResult<M>,
+  context: LlmToolInvocationContext,
+): ToolExecutionResult<M> {
+  if (!produced.producedContent) return produced;
+  const { producedContent, ...execution } = produced;
+  if (execution.providerOutcome.kind !== 'succeeded')
+    throw new Error('Produced images require a successful tool outcome.');
+  const content: ToolResultContentBlock[] = producedContent.blocks.map((block) =>
+    block.type === 'text'
+      ? block
+      : {
+          type: 'image',
+          image: publishConversationImage(
+            producedContent.projectRoot,
+            context.sessionId,
+            block.bytes,
+            block.dimensions,
+          ),
+        },
+  );
+  return {
+    ...execution,
+    providerOutcome: toolContentSucceeded(execution.providerOutcome.data, content),
+  };
 }
 
 export async function cleanupInvocationSurface(

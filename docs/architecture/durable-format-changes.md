@@ -23,6 +23,43 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### External Analyst operation attribution (2026-10-20)
+
+Exact implementation parent: `575edeb877e58bc0a66fc09c445f37d122d351c4`.
+Ordinary/tombstone card artifacts advance **3→4**, including the strict ordinary
+creator and update/delete actor contracts. Reserved `external:<principal>` labels
+are distinct from configured agent names. Accepted-record artifacts advance
+**3→4** with strict `{kind:'external-agent',principal}` authorship. Initial child
+bootstrap acceptance carries the actual creator; root bootstrap and explicit repair
+remain runtime-authored. Initial bootstrap strict semantic readers admit these
+actual authors, never infer them from body text or normalize retained authors.
+
+The **shared provider-evidence/app-log `version/type:rows` envelope advances 1→2**.
+Provider row grammar is unchanged; app log additionally admits `surface:mcp`,
+external control actors and strict body-free `external_tool_call` settled receipts.
+Those receipts are observations, not execution intents, delivery guarantees,
+complete history or replay authority. Unknown requested tools use `<unsupported>`;
+arguments, bodies, client metadata, exceptions and credentials are absent.
+
+Card-head/previous slot and mailbox remain **1**; record-head/previous slot remain
+**3**. Workflow input **2**, initializer **1**, card-execution envelope **1** and
+shell operation **1** are unchanged. Conversation index/genesis/segment remain
+**12**: typed record observations have no author; ordinary card/record tool data
+is opaque and successful process results retain their specialized contract.
+Normalized call-local PNG bytes are separate from durable ToolResult content;
+only actual LLM settlement publishes the existing descriptor-selected PNGs.
+External calls create no internal transcript or provider evidence. MCP definition
+**1**, lifecycle-lock **1**, diagnostics **3** and unversioned YAML/identity are
+unchanged. Current/history, generated Files, bootstrap and repair consumers use
+the same strict owning schemas; no old reader or conversion is provided.
+
+Deployment applicability is unknown; these are fresh bumps, not an unreleased
+cutover exception. Old/mixed canonical state blocks. Source completion authorizes
+no deployment, configuration adoption, migration, reset, restart or Run. Adoption
+requires separately consented complete reset or an explicitly owner-requested
+identified-project external offline migration to a pinned matching release under
+the full runbook gates. Binary-only downgrade after new publications is unsupported.
+
 ### Main Planner completion: no family-format bump; incompatible reached-node identity adoption (2026-10-20)
 
 Exact implementation parent: `c6de78865ef72a19c2f4e75b13365351191cdce1`.

@@ -45,8 +45,10 @@ import type { CompactorPort } from '../runtime/runtime-api.js';
 import type { LlmInvocationInput } from '../runtime/runtime-api.js';
 import type { RuntimeProcessIdentity } from '../runtime/runtime-api.js';
 import type { ConversationSessionId, GlobalConversationSessionId } from '../schemas/index.js';
-import { executeToolAction, type ToolContext } from '../tools/execution-api.js';
-import { createAnalystMutationServices } from './analyst-mutation-services.js';
+import { executeToolAction } from '../tools/execution-api.js';
+import { createAnalystOperationSurface } from './analyst-operation-surface.js';
+import { ExternalAnalystOperations } from './external-analyst-operations.js';
+import type { AnalystStartup } from '../config/index.js';
 import { runtimeAgentBinding } from '../runtime/runtime-api.js';
 import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/runtime-api.js';
@@ -59,13 +61,15 @@ import {
 } from './project-oversight.js';
 import { globalAgentSessionId } from '../schemas/index.js';
 import { createOversightNotificationPort } from './oversight-notification-port.js';
-import {
-  queue_notification,
-  submitNotificationTool,
-  type QueueNotificationToolInput,
-} from '../tools/tool-api.js';
+import { submitNotificationTool, type QueueNotificationToolInput } from '../tools/tool-api.js';
 
 export interface RuntimeApplication {
+  readonly analystAvailability: Readonly<{
+    mode: AnalystStartup['mode'];
+    internal_enabled: boolean;
+    external_enabled: boolean;
+  }>;
+  readonly externalAnalystOperations: ExternalAnalystOperations | null;
   readonly runtimeApi: RuntimeApi;
   readonly cardStore: CardService;
   readonly processRunner: ProcessRunner;
@@ -83,6 +87,9 @@ export interface RuntimeApplication {
 }
 
 interface RuntimeApplicationServices {
+  analystStartup: AnalystStartup;
+  externalProjectIdentityDigest: string | null;
+  onExternalAnalystOwnerFailure(error: unknown): void;
   outboundHttp?: OutboundHttpEmitter;
   failedProviderDiagnostics?: string;
   projectRoot: string;
@@ -211,7 +218,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const runtimeGate = new RuntimeGate();
   const promptTemplates = createPromptTemplateRegistry(services.workflows);
   const workflows = services.workflows;
-  const analystBinding = runtimeAgentBinding(workflows, workflows.analyst.name);
   const oversightBinding = runtimeAgentBinding(workflows, workflows.oversight.name);
   const runtimeSupervisor = createSupervisorRuntimeApi({
     outboundHttp: services.outboundHttp,
@@ -236,75 +242,51 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const runtimeApi: RuntimeApi = runtimeSupervisor;
   const runtimeObservation = Object.freeze({ getStatus: runtimeApi.getStatus.bind(runtimeApi) });
   const analystSessionId = services.analystSessionId;
+  const internalAnalystRootScope = processRunner.createContainerScope(
+    services.analystProcessRootScope,
+    'internal-analyst',
+  );
   let analystRuntimeCache: AnalystRuntime | null = null;
-  const analystProvider = createInvocationServiceProvider(invocationService, projectRoot);
   const createAnalystSession = (_turn: AnalystTurnInput): AnalystSession => {
+    const analystBinding = runtimeAgentBinding(workflows, workflows.analyst.name);
     const directScope = processRunner.createDirectScope(
-      services.analystProcessRootScope,
+      internalAnalystRootScope,
       `analyst-session:${analystSessionId}`,
       'operator_session',
     );
     const createInvocationSurface = () => {
-      const notifyCard = runtimeApi.notifyCard.bind(runtimeApi);
-      const analystMutations = createAnalystMutationServices({
-        store: cardStore,
-        configAuthority: services.configAuthority,
-        notifyCard,
+      return createAnalystOperationSurface({
+        workflows,
+        author: { kind: 'agent', agent: workflows.analyst.name },
+        allowedTools: analystBinding.toolSet.names,
+        outboundHttp: services.outboundHttp,
         submitNotification: runtimeApi.submitNotification.bind(runtimeApi),
         cancelCard: runtimeApi.cancelCard.bind(runtimeApi),
-      });
-      const context: ToolContext = {
-        cardTypeVocabulary: workflows.cardTypeVocabulary,
-        projectRoot,
-        configAuthority: services.configAuthority,
-        interventionReadiness: runtimeSupervisor,
-        processRunner,
-        processScope: directScope,
-        store: cardStore,
-        sessionId: analystSessionId,
-        runtime: Object.freeze({
-          startProject: runtimeApi.startProject.bind(runtimeApi),
-          pause: runtimeApi.pause.bind(runtimeApi),
-          resume: runtimeApi.resume.bind(runtimeApi),
-          stopProject: runtimeApi.stopProject.bind(runtimeApi),
-          notifyCard: runtimeApi.notifyCard.bind(runtimeApi),
-          getStatus: runtimeApi.getStatus.bind(runtimeApi),
-        }),
-        mcpToolInvocation: services.mcpToolInvocation,
-        restartCapability,
-        actor: workflows.analyst.name,
-        surface: 'web-chat',
-        analystMutations,
-        eventQueries,
-        captureExecutingLlmSnapshots,
-      };
-      const observationToolContext = {
-        agentName: workflows.analyst.name,
-        projectRoot,
-        store: cardStore,
-        processRunner,
-        eventQueries,
-        runtime: runtimeObservation,
-        queueNotification: (input: QueueNotificationToolInput, signal: AbortSignal) =>
-          queue_notification(context, input, signal),
-        captureExecutingLlmSnapshots,
-        currentProcessPosition: (cardId: string) =>
+        currentProcessPosition: (cardId) =>
           runtimeApi.getActorRuntimeReadModel().cards.find((card) => card.cardId === cardId)
             ?.processState ?? null,
-      };
-      return analystBinding.toolSet.bind({
-        outboundHttp: services.outboundHttp,
-        scope: 'global',
-        agentName: analystBinding.contract.name,
-        projectRoot,
-        store: cardStore,
-        processRunner,
-        processScope: directScope,
-        processOwnerId: analystSessionId,
-        mcpToolInvocation: services.mcpToolInvocation,
-        analystToolContext: context,
-        observationToolContext,
-        cardTypeVocabulary: workflows.cardTypeVocabulary,
+        context: {
+          cardTypeVocabulary: workflows.cardTypeVocabulary,
+          projectRoot,
+          configAuthority: services.configAuthority,
+          interventionReadiness: runtimeSupervisor,
+          processRunner,
+          processScope: directScope,
+          store: cardStore,
+          sessionId: analystSessionId,
+          runtime: Object.freeze({
+            startProject: runtimeApi.startProject.bind(runtimeApi),
+            pause: runtimeApi.pause.bind(runtimeApi),
+            resume: runtimeApi.resume.bind(runtimeApi),
+            stopProject: runtimeApi.stopProject.bind(runtimeApi),
+            notifyCard: runtimeApi.notifyCard.bind(runtimeApi),
+            getStatus: runtimeApi.getStatus.bind(runtimeApi),
+          }),
+          mcpToolInvocation: services.mcpToolInvocation,
+          restartCapability,
+          eventQueries,
+          captureExecutingLlmSnapshots,
+        },
       });
     };
     const shutdownProcesses = async (): Promise<void> => {
@@ -329,7 +311,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       routeUsableInputTokens: analystBinding.routeUsableInputTokens,
       promptTemplates,
       restartCapability,
-      provider: analystProvider,
+      provider: createInvocationServiceProvider(invocationService, projectRoot),
       conversations,
       compactionPolicy,
       compactor,
@@ -352,10 +334,10 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       cardTypeVocabulary: workflows.cardTypeVocabulary,
     });
   };
-  const getAnalystToolNames = (): string[] => [...analystBinding.toolSet.names];
+  const getAnalystToolNames = (): string[] => workflows.analyst.tools.map(({ name }) => name);
   const terminateAnalystRoot = (reason: string) =>
     processRunner.terminateScopeTree({
-      rootScope: services.analystProcessRootScope,
+      rootScope: internalAnalystRootScope,
       categories: ['operator_session'],
       reason,
     });
@@ -440,7 +422,66 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     },
   });
 
+  const analystAvailability = Object.freeze({
+    mode: services.analystStartup.mode,
+    internal_enabled: services.analystStartup.mode !== 'external',
+    external_enabled: services.analystStartup.mode !== 'internal',
+  });
+  let externalAnalystOperations: ExternalAnalystOperations | null = null;
+  if (services.analystStartup.mode !== 'internal') {
+    const startup = services.analystStartup;
+    if (services.externalProjectIdentityDigest === null)
+      throw new Error('External Analyst requires the established project identity.');
+    const directScope = processRunner.createDirectScope(
+      services.analystProcessRootScope,
+      `external:${startup.principal}`,
+      'operator_session',
+    );
+    externalAnalystOperations = new ExternalAnalystOperations({
+      projectRoot,
+      principal: startup.principal,
+      projectIdentityDigest: services.externalProjectIdentityDigest,
+      processRunner,
+      directScope,
+      fatalPort: services.fatalPort,
+      onOwnerFailure: services.onExternalAnalystOwnerFailure,
+      surface: createAnalystOperationSurface({
+        workflows,
+        author: { kind: 'external-agent', principal: startup.principal },
+        allowedTools: startup.tools,
+        submitNotification: runtimeApi.submitNotification.bind(runtimeApi),
+        cancelCard: runtimeApi.cancelCard.bind(runtimeApi),
+        outboundHttp: services.outboundHttp,
+        currentProcessPosition: (cardId) =>
+          runtimeApi.getActorRuntimeReadModel().cards.find((card) => card.cardId === cardId)
+            ?.processState ?? null,
+        context: {
+          cardTypeVocabulary: workflows.cardTypeVocabulary,
+          projectRoot,
+          configAuthority: services.configAuthority,
+          interventionReadiness: runtimeSupervisor,
+          processRunner,
+          processScope: directScope,
+          store: cardStore,
+          runtime: {
+            startProject: runtimeApi.startProject.bind(runtimeApi),
+            pause: runtimeApi.pause.bind(runtimeApi),
+            resume: runtimeApi.resume.bind(runtimeApi),
+            stopProject: runtimeApi.stopProject.bind(runtimeApi),
+            notifyCard: runtimeApi.notifyCard.bind(runtimeApi),
+            getStatus: runtimeApi.getStatus.bind(runtimeApi),
+          },
+          mcpToolInvocation: services.mcpToolInvocation,
+          restartCapability,
+          eventQueries,
+          captureExecutingLlmSnapshots,
+        },
+      }),
+    });
+  }
   return {
+    analystAvailability,
+    externalAnalystOperations,
     runtimeApi,
     analystSessionId,
     cardStore,
@@ -449,6 +490,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     getOversightStatus: () => projectOversight.status(),
     get analystRuntime() {
       analystRuntimeCache ??= new AnalystRuntime({
+        internalEnabled: analystAvailability.internal_enabled,
         createSession: createAnalystSession,
         getAvailableToolNames: getAnalystToolNames,
         terminateRoot: terminateAnalystRoot,

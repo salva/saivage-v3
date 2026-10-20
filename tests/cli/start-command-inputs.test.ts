@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import type { StartInputs } from '../../src/boot/index.js';
 import type { App } from '../../src/boot/app.js';
 
-const startApp = jest.fn<(inputs: StartInputs) => Promise<Pick<App, 'boundListener'>>>(async () => ({ boundListener: { host: '127.0.0.1', port: 49152 } }));
+type StartedApp = Pick<App, 'boundListener'> & { server: Pick<App['server'], 'analystMcpEndpoint'> };
+const startApp = jest.fn<(inputs: StartInputs) => Promise<StartedApp>>(async () => ({ boundListener: { host: '127.0.0.1', port: 49152 }, server: { analystMcpEndpoint: null } }));
 const withDirectMutationComposition = jest.fn<typeof import('../../src/boot/index.js').withDirectMutationComposition>(() => {
   throw new Error('Unexpected direct mutation composition during start');
 });
@@ -27,7 +28,9 @@ describe('start command typed inputs', () => {
       'node', 'saivage', 'start',
       '--host=127.0.0.1', '--port', '0', '--config=selected.yaml',
        '--project-root', '/work/project', '--create-runtime',
-       '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001',
+        '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001',
+        '--analyst-mode', 'both', '--analyst-mcp-port', '8090',
+        '--analyst-mcp-principal', 'local-client', '--analyst-mcp-tools', 'read,get_status',
     ]);
 
     expect(startApp).toHaveBeenCalledTimes(1);
@@ -38,6 +41,7 @@ describe('start command typed inputs', () => {
       projectRoot: '/work/project',
       createRuntime: true,
       failedProviderDiagnostics: '00000000-0000-4000-8000-000000000001',
+      analystMode: 'both', analystMcpPort: '8090', analystMcpPrincipal: 'local-client', analystMcpTools: 'read,get_status',
     });
     expect(startApp.mock.calls[0]![0]).not.toHaveProperty('argv');
     expect(log).toHaveBeenCalledWith('Saivage server listening on http://127.0.0.1:49152');
@@ -48,7 +52,7 @@ describe('start command typed inputs', () => {
     ['0.0.0.0', 'http://0.0.0.0:49152 (wildcard bind; use a reachable host address to connect)'],
     ['::', 'http://[::]:49152 (wildcard bind; use a reachable host address to connect)'],
   ])('formats the observed bind %s', async (host, announcement) => {
-    startApp.mockResolvedValueOnce({ boundListener: { host, port: 49152 } });
+    startApp.mockResolvedValueOnce({ boundListener: { host, port: 49152 }, server: { analystMcpEndpoint: null } });
     const log = jest.spyOn(console, 'log').mockImplementation(() => {});
     await run(['node', 'saivage', 'start']);
     expect(log).toHaveBeenCalledWith(`Saivage server listening on ${announcement}`);
@@ -64,6 +68,7 @@ describe('start command typed inputs', () => {
       projectRoot: undefined,
       createRuntime: false,
       failedProviderDiagnostics: undefined,
+      analystMode: undefined, analystMcpPort: undefined, analystMcpPrincipal: undefined, analystMcpTools: undefined,
     });
     expect(withDirectMutationComposition).not.toHaveBeenCalled();
   });

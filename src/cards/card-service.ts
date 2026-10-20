@@ -159,7 +159,7 @@ function versionChange(
   fields: string[],
   summary: string,
   reason: string,
-  agentName?: AgentName,
+  agentName?: import('../schemas/index.js').OperationActor,
 ): CardVersionChange {
   const provenance =
     kind === 'update'
@@ -1198,7 +1198,7 @@ export class CardService {
   deleteSubtrees(
     requestedIds: readonly string[],
     allowed: (card: CardRecord) => boolean,
-    agentName: AgentName,
+    agentName: import('../schemas/index.js').OperationActor,
   ): { deleted: string[]; requested: string[] } {
     if (requestedIds.length === 0) throw new Error('Deletion requires at least one card id.');
     const state = this.buildFullIndex();

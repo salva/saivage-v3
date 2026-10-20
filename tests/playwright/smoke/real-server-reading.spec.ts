@@ -14,6 +14,8 @@ import { CardService } from '../../../src/cards/card-service.js';
 import { appendConversationBatch, readConversationCatalog, readConversation } from '../../../src/persistence/conversation-file.js';
 import { publishConversationImage } from '../../../src/persistence/session-api.js';
 import { projectNativeMcpResult } from '../../../src/tools/mcp-native-result.js';
+import { settleToolExecutionForLlm } from '../../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../../helpers/llm-test-helpers.js';
 import { settleToolActionOutcome } from '../../../src/tools/tool-result-settlement.js';
 import { agentMessageSchema, cardParentId, canonicalJson, sha256Hex, STRUCTURAL_ROW_POLICY, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { ToolResultSchema } from '../../../src/contracts/tool-result.js';
@@ -113,11 +115,11 @@ async function seed(session: ConversationSessionId) {
   const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 40, g: 80, b: 120, alpha: 1 } } }).png().toBuffer();
   const image = publishConversationImage(root, session, png, { width: 1, height: 1 });
   // Actual native MCP producer and ordinary settlement; this is not an official browser E2E.
-  const nativeResult = settleToolActionOutcome(await projectNativeMcpResult({ content: [
+  const nativeResult = settleToolActionOutcome(settleToolExecutionForLlm(await projectNativeMcpResult({ content: [
     { type: 'text', text: 'ordered-before-Z' }, { type: 'image', mimeType: 'image/png', data: png.toString('base64') },
     { type: 'text', text: '{"synthetic":"plain-text-Z"}' }, { type: 'image', mimeType: 'image/png', data: png.toString('base64') },
     { type: 'text', text: 'ordered-after-Z' },
-  ] }, root, session, new AbortController().signal)).providerResult;
+  ] }, root, new AbortController().signal), testLlmToolInvocationContext({sessionId:session})).providerOutcome).providerResult;
   if (session === executor) imageDescriptor = image;
   const command = pair('command', 'run_command', { command: retainedCommand, cwd: '.', wait: true }, {
     success: true, data: { process_id: 'proc-012345abcdef', status: 'exited', exit_code: 0,
@@ -609,7 +611,8 @@ async function capture(page: Page, reader: Locator, name: string, expectOverflow
   expect(geometry.pageExtent).toBeLessThanOrEqual(geometry.pageWidth + 1);
 }
 
-async function compactCommand(reader: Locator, evidenceName: string, context: 'row-and-following' | 'mobile-child-row-only' = 'row-and-following') {
+async function compactCommand(reader: Locator, evidenceName: string, context: 'row-and-following' | 'mobile-child-row-only' = 'row-and-following', paneSwitchExpected = true) {
+  await expect(reader.page().locator('.mobile-pane-switch')).toHaveCount(paneSwitchExpected ? 1 : 0);
   const row = reader.locator(`[data-tool-entry-id="${inputId}:tool-call:command"]`);
   await expect(row.locator('.tool-chip-toggle')).toHaveAttribute('aria-expanded', 'false');
   await expect(row.locator('.tool-chip-target')).toContainText('npm test -- long_unbroken_argument_');
@@ -622,8 +625,8 @@ async function compactCommand(reader: Locator, evidenceName: string, context: 'r
     const owner = el.closest<HTMLElement>('.conversation-reading-surface, .chat-scroll-area')!;
     const following = owner.querySelector('[data-entry-id="between"]')!;
     const bounds = owner.getBoundingClientRect(), top = bounds.top + owner.clientTop;
-    const footer = document.querySelector('.mobile-pane-switch')!.getBoundingClientRect();
-    const bottom = Math.min(top + owner.clientHeight, innerHeight, footer.height > 0 ? footer.top : innerHeight);
+    const footer = document.querySelector('.mobile-pane-switch')?.getBoundingClientRect();
+    const bottom = Math.min(top + owner.clientHeight, innerHeight, footer && footer.height > 0 ? footer.top : innerHeight);
     const first = el.getBoundingClientRect(), last = following.getBoundingClientRect();
     const groupHeight = context === 'mobile-child-row-only' ? first.height : last.bottom - first.top;
     owner.scrollTop += first.top - top - Math.max(0, (bottom - top - groupHeight) / 2);
@@ -636,9 +639,9 @@ async function compactCommand(reader: Locator, evidenceName: string, context: 'r
     const parts = ['action', 'target', 'status'].map(name => el.querySelector(`.tool-chip-${name}`)!.getBoundingClientRect());
     const bounds = owner.getBoundingClientRect(), whole = el.getBoundingClientRect();
     const following = owner.querySelector(`[data-entry-id="between"]`)!.getBoundingClientRect();
-    const footer = document.querySelector('.mobile-pane-switch')!.getBoundingClientRect();
+    const footer = document.querySelector('.mobile-pane-switch')?.getBoundingClientRect();
     const ownerTop = bounds.top + owner.clientTop;
-    const ownerBottom = Math.min(ownerTop + owner.clientHeight, innerHeight, footer.height > 0 ? footer.top : innerHeight);
+    const ownerBottom = Math.min(ownerTop + owner.clientHeight, innerHeight, footer && footer.height > 0 ? footer.top : innerHeight);
     return { width: r.width, height: r.height, line, buttonHeight: button.getBoundingClientRect().height, paneWidth: owner.clientWidth,
       ownerTop, ownerBottom, ownerHeight: ownerBottom - ownerTop, groupHeight: following.bottom - whole.top,
       rowTop: whole.top, rowBottom: whole.bottom, followingTop: following.top, followingBottom: following.bottom,
@@ -704,7 +707,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
       await page.goto(`${origin}/agents/${analyst}`);
       await expect(page.locator('.global-session-reader')).toBeVisible();
       await expect(reader).toContainText('final-transcript-Z');
-      await compactCommand(reader, '390-global-analyst-inspector-compact-command');
+      await compactCommand(reader, '390-global-analyst-inspector-compact-command', 'row-and-following', false);
       await capture(page, reader, '390-global-analyst-inspector-compact-command-default');
       await page.goto(`${origin}/agents/${executor}`);
       await expect(reader).toContainText('final-transcript-Z');

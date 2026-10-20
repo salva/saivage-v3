@@ -16,6 +16,15 @@ function bytes(value = 2): Buffer { return serializeGrowingEnvelope([{ value }])
 function read(path: string) { return consumeGrowingRows(path, readCanonicalBytes(path), row, (rows) => rows); }
 
 describe('exact growing-file boundaries', () => {
+  it('rejects source and mixed rows envelopes without rewriting a healthy prefix', () => {
+    const path = target();
+    const source = Buffer.from(JSON.stringify({version:1,type:'rows',rows:[{value:7}]})+'\n');
+    for (const content of [source, Buffer.concat([bytes(1),source])]) {
+      writeFileSync(path,content);
+      expect(()=>read(path)).toThrow(/malformed/);
+      expect(readFileSync(path)).toEqual(content);
+    }
+  });
   it('pure inspection reports a validated retained prefix without truncating even malformed UTF-8 suffix bytes', () => {
     const path = target(); const prefix = bytes(1); const content = Buffer.concat([prefix, Buffer.from([0xff, 0xe2])]);
     writeFileSync(path, content); let validations = 0;
@@ -36,7 +45,7 @@ describe('exact growing-file boundaries', () => {
     let parses = 0;
     const schema = row.transform(({ value }) => { parses += 1; return { value: value * 2 }; });
     const admitted = schema.parse({ value: 3 });
-    expect(JSON.parse(serializeGrowingEnvelope([admitted]).toString())).toEqual({ version: 1, type: 'rows', rows: [{ value: 6 }] });
+    expect(JSON.parse(serializeGrowingEnvelope([admitted]).toString())).toEqual({ version: 2, type: 'rows', rows: [{ value: 6 }] });
     expect(parses).toBe(1);
     expect(() => serializeGrowingEnvelope([])).toThrow(/at least one/);
   });

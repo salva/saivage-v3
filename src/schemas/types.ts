@@ -25,10 +25,11 @@ export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
 export type Urgency = (typeof urgencyValues)[number];
 export type CreatedBy =
   | import('./agent-name.js').AgentName
+  | `external:${string}`
   | 'runtime:bootstrap'
   | 'runtime:repair';
-type NoteAuthor = 'user' | 'runtime' | import('./agent-name.js').AgentName;
-type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
+type NoteAuthor = 'user' | 'runtime' | import('./operation-author.js').OperationActor;
+type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui' | 'mcp';
 
 import type { CardLifecycleState } from './lifecycle.js';
 

@@ -43,6 +43,9 @@ export const ChatSendRequestSchema = z
 export const ChatIdentityResponseSchema = z
   .object({
     session_id: ConversationSessionIdSchema,
+    internal_enabled: z.boolean(),
+    external_enabled: z.boolean(),
+    mode: z.enum(['internal', 'external', 'both']),
   })
   .strict();
 const RestartChatAcknowledgementSchema = z.discriminatedUnion('status', [
@@ -82,6 +85,18 @@ export const ANALYST_TURN_BUSY_ERROR = Object.freeze(
 );
 
 export type ChatWorkspaceContext = z.infer<typeof ChatWorkspaceContextSchema>;
+const AnalystDisabledErrorSchema = z
+  .object({
+    error: z.literal('analyst_disabled'),
+    message: z.literal('Internal Analyst interaction is disabled.'),
+  })
+  .strict();
+export const ANALYST_DISABLED_ERROR = Object.freeze(
+  AnalystDisabledErrorSchema.parse({
+    error: 'analyst_disabled',
+    message: 'Internal Analyst interaction is disabled.',
+  }),
+);
 export type RestartChatAcknowledgement = z.infer<typeof RestartChatAcknowledgementSchema>;
 export const chatOperatorApiContracts = {
   'chats.get': {
@@ -106,7 +121,7 @@ export const chatOperatorApiContracts = {
       200: ChatSendResponseSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      409: AnalystTurnBusyErrorSchema,
+      409: z.union([AnalystTurnBusyErrorSchema, AnalystDisabledErrorSchema]),
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,

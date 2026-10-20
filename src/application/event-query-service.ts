@@ -7,6 +7,7 @@ import {
 } from '../schemas/index.js';
 import { projectLoggedEvent } from '../observability/index.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';
+import { projectExternalToolCall } from './external-tool-call.js';
 
 export { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';
 type EventSelection = 'oldest_page' | 'newest_tail';
@@ -20,6 +21,11 @@ interface EventQuery {
 
 export class EventQueryService {
   constructor(readonly projectRoot: string) {}
+  queryExternalToolCalls() {
+    return readAppLogEntries(this.projectRoot, 'external_tool_call').map(({ data }) =>
+      projectExternalToolCall(data),
+    );
+  }
   queryEvents(query: EventQuery = {}): { events: LoggedEvent[]; total: number } {
     const selection = query.selection ?? 'oldest_page';
     const offset = query.offset ?? 0;

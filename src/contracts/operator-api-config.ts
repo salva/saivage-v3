@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { externalToolCallSchema } from './app-log.js';
 import {
   cardIdSchema,
   controlActionAuditEntrySchema,
@@ -102,7 +103,25 @@ const ControlActionsListResponseSchema = z
   })
   .strict();
 
+const ExternalToolCallsResponseSchema = z
+  .object({
+    external_tool_calls: z.array(externalToolCallSchema),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
 export const configOperatorApiContracts = {
+  'externalToolCalls.list': {
+    operationId: 'externalToolCalls.list',
+    method: 'GET',
+    path: '/api/external-tool-calls',
+    success: ExternalToolCallsResponseSchema,
+    response: {
+      200: ExternalToolCallsResponseSchema,
+      401: UnauthorizedErrorSchema,
+      500: UnexpectedInternalServerErrorSchema,
+    },
+    ...operatorSessionContract,
+  },
   'config.get': {
     operationId: 'config.get',
     method: 'GET',

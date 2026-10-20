@@ -12,6 +12,8 @@ jest.unstable_mockModule('sharp', () => ({ default: decoder }));
 const actualPublication = await import('../../src/persistence/replace-file.js');
 jest.unstable_mockModule('../../src/persistence/replace-file.js', () => ({ ...actualPublication, publishFreshFile: publish }));
 const { workspaceToolBinders } = await import('../../src/tools/workspace-provider.js');
+const { settleToolExecutionForLlm } = await import('../../src/tools/invocation.js');
+const { testLlmToolInvocationContext } = await import('../helpers/llm-test-helpers.js');
 const roots: string[] = [];
 afterEach(() => { for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true }); publish.mockReset(); decoder.mockReset().mockImplementation(sharp); });
 
@@ -21,7 +23,8 @@ it.each([new Error('publication denied'), new PublicationOutcomeUnknownError(new
   writeFileSync(join(projectRoot, 'screen.png'), source);
   publish.mockImplementation(() => { throw failure; });
   const tool = workspaceToolBinders.find((binder) => binder.name === 'view_image')!.bind({ projectRoot, cardId: 'project', agentName: 'executor' });
-  await expect(tool.executor({ path: 'screen.png' }, new AbortController().signal, { sessionId: 'agent:executor:project' } as unknown as LlmToolInvocationContext)).rejects.toBe(failure);
+  const produced = await tool.executor({ path: 'screen.png' }, new AbortController().signal);
+  expect(() => settleToolExecutionForLlm(produced, testLlmToolInvocationContext({ sessionId: 'agent:executor:project' }))).toThrow(failure);
   expect(publish).toHaveBeenCalledTimes(1);
   expect(readdirSync(join(projectRoot, '.saivage/cards/project/conversations/executor/images'))).toEqual([]);
 });

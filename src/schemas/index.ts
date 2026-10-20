@@ -1,5 +1,11 @@
 export { canonicalJson } from './canonical-json.js';
 export { recordAuthorSchema, type RecordAuthor } from './record-author.js';
+export {
+  externalPrincipalSchema,
+  operationActor,
+  type OperationAuthor,
+  type OperationActor,
+} from './operation-author.js';
 export { processIdSchema } from './process-id.js';
 export {
   recordSelectionObservationSchema,

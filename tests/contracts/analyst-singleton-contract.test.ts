@@ -13,6 +13,7 @@ import {
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
+const availability = { mode: 'internal' as const, internal_enabled: true, external_enabled: false };
 
 describe('singleton Analyst contracts', () => {
   it('does not declare handler-owned not-found outcomes for parameterized chat operations', () => {
@@ -21,7 +22,7 @@ describe('singleton Analyst contracts', () => {
   });
 
   it('keeps chat identity authoritative and connected status transport-only', () => {
-    expect(ChatIdentityResponseSchema.parse({ session_id: 'agent:analyst:global' }).session_id).toBe(
+    expect(ChatIdentityResponseSchema.parse({ session_id: 'agent:analyst:global', ...availability }).session_id).toBe(
       'agent:analyst:global',
     );
     expect(ChatSendResponseSchema.parse({ toolInvocations: [], restart: null })).toEqual({ toolInvocations: [], restart: null });
@@ -29,13 +30,15 @@ describe('singleton Analyst contracts', () => {
   });
 
   it.each(invalid)('rejects noncanonical Analyst identity %s at every identity-bearing success/event boundary', (sessionId) => {
-    expect(ChatIdentityResponseSchema.safeParse({ session_id: sessionId }).success).toBe(false);
+    expect(ChatIdentityResponseSchema.safeParse({ session_id: sessionId, ...availability }).success).toBe(false);
     expect(ConnectedStatusContentSchema.safeParse({ event: 'connected', sessionId, timestamp, clientCount: 1 }).success).toBe(false);
   });
 
-  it('accepts only the identity response and rejects removed transcript/activity fields', () => {
-    const identity = { session_id: 'agent:analyst:global' as const };
+  it('accepts only identity/availability and rejects missing capabilities or removed transcript/activity fields', () => {
+    const identity = { session_id: 'agent:analyst:global' as const, ...availability };
     expect(ChatIdentityResponseSchema.parse(identity)).toEqual(identity);
+    for (const field of ['mode', 'internal_enabled', 'external_enabled'])
+      expect(ChatIdentityResponseSchema.safeParse({ ...identity, [field]: undefined }).success).toBe(false);
     for (const removed of [
       { session: null },
       { entries: [] },

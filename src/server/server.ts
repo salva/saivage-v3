@@ -22,8 +22,10 @@ interface CreateServerOptions {
   fatalPort: ApplicationFatalPort;
   restartPort?: RestartPort;
   onOversightOwnerFailure(error: unknown): void;
+  onExternalAnalystOwnerFailure(error: unknown): void;
 }
 export interface ServerInstance {
+  analystMcpEndpoint: string | null;
   fastify: FastifyInstance;
   config: ServerConfig;
   saivageConfig: SaivageConfig;
@@ -65,6 +67,7 @@ async function createServer(options: CreateServerOptions): Promise<ServerInstanc
     fatalPort: options.fatalPort,
     restartPort: options.restartPort,
     onOversightOwnerFailure: options.onOversightOwnerFailure,
+    onExternalAnalystOwnerFailure: options.onExternalAnalystOwnerFailure,
   });
 
   registerServerRoutes({
@@ -83,6 +86,7 @@ async function createServer(options: CreateServerOptions): Promise<ServerInstanc
   });
 
   return {
+    analystMcpEndpoint: services.analystMcpEndpoint,
     fastify: services.fastify,
     config: serverConfig,
     saivageConfig: services.config,

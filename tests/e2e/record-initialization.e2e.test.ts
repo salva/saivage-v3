@@ -93,7 +93,7 @@ describe('configured node-entry record initialization through production composi
       const child = cards.create({ type: 'code', parent: 'project', title: 'Pre-entry author', bootstrap_content: 'Supplied child requirements.', created_by: 'analyst', priority: 0, urgency: 'normal', depends_on: [] });
       expect(cards.readRecordCurrent(child.id, 'status.md')).toMatchObject({ value: { projection: null } });
       cards.acceptRecord(child.id, 'status.md', 'Analyst assessment before entry.', { kind: 'agent', agent: 'analyst' });
-      expect(cards.readRecordCurrent(child.id, 'brief.md')).toMatchObject({ value: { projection: { accepted: { content: 'Supplied child requirements.', author: { kind: 'runtime', purpose: 'bootstrap' } } } } });
+      expect(cards.readRecordCurrent(child.id, 'brief.md')).toMatchObject({ value: { projection: { accepted: { content: 'Supplied child requirements.', author: { kind: 'agent', agent: 'analyst' } } } } });
       expect(cards.readRecordCurrent('project', 'assessment.md')).toMatchObject({ value: { projection: null } });
       expect((await postStartProject(appOrigin(app), TOKEN)).status).toBe(200);
       await waitFor(() => calls === 2 || failure !== undefined, 'corrective operation after untouched seed');

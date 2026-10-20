@@ -4,6 +4,7 @@ import { createPinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { onMounted, onUnmounted, ref } from 'vue';
 import AppShell from '../components/layout/AppShell.vue';
+import { useAnalystChat } from '../stores/analystChat';
 
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 
@@ -50,7 +51,7 @@ const AgentDetail = {
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
-    { path: '/', name: 'home', component: { template: '<div>home</div>' } },
+    { path: '/', name: 'home', component: { template: '<div>home</div>', setup() { onMounted(() => live.events.push('home-mounted')); } } },
     { path: '/cards', name: 'cards', component: { template: '<div>cards</div>' } },
     { path: '/cards/:id', name: 'card-detail', component: { template: '<div>card</div>' } },
     { path: '/agents/:id', name: 'agent-detail', component: AgentDetail },
@@ -65,7 +66,7 @@ describe('AppShell persistent analyst panel', () => {
     localStorage.clear();
     vi.clearAllMocks();
     live.events.length = 0;
-    api.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global' });
+    api.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global', mode: 'internal', internal_enabled: true, external_enabled: false });
     api.getAgentConversation.mockResolvedValue({
       session_id: 'agent:analyst:global',
       segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
@@ -93,6 +94,7 @@ describe('AppShell persistent analyst panel', () => {
     expect(localStorage.getItem('analyst-chat:drawer-state')).toBeNull();
     expect(api.getChatEntries).toHaveBeenCalledOnce();
     expect(api.getAgentConversation).not.toHaveBeenCalled();
+    expect(live.events.filter(event => event === 'home-mounted')).toHaveLength(1);
 
     wrapper.unmount();
   });
@@ -173,8 +175,8 @@ describe('AppShell persistent analyst panel', () => {
     wrapper.unmount();
   });
 
-  it('keeps the panel and withholds a valid Agent inspector while identity is pending', async () => {
-    const identity = deferred<{ session_id: 'agent:analyst:global' }>();
+  it('withholds both composer and valid Agent inspector while availability is pending', async () => {
+    const identity = deferred<{ session_id: 'agent:analyst:global'; mode: 'internal'; internal_enabled: boolean; external_enabled: boolean }>();
     api.getChatEntries.mockReturnValueOnce(identity.promise);
     await router.push('/agents/agent%3Aanalyst%3Aglobal');
     const wrapper = mount(AppShell, {
@@ -183,18 +185,18 @@ describe('AppShell persistent analyst panel', () => {
     });
     await flushPromises();
 
-    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
     expect(wrapper.find('[data-testid="analyst-identity-pending"]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain('agent detail');
 
-    identity.resolve({ session_id: 'agent:analyst:global' });
+    identity.resolve({ session_id: 'agent:analyst:global', mode: 'internal', internal_enabled: true, external_enabled: false });
     await flushPromises();
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
     expect(wrapper.text()).toContain('agent detail');
     wrapper.unmount();
   });
 
-  it('keeps identity failure in the panel and withholds the valid Agent inspector', async () => {
+  it('shows identity failure without enabling a composer or valid Agent inspector', async () => {
     api.getChatEntries.mockRejectedValueOnce(new Error('identity unavailable'));
     await router.push('/agents/agent%3Aanalyst%3Aglobal');
     const wrapper = mount(AppShell, {
@@ -203,15 +205,15 @@ describe('AppShell persistent analyst panel', () => {
     });
     await flushPromises();
 
-    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
     expect(wrapper.find('[data-testid="analyst-identity-failed"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain('identity unavailable');
+    expect(wrapper.text()).toContain('Analyst identity is unavailable');
     expect(wrapper.text()).not.toContain('agent detail');
     wrapper.unmount();
   });
 
   it('makes a stale matching teardown continuation inert after a rapid route change', async () => {
-    const identity = deferred<{ session_id: 'agent:analyst:global' }>();
+    const identity = deferred<{ session_id: 'agent:analyst:global'; mode: 'internal'; internal_enabled: boolean; external_enabled: boolean }>();
     api.getChatEntries.mockReturnValueOnce(identity.promise);
     await router.push('/agents/agent%3Aanalyst%3Aglobal');
     const wrapper = mount(AppShell, {
@@ -220,7 +222,7 @@ describe('AppShell persistent analyst panel', () => {
     });
     await flushPromises();
 
-    identity.resolve({ session_id: 'agent:analyst:global' });
+    identity.resolve({ session_id: 'agent:analyst:global', mode: 'internal', internal_enabled: true, external_enabled: false });
     await Promise.resolve();
     await router.push('/agents/agent%3Aplanner%3Aproject');
     await flushPromises();
@@ -236,6 +238,48 @@ describe('AppShell persistent analyst panel', () => {
     await router.push('/agents/agent%3Aanalyst%3Aother');
     await flushPromises();
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('reclaims the disabled workspace and removes all interaction affordances while retaining drafts and exact inspection', async () => {
+    api.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global', mode: 'external', internal_enabled: false, external_enabled: true });
+    const pinia = createPinia();
+    const chat = useAnalystChat(pinia);
+    chat.setDraft('Retained unsent draft');
+    const focus = vi.fn(); window.addEventListener('saivage:focus-chat', focus);
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [pinia, router] } });
+    await flushPromises();
+    expect(wrapper.classes()).toContain('analyst-pane-suppressed');
+    expect(wrapper.find('#analyst-pane').exists()).toBe(false);
+    expect(wrapper.find('a[href="#analyst-pane"]').exists()).toBe(false);
+    expect(wrapper.find('.mobile-pane-switch').exists()).toBe(false);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '/' }));
+    expect(focus).not.toHaveBeenCalled();
+    await router.push('/agents/agent%3Aanalyst%3Aglobal'); await flushPromises();
+    expect(wrapper.text()).toContain('Retained history is read-only');
+    expect(wrapper.text()).toContain('agent detail');
+    expect(wrapper.find('textarea').exists()).toBe(false);
+    expect(chat.draft).toBe('Retained unsent draft');
+    window.removeEventListener('saivage:focus-chat', focus);
+    wrapper.unmount();
+  });
+
+  it('keeps both-mode drafts, focus shortcut and mobile activity on the ordinary internal surface', async () => {
+    api.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global', mode: 'both', internal_enabled: true, external_enabled: true });
+    const pinia = createPinia(); const chat = useAnalystChat(pinia);
+    chat.setDraft('Both-mode draft');
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [pinia, router] } });
+    await flushPromises();
+    expect(wrapper.find('a[href="#analyst-pane"]').exists()).toBe(true);
+    expect(wrapper.get('textarea').element.value).toBe('Both-mode draft');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '/' })); await flushPromises();
+    expect(document.activeElement).toBe(wrapper.get('textarea').element);
+    expect(wrapper.classes()).toContain('pane-analyst');
+    chat.sending = true; await flushPromises();
+    expect(wrapper.find('.activity-dot').exists()).toBe(true);
+    await router.push('/files'); await flushPromises();
+    expect(chat.draft).toBe('Both-mode draft');
+    expect(wrapper.get('.chat-send-button').attributes('disabled')).toBeDefined();
     wrapper.unmount();
   });
 });

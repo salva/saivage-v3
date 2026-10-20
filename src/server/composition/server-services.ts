@@ -22,8 +22,11 @@ import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
 import { bindOutboundHttpLogger } from './outbound-http-logger.js';
+import { createAnalystMcpServer } from '../analyst-mcp-server.js';
+import { readProjectIdentity, projectIdentityDigest } from '../../persistence/index.js';
 
 interface ServerServices {
+  analystMcpEndpoint: string | null;
   projectRoot: string;
   config: SaivageConfig;
   fastify: FastifyInstance;
@@ -45,6 +48,7 @@ export async function createServerServices(input: {
   fatalPort: ApplicationFatalPort;
   restartPort?: RestartPort;
   onOversightOwnerFailure(error: unknown): void;
+  onExternalAnalystOwnerFailure(error: unknown): void;
 }): Promise<ServerServices> {
   const { environment, terminal } = input;
   const projectRoot = environment.projectRoot;
@@ -66,6 +70,7 @@ export async function createServerServices(input: {
     new ModelRouter(providerRegistry),
     providerRegistry,
     config.compaction.context_utilization_fraction,
+    { internalAnalystEnabled: environment.analyst.mode !== 'external' },
   );
   const analystSessionId = globalAgentSessionId(workflows.analyst.name);
 
@@ -98,7 +103,15 @@ export async function createServerServices(input: {
   );
   const processRunner = new ProcessRunner(projectRoot, processRegistry, input.fatalPort);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
+  const externalProjectIdentity =
+    environment.analyst.mode === 'internal' ? null : readProjectIdentity(projectRoot);
+  if (environment.analyst.mode !== 'internal' && externalProjectIdentity === null)
+    throw new Error('External Analyst requires an established project identity.');
   const runtimeApplication = createRuntimeApplication({
+    analystStartup: environment.analyst,
+    externalProjectIdentityDigest:
+      externalProjectIdentity === null ? null : projectIdentityDigest(externalProjectIdentity),
+    onExternalAnalystOwnerFailure: input.onExternalAnalystOwnerFailure,
     outboundHttp,
     failedProviderDiagnostics: environment.failedProviderDiagnostics,
     projectRoot,
@@ -133,6 +146,43 @@ export async function createServerServices(input: {
   terminal.registerCleanupLeaf('oversight', () =>
     runtimeApplication.cleanupOversightForApplicationStop(),
   );
+  let analystMcp: ReturnType<typeof createAnalystMcpServer> | null = null;
+  if (environment.analyst.mode !== 'internal') {
+    const operations = runtimeApplication.externalAnalystOperations;
+    if (operations === null || externalProjectIdentity === null)
+      throw new Error('External Analyst composition is incomplete.');
+    analystMcp = createAnalystMcpServer({
+      startup: environment.analyst,
+      operations,
+      fatalPort: input.fatalPort,
+      onOwnerFailure: input.onExternalAnalystOwnerFailure,
+      binding: {
+        project_identity_digest: projectIdentityDigest(externalProjectIdentity),
+        project_name: externalProjectIdentity.name,
+        analyst_policy: workflows.analyst.name,
+        principal: environment.analyst.principal,
+      },
+      context: () => ({
+        mode: environment.analyst.mode,
+        principal: environment.analyst.mode === 'internal' ? null : environment.analyst.principal,
+        project_identity_digest: projectIdentityDigest(externalProjectIdentity),
+        card_types: workflows.cardTypeVocabulary,
+        runtime: runtimeApplication.runtimeApi.getStatus(),
+      }),
+    });
+    const listener = analystMcp;
+    terminal.registerAdmissionCloser('analyst-mcp', () => {
+      operations.closeAdmission();
+      listener.closeAdmission();
+    });
+    terminal.registerCleanupLeaf('analyst-mcp', async () => {
+      const results = await Promise.allSettled([
+        operations.cleanupForApplicationStop(),
+        listener.cleanupForApplicationStop(),
+      ]);
+      for (const result of results) if (result.status === 'rejected') throw result.reason;
+    });
+  }
 
   const mcpManager = new McpManager({
     outboundHttp,
@@ -168,8 +218,10 @@ export async function createServerServices(input: {
     throw new Error('MCP startup did not converge to persisted configuration.');
   fastify.log.info('MCP manager started');
   mcpToolInvocationInstallation.installer.install(mcpManager);
+  await analystMcp?.listen();
 
   return {
+    analystMcpEndpoint: analystMcp?.endpoint ?? null,
     projectRoot,
     config,
     fastify,

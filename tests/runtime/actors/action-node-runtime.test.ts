@@ -94,7 +94,7 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
   const operation = definition ?? attachment?.definition;
   const compiled = compileProjectWorkflows(config, { operationPlugins: operation ? [{ namespace: 'acme', operations: { inspect: operation } }] : [] });
   const registry = new ProviderRegistry(config);
-  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
   if (!retainedRoot) initProjectTree(root);
   const cards = new CardService(root, compiled);
   const processes = createTestProcessRunner(root);

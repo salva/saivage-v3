@@ -804,7 +804,7 @@ describe('loss-tolerant maintenance through production invocation and persistenc
       TEST_WORKFLOWS,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const processes = new ManagedProcessGroupRegistry();
     const session = 'agent:analyst:global' as const;
@@ -825,7 +825,7 @@ describe('loss-tolerant maintenance through production invocation and persistenc
       sent.push(model);
       return refusal();
     });
-    const app = createRuntimeApplication({
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot,
       processIdentity: { pid: 42, startedAt: '2026-10-10T00:00:00.000Z' },
       config,

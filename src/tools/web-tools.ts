@@ -612,13 +612,19 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
     inputSchema: () => websearchSchema,
     executor: (ctx, args, signal, invocation) =>
       executeToolAction('none', () =>
-        websearchCore(args, signal, invocation?.waits.waitExternal, {
-          emitter: ctx.outboundHttp,
-          source: invocation
-            ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
-            : undefined,
-          purpose: 'websearch',
-        }),
+        websearchCore(
+          args,
+          signal,
+          invocation?.kind === 'llm' ? invocation.waits.waitExternal : undefined,
+          {
+            emitter: ctx.outboundHttp,
+            source:
+              invocation?.kind === 'llm'
+                ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+                : undefined,
+            purpose: 'websearch',
+          },
+        ),
       ),
   }),
   defineToolBinder({
@@ -631,14 +637,21 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
       executeToolAction('none', async () => {
         const observation: WebHttpObservation = {
           emitter: ctx.outboundHttp,
-          source: invocation
-            ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
-            : undefined,
+          source:
+            invocation?.kind === 'llm'
+              ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+              : undefined,
           purpose: 'webfetch',
         };
         const analyst = ctx.analystToolContext;
         if (!analyst || !args.save_as?.startsWith('record:///'))
-          return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal, observation);
+          return webfetchCore(
+            ctx,
+            args,
+            signal,
+            invocation?.kind === 'llm' ? invocation.waits.waitExternal : undefined,
+            observation,
+          );
         const preparedContext: ToolContext = {
           ...analyst,
           analystPreparation: {
@@ -646,7 +659,9 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
             web: {
               fetchText: (input) => {
                 const pending = fetchAnalystRecord(input, signal, observation);
-                return invocation ? invocation.waits.waitExternal(pending) : pending;
+                return invocation?.kind === 'llm'
+                  ? invocation.waits.waitExternal(pending)
+                  : pending;
               },
             },
           },

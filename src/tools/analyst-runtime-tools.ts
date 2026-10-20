@@ -130,7 +130,8 @@ export const analystRuntimeToolBinders: readonly ToolBinder<ToolContext, any>[] 
   }),
   defineToolBinder({
     name: 'restart_server',
-    description: 'Request confirmed supervised server shutdown.',
+    description:
+      'Request server restart confirmation, not a restart. The existing separately authenticated operator confirmation path must schedule it; this tool never schedules a restart directly.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: () => emptyInput,
     executor: (ctx, args) => executeToolAction('none', () => restart_server(ctx, args)),

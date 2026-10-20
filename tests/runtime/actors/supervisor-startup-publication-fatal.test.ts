@@ -7,7 +7,6 @@ import { spawnSync } from 'node:child_process';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { testApplicationFatalDelivery } from '../../helpers/test-application-fatal-port.js';
-import { ACTIVITY_ROW_POLICY, toolCallRowPolicy } from '../../helpers/row-policy-fixtures.js';
 import * as actualConversationFile from '../../../src/persistence/conversation-file.js';
 
 const operations: string[] = [];
@@ -29,6 +28,9 @@ jest.unstable_mockModule('../../../src/persistence/conversation-file.js', () => 
     return actualConversationFile.appendConversationBatch(...args);
   },
 }));
+// Row-policy helpers now load the real image-settlement seam, which imports session-api.
+// Register the conversation fault before loading that consumer barrel.
+const { ACTIVITY_ROW_POLICY, toolCallRowPolicy } = await import('../../helpers/row-policy-fixtures.js');
 const { createSupervisorRuntimeApi } = await import('../../../src/runtime/actors/supervisor-runtime-api.js');
 const { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } = await import('../../helpers/canonical-project.js');
 

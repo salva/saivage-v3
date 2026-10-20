@@ -152,6 +152,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
       if (surface === 'analyst' && viewport.width === 390) await page.getByRole('navigation', { name: 'Switch pane' }).getByRole('button', { name: 'Analyst', exact: true }).click();
       const owner = page.locator(surface === 'inspector' ? '.conversation-reading-surface' : '.analyst-chat-panel .chat-scroll-area');
       await expect(chip(owner, 'command-160')).toBeAttached();
+      // The exact Analyst inspector owns the transcript without interactive
+      // Analyst navigation; other surfaces retain the ordinary pane switch.
+      await expect(page.locator('.mobile-pane-switch')).toHaveCount(surface === 'inspector' && session === analyst ? 0 : 1);
       const directory = join(evidence, `${viewport.width}x${viewport.height}`);
       mkdirSync(directory, { recursive: true });
       if (surface === 'inspector' && viewport.width === 390) await expect(page.locator('.global-session-reader')).toBeVisible();
@@ -225,8 +228,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
               await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
               const ownerBounds = owner.getBoundingClientRect();
               const top = ownerBounds.top + owner.clientTop;
-              const footer = document.querySelector('.mobile-pane-switch')!.getBoundingClientRect();
-              const bottom = Math.min(top + owner.clientHeight, innerHeight, footer.height > 0 ? footer.top : innerHeight);
+              const footer = document.querySelector('.mobile-pane-switch')?.getBoundingClientRect();
+              const bottom = Math.min(top + owner.clientHeight, innerHeight, footer && footer.height > 0 ? footer.top : innerHeight);
               const fragments = [...range.getClientRects()].map(r => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }));
               return { edge, excerpt: range.toString(), fullCharacterCount: full.length,
                 owner: { classes: owner.className, top, bottom, width: owner.clientWidth, scrollTop: owner.scrollTop, scrollHeight: owner.scrollHeight },

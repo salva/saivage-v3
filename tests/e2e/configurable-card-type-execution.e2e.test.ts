@@ -66,7 +66,7 @@ describe('custom card type execution admission', () => {
       structural,
       new ModelRouter(providerRegistry),
       providerRegistry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const cards = new ProductionCardService(root, structural);
     const initiativeCard = cards.create({

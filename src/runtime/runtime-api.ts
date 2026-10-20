@@ -156,6 +156,7 @@ export {
   AnalystRuntime,
   AnalystSession,
   AnalystTurnBusyError,
+  AnalystDisabledError,
   AnalystWorkspaceContextBudgetError,
 } from './actors/analyst-session.js';
 export type { AnalystTurnInput } from './actors/analyst-session.js';

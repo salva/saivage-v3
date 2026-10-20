@@ -10,7 +10,7 @@
     <ol v-else-if="actions" class="actions-list" data-testid="actions-list">
       <li v-for="action in actions.control_actions" :key="action.id" class="actions-row" :data-result="action.outcome">
         <span class="actions-time" :title="action.created_at">{{ formatRecentTimestamp(action.created_at) }}</span>
-        <span class="actions-summary">{{ action.actor }} · {{ action.action }}{{ action.target_id ? ` · ${action.target_kind}: ${action.target_id}` : '' }} — {{ action.params_summary }}</span>
+        <span class="actions-summary">{{ action.actor }} · {{ action.surface }} · {{ action.action }}{{ action.target_id ? ` · ${action.target_kind}: ${action.target_id}` : '' }} — {{ action.params_summary }}</span>
         <span class="actions-result">{{ action.outcome }}: {{ action.outcome_summary }}</span>
       </li>
     </ol>

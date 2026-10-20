@@ -40,7 +40,7 @@ describe('startup workflow binding authority', () => {
     source.models.equivalents = [];
     source.models.failover = {};
     const registry = new ProviderRegistry(source);
-    const bound = bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, source.compaction.context_utilization_fraction);
+    const bound = bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, source.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
 
     expect(runtimeAgentBinding(bound, 'analyst').candidateChain.map((candidate) => candidate.model))
       .toEqual(['test-model', 'equivalent-model', 'failover-model']);
@@ -59,7 +59,7 @@ describe('startup workflow binding authority', () => {
       },
     } as ModelRouter;
     const registry = new ProviderRegistry(source);
-    const bound = bindRuntimeWorkflows(structural, router, registry, source.compaction.context_utilization_fraction);
+    const bound = bindRuntimeWorkflows(structural, router, registry, source.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const analyst = runtimeAgentBinding(bound, 'analyst');
     const oversight = runtimeAgentBinding(bound, 'oversight');
     const planner = runtimeAgentBinding(bound, 'planner');
@@ -87,7 +87,7 @@ describe('startup workflow binding authority', () => {
     const order:string[]=[];
     const router={resolveModels(modelIds:readonly string[]){order.push(modelIds[0]!);return [{provider:'test',account:null,model:modelIds[0]!}];}} as unknown as ModelRouter;
     const registry=new ProviderRegistry(source);
-    const bound=bindRuntimeWorkflows(structural,router,registry,source.compaction.context_utilization_fraction);
+    const bound=bindRuntimeWorkflows(structural,router,registry,source.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     expect([...bound.agentBindings.keys()]).toEqual(['analyst','oversight','planner','reviewer','executor']);
     expect(bound.agentBindings.has('unused')).toBe(false);
     expect(order).toEqual(['test-model','test-model','test-model','test-model','test-model']);
@@ -117,7 +117,7 @@ describe('startup workflow binding authority', () => {
       },
     } as ModelRouter;
 
-    expect(() => bindRuntimeWorkflows(structural, recording, providerRegistry, source.compaction.context_utilization_fraction)).toThrow("Agent 'empty' model route 'empty' has no capability-compatible configured provider candidate.");
+    expect(() => bindRuntimeWorkflows(structural, recording, providerRegistry, source.compaction.context_utilization_fraction, { internalAnalystEnabled: true })).toThrow("Agent 'empty' model route 'empty' has no capability-compatible configured provider candidate.");
     expect(requests).toEqual([{ requiresTools: true, requiresImages: false, requiresExclusiveToolChoice: true }]);
   });
 
@@ -133,7 +133,7 @@ describe('startup workflow binding authority', () => {
     source.providers.uncapped = { models: ['unknown-model'], capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native' } };
     const structural = compileProjectWorkflows(source);
     const registry = new ProviderRegistry(source);
-    const bound = bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, 0.8);
+    const bound = bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, 0.8, { internalAnalystEnabled: true });
     const binding = runtimeAgentBinding(bound, 'analyst');
     expect(binding.candidateChain.map(({ model }) => model)).toEqual(['small-model', 'large-model', 'output-ineligible-model', 'unknown-model']);
     expect(binding.routeUsableInputTokens).toBe(835_904);
@@ -150,6 +150,6 @@ describe('startup workflow binding authority', () => {
     };
     const structural = compileProjectWorkflows(source);
     const registry = new ProviderRegistry(source);
-    expect(() => bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, 0.8)).toThrow(/no configured candidate with positive usable input capacity/u);
+    expect(() => bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, 0.8, { internalAnalystEnabled: true })).toThrow(/no configured candidate with positive usable input capacity/u);
   });
 });

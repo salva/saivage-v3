@@ -6,6 +6,7 @@ export type ShutdownComponent =
   | 'runtime'
   | 'process-admission'
   | 'analyst'
+  | 'analyst-mcp'
   | 'oversight'
   | 'mcp'
   | 'sync-hub'

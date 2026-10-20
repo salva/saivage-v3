@@ -47,6 +47,7 @@ export interface ExecutingLlmSnapshot {
 }
 
 export interface LlmToolInvocationContext extends ToolInvocationIdentity {
+  readonly kind: 'llm';
   readonly waits: ExternalAndProcessWaits;
   readonly childInvocation: ChildInvocationReservation;
 }

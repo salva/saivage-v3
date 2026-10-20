@@ -72,7 +72,7 @@
       >
     </button>
 
-    <form class="chat-input-panel" @submit.prevent="submitMessage">
+    <form v-if="internalEnabled" class="chat-input-panel" @submit.prevent="submitMessage">
       <div v-if="restartAcknowledgement" class="chat-status-card chat-status-warning" role="status">
         Restart confirmation required. Send exactly <code>RESTART SERVER</code> to schedule server
         shutdown.
@@ -135,6 +135,7 @@ const workspaceRoute = useWorkspaceRouteStore();
 const liveSync = useSyncStore();
 const {
   activeSessionId,
+  internalEnabled,
   acceptedSegmentId,
   acceptedSegmentVersion,
   messages,
@@ -170,6 +171,7 @@ function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): vo
 }
 
 function focusComposer(): void {
+  if (!internalEnabled.value) return;
   composerRef.value?.focus();
 }
 

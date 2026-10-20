@@ -246,7 +246,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
             category: ctx.category,
             cardId: ctx.cardId ?? null,
             ownerId: ctx.ownerId,
-            agentSessionId: ctx.ownerId,
+            agentSessionId: invocation?.kind === 'external' ? undefined : ctx.ownerId,
             cwd: scopedCwd(ctx.projectRoot, args.cwd),
             ...(ctx.cardId
               ? { env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(ctx.projectRoot, ctx.cardId) } }
@@ -270,7 +270,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               waitFailed = true;
               throw error;
             });
-            const result = await (invocation
+            const result = await (invocation?.kind === 'llm'
               ? invocation.waits.waitProcess(record.id, pending)
               : pending);
             if (result.timedOut || result.record.status === 'running') {
@@ -357,7 +357,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
           });
           let result: ProcessWaitResult;
           try {
-            result = await (invocation
+            result = await (invocation?.kind === 'llm'
               ? invocation.waits.waitProcess(args.process_id, pending)
               : pending);
           } catch (error) {

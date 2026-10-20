@@ -64,7 +64,7 @@ describe('configured summary utilization through production composition', () => 
       compaction: { ...TEST_SAIVAGE_CONFIG.compaction, tail_fraction: 0, summarizer_candidate: { provider: 'openai-codex', account: null, model: 'test-model' } },
     });
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const processes = new ManagedProcessGroupRegistry();
     const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
     const sent: Array<{ body: string; header: string | null }> = [];
@@ -80,7 +80,7 @@ describe('configured summary utilization through production composition', () => 
       ];
       return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
     });
-    const app = createRuntimeApplication({ projectRoot, processIdentity: { pid: 42, startedAt: '2026-10-01T00:00:00.000Z' }, config, workflows, providerRegistry: registry, configAuthority: createTestConfigAuthority(projectRoot), cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner: new ProcessRunner(projectRoot, processes, testApplicationFatalPort), runtimeProcessRootScope: processes.createContainerScope(processes.rootScope, 'runtime'), analystProcessRootScope: processes.createContainerScope(processes.rootScope, 'analyst'), mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure(error) { throw error; }, analystSessionId: 'agent:analyst:global' });
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; }, projectRoot, processIdentity: { pid: 42, startedAt: '2026-10-01T00:00:00.000Z' }, config, workflows, providerRegistry: registry, configAuthority: createTestConfigAuthority(projectRoot), cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner: new ProcessRunner(projectRoot, processes, testApplicationFatalPort), runtimeProcessRootScope: processes.createContainerScope(processes.rootScope, 'runtime'), analystProcessRootScope: processes.createContainerScope(processes.rootScope, 'analyst'), mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure(error) { throw error; }, analystSessionId: 'agent:analyst:global' });
     try {
       await app.analystRuntime.submit({ userContent: 'source material '.repeat(14_000) });
       expect(sent.length).toBeGreaterThan(1);
@@ -124,7 +124,7 @@ describe('configured summary utilization through production composition', () => 
       compaction: { ...TEST_SAIVAGE_CONFIG.compaction, context_utilization_fraction: u, tail_fraction: 0 },
     });
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, u);
+    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, u, { internalAnalystEnabled: true });
     const processes = new ManagedProcessGroupRegistry();
     const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
     const sent: string[] = [];
@@ -137,7 +137,7 @@ describe('configured summary utilization through production composition', () => 
       }
       return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: summary ? 'compact history' : 'done' }, finish_reason: summary && sent.length === 1 ? 'length' : 'stop' }] }), { status: 200 });
     });
-    const app = createRuntimeApplication({ projectRoot, processIdentity: { pid: 42, startedAt: '2026-10-01T00:00:00.000Z' }, config, workflows, providerRegistry: registry, configAuthority: createTestConfigAuthority(projectRoot), cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner: new ProcessRunner(projectRoot, processes, testApplicationFatalPort), runtimeProcessRootScope: processes.createContainerScope(processes.rootScope, 'runtime'), analystProcessRootScope: processes.createContainerScope(processes.rootScope, 'analyst'), mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure(error) { throw error; }, analystSessionId: 'agent:analyst:global' });
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; }, projectRoot, processIdentity: { pid: 42, startedAt: '2026-10-01T00:00:00.000Z' }, config, workflows, providerRegistry: registry, configAuthority: createTestConfigAuthority(projectRoot), cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner: new ProcessRunner(projectRoot, processes, testApplicationFatalPort), runtimeProcessRootScope: processes.createContainerScope(processes.rootScope, 'runtime'), analystProcessRootScope: processes.createContainerScope(processes.rootScope, 'analyst'), mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure(error) { throw error; }, analystSessionId: 'agent:analyst:global' });
     const result = await app.analystRuntime.submit({ userContent: 'source material '.repeat(14_000) });
     expect(result).toMatchObject({ sessionId: 'agent:analyst:global', restart: null });
     expect(sent.length).toBeGreaterThan(2);

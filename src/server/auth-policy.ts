@@ -41,14 +41,14 @@ function hasQueryCredential(query: unknown): boolean {
   return Object.prototype.hasOwnProperty.call(query as Record<string, unknown>, 'token');
 }
 
-function safeTokenEquals(actual: string, expected: string): boolean {
+export function safeTokenEquals(actual: string, expected: string): boolean {
   const actualBuffer = Buffer.from(actual);
   const expectedBuffer = Buffer.from(expected);
   if (actualBuffer.length !== expectedBuffer.length) return false;
   return timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
-function parseBearer(
+export function parseBearer(
   authHeader: unknown,
 ): { ok: true; token: string } | { ok: false; malformed: boolean } {
   if (typeof authHeader !== 'string' || authHeader.trim() === '') {

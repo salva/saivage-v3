@@ -67,7 +67,7 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockReset();
     apiMocks.getAgentConversation.mockReset();
     apiMocks.sendChatMessage.mockReset();
-    apiMocks.getChatEntries.mockResolvedValue({ session_id: analystSessionId });
+    apiMocks.getChatEntries.mockResolvedValue({ session_id: analystSessionId, mode: 'internal', internal_enabled: true, external_enabled: false });
     apiMocks.getAgentConversation.mockResolvedValue(chat());
     apiMocks.sendChatMessage.mockResolvedValue({
       toolInvocations: [],
@@ -83,9 +83,25 @@ describe('analyst chat store', () => {
     await store.resolveIdentity();
 
     expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith(expect.any(AbortSignal));
-    expect(store.identityState).toEqual({ kind: 'resolved', sessionId: analystSessionId });
+    expect(store.identityState).toEqual({ kind: 'resolved', sessionId: analystSessionId, mode: 'internal', internalEnabled: true });
     expect(store.activeSessionId).toBe(analystSessionId);
     expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
+  });
+
+  it('never submits or consumes a draft with disabled, pending or failed availability', async () => {
+    const store = useAnalystChat(); store.setDraft('Preserve this draft');
+    apiMocks.getChatEntries.mockResolvedValueOnce({ session_id: analystSessionId, mode: 'external', internal_enabled: false, external_enabled: true });
+    await store.resolveIdentity();
+    expect(store.activeSessionId).toBe(analystSessionId);
+    await expect(store.sendMessage()).rejects.toThrow('unavailable');
+    const held = deferred<never>(); apiMocks.getChatEntries.mockReturnValueOnce(held.promise);
+    const pending = store.resolveIdentity();
+    await expect(store.sendMessage()).rejects.toThrow('unavailable');
+    held.reject(new Error('Availability failure')); await expect(pending).rejects.toThrow();
+    await expect(store.sendMessage()).rejects.toThrow('unavailable');
+    expect(apiMocks.sendChatMessage).not.toHaveBeenCalled();
+    expect(store.draft).toBe('Preserve this draft');
+    expect(store.messages).toEqual([]);
   });
 
   it('makes superseded identity success, failure, and abort inert', async () => {
@@ -539,6 +555,7 @@ describe('analyst chat store', () => {
   });
 
   it.each([
+    ['unknown', new OperatorApiError('chats.send', 409, { error: 'analyst_disabled', message: 'Internal Analyst interaction is disabled.' })],
     ['unauthorized', new OperatorApiError('chats.send', 401, { statusCode: 401, error: 'Unauthorized' })],
     ['unknown', new OperatorApiError('chats.send', 400, { error: 'ValidationError', message: 'Invalid request.', issues: [] })],
     ['server', new OperatorApiError('chats.send', 500, { error: 'InternalServerError', message: 'Internal server error' })],

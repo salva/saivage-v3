@@ -1,5 +1,24 @@
 # Saivage v3
 
+The optional direct Analyst MCP service exposes configured tools without an
+internal model conversation. It is loopback-only, separately authenticated and
+startup-selected; internal chat remains the default. Provision
+`SAIVAGE_ANALYST_MCP_TOKEN` privately in the server environment, then use:
+
+```bash
+saivage start --analyst-mode external --analyst-mcp-port 8090 \
+  --analyst-mcp-principal local-client --analyst-mcp-tools get_status,read
+```
+
+Connect a Streamable HTTP client to the printed
+`http://127.0.0.1:8090/mcp/analyst/<projectIdentityDigest>` URL; supply the secret
+in its Authorization header, never the URL. MCP requires revision 2025-11-25.
+External-only hides interactive desktop/mobile chat while keeping exact Analyst
+history read-only; both mode retains normal chat alongside direct operations.
+External edits appear in ordinary records and settled audit evidence, not chat.
+See [startup and failure semantics](docs/runbook/index.md#direct-analyst-mcp-service).
+Source completion grants no live restart, migration or deployment permission.
+
 Shell action nodes can optionally bind `stdout_record` to one declared own-card
 record: completed substantive UTF-8 stdout (maximum 1 MiB, no NUL) becomes an
 ordinary versioned report with truthful shell provenance, not an agent verdict.
@@ -406,11 +425,13 @@ not node re-entry; latest descriptor facts do not imply body recall. See
   this payload also requires the separate incompatible-adoption decision, even
   with matching outer versions; those alone are not compatibility.
   Current card heads/mailbox remain format1; ordinary/tombstone history bodies
-   require format3 with discriminated agent/action executor results. Workflow input2,
+    require format4 with discriminated agent/action executor results and external attribution. Workflow input2,
   operation `shell.run` contract1 and lazy card execution JSONL1 accompany this
   [source cutover](docs/architecture/durable-format-changes.md#stateless-node-operations-2026-10-19).
-   Accepted documents3 require discriminated author under the later
-   [stdout cutover](docs/architecture/durable-format-changes.md#shell-stdout-record-authorship-2026-10-19).
+    Accepted documents4 include strict external-principal authorship under the
+    [external-attribution cutover](docs/architecture/durable-format-changes.md#external-analyst-operation-attribution-2026-10-20).
+    App log/provider evidence share rows envelope2; external settled receipts are
+    body-free observations, never synthetic Analyst conversation or provider turns.
    Record heads3, conversation12 and initializer input1 are unchanged.
   Source completion authorizes no deployment, external migration or destructive reset.
 - New projects enable an independent two-hour

@@ -268,6 +268,7 @@ export type BoundAgentContract = Readonly<{
   capabilityRequest: CapabilityRequest;
 }>;
 export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows {
+  readonly internalAnalystEnabled: boolean;
   readonly runtimeBound: true;
   readonly agentBindings: ReadonlyMap<AgentName, BoundAgentContract>;
 }
@@ -1508,6 +1509,7 @@ export function bindRuntimeWorkflows(
   router: WorkflowModelRouting,
   registry: WorkflowProviderCapabilities,
   contextUtilizationFraction: number,
+  options: { internalAnalystEnabled: boolean },
 ): CompiledRuntimeWorkflows {
   const participants = new Map<
     AgentName,
@@ -1518,6 +1520,7 @@ export function bindRuntimeWorkflows(
     }>
   >();
   for (const { agent } of structural.selectedGlobalParticipants.values()) {
+    if (agent.name === structural.analyst.name && !options.internalAnalystEnabled) continue;
     const toolSet = new BoundAgentToolSet(agent.tools);
     participants.set(
       agent.name,
@@ -1595,6 +1598,7 @@ export function bindRuntimeWorkflows(
   return Object.freeze({
     ...structural,
     runtimeBound: true as const,
+    internalAnalystEnabled: options.internalAnalystEnabled,
     agentBindings: immutableMap(bindings),
   });
 }

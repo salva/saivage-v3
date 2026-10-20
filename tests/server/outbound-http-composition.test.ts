@@ -70,7 +70,7 @@ async function runCompositionScenario(options: {
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: body.method === 'tools/list' ? { tools: [] } : {} }), { headers: { 'content-type': 'application/json' } });
     });
     const environment = await loadEnvironment({ projectRoot: root, createRuntime: false }, { NODE_ENV: 'test', LOG_LEVEL: 'info' });
-    startup = createServerServices({ environment, terminal, processIdentity: { pid: 42, startedAt: '2026-10-14T00:00:00.000Z' }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure: error => { throw error; } }).then(
+    startup = createServerServices({ onExternalAnalystOwnerFailure(error) { throw error; }, environment, terminal, processIdentity: { pid: 42, startedAt: '2026-10-14T00:00:00.000Z' }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure: error => { throw error; } }).then(
       services => {
         settled = true;
         options.lifecycle?.push('startup fulfilled');

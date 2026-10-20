@@ -3,7 +3,13 @@ import { PROJECT_CARD_ID, createCardNotification } from '../cards/store-api.js';
 import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { projectNotificationSubmission } from './notification-result-projection.js';
-import { cardDepth, MAX_CARD_DEPTH, type CardTypeName } from '../schemas/index.js';
+import {
+  cardDepth,
+  MAX_CARD_DEPTH,
+  operationActor,
+  type OperationAuthor,
+  type CardTypeName,
+} from '../schemas/index.js';
 import {
   throwIfPublicationOutcomeUnknown,
   parseRecordUrl as awaitImportParse,
@@ -81,6 +87,8 @@ export interface AnalystMutationServices {
 }
 
 export function createAnalystMutationServices(input: {
+  author: OperationAuthor;
+  allowedTools: readonly string[];
   store: CardService;
   configAuthority: ResolvedConfigAuthority;
   notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard'];
@@ -89,10 +97,24 @@ export function createAnalystMutationServices(input: {
 }): AnalystMutationServices {
   const notifyCard = input.notifyCard;
   return {
-    cards: new AnalystCardMutationImplementation(input.store, notifyCard, input.cancelCard),
+    cards: new AnalystCardMutationImplementation(
+      input.store,
+      notifyCard,
+      input.cancelCard,
+      input.author,
+      input.allowedTools,
+    ),
     config: new AnalystConfigMutationImplementation(input.configAuthority),
-    notifications: new AnalystNotificationMutationImplementation(input.submitNotification),
-    recordMutations: new AnalystRecordMutationImplementation(input.store, notifyCard),
+    notifications: new AnalystNotificationMutationImplementation(
+      input.submitNotification,
+      input.author,
+    ),
+    recordMutations: new AnalystRecordMutationImplementation(
+      input.store,
+      notifyCard,
+      input.author,
+      input.allowedTools,
+    ),
   };
 }
 
@@ -129,6 +151,8 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     private readonly store: CardService,
     private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard'],
     private readonly cancelCardPort: Pick<RuntimeApi, 'cancelCard'>['cancelCard'],
+    private readonly author: OperationAuthor,
+    private readonly allowedTools: readonly string[],
   ) {}
 
   create(input: CreateAnalystCardInput): AnalystMutationOutcome {
@@ -144,7 +168,11 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       return denied('wrong_state');
     if (input.type === 'project') return denied('Root project card already exists');
     const analyst = this.store.workflows.analyst;
-    if (!analyst.canCreateChildren || !analyst.tools.some((tool) => tool.name === 'create_card'))
+    if (
+      !analyst.canCreateChildren ||
+      !this.allowedTools.includes('create_card') ||
+      !analyst.tools.some((tool) => tool.name === 'create_card')
+    )
       return denied(`agent '${analyst.name}' is not configured to create children`);
     const parentWorkflow = this.store.workflows.cardTypes.get(parentCard.type);
     if (!parentWorkflow)
@@ -166,7 +194,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       bootstrap_content: input.bootstrap_content,
       priority: input.priority ?? 0,
       urgency: input.urgency ?? 'normal',
-      created_by: this.store.workflows.analyst.name,
+      created_by: operationActor(this.author),
       depends_on: input.depends_on ?? [],
     });
     const propagation = reportPropagation(() =>
@@ -187,7 +215,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const result = this.store.deleteSubtrees(
       ids,
       (card) => card.lifecycle.status !== 'running',
-      this.store.workflows.analyst.name,
+      operationActor(this.author),
     );
     return success({ deleted: result.deleted, top_level_deleted: result.requested });
   }
@@ -323,6 +351,7 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
       RuntimeApi,
       'submitNotification'
     >['submitNotification'],
+    private readonly author: OperationAuthor,
   ) {}
   async queue(
     cardId: string,
@@ -332,7 +361,15 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
     signal?: AbortSignal,
   ): Promise<AnalystMutationOutcome> {
     const projected = projectNotificationSubmission(
-      await this.submitNotification(cardId, createCardNotification(kind, body), urgency, signal),
+      await this.submitNotification(
+        cardId,
+        {
+          ...createCardNotification(kind, body),
+          ...(this.author.kind === 'external-agent' ? { source: operationActor(this.author) } : {}),
+        },
+        urgency,
+        signal,
+      ),
       body,
     );
     return projected.success ? success(projected.data) : failure(projected.error, projected.data);
@@ -343,6 +380,8 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
   constructor(
     private readonly store: CardService,
     private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard'],
+    private readonly author: OperationAuthor,
+    private readonly allowedTools: readonly string[],
   ) {}
 
   admitWrite(path: string): AnalystPreNetworkAdmission {
@@ -351,6 +390,8 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
       operation: 'write',
       surface: 'analyst',
       agentName: this.store.workflows.analyst.name,
+      author: this.author,
+      allowedTools: this.allowedTools,
       requiredTools: ['write', 'webfetch'],
     });
   }
@@ -368,6 +409,8 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
         content,
         surface: 'analyst',
         agentName: this.store.workflows.analyst.name,
+        author: this.author,
+        allowedTools: this.allowedTools,
         requiredTools,
       },
       () => this.propagate(path),
@@ -398,6 +441,8 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
         replaceAll,
         surface: 'analyst',
         agentName: this.store.workflows.analyst.name,
+        author: this.author,
+        allowedTools: this.allowedTools,
         requiredTools: ['edit'],
       },
       () => this.propagate(path),

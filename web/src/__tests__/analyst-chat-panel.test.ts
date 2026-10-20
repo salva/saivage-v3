@@ -103,7 +103,7 @@ describe('AnalystChatPanel', () => {
     document.body.innerHTML = '';
     vi.clearAllMocks();
     live.connectionState!.value = 'connected';
-    api.getChatEntries.mockResolvedValue({ session_id: analystSessionId });
+    api.getChatEntries.mockResolvedValue({ session_id: analystSessionId, mode: 'internal', internal_enabled: true, external_enabled: false });
     api.getAgentSession.mockResolvedValue({
       session: {
         id: analystSessionId,

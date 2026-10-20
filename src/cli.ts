@@ -70,7 +70,7 @@ const USAGE = `Saivage v3 CLI
 
 Usage:
   saivage init [--profile <classic|classic-typed|paad-typed>]
-  saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>]
+  saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>] [--analyst-mode internal|external|both] [--analyst-mcp-port <port>] [--analyst-mcp-principal <id>] [--analyst-mcp-tools <names>]
   saivage status
   saivage pause
   saivage resume
@@ -175,6 +175,10 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
       'project-root': { type: 'string' },
       'create-runtime': { type: 'boolean' },
       'failed-provider-diagnostics': { type: 'string' },
+      'analyst-mode': { type: 'string' },
+      'analyst-mcp-port': { type: 'string' },
+      'analyst-mcp-principal': { type: 'string' },
+      'analyst-mcp-tools': { type: 'string' },
     });
     if (values['failed-provider-diagnostics'] !== undefined)
       z.string().uuid().parse(values['failed-provider-diagnostics']);
@@ -187,6 +191,10 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
         projectRoot: values['project-root'] as string | undefined,
         createRuntime: values['create-runtime'] === true,
         failedProviderDiagnostics: values['failed-provider-diagnostics'] as string | undefined,
+        analystMode: values['analyst-mode'] as string | undefined,
+        analystMcpPort: values['analyst-mcp-port'] as string | undefined,
+        analystMcpPrincipal: values['analyst-mcp-principal'] as string | undefined,
+        analystMcpTools: values['analyst-mcp-tools'] as string | undefined,
       },
     };
   }
@@ -263,6 +271,8 @@ async function handleStart(inputs: StartInputs): Promise<void> {
       ? ' (wildcard bind; use a reachable host address to connect)'
       : '';
   console.log(`Saivage server listening on http://${urlHost}:${port}${qualification}`);
+  if (app.server.analystMcpEndpoint !== null)
+    console.log(`Analyst MCP: ${app.server.analystMcpEndpoint}`);
 }
 async function handleRuntimeControl(
   command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server',

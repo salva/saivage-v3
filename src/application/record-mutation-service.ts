@@ -20,14 +20,20 @@ import {
 import type { AgentName } from '../schemas/index.js';
 import { observeRecordProjection } from '../persistence/index.js';
 
-interface RecordMutationAdmissionRequest {
+type RecordMutationAdmissionRequest = {
   path: string;
   operation: 'write' | 'edit';
-  surface: 'card_agent' | 'analyst';
   agentName: AgentName;
   cardId?: string;
   requiredTools: readonly ('write' | 'edit' | 'webfetch')[];
-}
+} & (
+  | { surface: 'card_agent' }
+  | {
+      surface: 'analyst';
+      author: import('../schemas/index.js').OperationAuthor;
+      allowedTools: readonly string[];
+    }
+);
 
 type RecordMutationRequest = RecordMutationAdmissionRequest & {
   onRecordWritten?: (name: string) => void;
@@ -118,6 +124,11 @@ export function admitRecordMutation(
   if (!configured || !configured.recordWrites.some(({ matcher }) => matcher.test(parsed.name)))
     return denied(parsed, request.operation, 'writer_not_authorized');
   if (request.requiredTools.some((name) => !configured.tools.some((tool) => tool.name === name)))
+    return denied(parsed, request.operation, 'tool_not_authorized');
+  if (
+    request.surface === 'analyst' &&
+    request.requiredTools.some((name) => !request.allowedTools.includes(name))
+  )
     return denied(parsed, request.operation, 'tool_not_authorized');
   if (request.surface === 'analyst' && analystRecordEditEffect(card.lifecycle.status) === null)
     return denied(parsed, request.operation, 'lifecycle_unsupported');
@@ -252,10 +263,7 @@ export function mutateRecord(
     });
   let result: CurrentRecordProjection;
   if (request.surface === 'analyst')
-    result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, {
-      kind: 'agent',
-      agent: request.agentName,
-    });
+    result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, request.author);
   else {
     if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
     result = store.editRecord(parsed.cardId, parsed.name, nextContent);

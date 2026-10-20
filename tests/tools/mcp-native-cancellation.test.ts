@@ -9,6 +9,7 @@ import { conversationImageFile } from '../../src/persistence/layout.js';
 const normalize = jest.fn<typeof Normalize>();
 jest.unstable_mockModule('../../src/tools/image-decode.js', () => ({ normalizeImage: normalize, normalizeWorkspaceImage: jest.fn() }));
 const { mcpToolBinders } = await import('../../src/tools/mcp-provider.js');
+const { settleToolExecutionForLlm } = await import('../../src/tools/invocation.js');
 const { testLlmToolInvocationContext, unusedMcpToolInvocation } = await import('../helpers/llm-test-helpers.js');
 const { ImageInputError } = await import('../../src/tools/image-input-error.js');
 const { PublicationOutcomeUnknownError } = await import('../../src/contracts/index.js');
@@ -95,7 +96,7 @@ it.each([false, true])(
           sessionId: 'agent:analyst:global',
           toolName: 'mcp_tool_call',
         }),
-      );
+      ).then(execution => settleToolExecutionForLlm(execution, testLlmToolInvocationContext({sessionId:'agent:analyst:global'})));
       await started;
       expect(runtime.isReady()).toBe(false);
       expect(controller.signal.aborted).toBe(false);

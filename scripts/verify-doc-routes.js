@@ -959,7 +959,7 @@ function selectAppLog(projectRoot) {
   const source = readSource(projectRoot, path);
   const members = [...source.matchAll(/const\s+\w+EntrySchema\s*=\s*z\s*\.object\(\{\s*type:\s*z\.literal\('([^']+)'\)/g)].map((match) => match[1]);
   if (members.length === 0) throw new Error(`${path} has no app-log entry declarations`);
-  requireDirectUnionMembers(projectRoot, path, 'appLogEntrySchema', 'type', ['eventEntrySchema', 'controlEntrySchema']);
+  requireDirectUnionMembers(projectRoot, path, 'appLogEntrySchema', 'type', ['eventEntrySchema', 'controlEntrySchema', 'externalEntrySchema']);
   requireSourceFragments(projectRoot, PATHS.appLog[1], ['consumeGrowingRows(path, bytes, appLogEntrySchema', 'serializeGrowingEnvelope([candidate])', 'candidate.type !== entryType'], 'app-log persistence');
   requireSourceFragments(projectRoot, 'src/persistence/provider-exchange-log.ts', ['providerExchangeFile(projectRoot, owner)', 'consumeGrowingRows(path, bytes, ownerSchema(owner)', 'readProviderExchangeEntries(projectRoot, sessionId)'], 'exact-session provider evidence');
   return vocabularyValue(members);
@@ -1008,6 +1008,7 @@ function selectMaximumDepth(projectRoot) {
 
 function selectManagedProcessTermGrace(projectRoot) {
   const callerPaths = [
+    'src/application/external-analyst-operations.ts',
     'src/application/runtime-composition.ts',
     'src/mcp/mcp-manager.ts',
     'src/mcp/server-runtime.ts',
@@ -1333,8 +1334,8 @@ const VALUE_CONTRACT_CLAIMS = Object.freeze({
   'constant.app-cleanup-leaf-timeout-ms': defineClaim('constants', sourcePathSet(['src/boot/app.ts']), (root) => constantValue(root, 'src/boot/app.ts', 'APP_CLEANUP_LEAF_TIMEOUT_MS', 'milliseconds', [['src/boot/app.ts', 2]])),
   'constant.compaction-refine-max-invocations': defineClaim('constants', sourcePathSet(['src/runtime/actors/compaction/refine-accumulator.ts']), (root) => constantValue(root, 'src/runtime/actors/compaction/refine-accumulator.ts', 'MAX_REFINE_INVOCATIONS', 'logical invocations', [['src/runtime/actors/compaction/refine-accumulator.ts', 4]])),
   'constant.emit-result-summary-max-chars': defineClaim('constants', sourcePathSet(['src/runtime/card-process/card-process-config.ts']), (root) => constantValue(root, 'src/runtime/card-process/card-process-config.ts', 'EMIT_RESULT_SUMMARY_MAX_CHARS', 'characters', [['src/runtime/card-process/card-process-config.ts', 3]])),
-  'constant.managed-process-post-kill-verification-ms': defineClaim('constants', sourcePathSet(['src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), (root) => constantValue(root, 'src/runtime/managed-process-group-registry.ts', 'MANAGED_PROCESS_POST_KILL_VERIFICATION_MS', 'milliseconds', [['src/runtime/managed-process-group-registry.ts', 2]])),
-  'constant.managed-process-term-grace-ms': defineClaim('constants', sourcePathSet(['src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), selectManagedProcessTermGrace),
+  'constant.managed-process-post-kill-verification-ms': defineClaim('constants', sourcePathSet(['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), (root) => constantValue(root, 'src/runtime/managed-process-group-registry.ts', 'MANAGED_PROCESS_POST_KILL_VERIFICATION_MS', 'milliseconds', [['src/runtime/managed-process-group-registry.ts', 2]])),
+  'constant.managed-process-term-grace-ms': defineClaim('constants', sourcePathSet(['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), selectManagedProcessTermGrace),
   'constant.maximum-card-depth-segments': defineClaim('constants', PATHS.cardIdentity, selectMaximumDepth),
   'constant.node-corrective-rearm-limit': defineClaim('constants', sourcePathSet(['src/runtime/actors/agent-executor.ts']), (root) => constantValue(root, 'src/runtime/actors/agent-executor.ts', 'MAX_NODE_CORRECTIVE_REARMS', 'logical invocations', [['src/runtime/actors/agent-executor.ts', 4]])),
   'constant.summarizer-completion-tokens': defineClaim('constants', sourcePathSet(['src/runtime/actors/compaction/summarizer.ts']), (root) => constantValue(root, 'src/runtime/actors/compaction/summarizer.ts', 'SUMMARY_COMPLETION_TOKENS', 'tokens', [['src/runtime/actors/compaction/summarizer.ts', 7]])),

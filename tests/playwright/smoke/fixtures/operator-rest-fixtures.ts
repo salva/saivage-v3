@@ -418,7 +418,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/chat') {
       const sessionId = 'agent:analyst:global';
-      return json(route, parseOperatorResponse('chats.get', 200, { session_id: sessionId }));
+      return json(route, parseOperatorResponse('chats.get', 200, { session_id: sessionId, mode: 'internal', internal_enabled: true, external_enabled: false }));
     }
     if (request.method() === 'POST' && url.pathname === '/api/chat') {
       const sessionId = 'agent:analyst:global';

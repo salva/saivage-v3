@@ -9,6 +9,8 @@ import { workspaceToolBinders, globalWorkspaceObservationToolBinders } from '../
 import { materializeConversationImage, publishConversationImage } from '../../src/persistence/session-api.js';
 import { conversationImageFile } from '../../src/persistence/layout.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolExecutionForLlm } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { MAX_IMAGE_SOURCE_BYTES, ToolResultSchema, assertViewImageResult, rasterReservation, imageAccountingBytes, imageEstimatedTokens, viewImageInputSchema } from '../../src/contracts/index.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/runtime-api.js';
 import type { AgentName } from '../../src/schemas/index.js';
@@ -128,7 +130,7 @@ describe('explicit immutable workspace image observations', () => {
     const binder = (sessionId === 'agent:analyst:global' ? globalWorkspaceObservationToolBinders : workspaceToolBinders).find((tool) => tool.name === 'view_image')!;
     const tool = binder.bind({ projectRoot, cardId: 'project', agentName: 'executor' as AgentName, store: {} as CardService });
     const execution = await tool.executor({ path: 'screen.png' }, new AbortController().signal, { sessionId } as unknown as LlmToolInvocationContext);
-    const result = settleToolActionOutcome(execution.providerOutcome).providerResult;
+    const result = settleToolActionOutcome(settleToolExecutionForLlm(execution, testLlmToolInvocationContext({ sessionId })).providerOutcome).providerResult;
     expect(result.success).toBe(true);
     if (!result.success || result.content?.[0]?.type !== 'image') throw new Error('expected snapshot');
     const image = result.content[0].image;
@@ -149,10 +151,10 @@ describe('explicit immutable workspace image observations', () => {
     expect(isReadBlocked('.saivage/cards/project/children/a/conversations/executor/images/x.png')).toBe(true);
   });
 
-  it('keeps image-free failures and refuses missing invocation authority', async () => {
+  it('keeps image-free failures without requiring a fabricated invocation', async () => {
     const projectRoot = root(); writeFileSync(join(projectRoot, 'bad.png'), 'not pixels');
     const tool = workspaceToolBinders.find((tool) => tool.name === 'view_image')!.bind({ projectRoot, agentName: 'executor' as AgentName });
-    await expect(tool.executor({ path: 'bad.png' }, new AbortController().signal)).rejects.toThrow(/complete owning/);
+    expect((await tool.executor({ path: 'bad.png' }, new AbortController().signal)).providerOutcome).toMatchObject({kind:'failed'});
     const execution = await tool.executor({ path: 'bad.png' }, new AbortController().signal, { sessionId: 'agent:executor:project' } as unknown as LlmToolInvocationContext);
     expect(settleToolActionOutcome(execution.providerOutcome).providerResult).toMatchObject({ success: false });
     expect(settleToolActionOutcome(execution.providerOutcome).providerResult).not.toHaveProperty('content');

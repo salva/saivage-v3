@@ -25,7 +25,7 @@ describe('AnalystChatPanel on-screen children', () => {
     document.body.innerHTML = '';
     getChatEntries.mockReset();
     sendChatMessage.mockReset();
-    getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global' });
+    getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global', mode: 'internal', internal_enabled: true, external_enabled: false });
     sendChatMessage.mockResolvedValue({ toolInvocations: [], restart: null });
   });
 

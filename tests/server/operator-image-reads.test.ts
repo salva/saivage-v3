@@ -47,6 +47,7 @@ import {
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
 import { globalWorkspaceObservationToolBinders } from '../../src/tools/workspace-provider.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolExecutionForLlm } from '../../src/tools/invocation.js';
 import { toolRowPolicies, ACTIVITY_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
 import { type ImageDescriptor } from '../../src/contracts/index.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
@@ -236,12 +237,14 @@ it.each(['agent:analyst:global', 'agent:planner:project'] as const)(
           findToolCapability: () => null,
         },
       });
-    const execution = await tool.executor(
+    const context = testLlmToolInvocationContext({ sessionId: session, toolName: 'mcp_tool_call' });
+    const produced = await tool.executor(
       { serverName: 'browser',
         bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'browser_take_screenshot' },
       new AbortController().signal,
-      testLlmToolInvocationContext({ sessionId: session, toolName: 'mcp_tool_call' }),
+      context,
     );
+    const execution = settleToolExecutionForLlm(produced, context);
     const result = settleToolActionOutcome(execution.providerOutcome).providerResult;
     if (
       !result.success ||
@@ -523,11 +526,13 @@ it('uses actual view_image snapshot after mutable source replacement/deletion an
   const tool = globalWorkspaceObservationToolBinders
     .find((binder) => binder.name === 'view_image')!
     .bind({ projectRoot: root, agentName: 'analyst', store: cards });
-  const execution = await tool.executor(
+  const context = testLlmToolInvocationContext({ sessionId: session, toolName: 'view_image' });
+  const produced = await tool.executor(
     { path: 'source.png' },
     new AbortController().signal,
-    testLlmToolInvocationContext({ sessionId: session, toolName: 'view_image' }),
+    context,
   );
+  const execution = settleToolExecutionForLlm(produced, context);
   const result = settleToolActionOutcome(execution.providerOutcome).providerResult;
   if (!result.success || result.content?.[0]?.type !== 'image')
     throw new Error('Expected view_image selection.');

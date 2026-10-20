@@ -2,7 +2,7 @@
 
 Bound shell stdout is ordinary quoted record evidence, not a role instruction or
 agent verdict. Actual `read` metadata/text results expose `content_author` from the
-selected acceptance (agent, runtime or shell-stdout); draft/baseline content has
+selected acceptance (agent, external-agent, runtime or shell-stdout); draft/baseline content has
 null author even over accepted shell backing. Historical reads retain historical
 authors. A report link in the existing handoff is enough: no new starter/template
 instruction, fake action tool call or synthetic mutation observation is introduced.
@@ -13,6 +13,14 @@ correction, re-entry and compaction delivery are unchanged. Assessment still bel
 to the admitted agent using the actual evidence and its existing permissions.
 
 This in-depth companion to [System architecture](./system-architecture.md) and [System specification](../spec/system-specification.md) explains prompt discovery, validation, rendering, and runtime use. Saivage has no prompt editor, hot reload, manifest, runtime selection, or prompt-builder framework. Prompt handling is deterministic and startup-only; actors consume immutable compiled artifacts.
+
+The optional direct external Analyst MCP service supplies its own concise initialize
+instructions, generated bound tool descriptions/schemas, and a freshly read context
+resource. It neither loads the internal Analyst prompt/conversation into the client
+nor creates transcript rows. The configured Analyst policy owns authority; the
+configured external principal attributes credential use, not verified model identity.
+Client retention of initialize instructions is client-owned; current facts remain
+available through the context resource and canonical read tools.
 
 ::: v-pre
 ## Purposes and layout

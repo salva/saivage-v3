@@ -16,7 +16,7 @@ describe('compact workflow presentation', () => {
     config.card_types.project!.records['status.md']!.initialization = { format_version: 1, template: 'token=scaffold-canary' };
     const compiled = compileProjectWorkflows(config, { defaultPromptRoot: resolveSystemTemplate('classic').promptRoot });
     const registry = new ProviderRegistry(config);
-    const bound = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const bound = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const inputs = projectCompiledGraphs(bound).graphs.find(graph => graph.card_type === 'project')!.nodes.find(node => node.node_id === 'plan')!.record_prompts;
     expect(inputs).toHaveLength(1);
     expect(JSON.stringify(inputs)).not.toContain('graph-metadata-canary');
@@ -30,7 +30,7 @@ describe('compact workflow presentation', () => {
   });
   it('preserves complete per-type structural topology without installed bindings', () => {
     const registry = new ProviderRegistry(TEST_SAIVAGE_CONFIG);
-    const bound = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction);
+    const bound = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const rich = projectCompiledGraphs(bound);
     for (const workflow of TEST_WORKFLOWS.cardTypes.values()) {
       const graph = rich.graphs.find(({ card_type }) => card_type === workflow.cardType)!;

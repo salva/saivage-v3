@@ -3,11 +3,13 @@ import type { RuntimeApplication } from '../../application/index.js';
 import {
   ChatToolInvocationSchema,
   ANALYST_TURN_BUSY_ERROR,
+  ANALYST_DISABLED_ERROR,
   type RestartCapability,
 } from '../../contracts/index.js';
 import { projectLiveToolInvocation } from '../../tools/tool-api.js';
 import {
   AnalystTurnBusyError,
+  AnalystDisabledError,
   AnalystWorkspaceContextBudgetError,
 } from '../../runtime/runtime-api.js';
 
@@ -18,7 +20,12 @@ type ChatOperatorHandlerOptions = {
 
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions) {
   return defineOperatorContractHandlers({
-    'chats.get': () => ({ body: { session_id: options.runtimeApplication.analystSessionId } }),
+    'chats.get': () => ({
+      body: {
+        session_id: options.runtimeApplication.analystSessionId,
+        ...options.runtimeApplication.analystAvailability,
+      },
+    }),
     'chats.send': async ({ body, reply }) => {
       let response;
       try {
@@ -27,6 +34,8 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
           workspaceContext: body.workspaceContext,
         });
       } catch (error) {
+        if (error instanceof AnalystDisabledError)
+          return { statusCode: 409, body: ANALYST_DISABLED_ERROR };
         if (error instanceof AnalystTurnBusyError)
           return { statusCode: 409, body: ANALYST_TURN_BUSY_ERROR };
         if (error instanceof AnalystWorkspaceContextBudgetError)

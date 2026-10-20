@@ -9,7 +9,7 @@ vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
-  getChatEntries: vi.fn(async () => ({ session_id: 'agent:analyst:global' })),
+  getChatEntries: vi.fn(async () => ({ session_id: 'agent:analyst:global', mode: 'internal', internal_enabled: true, external_enabled: false })),
   sendChatMessage: vi.fn(async () => ({ toolInvocations: [], restart: null })),
 }));
 

@@ -1,5 +1,76 @@
 # Saivage v3 System Specification
 
+## Caller-neutral Analyst operations and external attribution
+
+Analyst tool composition separates the configured policy identity and effective
+selected tools from actual authorship. External credential holders are attributed
+as `{kind:'external-agent',principal}`; the bounded lowercase principal identifies
+a credential holder, not a verified person or model. Reserved `external:<principal>`
+creator/control/history labels are not AgentName or conversation identities.
+Record writer globs and all required-tool conjunctions apply to the effective
+selection: permitting `webfetch` without `write` cannot authorize record saving.
+Preparation does not reserve state; final mutation freshly admits it.
+
+The shared invocation boundary validates arguments before executor entry and
+preserves known failure classification and publication-fatal precedence. Real LLM
+execution retains its complete wait/child reservation context. External execution
+has its own invocation UUID, principal and operation-owned signal, with no fabricated
+session, source input, child reservation or model wait barrier. Image production
+returns normalized call-local bytes; only LLM settlement publishes conversation
+PNG descriptors. External bytes must not enter the durable ToolResult union.
+
+Current immutable ordinary/tombstone card artifacts and accepted-record artifacts
+use **format4**. Initial child bootstrap acceptance records its actual creator;
+root bootstrap and explicit repair remain runtime-authored. Card heads/mailbox1,
+record heads3 and conversation12 are unchanged. App log and provider evidence use
+the **shared `version:2,type:rows` envelope**, not separate envelope numbering.
+App log's additional `external_tool_call` row records exactly invocation UUID,
+principal, project identity digest, canonical tool name (or `<unsupported>`),
+settlement time, execution classification and ok/denied/error outcome. It contains
+no arguments, result body, exception, credentials or client-supplied model identity.
+Receipts publish only after known ordinary settlement; they are neither complete
+execution history nor delivery/no-effect evidence. Publication uncertainty permits
+no subsequent receipt, response, cleanup or retry. Prior cutover descriptions below
+retain their historical source boundaries; the current format reference owns this
+new adoption record.
+
+### Direct external Analyst service
+
+Startup selects `--analyst-mode internal|external|both` (default internal).
+External/both require `--analyst-mcp-port` (1–65535),
+`--analyst-mcp-principal` (bounded lowercase identifier), a nonempty unique exact
+`--analyst-mcp-tools` comma list selected by the configured Analyst, and an
+unpadded nonblank `SAIVAGE_ANALYST_MCP_TOKEN`. Internal mode rejects external
+settings. MCP and operator REST credentials must differ. These process-owned
+settings are immutable until restart, not YAML/reconfigure fields.
+
+The same application owns a dedicated `127.0.0.1` listener at
+`/mcp/analyst/<projectIdentityDigest>`, published only after canonical startup,
+recovery and outbound MCP installation. SDK1.32.1 serves stateless JSON Streamable
+HTTP, revision2025-11-25, with no sessions, batch execution, GET stream or replay.
+Every method requires its separate bearer; exact Host/path, no query or Origin,
+and a protocol header after initialize are mandatory. GET/DELETE return405 after
+authentication. Initialization returns safe binding metadata/instructions; the
+read-only `saivage://analyst/context` resource supplies mode, principal, digest,
+card types and runtime status. No internal prompt or conversation is fabricated.
+
+External-only omits internal Analyst model binding, not configured historical
+participants, canonical indexes/evidence/startup settlement or real card-role
+binding of that same agent. `GET /api/chat` retains `session_id` and adds `mode`,
+`internal_enabled`, `external_enabled` without port/token/allowlist. Disabled
+submissions fail409 `analyst_disabled` at the application boundary before actor,
+provider or ingress. `GET /api/external-tool-calls` exposes body-free settled
+receipts separately from conversation rows under ordinary operator authentication.
+
+Clients may overlap each other and internal chat in both mode; existing domain
+admission, not a global turn mutex, orders effects. Disconnect loses delivery, not
+admitted work or background-process ownership. One principal-owned process scope
+survives calls until App containment. App shutdown closes admission synchronously,
+cancels owned signals and joins work/containment. Project Stop leaves MCP available.
+No receipt, retry, response or disposal follows publication uncertainty. Navigation
+results remain client intents; restart_server only requests separately authenticated
+operator confirmation and cannot restart via MCP alone.
+
 ## Stateless action nodes
 
 Workflow input format2 selects `execution.kind:agent` or `action` per node.
@@ -71,7 +142,7 @@ synchronous publication/acceptance section does not undo factual effects. Spawn,
 capture or cleanup failure publishes nothing. Publication uncertainty is fatal
 before follow-up reads, writes, logging, acknowledgement or cleanup.
 
-The existing publisher writes an immutable accepted3 artifact and fresh selecting
+The existing publisher writes an immutable accepted4 artifact and fresh selecting
 head, independent of capture retention. Each new invocation may publish equal
 text as a new positive document version; agent no-op rejection is unchanged.
 Normal updated-head, export, descendant and promotion gates still run. A later
@@ -619,7 +690,7 @@ At selected node entry, initialization precedes ordinary requirement preparation
 
 Creation, startup, reads, free writes and configuration replacement never initialize automatically. Complete card-type definitions select their own initializers without per-field overlay; compilation freezes templates and fragment closure for the process. Replacement affects only future absent-head entries. Existing-YAML init does not upgrade definitions. Bundled classic/classic-typed/paad-typed declarations explicitly select brief-relative status starters at responsible work nodes and neutral, unassessed review starters at review nodes, including both typed architecture reviews. Bootstrap briefs are excluded. Starters do not satisfy authored completion or acceptance; review still requires a fresh assessment. There are no mandatory headings or engine-special record behaviors. Creation-time scaffolds remain deferred.
 
-Record heads use strict `format_version:3`, including previous slots. A nullable baseline contains `version:0,created_at,content,content_sha256` and cannot coexist with a draft or acceptance. Opening consumes it into draft `version:0,target_version:1`; an ordinary changed nonempty edit advances the draft to its target. Untemplated drafts start directly at 1; clean after accepted n targets n+1. Integrity hashes remain, but no seed fingerprint or `unfilled` flag exists. Accepted artifacts use format 3 with discriminated author and consecutive document numbering independent of head revisions: first acceptance 1, next 2 regardless of intervening opens, edits or discards. Direct Analyst acceptance of changed baseline content creates accepted1; bootstrap and repair supplied content remain factual accepted1, never v0. A bound completed shell invocation may accept equal baseline or accepted text as new factual output, without relaxing agent no-op rejection.
+Record heads use strict `format_version:3`, including previous slots. A nullable baseline contains `version:0,created_at,content,content_sha256` and cannot coexist with a draft or acceptance. Opening consumes it into draft `version:0,target_version:1`; an ordinary changed nonempty edit advances the draft to its target. Untemplated drafts start directly at 1; clean after accepted n targets n+1. Integrity hashes remain, but no seed fingerprint or `unfilled` flag exists. Accepted artifacts use format 4 with discriminated author and consecutive document numbering independent of head revisions: first acceptance 1, next 2 regardless of intervening opens, edits or discards. Direct Analyst acceptance of changed baseline content creates accepted1; bootstrap and repair supplied content remain factual accepted1, never v0. A bound completed shell invocation may accept equal baseline or accepted text as new factual output, without relaxing agent no-op rejection.
 
 `exists` requires non-whitespace positive-version effective authored content; baseline0/draft0 cannot borrow eligibility from accepted backing. `updated` additionally requires a different head identity and mutable record revision above the baseline captured **after** initialization and explicit clean/open preparation. Initialization/opening alone satisfies neither gate. Ordinary A→B→A edits retain revision-based eligibility; no text fingerprint certifies authorship or adequacy. The same predicate governs required/free-draft finalization and close. Gate rejection uses ordinary corrective diagnostics; meaningful adequacy remains validation/review work.
 
@@ -856,9 +927,9 @@ identity.conversation-session = {"agentParser":"agentNameSchema","captures":[{"i
 <!-- saivage:value-contract:session-identity:end -->
 
 The Analyst runtime owns at most one lazily created actor and accepts no caller-selected session identity.
-`GET /api/chat` returns only the configured global Analyst `session_id` and is the sole REST chat identity response.
+`GET /api/chat` returns the configured global Analyst `session_id` with startup `mode`, `internal_enabled` and `external_enabled`; it is the sole REST chat identity/availability response and includes no transcript or transport secrets.
 `POST /api/chat` accepts exactly a strict object with required non-empty `content` and optional strict workspace context; success returns only tool-invocation and restart results, with no session identity field. REST `content` is additionally capped by schema at `1_048_576` UTF-16 code units (JavaScript `string.length`).
-REST `chats.send` (`POST /api/chat`) is the sole Analyst submission transport. The first synchronous `AnalystSession.submit()` admission wins.
+REST `chats.send` (`POST /api/chat`) is the sole internal Analyst conversation submission transport, available only in internal/both mode. Direct MCP operations do not enter that conversation. The first synchronous `AnalystSession.submit()` admission wins.
 An overlap is rejected immediately, never queued: REST maps the typed busy error to HTTP 409; the exact shared variant is documented in [Section 11](#exact-shared-operator-error-contracts).
 Failed, disposed, closed-admission, canonical-state, provider, persistence, invariant, and publication-uncertain failures are not busy.
 WebSocket is observation-only: inbound frames are strict live-sync subscribe/unsubscribe objects. Unsupported frames (including Analyst messages) and malformed JSON close with code 1008 and fixed reason `Invalid live-sync frame`, before any subscription effect or acknowledgement. Connected status contains exactly `{event:'connected',timestamp,clientCount}`; chat identity comes only from REST `chats.get`. No Analyst activity, busy/error, or turn-acknowledgement envelope is sent over WS.
@@ -1746,12 +1817,12 @@ Usage belongs to each successfully parsed HTTP/provider attempt, including tool 
 
 <!-- saivage:value-contract:app-log-contract:start -->
 ```text
-vocabulary.app-log-type = {"members":["control_action","event"]}
+vocabulary.app-log-type = {"members":["control_action","event","external_tool_call"]}
 vocabulary.logged-event-kind = {"members":["mcp_tool_invocation","operator_runtime_control","runtime_actionable_error","runtime_diagnostic"]}
 ```
 <!-- saivage:value-contract:app-log-contract:end -->
 
-Provider evidence instead belongs to the existing canonical conversation owner: a card session uses `<card namespace>/conversations/<agent name>/provider-exchange.jsonl`; a global session uses `.saivage/agents/conversations/<agent name>/provider-exchange.jsonl`. The path is derived from the parsed canonical session ID, not discovered from siblings or cataloged in the conversation index. The optional file uses strict version-1 growing envelopes with `provider_exchange` rows, retaining ordinary exchanges and internal-summary attempts across every segment of that source session. Exact missing evidence means no exchanges; a present empty/no-prefix file, invalid retained UTF-8, malformed or unsupported complete envelope, invalid row, wrong owner/lane, or repeated derived logical ID fails unchanged. A torn final suffix is discarded only after the complete retained prefix passes those checks. A row must belong to the owner or to its one derived internal summary ID. Duplicate checks are per physical provider stream and separately per event/control app stream; event/control IDs need not be disjoint from evidence IDs in another file. Evidence publication uses exact-byte owner-specific tail admission and one first publication in the already existing conversation root if missing; it creates no session/index, retries no uncertain write, and adds no conversation/evidence atomicity or completeness guarantee. Neither startup admission nor an earlier read authorizes later writes.
+Provider evidence instead belongs to the existing canonical conversation owner: a card session uses `<card namespace>/conversations/<agent name>/provider-exchange.jsonl`; a global session uses `.saivage/agents/conversations/<agent name>/provider-exchange.jsonl`. The path is derived from the parsed canonical session ID, not discovered from siblings or cataloged in the conversation index. The optional file uses shared strict version-2 growing envelopes with `provider_exchange` rows, retaining ordinary exchanges and internal-summary attempts across every segment of that source session. Exact missing evidence means no exchanges; a present empty/no-prefix file, invalid retained UTF-8, malformed or unsupported complete envelope, invalid row, wrong owner/lane, or repeated derived logical ID fails unchanged. A torn final suffix is discarded only after the complete retained prefix passes those checks. A row must belong to the owner or to its one derived internal summary ID. Duplicate checks are per physical provider stream and separately across all app-log row types; app-log IDs need not be disjoint from evidence IDs in another file. Evidence publication uses exact-byte owner-specific tail admission and one first publication in the already existing conversation root if missing; it creates no session/index, retries no uncertain write, and adds no conversation/evidence atomicity or completeness guarantee. Neither startup admission nor an earlier read authorizes later writes.
 
 The exact Agent latest-exchange request first admits the selected card/global session and its conversation catalog, then strictly reads only that session's full evidence file; it neither reads the app log nor builds an all-session map. Only primary rows compete: greatest timestamp, then greatest attempt index, with the earlier physical row winning an exact tie. Internal-summary rows are validated but never selected as the ordinary latest exchange. Missing or summary-only evidence yields no exchange under the existing route behavior. Event/error/control queries continue to strictly read the entire event/control app stream before filtering; their cost may grow independently. A different session's corruption no longer breaks this exact evidence request, but the selected stream must always validate completely.
 
@@ -2570,7 +2641,7 @@ Files authorization remains unchanged; canonical card traversal is the virtual b
 
 ## 12. Reset And Failure Consequences
 
-Incompatible hierarchical layout, card/record heads and immutable predecessor documents, deterministic child claims, terminal tombstones, complete parent-owned membership/order and indexed conversation segments are named incompatible durable-format cutovers. Current card heads/mailbox remain format1; ordinary/tombstone bodies require format3 with discriminated executor results, following format2's removal of nine null-only members. Execution envelope1, workflow input2 and operation contracts are distinct. Accepted documents3 require discriminated author; record heads3, conversation12 and initializer input1 remain unchanged, retaining record document0/macros and strict compaction-summary BLOCKED results. Adoption follows [consented reset or explicit external migration](../runbook/index.md#external-migrations); core accepts only current contracts.
+Incompatible hierarchical layout, card/record heads and immutable predecessor documents, deterministic child claims, terminal tombstones, complete parent-owned membership/order and indexed conversation segments are named incompatible durable-format cutovers. Current card heads/mailbox remain format1; ordinary/tombstone bodies require format4 with discriminated executor results and external creator/history attribution, following format2's removal of nine null-only members. Execution envelope1, workflow input2 and operation contracts are distinct. Accepted documents4 require discriminated author including external principals; record heads3, conversation12 and initializer input1 remain unchanged, retaining record document0/macros and strict compaction-summary BLOCKED results. Adoption follows [consented reset or explicit external migration](../runbook/index.md#external-migrations); core accepts only current contracts.
 Notification query-surface removal and current-activation enqueue admission change no durable format. They require no reset, migration, prompt rematerialization, or special deployment operation; existing materialized prompts remain instance-owned.
 The current widening of the unchanged card-ID field grammar from the former bound of five to the maximum in the [exact card identity contract](#exact-card-identity-contract) is instead a same-format forward deployment: every previously valid ID remains valid, so deployment requires no reset.
 Once a deeper card is created, an old binary cannot read that state and must not be used against it.
@@ -2773,7 +2844,7 @@ Analyst creation always uses its required explicit parent card ID.
 Planner creation remains separate: its current parent is inferred from the active Planner session and cannot be supplied.
 
 Records are arbitrary configured safe Markdown names, not three code-owned slots.
-Each record owns a strict format-3 `record-head` and immutable format-3 `accepted-record` predecessor documents with exact card/name/format/schema identity and discriminated author. Current-only baseline0 cannot coexist with draft/acceptance. Drafts have explicit document/target versions; draft0 and empty drafts cannot be accepted. Bootstrap first-publishes factual accepted1 then head. Open/edit/close/discard advance mutation revision independently of consecutive accepted document versions; already-open open is a strict-read no-op. Baseline/draft history is not retained. Historical accepted projections have null head/revision, never an inferred mutation number. Each mutation freshly reads exact current authority; no carried write token exists.
+Each record owns a strict format-3 `record-head` and immutable format-4 `accepted-record` predecessor documents with exact card/name/format/schema identity and discriminated author. Current-only baseline0 cannot coexist with draft/acceptance. Drafts have explicit document/target versions; draft0 and empty drafts cannot be accepted. Bootstrap first-publishes factual accepted1 then head. Open/edit/close/discard advance mutation revision independently of consecutive accepted document versions; already-open open is a strict-read no-op. Baseline/draft history is not retained. Historical accepted projections have null head/revision, never an inferred mutation number. Each mutation freshly reads exact current authority; no carried write token exists.
 Every successful acceptance freshly proves its exact active card and stores observed `accepted.card_version_seq` plus the selected immutable ordinary reference, exposed as `card_history_version` and `card_history_entry_id`. Observed current 3/history 1 stays (3,1), not a fabricated card artifact 3.
 Global Analyst mutations resolve explicit card/definition, require configured writer glob and operation-required tools (`write` for whole writes, `edit` for edits), reject an existing workflow draft, and synchronously first-publish acceptance then replace the head before existing lifecycle effect/record-specific propagation. Subsequent admitted corrections remain possible while CHANGED without Run/activation; unchanged content rejects and each success can emit distinct notices without repeating changed transitions. Record Webfetch requires both `webfetch` and `write`, sharing read-only preflight and fresh final admission, not an exemption or carried write authority.
 Card detail, Files, REST, live sync, and Cards UI all use the selected card type's ordered descriptors and exact dynamic record names.
@@ -2825,7 +2896,7 @@ Natural root release is valid from running, pausing, or paused and calls `Runtim
 Stop, application close, and ordinary actor-main failure start or join the same halt.
 Publication uncertainty exits before that halt or a status transition.
 
-Current card heads and mailbox messages use strict format1; ordinary/tombstone documents use strict format3. Former stream layouts and mixed representations are unsupported. Ordinary payload excludes `version_seq`, `updated_at` and `pending_notifications`; current projection derives those from the head, historical projection derives revision/time from immutable metadata and contains no historical queue. Identity, membership/order, immutable type and lifecycle grammar remain strict. The current card model has no `subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report` or `metadata`, even with null values; strict readers reject these keys. Retained `status_text` and `status_text_updated_at` and lifecycle provenance remain unchanged. There are no tags, generic related-card list, top-level status, persisted parent/depth, or allowedActions in durable ordinary payload.
+Current card heads and mailbox messages use strict format1; ordinary/tombstone documents use strict format4. Former stream layouts and mixed representations are unsupported. Ordinary payload excludes `version_seq`, `updated_at` and `pending_notifications`; current projection derives those from the head, historical projection derives revision/time from immutable metadata and contains no historical queue. Identity, membership/order, immutable type and lifecycle grammar remain strict. The current card model has no `subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report` or `metadata`, even with null values; strict readers reject these keys. Retained `status_text` and `status_text_updated_at` and lifecycle provenance remain unchanged. There are no tags, generic related-card list, top-level status, persisted parent/depth, or allowedActions in durable ordinary payload.
 Operator hierarchy and detail are separate strict projections.
 
 Applying the card/record head-and-predecessor cutover follows the [reset/external-migration decision](../runbook/index.md#external-migrations), preserving outside inputs. No core migration/conversion/probing or mixed-version rollback; exact-target repair is current-format only. Source completion grants no deployment/adoption/loss consent. Later same-format deployment retains only exact current head/document contracts.

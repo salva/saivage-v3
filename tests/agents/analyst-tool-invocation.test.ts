@@ -46,7 +46,10 @@ function analyst(
     description: 'Demo tool.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: z.object({ value: z.string() }).strict(),
-    executor,
+    executor: (args, signal, context) => {
+      if (context?.kind !== 'llm') throw new Error('Expected real LLM invocation.');
+      return executor(args, signal, context);
+    },
   });
   const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'demo', tools: [definition] }] };
   const capabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
@@ -80,7 +83,7 @@ function analyst(
     shutdownProcesses: async () => {},
   });
   const createSession = jest.fn(() => session);
-  const runtime = new AnalystRuntime({ createSession, getAvailableToolNames: () => [definition.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
+  const runtime = new AnalystRuntime({ internalEnabled: true, createSession, getAvailableToolNames: () => [definition.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
   return { session, runtime, createSession, completeTurn, capabilityRequest, projectRoot, list };
 }
 

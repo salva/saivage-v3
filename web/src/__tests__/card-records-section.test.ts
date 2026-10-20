@@ -69,6 +69,18 @@ describe('CardRecordsSection', () => {
   });
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()); });
 
+  it('labels external accepted authors as credential holders rather than internal agents', async () => {
+    const response = content();
+    response.record.accepted!.author = { kind: 'external-agent', principal: 'operator-one' };
+    vi.mocked(getCardRecord).mockResolvedValue(response);
+    await admit();
+    const { wrapper, errors } = render();
+    await flushPromises();
+    expect(wrapper.text()).toContain('External credential holder · operator-one');
+    expect(wrapper.text()).not.toContain('Agent · operator-one');
+    expect(errors).not.toHaveBeenCalled();
+  });
+
   it('waits for descriptors and initial current completion, applying only the latest semantic query', async () => {
     const definitions = deferred<Awaited<ReturnType<typeof listCardRecords>>>();
     const current = deferred<CardRecordContentResponse>();

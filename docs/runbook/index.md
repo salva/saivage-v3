@@ -1,5 +1,54 @@
 # Saivage Operator Runbook
 
+## External-operation attribution cutover
+
+The shared Analyst operation foundation introduces card/accepted-record format4
+and shared app-log/provider `rows` envelope2. Heads and conversation12 are unchanged.
+Reserved external principal labels are factual credential-holder attribution, not
+an internal model identity. Settled external receipts do not prove response delivery,
+complete effects or safe retry. The optional inbound listener described below is
+independent of outbound `mcpServers`.
+
+## Direct Analyst MCP service
+
+Default `saivage start` uses internal chat only. Opt in with
+`--analyst-mode external|both`, `--analyst-mcp-port <1..65535>`,
+`--analyst-mcp-principal <lowercase-id>` and
+`--analyst-mcp-tools <comma-separated-exact-selected-names>`. Provision
+`SAIVAGE_ANALYST_MCP_TOKEN` privately in the service environment, without padding;
+it must differ from `SAIVAGE_API_TOKEN`. There is no token flag, wildcard tool
+selection, YAML mode field or hot-reconfigure path. Internal mode rejects external
+settings. Change modes only through a separately authorized server restart.
+
+The printed endpoint is
+`http://127.0.0.1:<port>/mcp/analyst/<projectIdentityDigest>`. The dedicated listener
+always binds loopback regardless of the UI/API bind. It is not directly reachable
+from other hosts/containers; this feature authorizes no tunnel/firewall change.
+Configure an MCP Streamable HTTP client with that exact URL and a separately
+provisioned Authorization bearer header, never query credentials. Use protocol
+revision2025-11-25; post-initialize requests require its protocol header. No Origin,
+sessions, batches, GET stream or automatic retries are supported. Verify initialize's
+project digest, safe name, configured policy and credential-holder principal.
+The principal does not verify a person/model. Read `saivage://analyst/context` for
+mode/card types/status; use listed tools for actual current state and retained history.
+
+External-only disables internal submission before actor/provider/ingress without
+removing its required history or weakening startup. Both enables concurrent direct
+operations and internal chat, not a shared conversation or exclusive client lease.
+Background commands remain owned/manageable across calls and disconnects; App close
+contains them. Project Stop does not close the service. A dropped response does not
+prove no effect: do not replay automatically. Fresh authorized reads can establish
+current state, but receipts are not a completeness or exactly-once guarantee.
+`restart_server` only requests the existing separately REST-authenticated operator
+confirmation; the MCP credential never grants it. Navigation results are client
+intents. Read body-free receipts through authenticated `GET /api/external-tool-calls`.
+
+Do not start new source against old/mixed retained state. No deployment or adoption
+is authorized by source completion: use a separately consented complete reset or
+explicitly requested external offline migration to a pinned matching release under
+[External migrations](#external-migrations). No runtime converter, automatic reset
+or binary-only downgrade is supported. See the [format reference](../architecture/durable-format-changes.md#external-analyst-operation-attribution-2026-10-20).
+
 ## Action execution and evidence
 
 Author `workflow.format_version: 2` and singular node `execution` selections.
@@ -1406,7 +1455,7 @@ A failed notification tool or `/api/chat` request can follow a committed enqueue
 
 Ordinary card query surfaces provide no explicit queue collection, count, membership, IDs/bodies, availability field, direction discriminator, or delivery receipt. Generic version/time/diff/invalidation observations may signal or support inference of hidden queue activity and are not a supported queue query. Explicit enqueue attempts/results, delivered context, and opaque retained conversation evidence remain visible through their existing contracts.
 
-Ordinary history retains publication identity/time and nullable `change`: history items are `{entry_id,version,published_at,artifact_kind,change}`; selected history is `{kind:'card-version',card,change}` or `{kind:'card-tombstone',final_card,change}`. Files current card uses `{kind:'card-current',card_id,head_id,version_seq,history_version,updated_at,card}`, distinct from historical format-3 wrappers with immutable entry/version/time. Non-null change is narrow ordinary `{summary,changed_fields,actor}` metadata; initial change is null, and queue-only mutations create no history. Snapshots/diffs stay queue-free. Drafts have reusable current URLs, never immutable draft locators; accepted provenance separates observed mutation revision from ordinary historical reference. Already materialized instance prompts remain instance-owned. Current head/document adoption is incompatible, not an outbound-only same-format change; follow the [reset/external decision](#external-migrations).
+Ordinary history retains publication identity/time and nullable `change`: history items are `{entry_id,version,published_at,artifact_kind,change}`; selected history is `{kind:'card-version',card,change}` or `{kind:'card-tombstone',final_card,change}`. Files current card uses `{kind:'card-current',card_id,head_id,version_seq,history_version,updated_at,card}`, distinct from historical format-4 wrappers with immutable entry/version/time. Non-null change is narrow ordinary `{summary,changed_fields,actor}` metadata; initial change is null, and queue-only mutations create no history. Snapshots/diffs stay queue-free. Drafts have reusable current URLs, never immutable draft locators; accepted provenance separates observed mutation revision from ordinary historical reference. Already materialized instance prompts remain instance-owned. Current head/document adoption is incompatible, not an outbound-only same-format change; follow the [reset/external decision](#external-migrations).
 
 ## Runtime controls and lifecycle lock
 

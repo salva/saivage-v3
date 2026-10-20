@@ -124,7 +124,7 @@ it.each([0, 3, -1])(
       compiled,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     initProjectTree(root);
     const cards = new CardService(root, compiled);

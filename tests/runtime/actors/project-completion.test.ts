@@ -55,7 +55,7 @@ function fixture(profile: Profile, steps: Step[]) {
   const cards = new CardService(root, compiled);
   cards.acceptRecord('project', 'brief.md', 'Deliver evidenced beta; then implement the explicitly authorized post-beta accessibility work. Inventory acceptance alone is not beta acceptance.', { kind: 'agent', agent: 'analyst' });
   const registry = new ProviderRegistry(config);
-  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
   const processes = createTestProcessRunner(root);
   const requests: PreparedLlmInvocationInput[] = [];
   let started = false;

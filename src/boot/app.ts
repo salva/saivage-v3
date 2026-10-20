@@ -105,7 +105,8 @@ export function createAppTerminalCoordinator(): AppTerminalRegistration & {
   };
 }
 
-export function createOversightOwnerFailureHandler(input: {
+export function createApplicationOwnerFailureHandler(input: {
+  component: 'oversight' | 'external-analyst';
   terminal: ReturnType<typeof createAppTerminalCoordinator>;
   exit(code: 1): never | void;
   writeDiagnostic?(): void;
@@ -113,7 +114,7 @@ export function createOversightOwnerFailureHandler(input: {
   return (_error: unknown): void => {
     (
       input.writeDiagnostic ??
-      (() => console.error('[oversight] owner failure; application terminating'))
+      (() => console.error(`[${input.component}] owner failure; application terminating`))
     )();
     void input.terminal.stop().then((report) => {
       logShutdownWarnings(report);
@@ -164,7 +165,13 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       onAcknowledgedRestart: () => terminal.stop(),
       exit: (code) => process.exit(code),
     });
-    const onOversightOwnerFailure = createOversightOwnerFailureHandler({
+    const onOversightOwnerFailure = createApplicationOwnerFailureHandler({
+      component: 'oversight',
+      terminal,
+      exit: (code) => process.exit(code),
+    });
+    const onExternalAnalystOwnerFailure = createApplicationOwnerFailureHandler({
+      component: 'external-analyst',
       terminal,
       exit: (code) => process.exit(code),
     });
@@ -175,6 +182,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       processIdentity,
       fatalPort,
       onOversightOwnerFailure,
+      onExternalAnalystOwnerFailure,
     });
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string')

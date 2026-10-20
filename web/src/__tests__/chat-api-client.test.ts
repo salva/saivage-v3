@@ -30,9 +30,10 @@ describe('Analyst chat API client', () => {
 
   it('uses the identity-free GET signature and exact canonical route', async () => {
     const signal = new AbortController().signal;
-    request.mockResolvedValue(new Response(JSON.stringify({ session_id: analystSessionId }), { status: 200 }));
+    const identity = { session_id: analystSessionId, mode: 'internal', internal_enabled: true, external_enabled: false };
+    request.mockResolvedValue(new Response(JSON.stringify(identity), { status: 200 }));
 
-    await expect(getChatEntries(signal)).resolves.toEqual({ session_id: analystSessionId });
+    await expect(getChatEntries(signal)).resolves.toEqual(identity);
 
     expect(getChatEntriesSignatureIsExact).toBe(true);
     expect(request).toHaveBeenCalledTimes(1);

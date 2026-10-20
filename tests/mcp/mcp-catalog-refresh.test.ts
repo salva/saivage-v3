@@ -21,6 +21,7 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { mcpOperatorApiContracts } from '../../src/contracts/operator-api-mcp.js';
 import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
+import { replaceFile } from '../../src/persistence/replace-file.js';
 
 const A = [
   { name: 'common', inputSchema: { type: 'object', properties: { value: { type: 'string' }, hold: { type: 'boolean' } }, required: ['value'], additionalProperties: false } },
@@ -46,7 +47,7 @@ function stdioPeer(root: string, name: string) {
   const control = join(root, `${name}-control.json`);
   const wire = join(root, `${name}-wire.jsonl`);
   const script = join(root, `${name}.cjs`);
-  const set = (mode: string, release = false) => writeFileSync(control, JSON.stringify({ mode, release }));
+  const set = (mode: string, release = false) => replaceFile(control, Buffer.from(JSON.stringify({ mode, release })));
   set('A'); writeFileSync(wire, '');
   writeFileSync(script, `
 const fs=require('node:fs'),rl=require('node:readline');
@@ -61,7 +62,7 @@ rl.createInterface({input:process.stdin}).on('line',line=>{
   const done=()=>send(r.id,{content:[{type:'text',text:'known:'+r.params.arguments.value}]});
   if(!r.params.arguments.hold)return done();
   const timer=setInterval(()=>{if(control().release){clearInterval(timer);done();}},5);
-  setTimeout(()=>{clearInterval(timer);process.exit(7)},10000).unref();return;
+   return;
  }
  const {mode}=control();
  if(mode==='close')return process.stdout.end();

@@ -104,7 +104,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(first.headId).not.toBe(baseline.headId); expect(second.headId).not.toBe(first.headId);
     const selected = cards.readRecordVersion(card.id, 'status.md', 1);
     if (selected.kind !== 'found') throw new Error('Missing accepted record');
-    expect(selected.value.projection.artifact.format_version).toBe(3);
+    expect(selected.value.projection.artifact.format_version).toBe(4);
     expect(selected.value.projection.accepted?.author).toEqual(firstAuthor);
     expect(() => authoredRecordVersionArtifactSchema.parse({ ...selected.value.projection.artifact, format_version: 2 })).toThrow();
     expect(() => cards.acceptRecord(card.id, 'status.md', 'same report\r\n', { kind: 'agent', agent: 'analyst' })).toThrow(/unchanged/);
@@ -117,10 +117,10 @@ describe('exact record heads and accepted predecessor chains', () => {
   it('strictly rejects legacy authors and invalid bootstrap/repair provenance on exact consumption', () => {
     const { root, cards, card } = setup();
     const accepted = current(cards, card.id, 'brief.md').accepted!;
-    expect(accepted.author).toEqual({ kind: 'runtime', purpose: 'bootstrap' });
+    expect(accepted.author).toEqual({ kind: 'agent', agent: 'analyst' });
     const path = cardAcceptedRecordFile(root, card.id, accepted.source_entry_id);
     const artifact = JSON.parse(readFileSync(path, 'utf8'));
-    for (const author of [{ kind: 'agent', agent: 'executor' }, { kind: 'runtime', purpose: 'repair' }]) {
+    for (const author of [{ kind: 'external-agent', principal: 'INVALID' }, { kind: 'runtime', purpose: 'repair' }]) {
       const changed = { ...artifact, accepted: { ...artifact.accepted, author,
         ...(author.kind === 'runtime' ? { card_version_seq: 2 } : {}) } };
       writeFileSync(path, JSON.stringify(changed));
@@ -286,7 +286,7 @@ describe('exact record heads and accepted predecessor chains', () => {
         content: 'brief',
         card_version_seq: 1,
         card_history: ordinary,
-        author: { kind: 'runtime', purpose: 'bootstrap' },
+        author: { kind: 'agent', agent: 'analyst' },
       },
     });
     expect(existsSync(cardRecordHeadFile(root, card.id, definition))).toBe(false);

@@ -39,7 +39,10 @@ function projectedPrompt(
 export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): DebugGraphsResponse {
   const globalAgents = [...workflows.selectedGlobalParticipants.values()].map(
     ({ agent, prompt }) => {
-      const binding = runtimeAgentBinding(workflows, agent.name);
+      const binding =
+        agent.name === workflows.analyst.name && !workflows.internalAnalystEnabled
+          ? null
+          : runtimeAgentBinding(workflows, agent.name);
       return {
         agent_name: agent.name,
         session: { scope: 'global' as const, identity: `agent:${agent.name}:global` },
@@ -49,7 +52,10 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         },
         model: {
           route: agent.modelRoute,
-          candidates: binding.candidateChain.map(({ provider, model }) => ({ provider, model })),
+          candidates:
+            binding === null
+              ? []
+              : binding.candidateChain.map(({ provider, model }) => ({ provider, model })),
           temperature: agent.model.temperature,
           max_tokens: agent.model.maxTokens,
         },

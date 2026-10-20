@@ -160,6 +160,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
         outcome_summary: `application admission denied: ${outcome.reason}`,
       });
       result = toolFailure(`Application denied ${spec.action}: ${outcome.reason}.`, {
+        code: 'analyst_mutation_denied',
         action: spec.action,
         reason: outcome.reason,
       });

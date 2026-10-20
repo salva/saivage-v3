@@ -14,6 +14,7 @@ import { materializeConversationImage } from '../../../src/persistence/session-a
 import { conversationImageFile } from '../../../src/persistence/layout.js';
 import { globalWorkspaceObservationToolBinders } from '../../../src/tools/workspace-provider.js';
 import { projectNativeMcpResult } from '../../../src/tools/mcp-native-result.js';
+import { settleToolExecutionForLlm } from '../../../src/tools/invocation.js';
 import { settleToolActionOutcome } from '../../../src/tools/tool-result-settlement.js';
 import { agentMessageSchema, STRUCTURAL_ROW_POLICY, type ConversationSessionId } from '../../../src/schemas/index.js';
 import type { ToolResult } from '../../../src/contracts/tool-result.js';
@@ -67,12 +68,12 @@ function append(session: ConversationSessionId, tool: string, result: ToolResult
 }
 async function seed(session: ConversationSessionId, suffix: string) {
   const execution = await globalWorkspaceObservationToolBinders.find(b => b.name === 'view_image')!.bind({ projectRoot: root, agentName: 'analyst', store: cards }).executor({ path: 'source.png' }, new AbortController().signal, testLlmToolInvocationContext({ sessionId: session, toolName: 'view_image' }));
-  const result = settleToolActionOutcome(execution.providerOutcome).providerResult;
+   const result = settleToolActionOutcome(settleToolExecutionForLlm(execution, testLlmToolInvocationContext({sessionId:session})).providerOutcome).providerResult;
   if (!result.success || result.content?.[0]?.type !== 'image') throw new Error('Missing actual view_image pixels');
   const locator = append(session, 'view_image', result, 'call_0', `view-${suffix}`);
   const small = await sharp({ create: { width: 12, height: 8, channels: 3, background: '#00ff00' } }).png().toBuffer();
   const blue = await sharp({ create: { width: 30, height: 20, channels: 3, background: '#0000ff' } }).png().toBuffer();
-  const native = settleToolActionOutcome(await projectNativeMcpResult({ content: [{ type: 'text', text: `native-before ${longResult}` }, { type: 'image', data: small.toString('base64'), mimeType: 'image/png' }, { type: 'text', text: 'native-between' }, { type: 'image', data: blue.toString('base64'), mimeType: 'image/png' }] }, root, session, new AbortController().signal)).providerResult;
+   const native = settleToolActionOutcome(settleToolExecutionForLlm(await projectNativeMcpResult({ content: [{ type: 'text', text: `native-before ${longResult}` }, { type: 'image', data: small.toString('base64'), mimeType: 'image/png' }, { type: 'text', text: 'native-between' }, { type: 'image', data: blue.toString('base64'), mimeType: 'image/png' }] }, root, new AbortController().signal), testLlmToolInvocationContext({sessionId:session})).providerOutcome).providerResult;
   if (!native.success) throw new Error('Missing actual native MCP result');
   const nativeLocator = append(session, 'mcp_tool_call', native, 'call_0', `native-${suffix}/${longRequest}`);
   failedRequests.set(`${session}:${suffix}`, append(session, 'view_image', { success: false, error: `Distinct failed ${suffix} snapshot` }, 'call_0', `failed-${suffix}`).requestId);

@@ -45,7 +45,7 @@ describe('strict selected provider evidence', () => {
     const entry = row(owner, 'metadata');
     appendProviderExchangeEntry(root, owner, { ...entry, data: { ...entry.data, payload } });
     const envelope = JSON.parse(readFileSync(providerExchangeFile(root, owner), 'utf8'));
-    expect(envelope).toMatchObject({ version: 1, type: 'rows' });
+    expect(envelope).toMatchObject({ version: 2, type: 'rows' });
     const retained = readLatestProviderExchangePayload(root, owner)!;
     expect(projectProviderExchange(retained).request_params).toEqual(request_params);
     expect(() => projectProviderExchangeForPublication({ ...attempt, request_params: { ...request_params, record_fact: 'not transport metadata' } }, { assistantOutputIds: [], terminalConversationOutputId: null })).toThrow();
@@ -142,7 +142,7 @@ describe('strict selected provider evidence', () => {
     publish(root, owner, 'duplicate');
     expect(() => readProviderExchangeEntries(root, owner)).toThrow(/duplicate logical id/);
     const path = providerExchangeFile(root, owner);
-    writeFileSync(path, Buffer.from('{"version":1,"type":"rows","rows":[{"type":"event","data":{}}]}\n'));
+    writeFileSync(path, Buffer.from('{"version":2,"type":"rows","rows":[{"type":"event","data":{}}]}\n'));
     expect(() => readProviderExchangeEntries(root, owner)).toThrow(/malformed/);
     for (const bytes of [Buffer.alloc(0), Buffer.from('partial'), Buffer.from('{"version":2,"type":"rows","rows":[{}]}\n'), Buffer.from([0xff, 0x0a])]) {
       writeFileSync(path, bytes);

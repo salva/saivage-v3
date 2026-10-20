@@ -102,11 +102,11 @@ describe('offline urgent cancellation through summary, Analyst and HTTP owners',
         }),
         new ModelRouter(registry),
         registry,
-        config.compaction.context_utilization_fraction,
+        config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
       );
       const cards = new CardService(projectRoot, workflows, NO_FRESHNESS_EFFECTS);
       const processes = new ManagedProcessGroupRegistry();
-      const app = createRuntimeApplication({
+      const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
         projectRoot,
         config,
         workflows,

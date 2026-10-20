@@ -126,6 +126,7 @@ export function testLlmToolInvocationContext(overrides: Partial<ToolInvocationId
   let lease: ChildInvocationLease | null = null;
   return Object.freeze({
     ...identity,
+    kind: 'llm',
     waits: Object.freeze({
       waitExternal: <T>(promise: Promise<T>) => promise,
       waitProcess: <T>(_processId: string, promise: Promise<T>) => promise,
@@ -147,7 +148,7 @@ export const testAutonomousCompaction = {
   compactionConfig: testCompactionPolicy,
   summarizerProvider: unusedSummarizerProvider,
   mcpToolInvocation: unusedMcpToolInvocation,
-  workflows: (()=>{const registry=new ProviderRegistry(TEST_SAIVAGE_CONFIG);return bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(registry),registry,TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction);})(),
+  workflows: (()=>{const registry=new ProviderRegistry(TEST_SAIVAGE_CONFIG);return bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(registry),registry,TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction, { internalAnalystEnabled: true });})(),
 };
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {

@@ -49,10 +49,34 @@ import { compileProjectWorkflows, bindRuntimeWorkflows } from '../../src/runtime
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
+import { ExternalAnalystOperations } from '../../src/application/external-analyst-operations.js';
 
 const mode = process.argv[2];
 const path = process.argv[3];
 const fatalPort = createApplicationFatalPort();
+if (mode === 'external-analyst-publication' || mode === 'external-analyst-cleanup-publication') {
+  if (!path) throw new Error('marker path required');
+  const mark = (label: string) => appendFileSync(path, `${label}\n`);
+  const processes=createTestProcessRunner(dirname(path));
+  const tool=defineTool({name:'fatal',description:'Synthetic fatal fixture',resultPolicyTemplate:OPERATIONAL_RESULT_POLICY_TEMPLATE,inputSchema:z.object({}),
+    executor:async()=>{
+      mark('entered');
+      if(mode==='external-analyst-cleanup-publication')await new Promise<never>(()=>{});
+      throw new PublicationOutcomeUnknownError();
+    }});
+  const operations=new ExternalAnalystOperations({projectRoot:dirname(path),projectIdentityDigest:'a'.repeat(64),principal:'fixture',
+    surface:{agentName:'analyst',tools:new Map([['fatal',tool]]),providers:[]},processRunner:processes.processRunner,
+    directScope:processes.processRunner.createDirectScope(processes.registry.rootScope,'external:fixture','operator_session'),fatalPort,
+    onOwnerFailure:()=>{mark('ordinary-failure');}});
+  if(mode==='external-analyst-cleanup-publication') {
+    processes.processRunner.closeAndTerminateDirectScope=async()=>{mark('uncertain-containment');throw new PublicationOutcomeUnknownError();};
+    void operations.invoke('fatal',{});
+    await operations.cleanupForApplicationStop();mark('followup');
+  } else {
+    try {await operations.invoke('fatal',{});mark('response');}
+    finally {mark('cleanup');await operations.cleanupForApplicationStop();}
+  }
+}
 if (mode === 'action-node-publication' || mode === 'card-hook-publication' || mode === 'stdout-artifact-publication' || mode === 'stdout-head-publication' || mode === 'stdout-short-read') {
   if (!path) throw new Error('marker path required');
   const root = dirname(path);
@@ -103,7 +127,7 @@ if (mode === 'action-node-publication' || mode === 'card-hook-publication' || mo
     },
   } } }] });
   const registry = new ProviderRegistry(config);
-  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
   initProjectTree(root);
   const processes = createTestProcessRunner(root);
   processes.processRunner = new ProcessRunner(root, processes.registry, fatalPort);

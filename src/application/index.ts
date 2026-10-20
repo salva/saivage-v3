@@ -15,6 +15,13 @@ export type {
 export type { ActorRuntimeReadModel } from './read-models/actor-runtime-read-model.js';
 export { OperatorRuntimeHttpClient } from './operator-runtime-http-client.js';
 export { createRuntimeApplication } from './runtime-composition.js';
+export { createAnalystOperationSurface } from './analyst-operation-surface.js';
+export { recordExternalToolCall } from './external-tool-call.js';
+export {
+  ExternalAnalystOperations,
+  ExternalAnalystClosedError,
+  ExternalAnalystExecutionError,
+} from './external-analyst-operations.js';
 export type { RuntimeApplication } from './runtime-composition.js';
 export { EventQueryService, EVENT_QUERY_MAX_LIMIT } from './event-query-service.js';
 export {

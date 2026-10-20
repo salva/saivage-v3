@@ -29,7 +29,7 @@ function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): Card
 
 function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] })), submitNotification: (...args: any[]) => any = jest.fn(async (cardId: string, notification: { id: string }) => ({ queued: true as const, cardId, notificationId: notification.id, interruption: { status: 'not_requested' as const } }))) {
   if (!('workflows' in store)) Object.assign(store, { workflows: TEST_WORKFLOWS });
-  return createAnalystMutationServices({ store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, submitNotification, cancelCard });
+  return createAnalystMutationServices({ author: { kind: 'agent', agent: 'analyst' }, allowedTools: store.workflows.analyst.tools.map(({ name }) => name), store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, submitNotification, cancelCard });
 }
 
 describe('analyst card mutation service deletion', () => {
@@ -366,7 +366,7 @@ describe('other Analyst mutation facets', () => {
 
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
-    const bundle = createAnalystMutationServices({ store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn((_id, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), submitNotification: jest.fn() as never, cancelCard: jest.fn() as never });
+    const bundle = createAnalystMutationServices({ author: { kind: 'agent', agent: 'analyst' }, allowedTools: [], store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn((_id, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), submitNotification: jest.fn() as never, cancelCard: jest.fn() as never });
     expect(bundle.config.apply({ kind: 'set_server_setting', key: 'host', value: '127.0.0.1' })).toMatchObject({ kind: 'returned', success: true });
     expect(applyChange).toHaveBeenCalledTimes(1);
   });

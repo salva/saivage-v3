@@ -409,7 +409,7 @@ export class ConversationLLMActor {
         return parked.childLease;
       },
     });
-    parked.toolContext = Object.freeze({ ...identity, waits, childInvocation });
+    parked.toolContext = Object.freeze({ kind: 'llm', ...identity, waits, childInvocation });
     return parked.toolContext;
   }
 

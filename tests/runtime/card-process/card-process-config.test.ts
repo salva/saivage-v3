@@ -106,7 +106,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(workflow.processPrompts.get(agentExecution(plan).prompt.promptId)?.text).toBe(baseline.processPrompts.get('plan' as never)?.text);
     config.providers={test:{models:['gpt-5.6','gpt-6.1-sol'],capabilities:{transportProtocol:'openai-responses',contextWindowTokens:100_000,maxOutputTokens:10_000}}};
     const registry=new ProviderRegistry(config);
-    const bound=bindRuntimeWorkflows(compiled,new ModelRouter(registry),registry,config.compaction.context_utilization_fraction);
+    const bound=bindRuntimeWorkflows(compiled,new ModelRouter(registry),registry,config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const graph=projectCompiledGraphs(bound).graphs.find(({card_type})=>card_type==='goal')!;
     expect(projectCompiledGraphs(bound).global_agents.find(({agent_name})=>agent_name==='analyst')?.prompt.declaration).toEqual({reference:'analyst',compactable:false});
     expect(agentExecution(graph.nodes.find(({node_id})=>node_id==='plan')!)?.prompt).toMatchObject({
@@ -133,7 +133,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(()=>saivageConfigSchema.parse(missing)).toThrow();
     const config=source();config.oversight.enabled=false;delete config.models.routes.oversight;
     const registry=new ProviderRegistry(config);
-    expect(()=>bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction)).toThrow(/route 'oversight'/i);
+    expect(()=>bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction, { internalAnalystEnabled: true })).toThrow(/route 'oversight'/i);
   });
   it('derives planning eligibility from custom recipient capabilities rather than role or type spelling',()=>{
     const config=source();
@@ -246,7 +246,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const project=structuredClone(config.card_types.project!);project.permitted_child_types=['leaf-plan'];
     const leaf=structuredClone(config.card_types.goal!);leaf.permitted_child_types=[];
     config.card_types={project,'leaf-plan':leaf};
-    const registry=new ProviderRegistry(config);const bound=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction);
+    const registry=new ProviderRegistry(config);const bound=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const graphs=projectCompiledGraphs(bound).graphs;
     expect(graphs.map((graph)=>graph.card_type)).toEqual(['project','leaf-plan']);
     const projectPlan=graphs[0]!.nodes.find((node)=>node.node_id==='plan')!;
@@ -580,9 +580,9 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('binds configured provider candidates once and fails when a required route has none',()=>{
-    const valid=source();valid.providers={test:{models:['gpt-5.6','gpt-6.1-sol'],capabilities:{transportProtocol:'openai-responses',contextWindowTokens:100_000,maxOutputTokens:10_000}}};const structural=compileProjectWorkflows(valid);const registry=new ProviderRegistry(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(registry),registry,valid.compaction.context_utilization_fraction);
+    const valid=source();valid.providers={test:{models:['gpt-5.6','gpt-6.1-sol'],capabilities:{transportProtocol:'openai-responses',contextWindowTokens:100_000,maxOutputTokens:10_000}}};const structural=compileProjectWorkflows(valid);const registry=new ProviderRegistry(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(registry),registry,valid.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     expect(bound.runtimeBound).toBe(true);expect(bound.agentBindings.get('reviewer')?.candidateChain).toEqual([expect.objectContaining({provider:'test',model:'gpt-6.1-sol'})]);
-    const unavailable=source();const unbound=compileProjectWorkflows(unavailable);const unavailableRegistry=new ProviderRegistry(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(unavailableRegistry),unavailableRegistry,unavailable.compaction.context_utilization_fraction)).toThrow(/no capability-compatible configured provider candidate/);
+    const unavailable=source();const unbound=compileProjectWorkflows(unavailable);const unavailableRegistry=new ProviderRegistry(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(unavailableRegistry),unavailableRegistry,unavailable.compaction.context_utilization_fraction, { internalAnalystEnabled: true })).toThrow(/no capability-compatible configured provider candidate/);
   });
 
   it('rejects missing agents, invalid record-write authority, invalid child authority, and graph defects',()=>{

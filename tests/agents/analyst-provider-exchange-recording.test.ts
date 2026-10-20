@@ -109,14 +109,14 @@ describe('production-composed Analyst provider-exchange recording', () => {
         compileProjectWorkflows(config),
         new ModelRouter(registry),
         registry,
-        config.compaction.context_utilization_fraction,
+        config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
       );
       const processRegistry = new ManagedProcessGroupRegistry();
       const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
       const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
       const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
       const cardStore = new CardService(projectRoot, workflows, hub);
-      const app = createRuntimeApplication({
+      const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
         projectRoot,
         processIdentity: { pid: 42, startedAt: '2026-07-26T11:00:00.000Z' },
         config,

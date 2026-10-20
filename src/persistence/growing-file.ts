@@ -43,7 +43,7 @@ const growingFileTruncationIo: GrowingFileTruncationIo = {
 
 const envelopeSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     type: z.literal('rows'),
     rows: z.array(z.unknown()).min(1),
   })
@@ -51,7 +51,7 @@ const envelopeSchema = z
 
 export function serializeGrowingEnvelope<Row>(rows: readonly Row[]): Buffer {
   if (!rows.length) throw new Error('Growing envelope requires at least one row.');
-  return Buffer.from(`${JSON.stringify({ version: 1, type: 'rows', rows })}\n`);
+  return Buffer.from(`${JSON.stringify({ version: 2, type: 'rows', rows })}\n`);
 }
 
 function parseEnvelopeLine<Row>(

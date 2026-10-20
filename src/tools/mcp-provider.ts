@@ -154,9 +154,10 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
       try {
         const options = {
           signal,
-          observationSource: invocation
-            ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
-            : undefined,
+          observationSource:
+            invocation?.kind === 'llm'
+              ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+              : undefined,
         };
         let result;
         switch (args.action) {
@@ -248,9 +249,10 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
           args.bindingId,
           {
             signal,
-            observationSource: invocation
-              ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
-              : undefined,
+            observationSource:
+              invocation?.kind === 'llm'
+                ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+                : undefined,
           },
         );
         return executedToolOutcome('none', toolSucceeded(result));
@@ -280,10 +282,10 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
           args.args ?? {},
           {
             signal,
-            observationSource: projectOutboundSource(
-              invocation.sessionId,
-              invocation.sourceInputId,
-            ),
+            observationSource:
+              invocation.kind === 'llm'
+                ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+                : undefined,
           },
         );
       } catch (error) {
@@ -296,21 +298,13 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
           toolFailed(boundedMcpError(error instanceof Error ? error.message : String(error))),
         );
       }
-      let outcome;
       try {
-        outcome = await projectNativeMcpResult(
-          value,
-          ctx.projectRoot,
-          invocation.sessionId,
-          signal,
-          args.max_dimension,
-        );
+        return await projectNativeMcpResult(value, ctx.projectRoot, signal, args.max_dimension);
       } catch (error) {
         if (!(error instanceof ImageInputError)) throw error;
         signal.throwIfAborted();
-        outcome = toolFailed(boundedMcpError(error.message));
+        return executedToolOutcome('none', toolFailed(boundedMcpError(error.message)));
       }
-      return executedToolOutcome('none', outcome);
     },
   }),
 ]);

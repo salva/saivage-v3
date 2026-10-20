@@ -351,6 +351,8 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const notifyCard = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
     let beforeOwner: Buffer | undefined;
     const mutations = createAnalystMutationServices({
+      author: { kind: 'agent', agent: 'analyst' },
+      allowedTools: ['cancel_card'],
       store: h.cards, configAuthority: {} as never, notifyCard, submitNotification: jest.fn() as never,
       cancelCard: async (id, reason) => {
         h.cards.setStatus(id, 'running');
@@ -875,7 +877,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       compiled,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     let archId = '';
     let rootCalls = 0;

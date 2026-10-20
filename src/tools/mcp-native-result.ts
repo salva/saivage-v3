@@ -1,16 +1,12 @@
 import type { NativeMcpResult } from '../mcp/tool-api.js';
-import {
-  MAX_IMAGE_SOURCE_BYTES,
-  toolContentSucceeded,
-  toolFailed,
-  toolSucceeded,
-  type ToolActionOutcome,
-  type ToolResultContentBlock,
-} from '../contracts/index.js';
-import type { ConversationSessionId } from '../schemas/index.js';
+import { MAX_IMAGE_SOURCE_BYTES, toolFailed, toolSucceeded } from '../contracts/index.js';
 import { canonicalJson } from '../schemas/index.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
-import { publishConversationImage } from '../persistence/session-api.js';
+import {
+  executedToolOutcome,
+  type ToolExecutionResult,
+  type ProducedToolContent,
+} from './invocation.js';
 import { normalizeImage } from './image-decode.js';
 import { ImageInputError } from './image-input-error.js';
 
@@ -20,10 +16,9 @@ const NATIVE_TOOL_ERROR = 'MCP tool reported an error; effects may have occurred
 export async function projectNativeMcpResult(
   value: NativeMcpResult,
   projectRoot: string,
-  sessionId: ConversationSessionId,
   signal: AbortSignal,
   maxDimension: number | 'original' = 1600,
-): Promise<ToolActionOutcome> {
+): Promise<ToolExecutionResult<'none'>> {
   signal.throwIfAborted();
   const { content, ...envelope } = value;
   const data: Record<string, unknown> = { result: projectDynamicForOutbound(envelope) };
@@ -96,22 +91,23 @@ export async function projectNativeMcpResult(
     throw new ImageInputError('Complete native MCP text/JSON exceeds 1 MiB.');
   if (value.isError) {
     data.content = text;
-    return toolFailed(NATIVE_TOOL_ERROR, data);
+    return executedToolOutcome('none', toolFailed(NATIVE_TOOL_ERROR, data));
   }
-  // No await or input conversion between this fence and the synchronous publications.
+  // Normalization is complete; only real LLM settlement publishes conversation images.
   signal.throwIfAborted();
-  const selectedContent: ToolResultContentBlock[] = blocks.map((block) =>
+  const selectedContent: ProducedToolContent[] = blocks.map((block) =>
     block.type === 'text'
       ? block
       : {
           type: 'image',
-          image: publishConversationImage(
-            projectRoot,
-            sessionId,
-            block.selected.bytes,
-            block.selected.data.sent_dimensions,
-          ),
+          bytes: block.selected.bytes,
+          dimensions: block.selected.data.sent_dimensions,
         },
   );
-  return selectedContent.length ? toolContentSucceeded(data, selectedContent) : toolSucceeded(data);
+  return {
+    ...executedToolOutcome('none', toolSucceeded(data)),
+    ...(selectedContent.length
+      ? { producedContent: { projectRoot, blocks: selectedContent } }
+      : {}),
+  };
 }

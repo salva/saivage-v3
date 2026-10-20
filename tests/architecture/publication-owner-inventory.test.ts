@@ -205,6 +205,7 @@ describe('source-derived publication owner inventory', () => {
       return count === 0 ? [] : [[relativePath(path), count]];
     }));
     expect(publicCallerInventory).toEqual({
+      'src/application/external-analyst-operations.ts': 1,
       'src/application/runtime-composition.ts': 2,
       'src/mcp/mcp-manager.ts': 1,
       'src/mcp/server-runtime.ts': 1,

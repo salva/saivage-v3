@@ -20,7 +20,7 @@ const SCRIPT = join(process.cwd(), 'scripts/verify-doc-routes.js');
 jest.setTimeout(240_000);
 const CUTOVERS = JSON.parse(readFileSync(join(process.cwd(), 'tests/fixtures/doc-value-contracts/cutover-paragraphs.json'), 'utf8'));
 const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
-const PROCESS_PATHS = ['src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
+const PROCESS_PATHS = ['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
 const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
 const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/tools/mcp-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
 const EXPECTED_CATALOG = {
@@ -317,6 +317,7 @@ const CONSTANT_OCCURRENCE_MUTATIONS = CONSTANT_OCCURRENCE_SPECS.flatMap(([path, 
   return Array.from({ length: count }, (_, index) => [`${path} ${token} occurrence ${index + 1}`, path, token, index]);
 });
 const TERM_DEFAULT_CALL_MUTATIONS = [
+  ['src/application/external-analyst-operations.ts', '.closeAndTerminateDirectScope({'],
   ['src/application/runtime-composition.ts', 'processRunner.closeAndTerminateDirectScope({'],
   ['src/application/runtime-composition.ts', 'processRunner.terminateScopeTree({'],
   ['src/mcp/mcp-manager.ts', 'processRunner.terminateScopeTree({'],

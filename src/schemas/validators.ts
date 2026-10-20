@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { externalActorSchema } from './operation-author.js';
 import { uuidV4Schema } from './uuid.js';
 
 import { sha256Hex } from './sha256.js';
@@ -29,12 +30,18 @@ export const cardActionSchema = z.enum(cardActionValues);
 export const positiveSafeIntegerSchema = z.number().int().safe().positive();
 export const urgencySchema = z.enum(urgencyValues);
 const createdBySchema = z.union([
+  externalActorSchema,
   agentNameSchema,
   z.literal('runtime:bootstrap'),
   z.literal('runtime:repair'),
 ]);
-const noteAuthorSchema = z.union([z.literal('user'), z.literal('runtime'), agentNameSchema]);
-const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
+const noteAuthorSchema = z.union([
+  z.literal('user'),
+  z.literal('runtime'),
+  agentNameSchema,
+  externalActorSchema,
+]);
+const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui', 'mcp']);
 export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotification> = z
   .object({
     id: uuidV4Schema,

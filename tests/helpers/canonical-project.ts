@@ -15,7 +15,7 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 
 export const TEST_WORKFLOWS=compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
 const TEST_PROVIDER_REGISTRY=new ProviderRegistry(TEST_SAIVAGE_CONFIG);
-export const TEST_RUNTIME_WORKFLOWS=bindRuntimeWorkflows(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),new ModelRouter(TEST_PROVIDER_REGISTRY),TEST_PROVIDER_REGISTRY,TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction);
+export const TEST_RUNTIME_WORKFLOWS=bindRuntimeWorkflows(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),new ModelRouter(TEST_PROVIDER_REGISTRY),TEST_PROVIDER_REGISTRY,TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
 
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
@@ -47,6 +47,8 @@ export class CardService extends ProductionCardService {
 
 export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService, notifyCard: (...args: any[]) => any): AnalystMutationServices {
   return createAnalystMutationServices({
+    author: { kind: 'agent', agent: store.workflows.analyst.name },
+    allowedTools: store.workflows.analyst.tools.map(({ name }) => name),
     store,
     configAuthority: testConfigAuthority(projectRoot),
     notifyCard,

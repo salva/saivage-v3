@@ -203,7 +203,7 @@ contracts the current Card Cockpit implements.
 ## 1. Product model
 
 - Projection-oriented inspection with Analyst-mediated mutation. Project start,
-  stop, pause, and resume are requested through the Analyst conversation, not
+  stop, pause, and resume are requested through enabled internal Analyst chat or configured external MCP tools, not
   direct UI controls. The sole direct runtime mutation is capability-gated,
   confirmed **Restart server**; it does not start project work. Agent-owned
   cards, records, notifications, processes, routes, and settings gain no direct
@@ -431,9 +431,11 @@ Plain resource reads cancel their pending request when their owner departs. Supe
 ## 5. Records, versions, and diffs
 
 Accepted records expose the strict `author` union, not `writer_agent`.
-Records shows **Agent · name**, **Runtime · bootstrap/repair**, or
+Records shows **Agent · name**, **External credential holder · principal**,
+**Runtime · bootstrap/repair**, or
 **Shell stdout · shell.run · node · disposition** for the selected accepted
-content, alongside its positive accepted document version. Shell stdout is a
+content, alongside its positive accepted document version. An external
+credential-holder label is not proof of a particular person or model. Shell stdout is a
 captured command report, not an agent verdict or approval. `failed`, `signalled`
 and `timed_out` remain factual dispositions even when a complete capture was
 published; complete capture does not mean complete program work. Executions and
@@ -535,7 +537,7 @@ configuration, not evidence that a report was published or a verdict accepted.
   revision and accepted source revision remain distinct.
 - Catalogs contain only retained ordinary card or accepted record entries; totals count entries, not maximum revisions. Current revision need not have a selectable artifact. Loaded catalogs do not veto exact card/record version requests: success or missing selection comes from the server, with selection-local errors preserving current detail. Explicit absent selectors show a local error, never a first-entry/nearest fallback. Current draft is not synthesized into history and has no immutable locator; current record URLs remain reusable, with nullable `accepted_version_url` separately linking latest acceptance.
 - Card diffs tag their target as `{kind:'version',version}` or `{kind:'current',head_id,version_seq,history_version}`. Record current-side diffs tag `head_id` and mutable revision separately from immutable accepted sides. Card detail and current record metadata/content require the exact published head UUID; numeric revisions alone are not current selection identity. Accepted browser resource scopes retain that identity without inventing an immutable draft locator or a new verdict from old reviewer text. Redaction precedes comparison. Files `card.json` projects current head identity/metadata and selected ordinary content; `card.json?v=N` projects exact immutable history. Sizes/hashes/times describe those virtual bytes, never physical heads/history/mailbox files. Previous slots have no UI/browser or ordinary read API and are never a fallback.
-- Card history `card`/`final_card` uses the strict minimal outbound card shape: no nine null-only placeholders (`subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report`, `metadata`). Lifecycle workflow results identify the actual agent/action executor. Files historical ordinary/tombstone wrappers use format3; current `card-current` remains versionless. Historical opaque tool results remain recorded facts, not current card objects.
+- Card history `card`/`final_card` uses the strict minimal outbound card shape: no nine null-only placeholders (`subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report`, `metadata`). Lifecycle workflow results identify the actual agent/action executor. Files historical ordinary/tombstone wrappers use format4; current `card-current` remains versionless. Historical opaque tool results remain recorded facts, not current card objects.
 - Accepted provenance displays observed `card_version_seq` separately from `card_history_version` and its immutable ordinary locator. Queue-only current revisions never become fabricated historical URLs. Current draft and latest accepted content remain visibly distinct. Pending-only mailbox reachability promises neither a queue audit nor physical erasure; delivered conversation text remains independently readable, and private mailbox paths/bodies never leak through Files.
 - A lifecycle result is neutrally labeled **Recorded result**, with its summary
   quoted through the existing bounded one-liner and complete JSON/provenance one
@@ -810,6 +812,17 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   conversation consumer are never mounted together.
 
 ## 7. Analyst panel
+
+- Mount the interactive desktop/mobile Analyst pane only after backend identity resolves with `internal_enabled:true`, except while its exact read-only inspector owns the transcript. Pending/error availability mounts no composer and never authorizes sending. Availability failure remains visible. Suppression removes the pane, skip link/target, mobile tab/activity indicator and focus shortcut/help entry, and gives the workspace its width back. The exact disabled Analyst inspector explains that interaction is disabled and retained history is read-only. Hiding never deletes browser drafts or server history. Internal/both retain ordinary busy, draft, navigation and focus behavior. External operations are visible through canonical records and bounded audit projections, never synthesized chat messages.
+
+- The backend identity response is exactly `session_id`, `mode`
+  (`internal|external|both`), `internal_enabled` and `external_enabled`.
+  These capabilities expose no listener port, credential or allowlist. External-only
+  `POST /api/chat` fails409 with `{error:'analyst_disabled',message:'Internal Analyst interaction is disabled.'}`
+  before actor/provider/ingress, including direct application submission. Retained
+  identity and exact read-only history routes remain available. External settled
+  receipts use authenticated `GET /api/external-tool-calls` and are not conversation
+  turns, provider evidence or verified model/person identities.
 
 - The Analyst is shared, not a private browser task. Busy denial preserves
   newer draft edits, is not queued or retried, and browser closure is not

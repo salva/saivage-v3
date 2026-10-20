@@ -14,8 +14,15 @@ import { providerConversationProjection } from '../../src/runtime/actors/convers
 import type { ProviderConversationItem } from '../../src/contracts/index.js';
 import { agentMessageSchema, canonicalJson, conversationSessionIdentity, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { buildPreparedInvocationContext, compileInvocationToolContract } from '../../src/runtime/actors/context/context-blocks.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
+import { workspaceToolBinders } from '../../src/tools/workspace-provider.js';
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
+import { invokeToolForLlm, llmToolDefinition } from '../../src/tools/invocation.js';
+import { appendLlmTurnToolCallBatch, appendToolResult } from '../../src/runtime/actors/llm-delivery-log.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
@@ -46,6 +53,51 @@ const config: AutonomousCompactionPolicy = { context_utilization_fraction: 0.8, 
 const TEST_CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
 
 describe('Stage-I versioned compaction', () => {
+  it('strictly reads, materializes and compacts real externally authored card/record observations without changing conversation 12', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'external-author-conversation-')); initProjectTree(root);
+    try {
+      const store = new CardService(root);
+      const child = store.create({ parent: 'project', type: 'code', title: 'Externally commissioned work', bootstrap_content: 'Externally authored requirements retained as evidence.',
+        priority: 50, urgency: 'normal', created_by: 'external:operator-one', depends_on: [] });
+      expect(store.readRecordCurrent(child.id, 'brief.md')).toMatchObject({kind:'found',value:{projection:{accepted:{author:{kind:'external-agent',principal:'operator-one'}}}}});
+      const surface = buildInvocationSurfaceFixture('planner', [
+        bindToolProvider('cards', cardInspectionToolBinders, {store, cardTypeVocabulary:store.workflows.cardTypeVocabulary}),
+        bindToolProvider('workspace', workspaceToolBinders, {projectRoot:root, cardId:'project', agentName:'planner', store}),
+      ]);
+      appendRound(root, 1);
+      const results: string[] = [];
+      for (const [index, [name, args]] of ([['get_card', {id:child.id, section:'summary'}], ['read', {path:`record:///brief.md?card=${child.id}`}]] as const).entries()) {
+        const input = {...invocationFor(SESSION, []), inputId:`00000000-0000-4000-8000-${String(index + 100).padStart(12, '0')}`};
+        const definition = surface.tools.get(name)!;
+        const resultPolicy = compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate);
+        const toolCall = {id:`external-observation-${index}`,type:'function' as const,function:{name,arguments:JSON.stringify(args)}};
+        appendLlmTurnToolCallBatch({projectRoot:root}, input, toolCall, resultPolicy);
+        const settlement = await invokeToolForLlm(surface, name, args, testLlmToolInvocationContext({toolName:name}));
+        const facts = appendToolResult({projectRoot:root}, {session_id:SESSION,source_input_id:input.inputId,tool_call_id:toolCall.id,tool_name:name,resultPolicy,settlement});
+        expect(facts.providerResult.success).toBe(true);
+        results.push(facts.settledResultBytes);
+      }
+      const before = readCurrentConversationSegment(root, SESSION)!;
+      expect(before.genesis.format_version).toBe(12);
+      const recordResult = before.rows.find(row=>row.kind==='tool_result' && row.tool==='read')!;
+      expect(recordResult.record_observations?.length).toBeGreaterThan(0);
+      expect(recordResult.record_observations?.every(({observed})=>!('author' in observed))).toBe(true);
+      const materialized = providerConversationProjection(before.conversation, []);
+      for (const content of results) expect(materialized.messages.some(row=>row.content===content)).toBe(true);
+      for (let ordinal=2; ordinal<=7; ordinal++) appendRound(root, ordinal, 4000);
+      const source = readConversation(root, SESSION);
+      const summaryInputs: string[] = [];
+      const result = await compact({summaryRefusal:null,strategy:'preventive',conversations:{projectRoot:root},input:invocationFor(SESSION, providerConversationProjection(source, []).messages),
+        summarizerProvider:{materializeImage:async()=>{throw new Error('Unexpected image.');},candidate:TEST_CANDIDATE,contextWindowTokens:100_000,maxOutputTokens:10_000,
+          serializeSummaryRequest:deterministicSummarySerialization,completeTurn:async(input)=>{summaryInputs.push(...input.providerConversation.messages.map(row=>row.content));return {result:{kind:'message',content:'Summary of externally commissioned work.'},provider_exchanges:[]};},projectProviderExchanges:jest.fn()},
+        signal:new AbortController().signal,progress:noCompactionProgress});
+      expect(result.kind).toBe('compacted');
+      for (const content of results) expect(summaryInputs.some(text=>text.includes(content))).toBe(true);
+      expect(readHistoricalConversationSegment(root,SESSION,1).rows.filter(row=>row.kind==='tool_result').map(row=>row.content)).toEqual(results);
+      expect(readCurrentConversationSegment(root,SESSION)!.genesis.format_version).toBe(12);
+    } finally {rmSync(root,{recursive:true,force:true});}
+  });
+
   it('derives prepared route capacity and the configured tail budget', () => {
     const prepared = prepareCompaction(config, 'system', [], 8_000, 2_000); expect(prepared.requestedCompletionTokens).toBe(2000);
     const messages: AgentMessage[] = [{ id: 'm', session_id: 'agent:planner:project', role: 'user', kind: 'text', content: 'x'.repeat(4000), context_policy: TEXT_ROW_POLICY, round_id: `r-user-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp: '2026-08-11T00:00:00.000Z' }];
@@ -429,7 +481,7 @@ describe('Stage-I versioned compaction', () => {
         'sol-fixture': { models: [sol.model], apiKey: 'synthetic-sol-key', baseUrl: 'https://sol.example.test/v1', capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 120_000, maxOutputTokens: 8_192 } },
       };
       const registry = new ProviderRegistry(registryConfig);
-      const workflows = bindRuntimeWorkflows(compileProjectWorkflows(registryConfig), new ModelRouter(registry), registry, policy.context_utilization_fraction);
+      const workflows = bindRuntimeWorkflows(compileProjectWorkflows(registryConfig), new ModelRouter(registry), registry, policy.context_utilization_fraction, { internalAnalystEnabled: true });
       const plannerBinding = runtimeAgentBinding(workflows, 'planner');
       expect(plannerBinding.candidateChain).toEqual([astra]);
       expect(plannerBinding.routeUsableInputTokens).toBe(835_904);

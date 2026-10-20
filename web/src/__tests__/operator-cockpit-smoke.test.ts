@@ -83,7 +83,7 @@ function installOperatorApiFetch(): void {
           files: [],
         });
       case '/api/chat':
-        return jsonResponse({ session_id: 'agent:analyst:global' });
+        return jsonResponse({ session_id: 'agent:analyst:global', mode: 'internal', internal_enabled: true, external_enabled: false });
       default:
         return new Response(JSON.stringify({ message: `Unhandled operator route smoke URL: ${url.pathname}` }), {
           status: 404,

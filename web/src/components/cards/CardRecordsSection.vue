@@ -82,6 +82,7 @@ function contentValue(name: RecordName) { const content = value(name).content; r
 function authorLabel(author: RecordVersionContentResponse['artifact']['accepted']['author']): string {
   switch (author.kind) {
     case 'agent': return `Agent · ${author.agent}`;
+    case 'external-agent': return `External credential holder · ${author.principal}`;
     case 'runtime': return `Runtime · ${author.purpose}`;
     case 'shell-stdout': return `Shell stdout · shell.run · ${author.node_id} · ${author.outcome}`;
   }

@@ -3,11 +3,13 @@ export {
   EMIT_RESULT_POLICY_TEMPLATE,
   executedNoneSettlement,
   invokeToolForLlm,
+  invokeTool,
   surfaceToolDefinitions,
   syntheticToolSettlement,
   UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE,
 } from './invocation.js';
-export type { InvocationSurface, ToolSettlementInput } from './invocation.js';
+export type { InvocationSurface, ToolSettlementInput, ToolExecutionContext } from './invocation.js';
+export { projectExternalToolResult } from './tool-result-settlement.js';
 export {
   BoundAgentToolSet,
   effectiveCardNodeToolReferences,

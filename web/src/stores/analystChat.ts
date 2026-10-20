@@ -66,7 +66,7 @@ type PendingMessage = {
 
 type AnalystIdentityState =
   | { kind: 'pending' }
-  | { kind: 'resolved'; sessionId: ConversationSessionId }
+  | { kind: 'resolved'; sessionId: ConversationSessionId; internalEnabled: boolean; mode: 'internal' | 'external' | 'both' }
   | { kind: 'failed'; error: DetailErrorState };
 
 function authoritativeContainsPending(
@@ -87,6 +87,9 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   let identityController: AbortController | null = null;
   const mutableIdentityState = shallowRef<AnalystIdentityState>({ kind: 'pending' });
   const identityState = readonly(mutableIdentityState);
+  const internalEnabled = computed(() =>
+    mutableIdentityState.value.kind === 'resolved' && mutableIdentityState.value.internalEnabled,
+  );
   const activeSessionId = computed(() =>
     mutableIdentityState.value.kind === 'resolved'
       ? mutableIdentityState.value.sessionId
@@ -184,7 +187,10 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     try {
       const identity = await getChatEntries(owner.controller.signal);
       if (owner.epoch !== identityEpoch || identityController !== owner.controller) return;
-      mutableIdentityState.value = { kind: 'resolved', sessionId: identity.session_id };
+      mutableIdentityState.value = {
+        kind: 'resolved', sessionId: identity.session_id,
+        internalEnabled: identity.internal_enabled, mode: identity.mode,
+      };
       handoff.value = {
         identityEpoch: owner.epoch,
         sessionId: identity.session_id,
@@ -265,6 +271,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   }
 
   async function sendMessage(): Promise<void> {
+    if (!internalEnabled.value) throw new Error('Internal Analyst interaction is unavailable.');
     if (sending.value) return;
     const content = draft.value.trim();
     if (!content) return;
@@ -322,7 +329,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       }
     } catch (err) {
       if (sendAccepted) throw err;
-      sendError.value = isOperatorApiError(err, 'chats.send', 409)
+      sendError.value = isOperatorApiError(err, 'chats.send', 409) && err.data.error === 'analyst_turn_busy'
         ? {
             kind: 'busy',
             status: 409,
@@ -344,6 +351,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     acceptedSegmentId: readonly(acceptedSegmentId),
     acceptedSegmentVersion: readonly(acceptedSegmentVersion),
     identityState,
+    internalEnabled,
     activeSessionId,
     messages,
     draft,

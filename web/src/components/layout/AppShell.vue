@@ -7,13 +7,19 @@
     ]"
   >
     <a href="#main-content" class="skip-link">Skip to content</a>
-    <a href="#analyst-pane" class="skip-link">Skip to Analyst</a>
+    <a v-if="showAnalystPane" href="#analyst-pane" class="skip-link">Skip to Analyst</a>
 
     <div class="workspace-shell">
       <GlobalStrip />
 
       <main id="main-content" class="workspace-content" tabindex="-1">
         <div class="workspace-route-host">
+          <div v-if="analystChat.identityState.kind === 'failed' && route.name !== 'agent-detail'" role="alert">
+            Analyst availability is unavailable. {{ analystChat.identityState.error.message }}
+          </div>
+          <div v-if="inspectingDisabledAnalyst" class="analyst-disabled-notice" role="status">
+            Internal Analyst interaction is disabled. Retained history is read-only; external operations do not create chat messages.
+          </div>
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
               <component v-if="workspacePresentation === 'component'" :is="Component" />
@@ -46,7 +52,7 @@
       <AnalystChatPanel />
     </div>
 
-    <nav class="mobile-pane-switch" aria-label="Switch pane">
+    <nav v-if="showAnalystPane" class="mobile-pane-switch" aria-label="Switch pane">
       <button
         type="button"
         class="pane-tab"
@@ -92,7 +98,7 @@
             <dt><kbd>1</kbd>–<kbd>3</kbd></dt>
             <dd>Switch workspace destination (Cockpit, Files, System)</dd>
           </div>
-          <div class="shortcut-row">
+          <div v-if="showAnalystPane" class="shortcut-row">
             <dt><kbd>/</kbd></dt>
             <dd>Focus Analyst chat</dd>
           </div>
@@ -113,7 +119,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { storeToRefs } from 'pinia';
 import GlobalStrip from './GlobalStrip.vue';
 import AnalystChatPanel from '../chat/AnalystChatPanel.vue';
 import GlobalToaster from '../feedback/GlobalToaster.vue';
@@ -131,17 +136,22 @@ const router = useRouter();
 const projectName = computed(() => runtimeStore.projectId ?? 'saivage');
 const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
 const showShortcutHelp = ref(false);
-const analystActivityDot = computed(() => analystChat.sending);
-const showAnalystPane = ref(true);
+const analystActivityDot = computed(() => analystChat.internalEnabled && analystChat.sending);
+const showAnalystPane = ref(false);
 const workspacePresentation = ref<
   'component' | 'identity-pending' | 'identity-failed' | 'teardown'
 >('component');
 let presentationToken = 0;
+let inspectorOwnsTranscript = false;
 const routeAgentId = computed(() => {
   const parsed = parseAgentDetailRouteParam(route.params.id);
   return parsed.kind === 'valid' ? parsed.sessionId : null;
 });
 const suppressAnalystPane = computed(() => !showAnalystPane.value);
+const inspectingDisabledAnalyst = computed(() =>
+  route.name === 'agent-detail' && analystChat.identityState.kind === 'resolved' &&
+  routeAgentId.value === analystChat.identityState.sessionId && !analystChat.internalEnabled,
+);
 const effectiveMobileActivePane = computed(() =>
   suppressAnalystPane.value ? 'workspace' : mobileActivePane.value,
 );
@@ -160,6 +170,7 @@ async function reconcileConversationMounts(): Promise<void> {
     routeAgentId.value === identity.sessionId;
 
   if (matching) {
+    inspectorOwnsTranscript = true;
     showAnalystPane.value = false;
     workspacePresentation.value = 'teardown';
     await nextTick();
@@ -168,12 +179,13 @@ async function reconcileConversationMounts(): Promise<void> {
     return;
   }
 
-  if (!showAnalystPane.value) {
+  if (inspectorOwnsTranscript) {
     workspacePresentation.value = 'teardown';
     await nextTick();
     if (token !== presentationToken) return;
   }
-  showAnalystPane.value = true;
+  inspectorOwnsTranscript = false;
+  showAnalystPane.value = analystChat.internalEnabled;
   workspacePresentation.value = target;
 }
 
@@ -199,8 +211,8 @@ function handleKeydown(event: KeyboardEvent): void {
     void router.push({ name: map[key] });
   }
   if (key === '/' && !event.ctrlKey && !event.metaKey) {
-    event.preventDefault();
     if (suppressAnalystPane.value) return;
+    event.preventDefault();
     mobileActivePane.value = 'analyst';
     window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
   }
@@ -277,6 +289,11 @@ onUnmounted(() => {
   min-height: 100%;
   place-items: center;
   padding: 24px;
+  color: var(--text-muted);
+}
+
+.analyst-disabled-notice {
+  padding: 12px;
   color: var(--text-muted);
 }
 

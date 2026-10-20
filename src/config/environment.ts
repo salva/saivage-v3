@@ -8,11 +8,17 @@ import {
 } from './resolved-config-authority.js';
 import { realpathSync } from 'node:fs';
 import type { CompiledProjectWorkflows } from '../runtime/runtime-api.js';
+import {
+  resolveAnalystStartup,
+  type AnalystStartup,
+  type AnalystStartInputs,
+} from './analyst-mode.js';
 
 type NodeEnvironment = 'development' | 'production' | 'test';
 type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 
 export interface Environment {
+  readonly analyst: AnalystStartup;
   readonly failedProviderDiagnostics?: string;
   readonly nodeEnv: NodeEnvironment;
   readonly projectRoot: string;
@@ -54,7 +60,7 @@ class EnvironmentLoadError extends Error {
   }
 }
 
-export interface StartInputs {
+export interface StartInputs extends AnalystStartInputs {
   readonly failedProviderDiagnostics?: string;
   readonly host?: string;
   readonly port?: string;
@@ -190,8 +196,12 @@ export async function loadEnvironment(
     );
   }
   const apiToken = rawApiToken;
+  const analyst = resolveAnalystStartup(inputs, env['SAIVAGE_ANALYST_MCP_TOKEN'], workflows);
+  if (analyst.mode !== 'internal' && analyst.token === apiToken)
+    throw new Error('Analyst MCP and operator REST credentials must be different.');
 
   const candidate: Environment = {
+    analyst,
     failedProviderDiagnostics:
       inputs.failedProviderDiagnostics === undefined
         ? undefined

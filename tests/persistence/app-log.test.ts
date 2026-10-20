@@ -152,7 +152,7 @@ describe('strict app-log publication', () => {
     const path = appLogFile(projectRoot);
     mkdirSync(join(projectRoot, '.saivage'));
     mkdirSync(join(projectRoot, '.saivage', 'logs'));
-    writeFileSync(path, '{"version":1,"type":"rows","rows":[{"type":"provider_exchange","data":{}}]}\n');
+    writeFileSync(path, '{"version":2,"type":"rows","rows":[{"type":"provider_exchange","data":{}}]}\n');
     expect(() => readAppLogEntries(projectRoot, 'event')).toThrow(/malformed/);
     expect(() => initializeAppLog(projectRoot)).toThrow(/malformed/);
   });

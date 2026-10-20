@@ -26,7 +26,7 @@ import {
   plannerReorderChildInputSchema,
   type ToolActionOutcome,
 } from '../contracts/index.js';
-import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
+import type { ToolExecutionContext } from './invocation.js';
 import type { PlannerChildControlPort } from '../runtime/runtime-api.js';
 import { cardParentId, parseAgentName } from '../schemas/index.js';
 
@@ -204,7 +204,7 @@ async function reopenCard(
 async function activateCard(
   ctx: PlannerControlProviderContext,
   record: ActivateCardArguments,
-  invocation?: LlmToolInvocationContext,
+  invocation?: ToolExecutionContext,
 ): Promise<ToolActionOutcome> {
   if (cardParentId(record.card_id) !== ctx.parentCardId)
     return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
@@ -212,7 +212,8 @@ async function activateCard(
   if (!child) return failure(`Child '${record.card_id}' not found.`);
   if (!ctx.childActivationTypes.has(child.type))
     return failure(`Child type '${child.type}' is not permitted for activation by this node.`);
-  if (!invocation) throw new Error('activate_card requires an LLM invocation context.');
+  if (invocation?.kind !== 'llm')
+    throw new Error('activate_card requires an LLM invocation context.');
   const lease = invocation.childInvocation.reserveChild(record.card_id);
   try {
     const activation = await ctx.parentControl.activateChild({

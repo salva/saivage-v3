@@ -109,6 +109,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       mcpToolInvocation,
       restartCapability: { available: true, port: createTestRestartPort() },
       actor: 'analyst',
+      policyAgentName: 'analyst',
       surface: 'web-chat',
       eventQueries: new EventQueryService(projectRoot),
       captureExecutingLlmSnapshots: () => new Map(),

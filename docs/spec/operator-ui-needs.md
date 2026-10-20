@@ -166,7 +166,7 @@ The operator observes autonomous engineering work lasting hours or days
 and steers it by asking the Analyst. They may
 leave and return, understand project intent better than every implementation detail,
 and need evidence before intervening. They are not a dispatcher, per-agent supervisor,
-or routine editor of the agents' work. The Analyst is their ordinary steering channel.
+or routine editor of the agents' work. Analyst authority is their ordinary steering channel: the internal conversation when enabled, or explicitly configured direct external MCP operations. References below to conversation-based steering, discovery and interval catch-up apply when internal interaction is enabled; external clients use the same selected canonical tools and real retained evidence, not a proxy chat. The web UI remains an inspection surface in external-only mode. This changes no broader operator need or direct-UI-control restriction.
 
 Ranked questions, derived from urgency and consequence rather than current navigation:
 
@@ -446,19 +446,20 @@ retirement must not erase the known link or promise log retention.
 ### F. Direct the system deliberately
 
 **F25 — Must — Analyst access with context.** On ordinary desktop inspection journeys,
-converse with the configured shared Analyst while retaining access to inspected content.
+when internal interaction is enabled, converse with the configured shared Analyst while retaining access to inspected content.
 Check “why did this card stop?” and “summarize this file”: active entity/refinement is
 provided as one submitting client's send-time advisory observation, not ongoing screen observation or proof of reading a file. Only matched active cards have a compact card snapshot; ambiguity prompts clarification. The dedicated read-only Analyst inspection
-exception remains as specified by current policy.
+exception remains as specified by current policy. In external-only mode reclaim the desktop/mobile workspace space: no interactive pane, composer, Analyst tab/activity indicator, skip target or focus/send shortcut. Unknown/loading/failed availability never enables sending; failures remain visible. Preserve browser drafts and the exact read-only historical Analyst inspector, explaining disabled interaction without fabricating external transcript entries. Explicit startup selection also permits direct authenticated external MCP operations, not external chat.
 
 **F26 — Must — Intervention readiness.** Explain whether the observed lifecycle admits
 ordinary Analyst mutations: settled paused/stopped versus starting/running/pausing/
 closing/error. Check transitions and stale observations: readiness is not HTTP health,
 not a reservation, and not a universal gate overriding operation-specific exceptions.
+The same owner admission applies to configured external tools; transport availability does not grant intervention readiness.
 
 **F27 — Must — One direct runtime control.** Offer only capability-gated, confirmed
 Restart server as a direct runtime mutation; project Start, Stop, Pause, and Resume
-have no direct UI controls and are requested through the Analyst conversation.
+have no direct UI controls and are requested through the enabled Analyst conversation or configured direct external MCP tools.
 Check running and stopped observations with no such controls, restart unavailable,
 rejected confirmation, and exact `RESTART SERVER` confirmation. Explain project
 halt versus server shutdown; Restart neither cancels a card nor starts project work.
@@ -468,16 +469,19 @@ returned failure, and accepted effect. Check a busy Analyst submission and an
 accepted restart: restart acceptance means scheduled shutdown, not replacement
 readiness. An independent observation failure does not undo an accepted effect;
 no action-specific follow-up observation is required. Never auto-replay.
+External response loss likewise proves neither failure nor absence of effects; later ordinary reads are fresh observations, not automatic reconciliation.
 
 **F29 — Must — Shared Analyst semantics.** Make clear that the Analyst conversation is
 shared, not a private browser task. Check overlapping submissions: a losing busy request
 has understandable feedback, preserves newer draft edits, and is not queued or retried;
 closing the browser is not represented as cancellation of the shared turn. Other clients' routes do not overwrite a submitted focus, and historical focus is not replayed as current focus.
+In both mode internal turns retain this busy rule while multiple external clients operate concurrently through the same domain owners. They do not share a model conversation or an exclusive steering lease. Returning to internal mode on a separate startup retains history, without catch-up transcript synthesis.
 
 **F30 — Should — Evidence of intervention.** Let the operator inspect retained settled
 control-action evidence with its recorded actor, target, time, and ok/denied/error result.
 The current producer is the bounded audited Analyst mutation surface; valid historical
 Planner rows remain evidence. Actions is not complete mutation or runtime-control history.
+External mutation rows show `mcp` and `external:<principal>`; separate body-free settled external tool receipts identify the credential holder, not a verified model/person. They are not internal conversation/provider exchanges or a complete effects ledger.
 Check an admitted effect followed by caller disposal: its successful audit is not relabelled
 as failed. Missing audit evidence proves neither no action nor permission to repeat it.
 

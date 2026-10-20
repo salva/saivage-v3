@@ -38,7 +38,7 @@ const envelopeBytes = (data: unknown): number => Buffer.byteLength(canonicalJson
 const UNICODE = 'Ünïcödé-ßtrïng-🚀-';
 
 function analystSurface(cards: CardService, projectRoot: string, cardTypeVocabulary: readonly string[] = ['project', 'goal', 'code']) {
-  const context = { cardTypeVocabulary, store: cards, projectRoot, cardId: 'project', sessionId: 'agent:analyst:global', actor: 'analyst', runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
+  const context = { cardTypeVocabulary, store: cards, projectRoot, cardId: 'project', sessionId: 'agent:analyst:global', actor: 'analyst', policyAgentName: 'analyst', runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
   return buildInvocationSurfaceFixture('analyst', [
     bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary }),
     bindToolProvider('card-version', cardVersionToolBinders, { store: cards }),
@@ -241,7 +241,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
       expect(description).toContain('plaintext TextSlice');
       expect(description).toContain('not hex encoded');
     }
-    const workspaceContext = { projectRoot: root, cardId: 'project', actor: 'analyst', store: new CardService(root), runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
+    const workspaceContext = { projectRoot: root, cardId: 'project', actor: 'analyst', policyAgentName: 'analyst', store: new CardService(root), runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
     const workspaceSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('workspace', analystWorkspaceToolBinders, workspaceContext)]);
     for (const name of ['read', 'glob', 'grep']) {
       const binder = analystWorkspaceToolBinders.find((candidate) => candidate.name === name)!;

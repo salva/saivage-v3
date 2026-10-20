@@ -154,6 +154,12 @@ class AbandonedToolInvocationError extends Error {
   }
 }
 
+export class AnalystDisabledError extends Error {
+  constructor() {
+    super('Internal Analyst interaction is disabled.');
+    this.name = 'AnalystDisabledError';
+  }
+}
 export class AnalystTurnBusyError extends Error {
   constructor() {
     super('Another Analyst turn is active. Retry after it finishes.');
@@ -849,6 +855,7 @@ export class AnalystSession {
 }
 
 export class AnalystRuntime {
+  readonly #internalEnabled: boolean;
   #session: AnalystSession | null = null;
   #admissionOpen = true;
   readonly #createSession: (input: AnalystTurnInput) => AnalystSession;
@@ -856,16 +863,19 @@ export class AnalystRuntime {
   readonly #terminateRoot: (reason: string) => Promise<ProcessStopReport>;
 
   constructor(input: {
+    internalEnabled: boolean;
     createSession(input: AnalystTurnInput): AnalystSession;
     getAvailableToolNames(): string[];
     terminateRoot(reason: string): Promise<ProcessStopReport>;
   }) {
+    this.#internalEnabled = input.internalEnabled;
     this.#createSession = input.createSession;
     this.#getAvailableToolNames = input.getAvailableToolNames;
     this.#terminateRoot = input.terminateRoot;
   }
 
   submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
+    if (!this.#internalEnabled) return Promise.reject(new AnalystDisabledError());
     if (!this.#admissionOpen) return Promise.reject(new Error('Analyst admission is closed.'));
     return this.getOrCreateSession(input).submit(input);
   }

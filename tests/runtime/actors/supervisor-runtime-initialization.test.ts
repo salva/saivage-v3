@@ -67,7 +67,7 @@ describe('Supervisor initialization lifecycle', () => {
     const compiled = compileProjectWorkflows(config);
     publishInitialProjectRuntime(root, compiled);
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const cards = new (await import('../../../src/cards/card-service.js')).CardService(root, compiled);
     const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     const middle = cards.create({ type: 'goal', parent: parent.id, title: 'Middle', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });

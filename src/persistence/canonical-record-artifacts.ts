@@ -123,7 +123,7 @@ export const recordHeadSchema = z
 export const authoredRecordVersionArtifactSchema = z
   .object({
     ...identity,
-    format_version: z.literal(3),
+    format_version: z.literal(4),
     kind: z.literal('accepted-record'),
     entry_id: uuidV4Schema,
     version: positiveSafeIntegerSchema,

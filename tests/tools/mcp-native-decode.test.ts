@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeImage, normalizeWorkspaceImage } from '../../src/tools/image-decode.js';
 import { projectNativeMcpResult } from '../../src/tools/mcp-native-result.js';
+import { settleToolExecutionForLlm } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import { materializeConversationImage } from '../../src/persistence/session-api.js';
 const roots: string[] = [];
@@ -12,7 +14,8 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 it.each(['png', 'jpeg', 'webp'] as const)('normalizes native %s with honest source/oriented/sent metadata and no fabricated path', async format => {
   const root = mkdtempSync(join(tmpdir(), 'mcp-native-decode-')); roots.push(root);
   const bytes = await sharp({ create: { width: 20, height: 10, channels: 3, background: '#abc' } }).toFormat(format).toBuffer();
-  const result = await projectNativeMcpResult({ content: [{ type: 'text', text: 'before' }, { type: 'image', data: bytes.toString('base64'), mimeType: `image/${format}` }, { type: 'resource_link', uri: 'https://example.test/x', name: 'link' }, { type: 'text', text: 'after' }], structuredContent: { image: { type: 'image', data: 'ordinary' } } }, root, 'agent:analyst:global', new AbortController().signal, 8);
+  const produced = await projectNativeMcpResult({ content: [{ type: 'text', text: 'before' }, { type: 'image', data: bytes.toString('base64'), mimeType: `image/${format}` }, { type: 'resource_link', uri: 'https://example.test/x', name: 'link' }, { type: 'text', text: 'after' }], structuredContent: { image: { type: 'image', data: 'ordinary' } } }, root, new AbortController().signal, 8);
+  const result = settleToolExecutionForLlm(produced, testLlmToolInvocationContext({sessionId:'agent:analyst:global'})).providerOutcome;
   expect(result).toMatchObject({ kind: 'succeeded', data: { images: [{ content_index: 1, source_dimensions: { width: 20, height: 10 }, oriented_dimensions: { width: 20, height: 10 }, sent_dimensions: { width: 8, height: 4 }, resized: true, scale: { x: 0.4, y: 0.4 }, max_dimension: 8 }] } });
   if (result.kind !== 'succeeded' || result.content?.[1]?.type !== 'image') throw new Error('Expected image result');
   expect(result.content.map(block => block.type)).toEqual(['text', 'image', 'text', 'text']);
@@ -45,7 +48,8 @@ it.each(['png', 'jpeg'] as const)('selects identical neutral, workspace and MCP 
   expect(source_path).toBe('project:///source');
   expect(workspaceFacts).toEqual(neutral.data);
   expect(workspace.bytes).toEqual(neutral.bytes);
-  const result = await projectNativeMcpResult({ content: [{ type: 'image', data: source.toString('base64'), mimeType: `image/${format}` }] }, root, 'agent:analyst:global', new AbortController().signal, 'original');
+  const produced = await projectNativeMcpResult({ content: [{ type: 'image', data: source.toString('base64'), mimeType: `image/${format}` }] }, root, new AbortController().signal, 'original');
+  const result = settleToolExecutionForLlm(produced, testLlmToolInvocationContext({sessionId:'agent:analyst:global'})).providerOutcome;
   expect(result).toMatchObject({ kind: 'succeeded', data: { images: [{ content_index: 0, ...neutral.data }] } });
   if (result.kind !== 'succeeded' || result.content?.[0]?.type !== 'image') throw new Error('Expected image result');
   const materialized = await materializeConversationImage(root, 'agent:analyst:global', result.content[0].image);
@@ -71,7 +75,7 @@ it('rejects mismatched MIME, malformed base64 and animation', async () => {
     { type: 'image', data: 'YQ', mimeType: 'image/png' },
     { type: 'image', data: 'YQ==\n', mimeType: 'image/png' },
     { type: 'image', data: 'YQ==', mimeType: 'image/gif' },
-  ] satisfies NativeMcpResult['content']) await expect(projectNativeMcpResult({ content: [block] }, '/unused', 'agent:analyst:global', new AbortController().signal)).rejects.toThrow();
+  ] satisfies NativeMcpResult['content']) await expect(projectNativeMcpResult({ content: [block] }, '/unused', new AbortController().signal)).rejects.toThrow();
   const animationChunk = Buffer.alloc(12); animationChunk.write('acTL', 4, 'ascii');
   await expect(normalizeImage(Buffer.concat([bytes.subarray(0, 8), animationChunk, bytes.subarray(8)]), 1600, 'image/png')).rejects.toThrow('Animated images');
   await expect(normalizeImage(Buffer.alloc(32 * 1024 * 1024 + 1), 1600, 'image/png')).rejects.toThrow('32 MiB');

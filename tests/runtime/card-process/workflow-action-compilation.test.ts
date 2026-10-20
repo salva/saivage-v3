@@ -165,7 +165,7 @@ describe('workflow2 typed action compilation', () => {
       compiled,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const graph = projectCompiledGraphs(bound).graphs.find(
       ({ card_type }) => card_type === 'code',
@@ -229,7 +229,7 @@ describe('workflow2 typed action compilation', () => {
         compiled,
         new ModelRouter(registry),
         registry,
-        config.compaction.context_utilization_fraction,
+        config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
       ),
     );
     expect(JSON.stringify(graphs)).not.toContain('projection-canary');

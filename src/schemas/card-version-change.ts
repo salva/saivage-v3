@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { agentNameSchema } from './agent-name.js';
+import { externalActorSchema } from './operation-author.js';
 import { cardIdSchema } from './card-id.js';
 import { ConversationSessionIdSchema } from './conversation-session-id.js';
 import { positiveSafeIntegerSchema } from './validators.js';
@@ -21,7 +22,7 @@ export const cardVersionChangeSchema = z
     card_id: cardIdSchema,
     resulting_version: positiveSafeIntegerSchema,
     changed_at: z.string().datetime(),
-    changed_by_actor: z.union([agentNameSchema, z.literal('runtime')]),
+    changed_by_actor: z.union([agentNameSchema, externalActorSchema, z.literal('runtime')]),
     changed_by_surface: z.literal('runtime'),
     changed_fields: z.array(z.string().min(1)).min(1),
     change_summary: z.string().min(1),

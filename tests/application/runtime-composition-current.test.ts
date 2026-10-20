@@ -118,11 +118,11 @@ describe('current runtime composition', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(compileProjectWorkflows(config), new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const workflows = bindRuntimeWorkflows(compileProjectWorkflows(config), new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const processRegistry = new ManagedProcessGroupRegistry();
     const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
     const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
-    const app = createRuntimeApplication({
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot, config, workflows, providerRegistry: registry,
       processIdentity: { pid: 42, startedAt: '2026-10-15T00:00:00.000Z' },
       configAuthority: createTestConfigAuthority(projectRoot),
@@ -239,7 +239,7 @@ describe('current runtime composition', () => {
       TEST_WORKFLOWS,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
@@ -252,7 +252,7 @@ describe('current runtime composition', () => {
       conversationChanged: jest.fn(),
       llmExchangeChanged: jest.fn(),
     };
-    const app = createRuntimeApplication({
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot,
       processIdentity: { pid: 42, startedAt: '2026-07-22T00:00:00.000Z' },
       config,
@@ -292,7 +292,7 @@ describe('current runtime composition', () => {
       TEST_WORKFLOWS,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
@@ -330,7 +330,7 @@ describe('current runtime composition', () => {
         signal?.addEventListener('abort', () => reject(signal.reason), { once: true }),
       );
     });
-    const app = createRuntimeApplication({
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot,
       processIdentity: { pid: 42, startedAt: '2026-09-21T00:00:00.000Z' },
       config,
@@ -388,7 +388,7 @@ describe('current runtime composition', () => {
       TEST_WORKFLOWS,
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
@@ -404,7 +404,7 @@ describe('current runtime composition', () => {
     const snapshot = jest
       .spyOn(AnalystRuntime.prototype, 'executingLlmSnapshot')
       .mockReturnValue({ sessionId: 'agent:analyst:global' } as never);
-    const app = createRuntimeApplication({
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot,
       processIdentity: { pid: 42, startedAt: '2026-07-22T00:00:00.000Z' },
       config,
@@ -442,7 +442,7 @@ describe('current runtime composition', () => {
       compileProjectWorkflows(config),
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
@@ -515,7 +515,7 @@ describe('current runtime composition', () => {
         signal?.addEventListener('abort', () => reject(signal.reason), { once: true }),
       );
     });
-    const app = createRuntimeApplication({
+    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot,
       processIdentity: { pid: 42, startedAt: clock.wall },
       config,
@@ -611,7 +611,7 @@ describe('current runtime composition', () => {
       compileProjectWorkflows(config),
       new ModelRouter(registry),
       registry,
-      config.compaction.context_utilization_fraction,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
     );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
@@ -631,7 +631,7 @@ describe('current runtime composition', () => {
       conversationChanged: jest.fn(),
       llmExchangeChanged: jest.fn(),
     };
-    app = createRuntimeApplication({
+    app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot,
       processIdentity: { pid: 42, startedAt: '2026-07-22T00:00:00.000Z' },
       config,

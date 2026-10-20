@@ -16,7 +16,7 @@ import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-confi
 
 function bindConfigured(workflows: Parameters<typeof bindRuntimeWorkflows>[0], config: typeof TEST_SAIVAGE_CONFIG) {
   const registry = new ProviderRegistry(config);
-  return bindRuntimeWorkflows(workflows, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+  return bindRuntimeWorkflows(workflows, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
 }
 
 describe('compiled Debug graph projection', () => {

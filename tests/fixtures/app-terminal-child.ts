@@ -1,4 +1,4 @@
-import { createAppTerminalCoordinator, createOversightOwnerFailureHandler, startApp } from '../../src/boot/app.js';
+import { createAppTerminalCoordinator, createApplicationOwnerFailureHandler, startApp } from '../../src/boot/app.js';
 import { ProjectOversight } from '../../src/application/project-oversight.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
@@ -30,7 +30,7 @@ if (scenario === 'coordinator-fast-reject') {
   terminal.registerAdmissionCloser('oversight', () => process.stdout.write('OVERSIGHT_CLOSED\n'));
   terminal.registerCleanupLeaf('runtime', () => { process.stdout.write('RUNTIME_CLEANED\n'); });
   terminal.registerCleanupLeaf('oversight', async () => { process.stdout.write('OVERSIGHT_SETTLED\n'); });
-  const fail = createOversightOwnerFailureHandler({
+  const fail = createApplicationOwnerFailureHandler({ component: 'oversight',
     terminal,
     exit: (code) => process.exit(code),
     writeDiagnostic: () => process.stderr.write('[oversight] owner failure; application terminating\n'),

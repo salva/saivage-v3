@@ -191,7 +191,7 @@ function runtimeHarness(
     structural,
     new ModelRouter(providerRegistry),
     providerRegistry,
-    config.compaction.context_utilization_fraction,
+    config.compaction.context_utilization_fraction, { internalAnalystEnabled: true },
   );
   const cards = new CardService(root, structural);
   const registry = new ManagedProcessGroupRegistry();
