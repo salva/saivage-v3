@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import { MAX_NODE_CORRECTIVE_REARMS, NodeCorrectiveBudgetExceededError } from '../../../src/runtime/actors/agent-executor.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
+import type { ManagedProcessScope, ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../../src/contracts/tool-result.js';
+import { BoundAgentToolSet, resolveRuntimeTool } from '../../../src/tools/tool-api.js';
 import { describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
 
 type ToolOutcome = Extract<LLMActorOutcome, { type: 'tool_call' }>;
@@ -118,7 +120,9 @@ function harness(args: {
     notificationDelivery: { hasPendingNotifications: () => selectNotifications().length > 0, selectNotifications, removeNotifications },
     claimResult: () => { events.push('claim-result'); },
   };
-  const createDirectScope = jest.fn(() => ({}));
+  const directScope = {} as ManagedProcessScope;
+  const createDirectScope = jest.fn(() => directScope);
+  const closeAndTerminateDirectScope = jest.fn<ProcessRunner['closeAndTerminateDirectScope']>(async () => ({ selected: [], stopped: [], failed: [] }));
   const execution = new AgentNodeExecution({
     cardId: 'project',
     store: {
@@ -127,9 +131,9 @@ function harness(args: {
       discardRecord: (_cardId: string, name: string) => { events.push(`discard-record:${name}`); if (name === 'beta.md' && args.discardError) throw args.discardError; },
       listChildren: args.terminalVariant === 'incomplete' ? jest.fn().mockReturnValueOnce(['card-a']).mockReturnValue([]) : () => [],
     },
-    processRunner: { createDirectScope },
+    processRunner: { createDirectScope, closeAndTerminateDirectScope },
     runtimeProcessRootScope: {},
-    workflows: { agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false } }]]) },
+    workflows: { agentBindings: new Map([['planner', { toolSet: new BoundAgentToolSet(node.execution.agent.tools.map((name) => resolveRuntimeTool('card', name))) }]]) },
   } as never, {
     createLlm: () => llm,
     selectLlm: () => undefined,
@@ -193,6 +197,8 @@ function harness(args: {
     continuationContextCallbacks,
     removeNotifications,
     createDirectScope,
+    directScope,
+    closeAndTerminateDirectScope,
     run: () => execution.execute({ process, stateId, node, transition: { context: { source: 'entry:BACKLOG', event: 'entry:route', target: stateId }, acceptedResult: null }, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
 }
@@ -371,12 +377,25 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
   });
 
-  it('finishes throwing reviewer preparation before allocating a direct process scope', async () => {
+  it('retires the allocated process scope when reviewer preparation fails', async () => {
     const preparationFailure = new Error('reviewer context preparation failed');
     const test = harness({ initial: terminal('unused'), agentTools: ['run_command'], reviewerPreparationError: preparationFailure });
 
     await expect(test.run()).rejects.toBe(preparationFailure);
-    expect(test.createDirectScope).not.toHaveBeenCalled();
+    expect(test.createDirectScope).toHaveBeenCalledTimes(1);
+    expect(test.closeAndTerminateDirectScope).toHaveBeenCalledTimes(1);
+    expect(test.closeAndTerminateDirectScope).toHaveBeenCalledWith({
+      directScope: test.directScope,
+      category: 'runtime_card',
+      reason: 'activation settled',
+    });
+    expect(test.closeAndTerminateDirectScope.mock.calls[0]?.[0].directScope).toBe(test.directScope);
+    expect(test.events).not.toContain('turn');
+    expect(test.events.filter((event) => event.startsWith('continue-') || event.startsWith('append:') || event === 'claim-continuation')).toEqual([]);
+    expect(test.events).not.toContain('tool-execute');
+    expect(test.appendedToolResults).toEqual([]);
+    expect(test.settledToolResults).toEqual([]);
+    // Reviewer preparation fails before invocation-surface construction, not common scope retirement.
     expect(test.cleanupReasons).toEqual([]);
   });
 
