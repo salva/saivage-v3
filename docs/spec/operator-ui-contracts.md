@@ -321,11 +321,12 @@ contracts the current Card Cockpit implements.
   `GET /api/cards/:id/executions/:invocationId/files/:fileKey` and
   `GET /api/cards/:id/executions/:invocationId/files/:fileKey/download`.
   No caller-chosen path is admitted. The existing Files owner applies containment,
-  alias/attic refusal, confidentiality and bounded text consumption before either
-  preview or download. Both return redacted text, never a raw secret/configuration
-  download. Unsupported binary/image content is refused; missing selected content
-  is unavailable, with no replacement search. Declared absent artifacts have no
-  link. Generated artifacts are labeled **mutable current workspace source (not
+  alias/attic refusal, confidentiality and bounded UTF-8 text consumption before
+  either preview or download. Both return the same redacted text, never a raw
+  secret/configuration download. Malformed UTF-8, NUL, control-dominated content
+  and images are refused, including otherwise supported ordinary Files rasters;
+  missing selected content is unavailable, with no replacement search. Declared
+  absent artifacts have no link. Generated artifacts are labeled **mutable current workspace source (not
   historical content)**; captured output references remain actual capture sources.
   Errors omit private paths/content. Conversations continue to show real agents.
 
@@ -830,6 +831,14 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   handling or re-entry. Failed queue refusal preserves the recorded reason/status.
 
 ## 8. Files, processes, and evidence
+
+- Physical text previews consume complete UTF-8 files up to 1,048,576 raw bytes
+  (1 MiB), without truncation. CJK, emoji and other Unicode text are supported;
+  BOM, CRLF, whitespace and trailing newline are preserved subject to outbound
+  redaction. Empty text is valid. Malformed UTF-8, NUL and control-dominated
+  content return 415; oversized text returns 413. This is a bounded text heuristic,
+  not a promise to recognize every binary format. Canonical virtual card/record
+  projections and `record:///` reads retain their separate projection and cap rules.
 
 - `.saivage/diagnostics` and descendants are private: parent listings omit them;
   direct list/content/image reads and project/work aliases or resolved symlinks

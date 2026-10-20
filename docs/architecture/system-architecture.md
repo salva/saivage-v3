@@ -137,6 +137,20 @@ bytes through existing lexical/resolved-path/card dispatch boundaries, using the
 shared static raster decoder. Metadata is observational, not later admission.
 Files still refuses physical conversation/private/attic storage and never serves
 redacted config/credential paths as binary. Images return unmodified detected MIME.
+After image handling and the 1,048,576-byte physical-text cap, the same owner checks
+the complete already-read buffer with Node `isUtf8`, then decodes once without
+normalizing BOM, CRLF or whitespace. Its private text classifier iterates Unicode
+scalars, rejecting any U+0000 and counting C0 U+0001–U+001F except TAB/LF/CR plus
+DEL/C1 U+007F–U+009F as suspicious. Empty text succeeds; otherwise only a suspicious
+scalar ratio strictly greater than 0.3 refuses valid UTF-8. Invalid UTF-8 also
+returns the existing safe 415, without lossy decoding or encoding fallback.
+Selected-config projection and ordinary outbound redaction remain after this
+classification. Virtual card/record projections retain their own rules and caps.
+Execution preview and attachment download delegate to this shared owner, refuse
+image metadata and return the same redacted text; no separate capture decoder or
+raw download exists. This changes only outbound physical-text admission, not
+durable capture references, bytes, record authorship or retention.
+
 The shared Files feature component `web/src/files/ImagePreviewDialog.vue` owns one
 abortable read/object URL at a time; caller-local
 selection overlays the mounted Analyst/card/history/Files owner. Producer-neutral

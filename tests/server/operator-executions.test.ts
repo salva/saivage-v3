@@ -13,6 +13,7 @@ import {
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
+import sharp from 'sharp';
 import {
   CardService,
   TEST_RUNTIME_WORKFLOWS,
@@ -334,28 +335,41 @@ describe('exact authenticated execution evidence APIs', () => {
     mkdirSync(join(root, '.saivage/repair-attic/fixture'), { recursive: true });
     writeFileSync(join(root, '.saivage/repair-attic/fixture/private.txt'), 'ATTIC-PRIVATE');
     symlinkSync(join(root, '.saivage/repair-attic/fixture/private.txt'), join(root, 'alias.txt'));
-    writeFileSync(join(root, 'huge.txt'), 'x'.repeat(1_048_577));
-    writeFileSync(join(root, 'binary.txt'), Buffer.from([0, 1, 2]));
+    const cases = [
+      { path: '.env', status: 403 },
+      { path: '.saivage/repair-attic/fixture/private.txt', status: 403 },
+      { path: 'alias.txt', status: 403 },
+      { path: 'huge.txt', status: 413, bytes: Buffer.alloc(1_048_577, 0x61) },
+      { path: 'binary.txt', status: 415, bytes: Buffer.from([0xff, 0xfe, 0x01, 0x02]) },
+      { path: 'nul.txt', status: 415, bytes: Buffer.from(`${'a'.repeat(4096)}\u0000`) },
+      {
+        path: 'malformed.txt',
+        status: 415,
+        bytes: Buffer.concat([Buffer.alloc(4096, 0x61), Buffer.from([0x80])]),
+      },
+      {
+        path: 'raster.png',
+        status: 415,
+        bytes: await sharp({
+          create: { width: 2, height: 2, channels: 3, background: '#ff0000' },
+        })
+          .png()
+          .toBuffer(),
+      },
+    ];
+    for (const testCase of cases) {
+      if (testCase.bytes) writeFileSync(join(root, testCase.path), testCase.bytes);
+    }
     const s = start();
-    const f = finish(s, [
-      '.env',
-      '.saivage/repair-attic/fixture/private.txt',
-      'alias.txt',
-      'huge.txt',
-      'binary.txt',
-    ]);
+    const f = finish(s, cases.map(({ path }) => path));
     appendCardExecutions(root, 'project', [s, f]);
-    for (const [ordinal, expected] of [
-      [0, 403],
-      [1, 403],
-      [2, 403],
-      [3, 413],
-      [4, 415],
-    ]) {
+    for (const [ordinal, testCase] of cases.entries()) {
       for (const suffix of ['', '/download']) {
         const result = await get(`/${s.invocation_id}/files/${f.row_id}:${ordinal}${suffix}`);
-        expect(result.statusCode).toBe(expected);
+        expect(result.statusCode).toBe(testCase.status);
         expect(result.body).not.toMatch(/ATTIC-PRIVATE|private.txt|\.env/u);
+        expect(result.body).not.toContain(testCase.path);
+        expect(result.body).not.toContain(root);
       }
     }
   });

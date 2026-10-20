@@ -90,6 +90,13 @@ test('real production server: action and hook evidence, confidential file downlo
     ).toHaveCount(0);
     await detail.getByRole('button', { name: 'stdout', exact: true }).first().click();
     await expect(page.getByTestId('execution-file-preview')).toContainText('ACTUAL-ACTION-OUTPUT');
+    await expect(page.getByTestId('execution-file-preview')).toContainText('你好世界🌍🚀😀');
+    await expect(page.getByTestId('execution-file-preview')).not.toContainText(
+      'stdout-record-private-canary',
+    );
+    await expect
+      .poll(() => page.getByTestId('execution-file-preview').textContent())
+      .toBe(redactTextForOutbound(executionReport));
     const download = page.waitForEvent('download');
     await detail
       .getByRole('button', { name: 'Download redacted text', exact: true })
@@ -101,6 +108,8 @@ test('real production server: action and hook evidence, confidential file downlo
     expect(downloadedText).toContain('ACTUAL-ACTION-OUTPUT');
     expect(downloadedText).not.toContain('stdout-record-private-canary');
     expect(downloadedText).toBe(redactTextForOutbound(executionReport));
+    expect(downloadedText.startsWith('\uFEFF')).toBe(true);
+    expect(downloadedText).toContain('\r\n你好\r\n你好世界🌍🚀😀\r\n');
     await facet
       .getByRole('button', { name: /after_activation_commit hook.*invocation_started/u })
       .click();

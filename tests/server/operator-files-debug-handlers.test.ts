@@ -451,6 +451,120 @@ describe('operator files and debug contract handlers', () => {
     }
   });
 
+  it.each([
+    ['empty', ''],
+    ['short all-Unicode line', '你好\n'],
+    ['dense CJK', '你好世界'.repeat(100)],
+    ['dense emoji', '🌍🚀😀'.repeat(100)],
+    [
+      'literal BOM, CRLF, TAB, combining marks and terminal escape',
+      '\uFEFF你好\r\n\tCafe\u0301 🌍\u001b[32m绿色\u001b[0m\r\n',
+    ],
+    ['scalar crossing old sample boundary', `${'a'.repeat(4095)}🌍你好\r\n`],
+    [
+      'control-heavy prefix diluted by the complete text',
+      `${'\u0001'.repeat(1300)}${'a'.repeat(4000)}`,
+    ],
+    ['exactly thirty percent scalar controls', `${'🌍'.repeat(7)}\u0001\u007f\u0085`],
+  ])(
+    'preserves bounded physical UTF-8 text and raw byte metadata: %s',
+    async (_name, content) => {
+      const path = 'unicode.txt';
+      writeFileSync(join(projectRoot, path), content);
+      const response = await fastify.inject({
+        method: 'GET',
+        url: `/api/files/content?path=${path}`,
+        headers: authHeaders,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(
+        filesDebugOperatorApiContracts['files.content'].response[200].parse(response.json()),
+      ).toEqual({
+        path,
+        content,
+        size: Buffer.byteLength(content),
+        contentType: 'text/plain',
+        redacted: false,
+        sensitivity: 'normal',
+      });
+    },
+  );
+
+  it.each([
+    ['NUL', Buffer.from('hello\u0000world')],
+    ['NUL after old sample', Buffer.from(`${'a'.repeat(4096)}\u0000`)],
+    ['C0 dominated', Buffer.from('\u0001\u0002\u0003x')],
+    [
+      'control-dominated tail beyond old sample',
+      Buffer.from(`${'a'.repeat(4096)}${'\u0001'.repeat(2048)}`),
+    ],
+    ['DEL/C1 dominated', Buffer.from('\u007f\u0080\u009fx')],
+    [
+      'over thirty percent scalar controls despite emoji surrogate pairs',
+      Buffer.from(`${'🌍'.repeat(6)}\u0001\u0002\u007f\u0085`),
+    ],
+    [
+      'illegal continuation amidst ASCII',
+      Buffer.concat([Buffer.from('ordinary prose '), Buffer.from([0x80]), Buffer.from(' tail')]),
+    ],
+    [
+      'malformed tail beyond old sample',
+      Buffer.concat([Buffer.alloc(4096, 0x61), Buffer.from([0xff])]),
+    ],
+    [
+      'overlong scalar',
+      Buffer.concat([Buffer.from('ordinary prose '), Buffer.from([0xc0, 0xaf])]),
+    ],
+    [
+      'encoded surrogate',
+      Buffer.concat([Buffer.from('ordinary prose '), Buffer.from([0xed, 0xa0, 0x80])]),
+    ],
+    [
+      'EOF-truncated scalar',
+      Buffer.concat([Buffer.from('ordinary prose '), Buffer.from([0xf0, 0x9f, 0x8c])]),
+    ],
+    [
+      'ordinary non-text binary',
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+    ],
+  ])('refuses the complete non-text physical buffer: %s', async (_name, bytes) => {
+    const path = 'unsupported.bin';
+    writeFileSync(join(projectRoot, path), bytes);
+    const response = await fastify.inject({
+      method: 'GET',
+      url: `/api/files/content?path=${path}`,
+      headers: authHeaders,
+    });
+    expect(response.statusCode).toBe(415);
+    expect(response.json()).toEqual({ error: 'Binary or non-text file cannot be previewed.', path });
+  });
+
+  it.each([1_048_576, 1_048_577])('bounds physical UTF-8 text by raw bytes: %i', async (size) => {
+    const content = '🌍'.repeat(1_048_576 / 4) + (size > 1_048_576 ? 'a' : '');
+    expect(Buffer.byteLength(content)).toBe(size);
+    const path = 'large-unicode.txt';
+    writeFileSync(join(projectRoot, path), content);
+    const response = await fastify.inject({
+      method: 'GET',
+      url: `/api/files/content?path=${path}`,
+      headers: authHeaders,
+    });
+    expect(response.statusCode).toBe(size === 1_048_576 ? 200 : 413);
+    if (size === 1_048_576) {
+      expect(response.json()).toEqual({
+        path,
+        content,
+        size,
+        contentType: 'text/plain',
+        redacted: false,
+        sensitivity: 'normal',
+      });
+    } else {
+      expect(response.json()).toMatchObject({ path, size, maxSize: 1_048_576 });
+      expect(response.json()).not.toHaveProperty('content');
+    }
+  });
+
   it('lists and reads adjacent-dot filenames while rejecting exact parent segments', async () => {
     mkdirSync(join(projectRoot, 'docs'));
     writeFileSync(join(projectRoot, 'docs', 'v1..v2.md'), 'adjacent dots\n', 'utf8');

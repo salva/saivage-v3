@@ -42,8 +42,8 @@ it.each([0, 9])(
         const invocation = list.rows[index]!.invocation_id;
         const result = await request(`/api/cards/project/executions/${invocation}`);
         expect(result.status).toBe(200);
-      const detail = parseOperatorResponse('cards.executions.get', 200, await result.json());
-      expect(JSON.stringify(detail)).not.toContain('synthetic-env-not-public');
+        const detail = parseOperatorResponse('cards.executions.get', 200, await result.json());
+        expect(JSON.stringify(detail)).not.toContain('synthetic-env-not-public');
         expect(detail).toMatchObject({
           operation: 'shell.run',
           completion: 'retained',
@@ -52,15 +52,30 @@ it.each([0, 9])(
           process: { group: 'absent', stdout: 'eof', stderr: 'eof' },
         });
         const stdout = detail.files.find((file) => file.label === 'stdout')!;
+        expect(stdout.source).toBe('capture');
+        const expected =
+          index === 0 ? redactTextForOutbound(executionReport) : 'ACTUAL-HOOK-OUTPUT\n';
         const preview = await request(
           `/api/cards/project/executions/${invocation}/files/${stdout.key}`,
         );
-        expect((await preview.json()).content).toContain(marker);
+        expect(preview.status).toBe(200);
+        const previewBody = await preview.json();
+        expect(previewBody.content).toBe(expected);
+        expect(previewBody.content).toContain(marker);
+        expect(previewBody.content).not.toContain('stdout-record-private-canary');
+        if (index === 0) {
+          expect(previewBody.content.startsWith('\uFEFF')).toBe(true);
+          expect(previewBody.content).toContain('\r\n你好\r\n你好世界🌍🚀😀\r\n');
+        }
         const download = await request(
           `/api/cards/project/executions/${invocation}/files/${stdout.key}/download`,
         );
+        expect(download.status).toBe(200);
         expect(download.headers.get('content-disposition')).toContain('attachment');
-        expect(await download.text()).toContain(marker);
+        // Fetch.text() strips a leading BOM; inspect the actual transmitted bytes instead.
+        const downloaded = Buffer.from(await download.arrayBuffer());
+        expect(downloaded).toEqual(Buffer.from(expected));
+        expect(downloaded.toString('utf8')).not.toContain('stdout-record-private-canary');
       }
       expect(fixture.counts().workflowCalls).toBe(2);
       const conversation = readConversation(fixture.root, 'agent:planner:project').physicalRows;

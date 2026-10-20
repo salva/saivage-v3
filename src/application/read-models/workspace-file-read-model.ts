@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import {
   lstatSync,
   readdirSync,
@@ -43,7 +44,6 @@ import { cardIdSchema } from '../../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
-const BINARY_SAMPLE_BYTES = 4096;
 
 export type WorkspaceFilesListResult = OperatorApiHandlerResult<'files.list'>;
 type WorkspaceFileContentResult = OperatorApiHandlerResult<'files.content'>;
@@ -107,17 +107,27 @@ function isReservedCardPath(
   return isContainedPath(lexicalCardRoot, candidate) || isContainedPath(realCardRoot, candidate);
 }
 
-function isBinaryBuffer(buffer: Buffer): boolean {
-  const length = Math.min(buffer.length, BINARY_SAMPLE_BYTES);
-  if (length === 0) return false;
+function decodeTextBuffer(buffer: Buffer): string | null {
+  if (!isUtf8(buffer)) return null;
+  const content = buffer.toString('utf8');
+  let scalarCount = 0;
   let suspicious = 0;
-  for (let i = 0; i < length; i++) {
-    const byte = buffer[i];
-    if (byte === 0) return true;
-    const isPrintable = byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte <= 126);
-    if (!isPrintable) suspicious += 1;
+  for (const scalar of content) {
+    const codePoint = scalar.codePointAt(0)!;
+    if (codePoint === 0) return null;
+    scalarCount += 1;
+    if (
+      (codePoint >= 1 &&
+        codePoint <= 0x1f &&
+        codePoint !== 9 &&
+        codePoint !== 10 &&
+        codePoint !== 13) ||
+      (codePoint >= 0x7f && codePoint <= 0x9f)
+    )
+      suspicious += 1;
   }
-  return suspicious / length > 0.3;
+  if (scalarCount > 0 && suspicious / scalarCount > 0.3) return null;
+  return content;
 }
 
 function parseRecordContentRequest(requestedPath: string): RecordContentRequest {
@@ -657,7 +667,8 @@ export class WorkspaceFileReadModelService {
           maxSize: MAX_FILE_SIZE_BYTES,
         },
       };
-    if (isBinaryBuffer(rawBuffer))
+    const content = decodeTextBuffer(rawBuffer);
+    if (content === null)
       return {
         statusCode: 415,
         body: { error: 'Binary or non-text file cannot be previewed.', path: responsePath },
@@ -677,7 +688,6 @@ export class WorkspaceFileReadModelService {
       };
     }
     const redacted = this.isWorkPath(resolvedPath) || this.isRedactedPath(resolvedPath);
-    const content = rawBuffer.toString('utf-8');
     return {
       body: {
         path: responsePath,

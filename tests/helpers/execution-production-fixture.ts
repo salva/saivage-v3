@@ -22,7 +22,7 @@ import {
 } from './production-composition-e2e.js';
 
 /** Existing production composition + local scripted provider, finite real commands only. */
-export const executionReport = '\uFEFFACTUAL-ACTION-OUTPUT\r\nUnicode: λ 🌍\r\napi_key: stdout-record-private-canary\r\n';
+export const executionReport = `\uFEFFACTUAL-ACTION-OUTPUT\r\n你好\r\n${'你好世界🌍🚀😀\r\n'.repeat(80)}api_key: stdout-record-private-canary\r\n`;
 export async function executionProductionFixture(exitCode = 0, deadline = false) {
   const root = mkdtempSync(join(tmpdir(), 'executions-production-'));
   const token = 'disposable-executions-token';
@@ -82,7 +82,9 @@ export async function executionProductionFixture(exitCode = 0, deadline = false)
           action: 'shell.run',
           contract_version: 1,
           config: {
-             script: `timeout --kill-after=1s 8s ${quoteBashWord(process.execPath)} -e ${quoteBashWord(`require('node:fs').writeFileSync('action-report.txt', 'mutable action report'); process.stdout.write(${JSON.stringify(executionReport)}); process.stderr.write('DISTINCT-STDERR-ONLY\\n'); ${deadline ? 'setInterval(()=>{},1000)' : `process.exitCode=${exitCode}`}`)}`,
+             // ASCII byte encoding prevents YAML folding from splitting Unicode surrogate pairs;
+             // the real child writes the original UTF-8 bytes, including BOM and CRLF.
+             script: `timeout --kill-after=1s 8s ${quoteBashWord(process.execPath)} -e ${quoteBashWord(`require('node:fs').writeFileSync('action-report.txt', 'mutable action report'); process.stdout.write(Buffer.from(${JSON.stringify(Buffer.from(executionReport, 'utf8').toString('base64'))}, 'base64')); process.stderr.write('DISTINCT-STDERR-ONLY\\n'); ${deadline ? 'setInterval(()=>{},1000)' : `process.exitCode=${exitCode}`}`)}`,
              timeout_ms: deadline ? 1000 : 3000,
             env: { CI: 'synthetic-env-not-public' },
             terminate_grace_ms: 100,

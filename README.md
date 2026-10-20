@@ -17,6 +17,12 @@ project as well as project-relative paths. Known secret/private sources remain
 blocked; resource URLs, mutations, images and operator Files keep their separate
 boundaries. See [agent filesystem inspection](docs/runbook/index.md#agent-filesystem-inspection).
 
+Operator Files previews physical UTF-8 text up to 1 MiB of raw bytes, including
+CJK and emoji. Malformed UTF-8, NUL and control-dominated content are refused;
+privacy and availability restrictions still apply. See the
+[Files contract](docs/spec/operator-ui-contracts.md#8-files-processes-and-evidence)
+for text, image and virtual-record boundaries.
+
 ### Inspecting screenshots
 
 An agent can use `run_command` to save a **non-secret** screenshot in the project,

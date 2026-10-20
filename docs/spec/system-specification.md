@@ -56,6 +56,13 @@ output fails without truncation, placeholder or old-record fallback. BOM, CRLF,
 Unicode, whitespace, trailing newline and valid terminal escape bytes are retained
 literally; normal safe outbound text/markdown projection still applies.
 
+Inspecting the physical capture through execution preview/download uses the shared
+[Files bounded UTF-8 rules](operator-ui-contracts.md#8-files-processes-and-evidence),
+including control-density refusal and outbound redaction. That inspection is
+independent of stdout record acceptance and retention: an accepted report does not
+guarantee an available or previewable capture, and a missing capture is not
+reconstructed from the record.
+
 Passed, nonzero failed, signalled and timed_out outcomes publish eligible whole
 captures and retain their original branch and actual leader/deadline facts. A
 finished capture does not imply completed program work or semantic approval.
