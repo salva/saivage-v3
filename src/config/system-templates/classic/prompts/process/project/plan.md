@@ -1,0 +1,3 @@
+Coordinate the remaining authorized project work from the current accepted brief, status, direct children, records, review evidence and delivered owner context. Update `status.md` with decisions, evidence, existing child IDs and outstanding acceptance. A bounded report or milestone does not replace the project objective.
+
+When ready to consider closure, select `assess_completion` for explicit objective reconciliation, or `admit_review` when independent acceptance is needed. Neither route declares the project complete here. Use `blocked` or `failed` only at the shared Planner's honest terminal boundaries.

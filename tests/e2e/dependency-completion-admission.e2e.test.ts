@@ -151,6 +151,8 @@ describe('dependency-completion activation admission E2E', () => {
                   content: 'Dependency workflow complete.',
                 }),
               );
+            if (projectCalls === 3) return complete(tool('assess-project', 'emit_result', { outcome: 'assess_completion', summary: 'Dependency workflow ready for objective reconciliation.' }));
+            if (projectCalls === 4) return complete(tool('project-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Finite dependency objective fulfilled with both required siblings DONE and ordinary dependent admission evidence. No remaining scope or review obligation.' }));
             return complete(
               tool('complete-project', 'emit_result', {
                 outcome: 'complete_direct',

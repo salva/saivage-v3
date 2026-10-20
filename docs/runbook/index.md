@@ -1234,6 +1234,27 @@ No unconditional reset is required for identity-retaining prompt/route/tool/edge
 
 ### Agent and workflow identity cutovers
 
+**Shipped project completion assessment:** all three profiles now route candidate
+direct closure and approved review through Planner `assess-completion`, exporting
+its status while reviewed completion preserves the actual Reviewer result.
+The former project `handle-notifications` node is removed; goals retain theirs.
+Fresh config-absent initialization selects the new graph/closure only under its
+ordinary preconditions; existing-config init preserves materialized YAML/prompts.
+For a reached retained non-tombstoned project, including DONE/FAILED, removing
+that node identity is incompatible adoption even if it never executed. Stopped
+YAML/prompt reconciliation alone is insufficient: choose separately consented
+complete reset or explicitly owner-requested external offline migration before
+use. Preserve custom guidance in the matching selected closure, but that does
+not resolve identity compatibility. Unused declarations and reached tombstones
+follow the narrower predicate below; independent format cutovers still apply.
+Startup requires current configured indexes, not prior node-identity equality;
+same-agent removal may leave every required index present. Compilation, startup
+and readiness cannot certify safe adoption. No detector, alias, old-node route or
+historical result rewrite is provided. Deployment applicability is unknown;
+this source note grants no reset, migration, deployment, restart or Run permission.
+Source revert alone neither restores instance inputs nor reopens historical DONE;
+binary-only rollback is not certified against this or other cutovers.
+
 After generated work exists, including initial root publication, renaming/removing/replacing/changing scope of a participating card agent, changing selected Analyst, rebinding a reached-card node to another agent, or renaming/removing/replacing existing workflow node/state identities is an incompatible identity cutover. Choose consented complete reset or explicitly requested external migration; runtime never creates a second current `executor` session beside retained `executor-v2` as a rename mechanism. Required sessions come from reached active cards, including non-tombstoned DONE/FAILED, not only running actors or every catalog/type declaration.
 
 On later startup, Saivage strictly reads the exact selected-Analyst index and each distinct node-agent index expected by every admitted card. A valid empty index is sufficient; a missing expected index reports its session ID and directs the operator to remain stopped, preserve a complete fresh backup and use exact-target repair where supported. Intentional incompatible identity adoption instead follows the reset/external-migration decision. Startup never creates replacement history, inspects old names or compares a durable prior graph. Passing startup does not certify all identity changes; missing state may reflect interruption/loss. Rejection precedes app-log/provider/current-conversation/record consumption; lifecycle lock, input materialization, identity binding and completed bootstrap effects can precede this gate.

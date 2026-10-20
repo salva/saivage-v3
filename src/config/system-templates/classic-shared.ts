@@ -3,6 +3,62 @@ import { OVERSIGHT_ALLOWED_TOOL_NAMES } from '../../contracts/index.js';
 
 const prompt = (reference: string) => ({ reference, compactable: true });
 
+/** Root closure reconciles the owner objective separately from bounded review acceptance. */
+export function projectCompletion(definition: CardTypesSource[string]): CardTypesSource[string] {
+  const { 'handle-notifications': _handler, ...nodes } = definition.workflow.nodes;
+  const planning = (node: (typeof nodes)[string]) => {
+    const { complete_direct: _complete, ...edges } = node.edges;
+    return {
+      ...node,
+      edges: { ...edges, assess_completion: { target: { node: 'assess-completion' } } },
+    };
+  };
+  return {
+    ...definition,
+    workflow: {
+      ...definition.workflow,
+      nodes: {
+        ...nodes,
+        plan: planning(nodes.plan!),
+        recover: planning(nodes.recover!),
+        review: {
+          ...nodes.review!,
+          edges: { ...nodes.review!.edges, approved: { target: { node: 'assess-completion' } } },
+        },
+        'assess-completion': {
+          execution: {
+            kind: 'agent',
+            agent: 'planner',
+            prompt: prompt('assess-completion'),
+            correction_prompt: prompt('correct-plan-result'),
+          },
+          records: { 'status.md': { mode: 'continue', gate: 'updated' } },
+          edges: {
+            replan: { target: { node: 'plan' } },
+            admit_review: nodes.plan!.edges.admit_review!,
+            complete_direct: {
+              target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] },
+            },
+            complete_reviewed: {
+              target: {
+                terminal: 'DONE',
+                promote: { latest_node: 'review' },
+                export_records: ['status.md'],
+              },
+            },
+            blocked: {
+              target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] },
+            },
+            failed: {
+              target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 /** Shipped graph declarations, materialized before the startup compiler owns them. */
 export function classicRecordContext(definition: CardTypesSource[string]): CardTypesSource[string] {
   const bootstrap = Object.entries(definition.records).find(([, record]) => record.bootstrap)![0];

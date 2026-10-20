@@ -3902,10 +3902,12 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const held = deferred();
     const entered = deferred();
     const original = ConversationLLMActor.prototype.settleToolResultWithoutContinuation;
+    let settledResults = 0;
     jest
       .spyOn(ConversationLLMActor.prototype, 'settleToolResultWithoutContinuation')
       .mockImplementation(function (this: ConversationLLMActor, ...args) {
         const settled = original.apply(this, args);
+        if (++settledResults === 1) return settled; // Ordinary plan -> assessment is not a terminal claim.
         entered.resolve();
         return settled.then(async (facts) => {
           await held.promise;
@@ -3923,17 +3925,17 @@ describe('Supervisor notification admission at terminal ownership', () => {
               id: `call-${turn}`,
               type: 'function' as const,
               function:
-                turn === 1
+                turn === 1 || turn === 3
                   ? {
                       name: 'write',
                       arguments: JSON.stringify({
                         path: 'record:///status.md?card=project',
-                        content: 'done',
+                        content: turn === 1 ? 'Candidate closure.' : 'Finite objective fulfilled, no remaining acceptance or authorized continuing work.',
                       }),
                     }
                   : {
                       name: 'emit_result',
-                      arguments: JSON.stringify({ outcome: 'complete_direct', summary: 'done' }),
+                      arguments: JSON.stringify({ outcome: turn === 2 ? 'assess_completion' : 'complete_direct', summary: 'done' }),
                     },
             },
           ],
@@ -4019,7 +4021,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const provider = scriptedAdmissionProvider(async (input) => {
       observedInputs.push(JSON.stringify(input));
       turn += 1;
-      if (turn === 2) {
+      if (turn === 4) {
         terminalCandidateRequested.resolve();
         await terminalCandidateHeld.promise;
       }
@@ -4031,17 +4033,17 @@ describe('Supervisor notification admission at terminal ownership', () => {
               id: `call-${turn}`,
               type: 'function' as const,
               function:
-                turn === 1
+                turn === 1 || turn === 3
                   ? {
                       name: 'write',
                       arguments: JSON.stringify({
                         path: 'record:///status.md?card=project',
-                        content: 'done',
+                        content: turn === 1 ? 'Candidate closure.' : 'Finite objective fulfilled, no remaining scope or unmet acceptance.',
                       }),
                     }
                   : {
                       name: 'emit_result',
-                      arguments: JSON.stringify({ outcome: 'complete_direct', summary: 'done' }),
+                      arguments: JSON.stringify({ outcome: turn === 2 ? 'assess_completion' : 'complete_direct', summary: 'done' }),
                     },
             },
           ],
@@ -4063,15 +4065,15 @@ describe('Supervisor notification admission at terminal ownership', () => {
     ).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000025' });
     terminalCandidateHeld.resolve();
     await waitFor(() => h.supervisor.getStatus().status === 'stopped');
-    expect(turn).toBe(3);
-    expect(observedInputs[2]).toContain('distinct admitted context');
+    expect(turn).toBe(5);
+    expect(observedInputs[4]).toContain('distinct admitted context');
     expect(h.cards.read('project')).toMatchObject({
       lifecycle: { status: 'done' },
       pending_notifications: [],
     });
   });
 
-  it('keeps Planner notifications from Reviewer and conditionally repeats accepted review through the Planner handler', async () => {
+  it('keeps Planner notifications from Reviewer and routes accepted review through project assessment', async () => {
     const reviewApprovalRequested = deferred();
     const releaseReviewApproval = deferred();
     const observed = new Map<string, string[]>();
@@ -4100,7 +4102,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
             : {
                 name: 'emit_result',
                 arguments: JSON.stringify({
-                  outcome: 'admit_review',
+                  outcome: call === 2 ? 'admit_review' : 'complete_reviewed',
                   summary: `planner review request ${call}`,
                 }),
               }
@@ -4163,7 +4165,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(calls).toEqual(
       new Map([
         ['planner', 4],
-        ['reviewer', 6],
+        ['reviewer', 4],
       ]),
     );
     expect(observed.get('reviewer')!.join('\n')).not.toContain('planner designated context');

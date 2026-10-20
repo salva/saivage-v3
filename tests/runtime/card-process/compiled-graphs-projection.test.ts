@@ -59,10 +59,10 @@ describe('compiled Debug graph projection', () => {
       ]);
       expect(graph.edges.slice(0, 7).map((edge) => edge.outcome)).toEqual([
         'notification:interrupt',
-        'complete_direct',
         'admit_review',
         'blocked',
         'failed',
+        'assess_completion',
         'execution:failed',
         'execution:blocked',
       ]);
@@ -76,8 +76,8 @@ describe('compiled Debug graph projection', () => {
           target: { kind: 'node', node_id: 'review' },
         }),
         expect.objectContaining({ route_id: 'revision_required', test: null, source_node_id: 'review', outcome: 'revision_required', target: { kind: 'node', node_id: 'plan' } }),
-        expect.objectContaining({ source_node_id: 'review', outcome: 'approved', export_records: ['review.md'], promotion: { kind: 'current' } }),
-        expect.objectContaining({ route_id: 'approved' + ':pending-notifications', test: null, source_node_id: 'review', outcome: 'approved', condition: 'pending_notifications', target: { kind: 'node', node_id: 'handle-notifications' }, prompt: { reference: 'review-to-notifications', compactable: true } }),
+        expect.objectContaining({ source_node_id: 'review', outcome: 'approved', target: { kind: 'node', node_id: 'assess-completion' }, export_records: [], promotion: null }),
+        expect.objectContaining({ source_node_id: 'assess-completion', outcome: 'complete_reviewed', export_records: ['status.md'], promotion: { kind: 'latest-node', node_id: 'review' } }),
         expect.objectContaining({ route_id: 'execution:failed', test: null, source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, target: { kind: 'terminal', terminal: 'FAILED' } }),
       ]));
       expect(JSON.stringify(graph)).not.toMatch(/prompt body|account|contractDescription|\.saivage/i);

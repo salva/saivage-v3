@@ -32,7 +32,7 @@ describe('system template registry',()=>{
     const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot});
     const typed=template.name!=='classic';
     const statusNodes:Record<string,string[]>={
-      project:['plan','recover','handle-notifications'],goal:['plan','recover','handle-notifications'],
+      project:['plan','recover','assess-completion'],goal:['plan','recover','handle-notifications'],
       architecture:typed?['draft']:['execute'],code:typed?['red','green','refactor']:['execute'],
       test:typed?['diagnose','add-coverage','repair','verify']:['execute'],
       research:typed?['explore','assess','report']:['execute'],data:typed?['schema','validate','implement']:['execute'],
@@ -111,6 +111,13 @@ describe('system template registry',()=>{
     const typed=resolveSystemTemplate('classic-typed');
     expect(typed.config.card_types).not.toEqual(classic.config.card_types);
     expect(()=>assertClassicFamilyPromptParity({templates:SYSTEM_TEMPLATES})).not.toThrow();
+    const assessments=SYSTEM_TEMPLATES.map(template=>{
+      const workflow=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot}).cardTypes.get('project')!;
+      const node=workflow.states.get('node:assess-completion')!;
+      if(node.kind!=='node')throw new Error('Missing project assessment');
+      return workflow.processPrompts.get(agentExecution(node).prompt.promptId)!.text;
+    });
+    expect(new Set(assessments).size).toBe(1);
   });
 
   it('reuses the complete frozen typed config with the same selected closure and only bounded prose deltas',()=>{

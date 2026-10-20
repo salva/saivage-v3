@@ -212,9 +212,28 @@ interruption transition from every node to that same target, including same-node
 re-entry; it is not a model outcome. The recipient must reconstruct current
 facts rather than resume an old invocation. Child-bearing custom recipients
 need not have activation tools merely to accept the workflow: ancestor notices
-ask for discretionary action, not guaranteed dispatch. Both bundled profiles
+ask for discretionary action, not guaranteed dispatch. All three bundled profiles
 already supply recipient-first STOPPED routes. Materialized instance prompts
 and configuration are instance-owned; reconcile them deliberately while stopped.
+
+All three shipped profiles specialize only `project` with Planner
+`assess-completion`. Plan/recover request assessment or review; approved review
+always enters assessment, and only assessment can reach DONE. Goals retain their
+direct completion and conditional notification handler. Reviewed root completion
+promotes the real Reviewer result while exporting accepted Planner status; see
+the [configured graph contract](../spec/system-specification.md#shipped-project-completion-and-profile-graphs).
+
+Existing-config `init` preserves YAML/prompts rather than upgrading the graph.
+Removing the former project `handle-notifications` node from the effective
+workflow of a reached non-tombstoned retained project, including DONE/FAILED,
+is incompatible identity adoption even if that handler never ran. It requires
+separately consented complete reset or explicitly owner-requested external offline
+migration before use; stopping and reconciling inputs alone is insufficient.
+Unused declarations and identity-preserving changes do not trigger this predicate,
+but independent format cutovers still apply. Startup checks current configured
+indexes, not prior node identities; passing compilation/startup/readiness is not
+compatibility certification. Fresh profile initialization uses its ordinary fresh-init
+preconditions. This guidance grants no deployment or migration permission.
 
 Switching templates or replacing the map is a stopped configuration change;
 the runbook owns [identity-cutover rules](../runbook/index.md#agent-and-workflow-identity-cutovers)

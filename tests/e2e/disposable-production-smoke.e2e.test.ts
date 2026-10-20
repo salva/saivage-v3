@@ -983,6 +983,10 @@ describe('disposable production-composition smoke', () => {
             outcome: 'admit_review',
             summary: 'Parent submits after promoted child completion.',
           });
+        } else if (recoveryPlannerCalls === 4) {
+          toolCall(response, 203, 'write', { path: 'record:///status.md?card=project', content: 'Finite parent objective fulfilled by closed child evidence and applicable current independent review; no continuing obligation remains. Review record:///review.md?card=project&v=1 remains independent evidence.' });
+        } else if (recoveryPlannerCalls === 5) {
+          toolCall(response, 204, 'emit_result', { outcome: 'complete_reviewed', summary: 'Finite parent objective reconciled with independent acceptance.' });
         } else throw new Error(`Unexpected recovery Planner call ${recoveryPlannerCalls}.`);
         return;
       }
@@ -1169,7 +1173,7 @@ describe('disposable production-composition smoke', () => {
         'recovered workflow completion',
       );
 
-      expect(recoveryPlannerCalls).toBe(3);
+      expect(recoveryPlannerCalls).toBe(5);
       expect(executorCalls).toBe(5);
       expect(reviewerCalls).toBe(4);
       expect(rootStatusClosedBeforeReview).toBe(true);

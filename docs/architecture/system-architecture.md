@@ -459,10 +459,30 @@ Server composition passes only the bound artifact to runtime actors; real invoca
 
 Agent execution reads each process-prompt body by ID directly from the exact compiled workflow's `processPrompts` map, with no runtime registry or global re-lookup. Action execution has no prompt or synthetic session.
 
+Shipped `project` graphs specialize the planning declaration with
+`classic-shared.ts::projectCompletion` before `classicRecordContext` adds record
+suppliers/initializers. Classic and classic-typed share this specialization;
+paad-typed retains the identical typed config. It removes project
+`handle-notifications`, replaces plan/recover direct closure with assessment,
+and makes review approval nonterminal to Planner `assess-completion`. Goals and
+leaves retain their graphs. Assessment uses existing `status.md` continue/updated
+acceptance, ordinary edges and recipient notification handling, not a runtime
+objective gate, ledger or new agent/session. Urgent interruption still targets
+STOPPED's `recover` entry.
+
 All node-to-node and terminal edges share one acceptance owner.
 `NodeExecution` prepares required closed/open projections before mutation, terminal routes claim the existing winner before close, and agent-updated streams close once in requirement order. Actions freshly select accepted requirements without opening/closing records.
 The returned immutable close projections are the only source for accepted URLs, transition context, and terminal exports.
 `CardProcessActor` retains the latest accepted result per node only in activation memory and applies `current` or graph-reachable `latest_node` promotion at the terminal route.
+Project reviewed completion promotes the accepted Reviewer result from `review`
+but exports the terminal assessment's accepted Planner status. Export selection
+uses the terminal source's close projections, independently of result promotion;
+the immutable accepted review remains history, not Planner-authored evidence.
+STOPPED re-entry has no prior activation's promotion memory. The configured
+assessment must establish objective/evidence applicability; generic runtime
+acceptance cannot infer it from natural-language reports. Removing the former
+project node is an [incompatible participating-identity adoption](../runbook/index.md#agent-and-workflow-identity-cutovers),
+despite unchanged durable family contracts; startup does not compare prior graphs.
 A primitive-classified `PublicationOutcomeUnknownError` from a close reaches fatal delivery before result acceptance, Supervisor halt, lifecycle publication, or parent settlement.
 Ordinary pre-commit close errors remain ordinary node failures.
 

@@ -231,7 +231,14 @@ typed configuration with optional PAAD-derived pushback, alignment and structura
 review guidance. See the [profile guidance and attribution](src/config/system-templates/paad-typed/README.md).
 This is prompt guidance, not measured quality or an additional runtime gate.
 Existing-config init preserves YAML, prompts and marker; it never switches or
-upgrades profiles. Later adoption requires separately authorized stopped reconciliation.
+upgrades profiles. All three shipped project workflows route both candidate direct
+closure and approved review through Main Planner objective assessment before DONE;
+bounded acceptance alone is not project completion. See the
+[configured graphs and assessment contract](docs/spec/system-specification.md#shipped-project-completion-and-profile-graphs).
+Adopting removal of the old project notification-handler identity on a reached
+retained non-tombstoned project, including DONE/FAILED, requires separately
+consented complete reset or explicitly requested external offline migration, not
+only stopped input reconciliation; see [identity cutovers](docs/runbook/index.md#agent-and-workflow-identity-cutovers).
 
 The startup announcement reports the actual binding (including the OS-selected
 port for `--port 0`). Qualified wildcard output is not a browser destination;

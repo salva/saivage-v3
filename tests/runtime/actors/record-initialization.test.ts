@@ -24,7 +24,7 @@ type Methods = {
   captureRecordHead(name: string): { headId: string; revision: number } | null;
   validateRecords(node: unknown, baseline: Map<string, unknown>): { candidates?: Map<string, any>; violations?: string[] };
 };
-function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic', clean = false, options: { packaged?: boolean; cardType?: 'project' | 'architecture' } = {}) {
+function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic', clean = false, options: { packaged?: boolean; cardType?: 'project' | 'architecture'; nodeId?: 'plan' | 'assess-completion' } = {}) {
   const template = resolveSystemTemplate(profile); const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
   if (!options.packaged) {
     config.card_types.project!.records['status.md']!.initialization = { format_version: 1, template: '{{cardType}}/{{cardId}}/{{cardTitle}}/{{nodeId}}/{{recordName}} ${LITERAL}' };
@@ -37,16 +37,16 @@ function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic'
     ? store.create({ type: 'architecture', parent: 'project', title: 'Architecture {{nodeId}}', bootstrap_content: 'Accepted architecture scope', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id
     : 'project';
   const runner = new AgentNodeExecution({ cardId, store } as never, {} as never) as unknown as Methods;
-  const node = workflows.cardTypes.get(options.cardType ?? 'project')!.states.get(options.cardType === 'architecture' ? 'node:draft' : 'node:plan')!;
+  const node = workflows.cardTypes.get(options.cardType ?? 'project')!.states.get(options.cardType === 'architecture' ? 'node:draft' : `node:${options.nodeId ?? 'plan'}`)!;
   if (node.kind !== 'node') throw new Error('Missing work node');
   const read = (name = 'status.md') => { const result = store.readRecordCurrent(cardId, name); if (result.kind !== 'found') throw new Error('missing card'); return result.value.projection; };
   return { root, store, runner, read, node, workflows, cardId };
 }
 describe('real node preparation and document lifecycle', () => {
-  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('renders exact entry context once in %s and excludes v0 from both gates', profile => {
-    const f = fixture(profile); f.runner.prepareRecordRequirements(f.node);
+  it.each((['classic', 'classic-typed', 'paad-typed'] as const).flatMap(profile => (['plan', 'assess-completion'] as const).map(node => [profile, node] as const)))('renders exact entry context once in %s %s and excludes v0 from both gates', (profile, nodeId) => {
+    const f = fixture(profile, false, { nodeId }); f.runner.prepareRecordRequirements(f.node);
     expect(f.read()).toMatchObject({ state: 'baseline', revision: 1, baseline: { version: 0, content: expect.stringContaining('project/project/') }, accepted: null, draft: null });
-    expect(f.read()!.baseline!.content).toContain('/plan/status.md ${LITERAL}');
+    expect(f.read()!.baseline!.content).toContain(`/${nodeId}/status.md \${LITERAL}`);
     const baseline = new Map([['status.md', f.runner.captureRecordHead('status.md')]]);
     for (const gate of ['exists', 'updated']) expect(f.runner.validateRecords({ ...f.node, requirements: f.node.requirements.map(item => ({ ...item, gate })) }, baseline).violations).toBeDefined();
     const opened = f.store.openRecord('project', 'status.md');
@@ -63,8 +63,8 @@ describe('real node preparation and document lifecycle', () => {
   });
 
   it.each((['classic', 'classic-typed', 'paad-typed'] as const).flatMap(profile =>
-    (['baseline', 'draft', 'accepted', 'empty'] as const).map(state => [profile, state] as const)))('does not render or publish in %s for existing %s on entry/re-entry', (profile, state) => {
-    const f = fixture(profile);
+    (['baseline', 'draft', 'accepted', 'empty'] as const).flatMap(state => (['plan', 'assess-completion'] as const).map(node => [profile, state, node] as const))))('does not render or publish in %s for existing %s at %s entry/re-entry', (profile, state, nodeId) => {
+    const f = fixture(profile, false, { nodeId });
     if (state === 'accepted') f.store.acceptRecord('project', 'status.md', 'Analyst before workflow', { kind: 'agent', agent: 'analyst' });
     else f.runner.prepareRecordRequirements(f.node);
     if (state === 'draft' || state === 'empty') f.store.openRecord('project', 'status.md');

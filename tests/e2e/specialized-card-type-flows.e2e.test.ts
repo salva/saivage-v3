@@ -410,6 +410,8 @@ describe('specialized production card-type flows', () => {
           tool('batch-parent-review', 'emit_result', { outcome: 'admit_review', summary: 'Finite combined repair accepted with full gate; inspect parent evidence disposition.' }),
           status('project', 'batch-parent-revision-status', `Both original owners repaired sequentially with focused checks. Combined B independently accepted after full gate. Retained A findings: ${findingsUrl}; masked A publication was not evaluated, B publication was independently evaluated PASS. Arithmetic source/assertion unchanged, prior applicable acceptance retained. No full-gate restart on intermediate edits; finite assigned obligations complete.`),
           tool('batch-parent-revised-review', 'emit_result', { outcome: 'admit_review', summary: 'Clarified original-owner evidence and exact A/B applicability for parent review.' }),
+          status('project', 'batch-objective-status', `Finite assigned obligations fulfilled on combined B with independent parent acceptance record:///review.md?card=project&v=2 and retained A/B applicability. No continuing scope remains.`),
+          tool('batch-objective-done', 'emit_result', { outcome: 'complete_reviewed', summary: 'Project objective reconciled with applicable current independent review.' }),
         ];
         if (parentCalls === 4) {
           expect(run.cards.read(reviewId)!.lifecycle).toMatchObject({ status: 'blocked', result: { node_id: 'verify', outcome: 'blocked' } });
@@ -569,7 +571,7 @@ else throw new Error('Unknown fixture mode');
     expect(run.cards.read(reviewId)!.lifecycle.status).toBe('running');
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
-    expect(parentCalls).toBe(13);
+    expect(parentCalls).toBe(15);
     expect(parentReviewCalls).toBe(7);
     expect(reviewCalls).toBe(30);
     expect([...ownerCalls.values()]).toEqual([7, 7]);
@@ -693,6 +695,8 @@ else throw new Error('Unknown fixture mode');
         const actions = [
           tool('classic-activate', 'activate_card', { card_id: child.id, instructions: 'Assess only supplied caller agreement; no typed diagnosis/verify route or implementation repair is requested.' }),
           tool('classic-parent-status', 'write', { path: 'record:///status.md?card=project', content: 'Scoped classic assessment accepted; no implementation or full product acceptance claimed.' }),
+          tool('classic-parent-assess', 'emit_result', { outcome: 'assess_completion', summary: 'Scoped classic assessment ready for closure reconciliation.' }),
+          tool('classic-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Finite scoped assessment objective fulfilled by supplied caller agreement; no implementation acceptance or continuing work is claimed. Direct evidence suffices.' }),
           tool('classic-parent-done', 'emit_result', { outcome: 'complete_direct', summary: 'Scoped classic assessment complete.' }),
         ];
         return complete(actions[parentCalls - 1]!);
@@ -712,7 +716,7 @@ else throw new Error('Unknown fixture mode');
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
     expect(childCalls).toBe(3);
-    expect(parentCalls).toBe(3);
+    expect(parentCalls).toBe(5);
     expect(run.cards.read('project')!.lifecycle.status).toBe('done');
     assertRecordedNodeInstructions(root, inputs);
   });
@@ -730,7 +734,9 @@ else throw new Error('Unknown fixture mode');
           expect(latestToolResult(input).success).toBe(true);
           return complete(tool('goal-parent-status','write',{path:'record:///status.md?card=project',content:'Scoped goal assessment returned; no implementation acceptance claimed.'}));
         }
-        if (parentCalls === 3) return complete(tool('goal-parent-done','emit_result',{outcome:'complete_direct',summary:'Scoped assessment complete.'}));
+        if (parentCalls === 3) return complete(tool('goal-parent-assess','emit_result',{outcome:'assess_completion',summary:'Reconcile finite parent assessment objective.'}));
+        if (parentCalls === 4) return complete(tool('goal-objective-status','write',{path:'record:///status.md?card=project',content:'Scoped goal assessment independently returned; parent assessment-only objective fulfilled with no remaining authorized scope.'}));
+        if (parentCalls === 5) return complete(tool('goal-parent-done','emit_result',{outcome:'complete_direct',summary:'Scoped assessment complete.'}));
         throw new Error('Unexpected goal parent call');
       }
       expect(cardId).toBe(goalId);
@@ -750,7 +756,7 @@ else throw new Error('Unknown fixture mode');
     goalId = run.child.id;
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
-    expect(goalCalls).toBe(2); expect(reviewerCalls).toBe(2); expect(parentCalls).toBe(3);
+    expect(goalCalls).toBe(2); expect(reviewerCalls).toBe(2); expect(parentCalls).toBe(5);
   });
 
   it.each(['repair', 'already_green'] as const)('PAAD returns a missing owner decision, re-enters after clarification and independently accepts %s', async (mode) => {
@@ -768,6 +774,8 @@ else throw new Error('Unknown fixture mode');
           tool('clarified-activation', 'activate_card', {card_id: childId, instructions:direction}),
           tool('accept-fixed-output', 'activate_card', {card_id:acceptanceId, instructions:'Independently inspect owner-decision.txt and answer.cjs and run the fixed-input acceptance check. Do not repair the implementation.'}),
           status('project', 'parent-status', 'Owner supplied the missing answer. Implementation returned current evidence; separate fixed-input verification accepted it.'),
+          tool('parent-assess', 'emit_result', {outcome:'assess_completion', summary:'Clarified implementation ready for objective reconciliation.'}),
+          status('project', 'objective-status', 'Finite owner-selected answer objective fulfilled on clarified answer 42; separate fixed-input verification accepted it. No continuing work or outstanding review requirement remains.'),
           tool('parent-complete', 'emit_result', {outcome:'complete_direct', summary:'Clarified implementation independently accepted.'}),
         ];
         if (plannerCalls === 2) {
@@ -836,7 +844,7 @@ else throw new Error('Unknown fixture mode');
     if (acceptedBrief.kind !== 'found') throw new Error('Missing accepted brief');
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
-    expect(plannerCalls).toBe(6);
+    expect(plannerCalls).toBe(8);
     expect(acceptanceCalls).toBe(8);
     expect(readFileSync(join(run.root, 'answer.cjs'),'utf8')).toBe(mode === 'repair' ? 'module.exports = 42;\n' : original);
     const finalBrief = run.cards.readRecordCurrent(childId, 'brief.md');
@@ -914,10 +922,12 @@ else throw new Error('Unknown fixture mode');
           if (plannerCalls === (misrouted ? 4 : 3))
             return complete(
               tool('review-parent-done', 'emit_result', {
-                outcome: 'complete_direct',
+                outcome: 'assess_completion',
                 summary: 'Fixed-input independent review accepted.',
               }),
             );
+          if (plannerCalls === (misrouted ? 5 : 4)) return complete(tool('review-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Both agreed finite A items accepted with source/caller evidence. Entire assigned objective fulfilled; no continuing scope or outstanding independent finding remains.' }));
+          if (plannerCalls === (misrouted ? 6 : 5)) return complete(tool('review-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Fixed-input independent review accepted.' }));
           throw new Error(`Unexpected Planner call ${plannerCalls}`);
         }
         const position = supervisor
@@ -1134,10 +1144,12 @@ else throw new Error('Unknown fixture mode');
           if (plannerCalls === 7)
             return complete(
               tool('integrated-parent-done', 'emit_result', {
-                outcome: 'complete_direct',
+                outcome: 'assess_completion',
                 summary: 'Combined B independently accepted against both agreed items.',
               }),
             );
+          if (plannerCalls === 8) return complete(tool('integrated-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Combined B fulfills both agreed items under independent adjudication, retaining unchanged item evidence. No authorized remaining work or unmet acceptance remains.' }));
+          if (plannerCalls === 9) return complete(tool('integrated-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Combined B independently accepted against both agreed items.' }));
           throw new Error(`Unexpected parent call ${plannerCalls}`);
         }
         if (cardId === implementationId) {
@@ -1369,10 +1381,12 @@ else throw new Error('Unknown fixture mode');
         if (plannerCalls === 3)
           return complete(
             tool('parent-done', 'emit_result', {
-              outcome: 'complete_direct',
+              outcome: 'assess_completion',
               summary: 'Verified test baseline accepted.',
             }),
           );
+        if (plannerCalls === 4) return complete(tool('baseline-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Assigned finite test baseline objective fulfilled with fresh diagnosis and independent verification-owned acceptance; no remaining scope.' }));
+        if (plannerCalls === 5) return complete(tool('baseline-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Verified test baseline accepted.' }));
         throw new Error(`Unexpected planner call ${plannerCalls}`);
       }
       const position = supervisor
@@ -1575,10 +1589,12 @@ else throw new Error('Unknown fixture mode');
         if (plannerCalls === 3)
           return complete(
             tool('resumed-parent-done', 'emit_result', {
-              outcome: 'complete_direct',
+              outcome: 'assess_completion',
               summary: 'Resolved test accepted.',
             }),
           );
+        if (plannerCalls === 4) return complete(tool('resumed-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Resolved input permitted the existing blocked test to finish through current verification. Finite assigned objective is fulfilled without outstanding findings or continuing scope.' }));
+        if (plannerCalls === 5) return complete(tool('resumed-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Resolved test accepted.' }));
         throw new Error(`Unexpected resumed Planner call ${plannerCalls}`);
       }
       const position = supervisor
@@ -1757,10 +1773,12 @@ else throw new Error('Unknown fixture mode');
         if (plannerCalls === 3)
           return complete(
             tool('stopped-parent-done', 'emit_result', {
-              outcome: 'complete_direct',
+              outcome: 'assess_completion',
               summary: 'Resumed test accepted.',
             }),
           );
+        if (plannerCalls === 4) return complete(tool('stopped-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Existing stopped test resumed through fresh diagnosis and verification; finite assigned objective fulfilled, with no remaining acceptance or continuing scope.' }));
+        if (plannerCalls === 5) return complete(tool('stopped-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Resumed test accepted.' }));
         throw new Error(`Unexpected resumed Planner call ${plannerCalls}`);
       }
       const position = supervisor
@@ -1899,10 +1917,12 @@ else throw new Error('Unknown fixture mode');
           if (plannerCalls === 3)
             return complete(
               tool(`${branch}-parent-done`, 'emit_result', {
-                outcome: 'complete_direct',
+                outcome: 'assess_completion',
                 summary: `${branch} branch accepted.`,
               }),
             );
+          if (plannerCalls === 4) return complete(tool(`${branch}-objective-status`, 'write', { path: 'record:///status.md?card=project', content: `${branch} verification-owned acceptance fulfills the finite assigned objective; no remaining authorized work or outstanding review finding.` }));
+          if (plannerCalls === 5) return complete(tool(`${branch}-objective-done`, 'emit_result', { outcome: 'complete_direct', summary: `${branch} branch accepted.` }));
           throw new Error(`Unexpected ${branch} Planner call ${plannerCalls}`);
         }
         const position = supervisor
@@ -2035,10 +2055,12 @@ else throw new Error('Unknown fixture mode');
         if (plannerCalls === 3)
           return complete(
             tool('parent-done', 'emit_result', {
-              outcome: 'complete_direct',
+              outcome: 'assess_completion',
               summary: 'Code child accepted.',
             }),
           );
+        if (plannerCalls === 4) return complete(tool('code-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Code child delivery evidence fulfills the finite assigned code objective; no outstanding independent acceptance requirement or continuing obligation remains.' }));
+        if (plannerCalls === 5) return complete(tool('code-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Code child accepted.' }));
         throw new Error(`Unexpected planner call ${plannerCalls}`);
       }
       executorCalls += 1;
@@ -2179,10 +2201,12 @@ else throw new Error('Unknown fixture mode');
         if (plannerCalls === 3)
           return complete(
             tool('parent-done', 'emit_result', {
-              outcome: 'complete_direct',
+              outcome: 'assess_completion',
               summary: 'Architecture child accepted.',
             }),
           );
+        if (plannerCalls === 4) return complete(tool('architecture-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Architecture delivery and its independent component/system acceptance fulfill the finite assigned objective. No continuing work or unresolved acceptance remains.' }));
+        if (plannerCalls === 5) return complete(tool('architecture-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Architecture child accepted.' }));
         throw new Error(`Unexpected planner call ${plannerCalls}`);
       }
       const position = supervisor

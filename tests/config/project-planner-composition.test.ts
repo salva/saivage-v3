@@ -153,7 +153,7 @@ describe('shipped project Planner semantic composition', () => {
       expect(agentExecution(value.node).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
       expect(value.instruction.split(value.contract)).toHaveLength(2);
     }
-    expect(new Set(rendered.map(({ instruction }) => instruction)).size).toBe(1);
+    expect(new Set(rendered.map(({ instruction, contract }) => instruction.replace(contract, 'GENERATED CONTRACT'))).size).toBe(1);
   });
 
   it.each(['classic', 'classic-typed', 'paad-typed'] as const)('compiles explicit project-planner plan/recover selection while preserving configured omission in %s', (templateName) => {
@@ -164,7 +164,7 @@ describe('shipped project Planner semantic composition', () => {
     config.agents.planner!.tools = config.agents.planner!.tools.filter((name) => name !== 'reopen_card');
     agentExecution(config.card_types.project!.workflow.nodes.plan!).agent = 'project-planner';
     agentExecution(config.card_types.project!.workflow.nodes.recover!).agent = 'project-planner';
-    agentExecution(config.card_types.project!.workflow.nodes['handle-notifications']!).agent = 'project-planner';
+    agentExecution(config.card_types.project!.workflow.nodes['assess-completion']!).agent = 'project-planner';
     config.card_types.project!.workflow.notification_recipient = 'project-planner';
 
     const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${templateName}-named-project-planner-`));
@@ -172,7 +172,7 @@ describe('shipped project Planner semantic composition', () => {
     const workflows = compileProjectWorkflows(config, { defaultPromptRoot: template.promptRoot, projectRoot });
     const registry = createPromptTemplateRegistry(workflows);
     const project = workflows.cardTypes.get('project')!;
-    for (const nodeId of ['plan', 'recover', 'handle-notifications']) {
+    for (const nodeId of ['plan', 'recover', 'assess-completion']) {
       const node = requireNode(project, nodeId);
       expect(agentExecution(node).agent.name).toBe('project-planner');
       expect(agentExecution(node).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
@@ -211,8 +211,9 @@ describe('shipped project Planner semantic composition', () => {
       expect([...plan.childActivationTypes]).toEqual([...process.permittedChildTypes]);
       expect(agentExecution(plan).agent.tools.map(({ name }) => name)).toEqual(template.config.agents.planner!.tools);
       expect(agentExecution(plan).agent.recordWrites.map(({ source }) => source)).toEqual(['brief.md', 'status.md']);
-      expect(processNodeOutcomes(process, 'node:plan')).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
-      expect(processNodeOutcomes(process, 'node:recover')).toEqual(['complete_direct', 'admit_review', 'blocked', 'failed']);
+      const planningOutcomes = cardType === 'project' ? ['admit_review', 'blocked', 'failed', 'assess_completion'] : ['complete_direct', 'admit_review', 'blocked', 'failed'];
+      expect(processNodeOutcomes(process, 'node:plan')).toEqual(planningOutcomes);
+      expect(processNodeOutcomes(process, 'node:recover')).toEqual(planningOutcomes);
       expect(plan.requirements.map(({ definition, mode, gate }) => [definition.name, mode, gate])).toEqual([['status.md', 'continue', 'updated']]);
 
       for (const value of [composition, recover, review]) {
@@ -230,6 +231,7 @@ describe('shipped project Planner semantic composition', () => {
       expect(reviewRevision).toContain('Previous process node: review\nAccepted outcome: revision_required');
       expect(reviewRevision).toContain(`record:///review.md?card=${cardId}&v=2`);
       expect(reviewRevision.endsWith(routePrompt(process, 'node:review', 'result:revision_required'))).toBe(true);
+      if (cardType === 'goal') {
       const notificationHandoff = pendingNotificationTransition(process);
       expect(notificationHandoff).toContain('Previous process node: review\nAccepted outcome: approved');
       expect(notificationHandoff).toContain('Summary: review evidence retained');
@@ -240,12 +242,18 @@ describe('shipped project Planner semantic composition', () => {
       expect(handlerPrompt.text).toBe(readFileSync(handlerPrompt.path, 'utf8').replaceAll('{{cardType}}', cardType));
       expect(processNodeOutcomes(process, 'node:handle-notifications')).toEqual(['admit_review', 'blocked', 'failed']);
       expect(processNodeOutcomes(process, 'node:handle-notifications')).not.toContain('complete_direct');
+      } else {
+        const assessmentHandoff = transition(process, 'review', 'approved', 'assess-completion');
+        expect(assessmentHandoff).toContain('Previous process node: review\nAccepted outcome: approved');
+        expect(assessmentHandoff).toContain(`record:///review.md?card=${cardId}&v=2`);
+        expect(process.states.has('node:handle-notifications')).toBe(false);
+      }
       if (templateName !== 'classic')
         expect(routePrompt(process, 'node:review', 'result:revision_required')).toContain('Preserve the immutable versioned `review.md` URL');
       expect(requirePrompt(process, agentExecution(plan).correctionPrompt.promptId)).toBe(readFileSync(process.processPrompts.get(agentExecution(plan).correctionPrompt.promptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
     }
 
-    expect(compositions[0]!.instruction).toBe(compositions[1]!.instruction);
-    expect(compositions[0]!.recover.instruction).toBe(compositions[1]!.recover.instruction);
+    expect(compositions[0]!.instruction.replace(compositions[0]!.contract, 'GENERATED CONTRACT')).toBe(compositions[1]!.instruction.replace(compositions[1]!.contract, 'GENERATED CONTRACT'));
+    expect(compositions[0]!.recover.instruction.replace(compositions[0]!.recover.contract, 'GENERATED CONTRACT')).toBe(compositions[1]!.recover.instruction.replace(compositions[1]!.recover.contract, 'GENERATED CONTRACT'));
   });
 });

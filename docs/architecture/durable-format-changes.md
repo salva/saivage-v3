@@ -23,6 +23,64 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Main Planner completion: no family-format bump; incompatible reached-node identity adoption (2026-10-20)
+
+Exact implementation parent: `c6de78865ef72a19c2f4e75b13365351191cdce1`.
+`classic-shared.ts::projectCompletion`, selected by classic and classic-typed
+before record-context expansion and by paad-typed's identical typed config,
+adds project `assess-completion`, routes candidate direct closure and approved
+review there, and removes project `handle-notifications`. Goals retain their
+handler. These configured identity/edge choices do not change durable family
+grammar or historical interpretation:
+
+- Workflow input **2** already represents named nodes/outcomes, nonterminal edges
+  and independent terminal promotion/exports; `card-process-config.ts` compiles
+  those declarations without a new grammar or old-graph normalization.
+- Ordinary/tombstone card artifacts **3** retain `schemas/lifecycle.ts`'s open
+  nonempty string node/outcome and discriminated executor contract. An old DONE
+  or report result remains its factual historical result, not a new objective
+  assessment. Card-head/mailbox **1** selection and payload meanings do not change.
+- Accepted records **3**, record heads **3** and initializer **1** retain author,
+  numbering, provenance and selection meanings. `NodeExecution` closes each
+  node's required records; `CardProcessActor` independently selects promoted
+  result and terminal-source exports. Reviewed completion promotes the real
+  Reviewer result while exporting Planner assessment status citing immutable
+  review. It neither reauthors review nor rewrites historical exports.
+- Conversation index/genesis/envelope **12** retain actual node names, prepared
+  instructions, handoffs and record observations, not reconstruction from today's
+  graph. `AgentExecutor` supplies ordinary accepted-edge context and existing
+  record inputs; no row, typed observation, generic tool-result shape or
+  compaction retention meaning changes. Execution evidence **1**, shell operation
+  **1** and the provider/app-log shared envelope **1** retain their existing owners
+  and contracts: no action, invocation or evidence layout is introduced here.
+
+No discriminator is increased because these family contracts are preserved, not
+because equal versions prove installation compatibility. Deployment applicability
+is unknown; no unreleased-cutover grouping or equal-number reuse is claimed.
+Existing-config init preserves YAML/prompts, while fresh profile initialization
+receives the new graph/closure under ordinary fresh-init preconditions.
+
+Removing/replacing a node identity from the selected workflow of a reached active
+canonical card is incompatible adoption, including **non-tombstoned DONE/FAILED**,
+not merely running actors or a node known to have executed. Thus removing this
+project handler requires separately consented complete reset or explicitly
+owner-requested external offline migration before use. Stopping and reconciling
+YAML/prompts, preserving custom guidance, or passing compilation/startup/readiness
+is insufficient. A reached tombstone terminates workflow/session admission;
+unused declarations and changes outside the participating-identity predicate are
+not made incompatible by this rule. Independent format cutovers still apply.
+
+`persistence/current-generated-graph.ts` admits linked cards and requires current
+configured distinct node-agent indexes, not a stored prior graph; same-agent node
+removal can leave all those indexes present. There is no
+detector, alias, compatibility route, converter or historical verdict rewrite.
+Any future external migration must resolve the exact source/target identities,
+preserve evidenced historical facts and validate the complete candidate under the
+[offline gates](../runbook/index.md#external-migrations); this entry specifies no
+transformation and authorizes no operation. Source revert alone does not revert
+materialized inputs or reopen historical DONE. Binary-only rollback is not
+certified against this identity change or independent format cutovers.
+
 ### Shell stdout record authorship (2026-10-19)
 
 Exact implementation parent: `ed4aa204f4a2f0aec32baa025f5813226f41b91b`.

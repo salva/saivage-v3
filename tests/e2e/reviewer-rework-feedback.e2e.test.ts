@@ -166,6 +166,8 @@ describe('reviewer rework completion E2E', () => {
           if (plannerCalls === 2) return complete(tool('projection-admit', 'emit_result', {
             outcome: 'admit_review', summary: 'Inspect completed work.',
           }));
+          if (plannerCalls === 3) return complete(tool('projection-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Full finite assigned objective reconciled with current independent review record:///review.md?card=project&v=1; no outstanding obligation.' }));
+          if (plannerCalls === 4) return complete(tool('projection-objective-done', 'emit_result', { outcome: 'complete_reviewed', summary: 'Objective fulfilled under applicable review.' }));
           throw new Error(`Unexpected Planner call ${plannerCalls}.`);
         }
         reviewerCalls += 1;
@@ -371,6 +373,8 @@ describe('reviewer rework completion E2E', () => {
               summary: 'Concrete remediation complete.',
             }),
           );
+        if (plannerCalls === 5) return complete(tool('rework-objective-status', 'write', { path: 'record:///status.md?card=project', content: `Full finite objective fulfilled after independently reviewed remediation under record:///review.md?card=project&v=2: ${REVISED_EVIDENCE}` }));
+        if (plannerCalls === 6) return complete(tool('rework-objective-done', 'emit_result', { outcome: 'complete_reviewed', summary: 'Full objective reconciled with fresh independent acceptance.' }));
         throw new Error(`Unexpected planner provider call ${plannerCalls}.`);
       }
 
@@ -507,9 +511,9 @@ describe('reviewer rework completion E2E', () => {
         result: { kind: 'workflow-result', summary: 'Approved after concrete remediation.' },
       },
     });
-    expect(plannerCalls).toBe(4);
+    expect(plannerCalls).toBe(6);
     expect(reviewerCalls).toBe(8);
-    expect(providerTurn).toHaveBeenCalledTimes(12);
+    expect(providerTurn).toHaveBeenCalledTimes(14);
     expect(membershipRecords.length).toBeGreaterThan(0);
     expect(new Set(membershipRecords.map(({ target }) => target.scope))).toEqual(new Set(['card']));
     expect(
@@ -694,10 +698,12 @@ describe('reviewer rework completion E2E', () => {
         if (rootPlannerCalls === 4)
           return complete(
             tool('root-complete', 'emit_result', {
-              outcome: 'complete_direct',
+              outcome: 'assess_completion',
               summary: 'Project completed after owned correction.',
             }),
           );
+        if (rootPlannerCalls === 5) return complete(tool('root-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Finite project objective fulfilled by reviewed goal and corrected original implementation. No remaining obligation or unresolved acceptance.' }));
+        if (rootPlannerCalls === 6) return complete(tool('root-objective-done', 'emit_result', { outcome: 'complete_direct', summary: 'Project completed after owned correction.' }));
         throw new Error(`Unexpected root Planner call ${rootPlannerCalls}.`);
       }
 
@@ -965,7 +971,7 @@ describe('reviewer rework completion E2E', () => {
         },
       },
     });
-    expect(rootPlannerCalls).toBe(4);
+    expect(rootPlannerCalls).toBe(6);
     expect(goalPlannerCalls).toBe(7);
     expect(executorCalls).toBe(4);
     expect(reviewerCalls).toBe(4);

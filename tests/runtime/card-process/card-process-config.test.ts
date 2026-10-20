@@ -86,18 +86,18 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(fromTemplate).toEqual(derived);
   });
   it('compiles and projects each consuming declaration policy without changing selected prompt text',()=>{
-    const baseline=compileProjectWorkflows(source()).cardTypes.get('project')!;
+    const baseline=compileProjectWorkflows(source()).cardTypes.get('goal')!;
     const config=source();
     config.agents.planner!.prompt={reference:'planner',compactable:false};
     config.agents.analyst!.prompt={reference:'analyst',compactable:false};
-    const project=config.card_types.project!;
+    const project=config.card_types.goal!;
     agentExecution(project.workflow.nodes.plan!).prompt={reference:'plan',compactable:false};
     agentExecution(project.workflow.nodes.plan!).correction_prompt={reference:'correct-plan-result',compactable:false,compaction_key:' correction key '};
     project.workflow.entries.STOPPED.prompt={reference:'stopped-recovery',compactable:false,compaction_key:' entry key '};
     directEdge(project.workflow.nodes.plan!.edges.admit_review!).prompt={reference:'plan-to-review',compactable:false,compaction_key:' edge key '};
     directEdge(project.workflow.nodes.review!.edges.approved!).pending_notifications!.prompt={reference:'review-to-notifications',compactable:false,compaction_key:' notification key '};
     const compiled=compileProjectWorkflows(config);
-    const workflow=compiled.cardTypes.get('project')!;
+    const workflow=compiled.cardTypes.get('goal')!;
     const plan=workflow.states.get('node:plan')!;
     if(plan.kind!=='node')throw new Error('Missing compiled plan node.');
     expect(agentExecution(plan).agent.prompt).toEqual({reference:'planner',compactable:false});
@@ -107,7 +107,7 @@ describe('named-agent card-type workflow compilation',()=>{
     config.providers={test:{models:['gpt-5.6','gpt-6.1-sol'],capabilities:{transportProtocol:'openai-responses',contextWindowTokens:100_000,maxOutputTokens:10_000}}};
     const registry=new ProviderRegistry(config);
     const bound=bindRuntimeWorkflows(compiled,new ModelRouter(registry),registry,config.compaction.context_utilization_fraction);
-    const graph=projectCompiledGraphs(bound).graphs.find(({card_type})=>card_type==='project')!;
+    const graph=projectCompiledGraphs(bound).graphs.find(({card_type})=>card_type==='goal')!;
     expect(projectCompiledGraphs(bound).global_agents.find(({agent_name})=>agent_name==='analyst')?.prompt.declaration).toEqual({reference:'analyst',compactable:false});
     expect(agentExecution(graph.nodes.find(({node_id})=>node_id==='plan')!)?.prompt).toMatchObject({
       declaration:{reference:'planner',compactable:false},
@@ -183,8 +183,8 @@ describe('named-agent card-type workflow compilation',()=>{
     }
     expect(roles).toEqual(new Set(['planner','reviewer','executor']));
     const sources=Object.values(expected);const nodes=sources.flatMap(({workflow})=>Object.keys(workflow.nodes));const references=sources.flatMap(({workflow})=>[...Object.values(workflow.entries).flatMap(({node,prompt})=>[node,...(prompt?[prompt.reference]:[])]),...Object.values(workflow.nodes).flatMap((node)=>[agentExecution(node).prompt.reference,agentExecution(node).correction_prompt.reference,...Object.values(node.edges).flatMap((edgeSource)=>(({target,prompt,pending_notifications}) => [...('node'in target?[target.node]:[]),...('terminal'in target&&target.promote!=='current'?[target.promote.latest_node]:[]),...(prompt?[prompt.reference]:[]),...(pending_notifications?[pending_notifications.node,pending_notifications.prompt.reference]:[])])(directEdge(edgeSource)))])]);const outcomes=sources.flatMap(({workflow})=>Object.values(workflow.nodes).flatMap(({edges})=>Object.keys(edges)));
-    expect([...new Set(nodes)]).toEqual(['plan','review','recover','handle-notifications','draft','component-review','system-review','red','green','refactor','diagnose','add-coverage','repair','verify','execute','schema','validate','implement','explore','assess','report']);
-    expect([...new Set(outcomes)]).toEqual(['complete_direct','admit_review','blocked','failed','approved','revision_required','ready_for_component_review','red_confirmed','already_green','green','still_red','done','regressed','coverage_ready','coverage_gap','failing_test','coverage_passing','repair_needed','tests_passing','still_failing','schema_ready','valid','schema_invalid','implementation_retry','schema_revision','evidence_ready','more_exploration','supported','refuted','bounded_inconclusive','evidence_gap']);
+    expect([...new Set(nodes)]).toEqual(['plan','review','recover','assess-completion','handle-notifications','draft','component-review','system-review','red','green','refactor','diagnose','add-coverage','repair','verify','execute','schema','validate','implement','explore','assess','report']);
+    expect([...new Set(outcomes)]).toEqual(['admit_review','blocked','failed','assess_completion','approved','revision_required','replan','complete_direct','complete_reviewed','ready_for_component_review','red_confirmed','already_green','green','still_red','done','regressed','coverage_ready','coverage_gap','failing_test','coverage_passing','repair_needed','tests_passing','still_failing','schema_ready','valid','schema_invalid','implementation_retry','schema_revision','evidence_ready','more_exploration','supported','refuted','bounded_inconclusive','evidence_gap']);
     expect(references.every((id)=>/^[a-z][a-z0-9-]{0,63}$/u.test(id))).toBe(true);expect(outcomes.every((id)=>/^[a-z][a-z0-9_-]{0,63}$/u.test(id))).toBe(true);
   });
 
@@ -473,7 +473,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const defaults=join(root,'defaults');const overrides=join(root,'.saivage','config','prompts');
     const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
     for(const id of ['analyst','oversight','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':id==='oversight'?'{{> oversight-vocabulary}}':`${id} {{contractDescription}}`);
-    for(const id of ['plan','recover','review','handle-notifications','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','review-to-notifications','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
+    for(const id of ['plan','recover','review','assess-completion','handle-notifications','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','review-to-notifications','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
     write(defaults,'process','_shared','changed-record','{{recordSelection}}');
     write(defaults,'process','_shared','changed-record-with-body','{{recordSelection}} {{recordContent}}');
     write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
@@ -596,9 +596,9 @@ describe('named-agent card-type workflow compilation',()=>{
     failure((value)=>{value.card_types.project!.workflow.notification_recipient='missing';},/notification_recipient references missing agent/);
     failure((value)=>{value.card_types.project!.workflow.notification_recipient='analyst';},/notification_recipient must use card session scope/);
     failure((value)=>{value.card_types.project!.workflow.notification_recipient='executor';},/is not used by any workflow node/);
-    failure((value)=>{delete directEdge(value.card_types.project!.workflow.nodes.review!.edges.approved!).pending_notifications;},/requires pending_notifications/);
-    failure((value)=>{directEdge(value.card_types.project!.workflow.nodes.review!.edges.approved!).pending_notifications={node:'review',prompt:{reference:'review-to-notifications',compactable:true}};},/target must run notification recipient/);
-    failure((value)=>{directEdge(value.card_types.project!.workflow.nodes.plan!.edges.complete_direct!).pending_notifications={node:'plan',prompt:{reference:'review-to-notifications',compactable:true}};},/allowed only on a nonrecipient DONE edge/);
+    failure((value)=>{delete directEdge(value.card_types.goal!.workflow.nodes.review!.edges.approved!).pending_notifications;},/requires pending_notifications/);
+    failure((value)=>{directEdge(value.card_types.goal!.workflow.nodes.review!.edges.approved!).pending_notifications={node:'review',prompt:{reference:'review-to-notifications',compactable:true}};},/target must run notification recipient/);
+    failure((value)=>{directEdge(value.card_types.goal!.workflow.nodes.plan!.edges.complete_direct!).pending_notifications={node:'plan',prompt:{reference:'review-to-notifications',compactable:true}};},/allowed only on a nonrecipient DONE edge/);
     failure((value)=>{directEdge(value.card_types.project!.workflow.nodes.review!.edges.revision_required!).pending_notifications={node:'plan',prompt:{reference:'review-to-notifications',compactable:true}};},/allowed only on a nonrecipient DONE edge/);
   });
 

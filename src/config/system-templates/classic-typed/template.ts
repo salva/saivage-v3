@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { CardTypeName, CardTypesSource } from '../../../schemas/index.js';
-import { createClassicConfig, classicRecordContext } from '../classic-shared.js';
+import { createClassicConfig, classicRecordContext, projectCompletion } from '../classic-shared.js';
 const prompt = (reference: string) => ({ reference, compactable: true });
 
 type CardTypeSource = CardTypesSource[CardTypeName];
@@ -363,7 +363,7 @@ function leafRecords(): CardTypeSource['records'] {
 }
 
 const cardTypes: CardTypesSource = {
-  project: classicRecordContext(planningCardType()),
+  project: classicRecordContext(projectCompletion(planningCardType())),
   goal: classicRecordContext(planningCardType()),
   architecture: classicRecordContext(architectureCardType()),
   code: classicRecordContext(codeCardType()),

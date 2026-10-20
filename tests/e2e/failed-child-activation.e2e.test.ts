@@ -600,6 +600,8 @@ describe('failed child activation lifecycle E2E', () => {
                   content: 'Changed child retry complete.',
                 }),
               );
+            if (projectCalls === 5) return complete(tool('assess-project', 'emit_result', { outcome: 'assess_completion', summary: 'Changed retry ready for objective reconciliation.' }));
+            if (projectCalls === 6) return complete(tool('project-objective-status', 'write', { path: 'record:///status.md?card=project', content: 'Finite retry objective fulfilled by original changed child and its successful current evidence. No outstanding acceptance or remaining scope.' }));
             return complete(
               tool('complete-project', 'emit_result', {
                 outcome: 'complete_direct',

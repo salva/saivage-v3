@@ -76,6 +76,36 @@ The project override root is `.saivage/config/prompts`; each registered system t
 
 Typed-only process hosts cover specialized planning (`specialized-plan`, `specialized-review`, `specialized-recover` and their review handoffs); code reproduction, repair, refactor and evidence/retry handoffs; test diagnosis, coverage, repair and verification; research exploration, assessment and reporting; data schema, validation and implementation; and architecture drafting, component/system review, revision handoffs and `architecture-notifications-to-draft`. The compiler-observed closure, not a maintained numeric total, owns the complete inventory. Each reference maps to `<reference>.md` under its shared or card-specific process directory.
 
+### Project objective assessment
+
+Every shipped closure selects `process/project/assess-completion.md` and
+project-scoped plan/recover hosts: classic uses `plan.md`/`recover.md`, while both
+typed profiles use `specialized-plan.md`/`specialized-recover.md`. The three
+assessment hosts have identical bytes; shared Planner role ownership and PAAD's
+five intentional deltas remain. Goal-selected shared notification handler and
+handoff files stay in the physical closure although project no longer selects
+that node. Generated outcomes, not copied schemas in prose, describe each graph.
+
+Assessment is the prepared **current-node** task, present throughout its turns
+and summary maintenance, not an init-only reminder. It directs current objective
+reconciliation using the accepted brief, current status/children, applicable
+accepted review/evidence and delivered owner context. Bootstrap/record suppliers
+refresh at each logical primary operation. Ordinary accepted-edge context carries
+the Reviewer's accepted outcome/summary and immutable record links; no extra
+assessment handoff or review write permission is introduced. Compaction may
+summarize that historical handoff: links and selection descriptors do not recall
+bodies, so assessment reads actual records as needed. STOPPED prepares recover
+from current durable facts; historical review is not acceptance in this activation.
+
+The assessment writes concise current `status.md`, preserves outstanding scope,
+and chooses replan, necessary review, legitimate direct/reviewed completion or an
+honest blocker/failure without child dispatch or implementation. Reconciliation
+does not guarantee model understanding or beta quality. Existing-config init
+preserves selected prompts and YAML; separately adopting this matching closure
+must preserve custom guidance **and** resolve the removed participating project
+node under the [identity-cutover rules](../runbook/index.md#agent-and-workflow-identity-cutovers).
+Stopped prompt reconciliation alone cannot resolve that incompatibility.
+
 ## Optional paad-typed guidance
 
 `paad-typed` is an init-only opt-in methodology variant over the identical deeply

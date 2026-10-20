@@ -173,9 +173,11 @@ export async function createInstructionFlow(scene: InstructionScene) {
               content: `Synthetic ${scene} child settled.`,
             }),
             tool('parent-result', 'emit_result', {
-              outcome: scene === 'failed' ? 'failed' : 'complete_direct',
+              outcome: scene === 'failed' ? 'failed' : 'assess_completion',
               summary: `Synthetic ${scene} parent settled.`,
             }),
+            tool('parent-objective-status', 'write', { path: 'record:///status.md?card=project', content: `Finite synthetic ${scene} objective fulfilled; no remaining scope or independent review obligation.` }),
+            tool('parent-objective-result', 'emit_result', { outcome: 'complete_direct', summary: `Synthetic ${scene} parent settled.` }),
           ];
           assert(actions[plannerCalls - 1], 'unexpected parent provider callback');
           return complete(actions[plannerCalls - 1]!);

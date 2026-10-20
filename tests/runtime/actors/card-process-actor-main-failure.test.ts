@@ -246,22 +246,22 @@ describe('real CardProcess actor-main fatal containment', () => {
         const tool =
           calls === 1
             ? { name, arguments: JSON.stringify(args) }
-            : calls === 2
+            : calls === 2 || calls === 4
               ? {
                   name: 'write',
                   arguments: JSON.stringify({
                     path: 'record:///status.md?card=project',
-                    content: 'completed after rejected Planner input',
+                    content: calls === 2 ? 'completed after rejected Planner input' : 'Finite objective fulfilled after rejected malformed input; no remaining scope or acceptance obligation.',
                   }),
                 }
               : {
                   name: 'emit_result',
                   arguments: JSON.stringify({
-                    outcome: 'complete_direct',
+                    outcome: calls === 3 ? 'assess_completion' : 'complete_direct',
                     summary: 'completed normally',
                   }),
                 };
-        if (calls > 3) throw new Error('Unexpected activation repair/continuation.');
+        if (calls > 5) throw new Error('Unexpected activation repair/continuation.');
         return {
           result: {
             kind: 'tool_calls' as const,
@@ -281,7 +281,7 @@ describe('real CardProcess actor-main fatal containment', () => {
         summary: 'completed normally',
       });
       await expect(within(owner.settlement.promise)).resolves.toMatchObject({ status: 'done' });
-      expect(complete).toHaveBeenCalledTimes(3);
+       expect(complete).toHaveBeenCalledTimes(5);
       expect(create).not.toHaveBeenCalled();
       expect(edit).not.toHaveBeenCalled();
       expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done', error: null } });
@@ -458,7 +458,7 @@ describe('real CardProcess actor-main fatal containment', () => {
                 arguments:
                   calls === 1
                     ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' })
-                    : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }),
+                    : JSON.stringify({ outcome: 'assess_completion', summary: 'done' }),
               },
             },
           ],
@@ -524,11 +524,11 @@ describe('real CardProcess actor-main fatal containment', () => {
               id: String(calls),
               type: 'function',
               function: {
-                name: calls === 1 ? 'write' : 'emit_result',
+                name: calls % 2 === 1 ? 'write' : 'emit_result',
                 arguments:
-                  calls === 1
-                    ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' })
-                    : JSON.stringify({ outcome: 'complete_direct', summary: 'normal result wins' }),
+                  calls % 2 === 1
+                    ? JSON.stringify({ path: 'record:///status.md?card=project', content: calls === 1 ? 'done' : 'Finite objective fulfilled by current evidence, no remaining obligation.' })
+                    : JSON.stringify({ outcome: calls === 2 ? 'assess_completion' : 'complete_direct', summary: 'normal result wins' }),
               },
             },
           ],
