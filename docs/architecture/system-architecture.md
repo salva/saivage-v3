@@ -1,2027 +1,1054 @@
-# System Architecture
-
-## Stateless node operations
-
-`CardProcessActor` remains the single graph and activation-memory owner.
-`NodeExecution` owns common record, descendant, promotion, notification and exact
-result-claim gates; `AgentExecutor` retains the real conversation/tool loop.
-Action nodes use `operation-execution.ts::invokeOperation`, not an LLM actor or a
-second dispatcher. The invocation owner resolves exact typed inputs, records
-entry before launch, validates one return, joins its direct process scope and
-records only known evidence. Invalid results after effects are engine failures,
-never retries or no-effect claims. Action `continue/exists` requirements use
-accepted records, not effective drafts or document0. A compiled `stdout_record`
-binding alone grants a shell node direct acceptance of its one declared nonbootstrap
-`continue/updated` destination. Entry rejects an open draft and captures the exact
-record head identity/revision; the ordinary publisher freshly rejects intervening drafts.
-
-After direct-scope cleanup settles, `invokeOperation` returns an internal stdout
-selection only for `shell.run` with observed absent group, EOF and no stdout error.
-It retains native leader facts, not presentation termination reasons. `NodeExecution`
-checks cancellation/currentness, reads the exact capture once (at most 1MiB+1),
-and closes the source before synchronous ordinary `CardService.acceptRecord` and
-common acceptance gates. Strict UTF-8 preserves BOM, CRLF and trailing bytes;
-NUL, whitespace-only, oversized and nonregular captures fail without publication.
-The accepted3 artifact embeds independent content and host-constructed shell-stdout
-provenance. A new invocation advances the accepted version even for equal text.
-Outcome routing is unchanged; complete nonzero, signalled and timed-out captures
-can publish. A later gate failure retains the factual report, without workflow
-approval or rollback. No log schema, operation result, tracker or storage owner is added.
-
-`schemas/record-author.ts`, exported through the browser-safe schema root, owns
-the single agent/runtime/shell-stdout union consumed by persistence and public
-contracts. Bootstrap and repair retain their exact runtime provenance restrictions.
-Current/history record projections and VFS read the selected ordinary accepted
-artifact, never the log/capture. `effectiveRecordContent` exposes accepted author
-only; draft/baseline author is null. Ordinary read data carries `content_author`,
-while typed selection observations remain unchanged and no action creates a fake
-tool settlement. Record-head3 and artifact-before-head/previous-slot publication
-are unchanged; accepted3/workflow2 require separate strict adoption as recorded in
-the [format reference](./durable-format-changes.md#shell-stdout-record-authorship-2026-10-19).
-
-One nullable processor-local nonagent in-flight binding spans the whole raw
-operation through its existing matching node delivery consumer. Both Stop and
-active-card cancellation call the processor's interruption preparation before
-activation abort. That processor-local policy chooses cancel-and-settle, retaining
-exact interruption identity and joining finite plugin cleanup even beyond process
-exit. Supervisor still owns terminal winners and child-first cancellation
-publication/release. Distinct cleanup failures remain containment failures; no
-successor runs after Stop or cancellation. Ordinary provider abandonment
-is unchanged. Publication uncertainty reaches fatal before cleanup, consumer
-acknowledgement or in-flight retirement. Execution history is lazy and
-consumption-local, not startup admission, resumable state or replay authority.
-
-Child activation's existing parent relationship holds explicit instruction bytes and
-the exact invocation lease. Supervisor passes trusted parent card/session/source-input/
-tool-call/name to its activation input, without history reconstruction. The same owner
-input survives node/agent transitions and urgent same-owner re-entry. Its stable parent
-block participates in primary/summary prepared context. Root/replacement Run has none.
-Named strict format-12 evidence records actual activation, caller, stable card
-orientation and rendered parent text alongside role/node text; no full bootstrap or
-current-template snapshot is fabricated. Public notification selection belongs only
-to configured semantic global Analyst/Oversight. Dead Planner binders and submission
-context are removed; internal notification producers/recipients remain.
-
-## Browser JSON data presentation
-
-`web/src/utils/json-tokens.ts` and `components/content/JsonText.vue` provide one
-browser-only, lossless lexical text-token path for block and inline JSON data.
-Vue text nodes render exact string slices; no HTML injection or parsing/value
-round trip occurs. `CodeBlock` retains copy and layout ownership. Presentation
-producers explicitly mark structured JSON and retain their existing safe formatting;
-Files instead passes the exact received content string without reserialization.
-The outbound projection/redaction boundary remains server-owned and unchanged.
-The renderer adds no API or durable state and falls back to exact plain rendering
-above its highlighting cost bound. See the
-[shared JSON display contract](../spec/operator-ui-contracts.md#shared-json-data-display).
-
-## Browser Markdown presentation
-
-`web/src/components/content/MarkdownText.vue` owns the shared Markdown display
-for conversation context, card records/previews and Files. It transforms card
-references outside code, synchronously parses GFM with Marked (`breaks: false`,
-`async: false`), then sanitizes the resulting HTML **string** with DOMPurify before
-Vue HTML insertion. Sanitization follows parsing; it does not bound parser cost.
-This is ephemeral presentation, not a rewrite of stored source or references.
-
-## Frontend and build dependency ownership
-
-The root and `web/` npm manifests and lockfiles own separate dependency graphs.
-Keep Vue core runtime and compiler patches matched across both: the root
-`@vue/compiler-sfc` drives semantic SFC analysis in `scripts/check-export-consumers.js`,
-and VitePress consumes Vue for documentation SSR/hydration; the web graph owns
-the operator runtime and SFC compilation through plugin-vue. Vue's nine core
-`@vue` companions follow the same core release, not a blanket `@vue/*` upgrade.
-Language-tools (`vue-tsc`/language-core), test-utils and devtools have independent
-release lines; their declared compatibility and actual consumers require separate
-assessment. See the [Vue patch comparison recipe](../validation.md#matched-vue-core-patch-comparison).
-
-## Conversation-owned image pipeline
-
-`contracts/image.ts` owns browser-safe strict descriptors and pure descriptor-based
-accounting. `contracts/tool-result.ts` owns the producer-neutral typed success/failure
-envelope and branded ordered-content outcome constructor. Successful optional
-nonempty `content` holds strict text/image blocks; the singular `image` field is
-removed. Text and every explicit image occurrence retain content order and source
-session attribution. `contracts/image-normalization.ts` owns browser-safe strict
-producer-neutral source/oriented/sent dimensions, orientation, resize, scale and
-maximum-dimension facts and their shared invariants. `contracts/view-image.ts`
-composes those fields and the same predicate with the required admitted workspace
-source label; it owns strict workspace input and descriptor consistency, checked
-by the producer and canonical successful `view_image` consumer. Native MCP production reuses the
-same lower ordered transport without invoking `view_image` or inventing workspace
-paths. Arbitrary nested image-like data is never promoted. `tools/project-file-tools.ts` shares exact scoped read
-admission; `tools/image-decode.ts` uses backend-only Sharp and returns neutral
-normalization facts, with its workspace wrapper adding the admitted display path;
-workspace binders expose
-explicit `view_image` with complete invocation-session ownership. Sources stay read-only.
-`view_image` produces one image block with its unchanged workspace metadata.
-`persistence/conversation-image.ts`, exported through `session-api.ts`, publishes each
-`images/<UUID>.png` under the exact card/global conversation root. Publication uses
-fresh exclusive same-directory temporary/write/fsync/rename/parent-fsync before result
-selection. The durable result selects the file; no image index, startup inventory,
-registry, derivative set, cleanup or garbage collector exists. Files refuses this
-internal subtree; complete backup/reset/discard already own it wholesale.
-
-`AgentOperatorReadModelService` owns authenticated exact selected-image inspection:
-admit session, consume the requested indexed public segment, compare entry UUID,
-select the successful executed result/content occurrence and matching descriptor.
-Canonical source-session attribution feeds the common exact byte reader in
-`persistence/conversation-image.ts`; provider data URLs and operator byte responses
-share its length/hash/full-decode/dimension validation. No discovery or fallback occurs.
-The singular operator contract/runtime transport declares binary success explicitly,
-retaining typed JSON failures and existing auth. Browser imports remain Node-free.
-
-`WorkspaceFileReadModelService` freshly admits supported ordinary static raster
-bytes through existing lexical/resolved-path/card dispatch boundaries, using the
-shared static raster decoder. Metadata is observational, not later admission.
-Files still refuses physical conversation/private/attic storage and never serves
-redacted config/credential paths as binary. Images return unmodified detected MIME.
-After image handling and the 1,048,576-byte physical-text cap, the same owner checks
-the complete already-read buffer with Node `isUtf8`, then decodes once without
-normalizing BOM, CRLF or whitespace. Its private text classifier iterates Unicode
-scalars, rejecting any U+0000 and counting C0 U+0001–U+001F except TAB/LF/CR plus
-DEL/C1 U+007F–U+009F as suspicious. Empty text succeeds; otherwise only a suspicious
-scalar ratio strictly greater than 0.3 refuses valid UTF-8. Invalid UTF-8 also
-returns the existing safe 415, without lossy decoding or encoding fallback.
-Selected-config projection and ordinary outbound redaction remain after this
-classification. Virtual card/record projections retain their own rules and caps.
-Execution preview and attachment download delegate to this shared owner, refuse
-image metadata and return the same redacted text; no separate capture decoder or
-raw download exists. This changes only outbound physical-text admission, not
-durable capture references, bytes, record authorship or retention.
-
-The shared Files feature component `web/src/files/ImagePreviewDialog.vue` owns one
-abortable read/object URL at a time; caller-local
-selection overlays the mounted Analyst/card/history/Files owner. Producer-neutral
-typed actions carry exact displayed session/segment/result locators, with optional
-producer labels. Browser enrichment validates workspace metadata or indexed neutral
-MCP facts separately against the same normalization invariants. The workspace
-source label and literal **Native MCP capture** are presentation text, not fetch
-authority; the latter is never synthesized as a schema `source_path`. Missing,
-invalid, extra-field or descriptor-mismatched facts leave typed image actions intact
-and show **Original dimensions not recorded**. Fit/1:1 geometry, same-result navigation and Dialog focus conventions
-are shared; conversation arrivals cannot scroll the background during inspection.
-No image registry, persisted preview or durable change results.
-
-The shared `ConversationTimeline.vue` derives each displayed ordinary tool row's
-display once and reuses its resolved tool identity and image occurrences for actions
-and inspection. Independent strict image selection and exact server authority remain
-unchanged; an open inspection retains its selected occurrences across refresh.
-
-`application/conversation-image-materialization.ts` resolves selected snapshots
-sequentially and validates bytes/hash/decoded dimensions for invocation-local use.
-Application composition binds primary/recomposed/pinned preparation and the fixed
-summary materializer to project root and canonical source session. Async boundaries
-retain cancellation and exact-owner dispatch fences. Neutral descriptor discovery and
-ordered materialized-content binding remain in `contracts/provider-conversation.ts`.
-Adapters remain pure serializers: Responses JSON and Codex SSE directly share
-`agents/openai-content-serializer.ts` for native input-image parts and tool-result
-outputs, omit detail, and never open files. Primary results preserve one originating
-`call_id`-linked function output:
-metadata text followed by all text/image parts in content order, not another user
-utterance. Synthetic summary/refine material retains its distinct ordered
-multimodal user-message path; call/result/all blocks remain one atomic packing unit.
-Candidate construction hashes and retains the complete body with data URLs;
-dispatch sends those admitted bytes unchanged. Canonical/public content contains
-descriptors, never transient payloads. Browser schema imports never load Sharp/filesystem.
-
-Candidate construction observes each actual image emission, including repeated
-occurrences, rather than counting descriptor inventory. Candidate accounting is
-complete UTF-8 wire bytes/4 plus each emitted raster reservation
-`2*ceil(width/32)*ceil(height/32)`, with a 32 MiB image-bearing wire cap. Descriptor
-accounting predicts PNG base64 part size without allocating payloads and adds four
-times raster reservation for compactor accounting bytes; token estimates add the same
-image weight. Source round classification, primary and synthetic summary measures
-share this helper. Local-exact qualification/ranking uses strict accounting-byte
-reduction; preventive uses strict token reduction/hard ceiling and smallest token
-candidate; authoritative takes its first token reduction. Existing two endpoints,
-one accumulator and correction limits remain. This is approximate local admission,
-not provider billing or guaranteed fit. Semantic source identity includes descriptor
-UUID/hash/dimensions/length, excludes data URLs, and is independent of image weight.
-Refine packs call/result/image atomically, materializing from the source session before
-exact summary admission. Successful coverage removes pixels from active context;
-later folds inherit prose and retained tail, not old image files.
-
-`agents/provider-capabilities.ts` owns image-compatible capability matching, reused
-through `execution-api.ts` by composition and actual summary serialization. Those
-checks remain independent: enabled bindings require a compatible fixed summary
-route at composition, and retained image source requires it at use even after tool
-removal. Summaries request image support only, not tools or exclusive tool choice;
-text-only Chat remains valid. `contracts/context-budget.ts` shares only the pure
-token-or-image-wire size condition over request-local facts. Ordinary admission
-retains its ineligible/too-large verdicts, while summary admission retains fixed
-configuration errors versus packing obstruction. Final summary send still freshly
-re-admits and compares the packed request hash before dispatching retained bytes.
-
-Conversation index, genesis and envelope share strict format 12 (fresh 11→12 baseline/draft-document and historical-selection cutover, retaining excerpts, instruction evidence, maintenance and ordered content).
-Record heads separately advance 1→2; immutable accepted artifacts remain 1. Card/provider evidence versions are unchanged. Earlier/mixed contracts block
-startup, with separately consented complete reset or explicitly requested external
-offline migration only. No core conversion or implicit deployment is authorized.
-
-`canonical-conversation-outbound.ts` selects the redaction owner's one-layer
-record-prompt operation for public current/history/protected text. The record
-supplier also uses this owner on complete encoded oversized bodies before cutting.
-Seven finite
-encoded counterparts reuse ordinary replacement policy, then ordinary text filtering
-handles surrounding prose. Only local matched syntax is decoded/re-encoded; there
-is no whole-body decoding or historical template/record reconstruction. The raw
-and encoded inline passes scan original conservative candidates forward. Only a
-recognized secret that is actually masked may extend through a complete
-escape-aware double-quoted value. Non-secret, rejected-boundary and unchanged
-placeholder candidates retain their original endpoints; incomplete/nonextending
-values retain conservative coverage. Existing classification, JSON rules, flags
-and pass order remain unchanged. This prevents masking one escaped quote while
-exposing its suffix without skipping later secrets inside unchanged candidates.
-The supplier's `record-prompt-content.ts` preserves small/null JSON; raw bodies over
-32768 UTF-8 bytes undergo complete encoded redaction, scalar-safe display cuts and
-a disclosure/latest-pointer notice, then fresh JSON quoting of the entire preview.
-The display allocation is 8192 bytes per end, not a final injection bound. A fitting
-redacted display is retained once with no-further-elision disclosure. Persisted row
-text is the actual composed occurrence, while hashes/head metadata identify source.
-`excerpt` exposure describes every oversized transformation, not complete source or
-a contiguous slice. Full accepted bootstrap remains separate and complete. Existing
-source-order fact/protection/compaction owners retain the actual text/descriptors;
-they never reconstruct a preview from a later latest-record read.
-
-`schemas/record-observation.ts` owns typed selection/exposure/source descriptors;
-the pure persistence projection consumes an existing `RecordProjection` without I/O.
-VFS retains the exact owning projection and `readProject` returns bounded display
-data separately from local typed observations. Nominal outcomes carry that metadata
-through execution into the exact canonical result settlement; arbitrary data and
-MCP output do not produce it. Known record mutations project their returned state,
-without follow-up reads or changes to acceptance. Conversation facts fold inherited
-descriptors and actual source observations in append order, then merge the retained
-suffix; immutable historical selections cannot replace current knowledge. These
-facts contain no protected instruction/body copy and confer no write authority.
-Surviving newest occurrences determine fact order, not first-key insertion:
-the common primary/summarizer `composeContextProjection` moves a replaced key
-after still-surviving inherited and earlier suffix observations.
-Canonical observation coordinates use a per-derivation source-ID index, discarded
-after the fold, eliminating repeated per-row source searches without weakening
-strict fresh consumption.
-
-`contracts/operator-api-agents.ts` owns a separate strict browser-safe entry/fact
-projection. Canonical owning reads validate durable commitments first; egress
-positively selects observation identity/exposure/source, omits byte hashes and
-internal row-policy templates/evidence arguments, and redacts metadata independently
-of text. Current/history/protected copies and compacted descriptors share that
-boundary. The shared timeline renders actual conditional text and descriptor-only
-preparation evidence; immutable accepted links inspect record evidence, not rebuilt
-provider instructions. Reviewer descendant context exposes immutable accepted links
-from its snapshot, not a current record projection; no observation is fabricated
-from those URLs or its internal freshness baseline.
-
-`ConversationLLMActor` captures the exact lease returned by invocation `begin` in
-its deferred `runExternal` callback. The callback's first action is
-`InvocationLifecycle.assertCurrent(lease)`, before provider preparation or
-compaction. Scheduling-time ownership and wrapper rejection do not suffice:
-the raw microtask can still execute after activation abort or lease revocation.
-This use-time check changes neither callback scheduling nor existing graceful
-cancellation/result settlement. Publication uncertainty still enters the fatal
-boundary before any follow-up, including another authority check.
-
-Conversation inspection keeps source-adjacent egress ownership in
-`agent-conversation-read-model.ts`: current and exact-history rows share the canonical
-public projector and selected genesis summaries use the existing outbound text redactor.
-The UI places default-closed genesis, recorded system text, activation index, Technical
-details and current-instructions disclosures in one conversation scroll surface. It keeps
-both physical tool anchors/provenance while combining matched exchanges at the call position,
-with one shared association owner, `web/src/utils/agent-timeline/timeline.ts`, reusing
-`src/schemas/message-identity.ts` session/source-input/call keys for current, exact
-history and Analyst readers. Provider call-ID reuse alone is not association authority.
-The UI preserves same-selection refresh state without reconstructing requests or changing
-provider, actor invocation, storage or durable contracts. See
-[conversation presentation](../spec/operator-ui-contracts.md#6-conversation-readers).
-
-## Exact-target repair ownership
-
-CLI path admission compares lexical and resolved backup/report destinations against the exact layout-owned cards/agents/logs/work roots plus repair-attic and locks, not the whole project. Ordinary source-side project paths are permitted; absolute paths, fresh report and lexical/resolved report separation from the declared backup remain required. This uses exact path resolution, not an inventory or symlink-hardening framework.
-
-`cli-repair.ts` owns async bound lifecycle exclusion across backup acknowledgement, pure inspection, external report, exact consent, byte/absence recheck, effects and strict repaired-owner validation. Every pre-existing lock blocks it; no subordinate lock, registry, journal or continuation state. Backup is acknowledged, not created/verified. Repair invokes no providers, semantic closings or restart; existing semantic owners remain unchanged.
-
-`repair-target.ts` builds one call-local exact decision from strict ancestor membership and exact selectors/documents. Card/record prev is one complete candidate, not an immutable-predecessor search. Cached content is fresh-published with new head identity through current owners even when replacement overwrites prev. Corrupt selectors move before initial publication; valid selectors remain until replacement and exact identified corrupt bodies move afterward. Queue/draft/membership changes may be lost. No enumeration or head regeneration.
-
-Pure growing-file inspection shares retained-prefix validation with automatic consumers; explicit truncation is separate. Current tails are reported/consented tail-only effects. Previous-index candidate tails remain unchanged until restored index publication succeeds, then reported now-current truncation occurs. Indexed rollback requires wholly valid immediate historical predecessor without truncation; complete malformed data is never prefix-salvaged. Exact segment UUID/version, not monotonic ordinal alone, identifies sync/web baselines and retained cursors after rollback/recompaction.
-
-Both-unusable-card-selections discard uses explicit compiled/parent-permitted non-root type (depth-twelve leaf), fixed project type, and separate destructive consent. Six own roots rename wholesale to fresh attic without inventory: heads, history, mailbox, records, conversations. Nested children and unrelated owners stay untouched. Synthetic FAILED v1 and accepted loss/bootstrap placeholders use current owner publication/provenance and empty configured session indexes. Former children remain unlinked/ignored; dangling dependencies may still fail strict admission. Existing active-parent Planner metadata reopening to CHANGED remains available after later explicit ancestor Run with unchanged placeholders; no repair hold/admission flag.
-
-Attic isolation is lexical/resolved-alias Files policy before content/list/preview reads, not a scanner or root-agent containment. Reset does not own attic. Report only known successful steps; first failure ends the nontransactional attempt. Move/durability/publication/truncation uncertainty is fatal before follow-up reads/writes/logging/report update or descriptor/lock/prompt release. No retry, compensation, attic adoption or guaranteed recovery.
-
-This document is the canonical architecture authority for Saivage v3.
-The subordinate [durable format changes](./durable-format-changes.md) inventory records
-evidenced incompatible cutovers, not an exhaustive compatibility history or operational consent.
-Saivage core/packaged utilities contain no migrations, old-format readers, probes, bridges or normalization in runtime/startup/init/reset/repair/ordinary deployment. Mixed formats and binary-only downgrade against incompatible state are unsupported. Incompatible adoption chooses separately consented reset or explicitly owner-requested [external offline migration](../runbook/index.md#external-migrations), outside all product paths; no new runtime owner/mechanism.
-Ordinary same-format binary replacement stops the old service and strictly starts the new binary against retained current-format generated state.
-
-## Deployment And Trust Model
-
-Saivage is designed for an externally isolated LXC container.
-Deployment provides that isolation as the boundary against agent-caused host impact; Saivage neither creates nor verifies it.
-In-container agents are trusted and may execute shell commands as root.
-
-Internal path, command, and process controls serve operational and API-contract purposes, and runtime/data invariants preserve ordinary correctness and integrity; none contains that trusted root-capable principal.
-Ordinary workflows may remain constrained despite that capability.
-External operator authentication and outbound secret non-disclosure remain genuine product boundaries.
-
-Ordinary deployments require bearer authentication.
-Headerless, authentication-disabled operation is supported only when deployment-owned external isolation limits exposure to trusted origins; Saivage neither establishes nor detects that isolation.
-The server retains wildcard CORS, which is not authentication and does not make an auth-disabled deployment safe.
-API bearer credentials remain header-only and are never accepted in URLs.
-
-## Activation Ownership Architecture
-
-The supervisor owns one `Map<string, CardActivationOwner>` and one guarded synchronous `ownershipTransition`.
-`CardActivationOwner` is plain activation-local state and the one `CardProcessActor` implementation is the remaining micro-actor, built over a narrow `BaseActor`.
-The public micro-actor barrel exposes that base and its lifecycle callback contracts, not compiled-table construction types or validation details; workflow compilation imports the validator from its owning module directly.
-`ConversationLLMActor` is a separate direct provider/tool phase owner.
-Only an autonomous-card Conversation LLM owner privately retains the supplied RuntimeGate. Global-agent owners have no gate; both purposes check invocation currentness immediately before provider entry.
-
-The direct Conversation LLM owner has no `BaseActor`, compiled topology, event queue, `start()`, or actor lifecycle settlement.
-The transition mutates only in-memory owner phases, parent/child links, currentness, run/token/status, the singular halt identity, exact-run Pause state, and the linked child lease, then validates the graph and emits one coherent invalidation.
-Analyst intervention admission is a read-only assertion derived from that same Supervisor status, not transition-mutated state.
-Persistence, process calls, abort delivery, promise delivery, and joins occur outside it and continuations recheck exact identity.
-Ordinary coordination has no owner repository, factory, registry, second ownership axis, transaction, recovery protocol, or callback bridge.
-The sole narrow callback exception is the required terminal CardProcess actor-main notification to its exact current/frozen Supervisor owner.
-
-Each configured processor is directly constructed and started ready before its owner is observable.
-The supervisor constructs one `PlannerChildControlPort` bound to that exact parent activation and passes it through process/node/role composition. Activation, cancellation, and reopening all use this port; it never exposes generic card mutation or caller-selected parent/activation authority.
-Provider code cannot select a parent or read an activation target before delegation. For reopening, the Supervisor proves the captured parent remains the active/open owner before target I/O and synchronously retains that authority through its existing owner-bound publication boundary.
-Concrete `CardService` remains the sole root/card reader.
-
-`ConversationLLMActor.toolInvocationContext(outcome)` is the only production constructor of the complete **LLM** invocation context for autonomous and internal Analyst calls. The caller-neutral invocation core additionally accepts a discriminated external execution context with invocation UUID, principal and owned signal, never a fake conversation or child lease.
-`invokeToolForLlm(surface,name,args,context,signal?)` is the singular LLM invocation boundary and has one required-context declaration; no overload, default, fallback, partial context, or role subtype exists.
-Analyst parses protocol arguments and passes the parsed object directly to that boundary.
-Lower-level `invokeTool` remains context-optional for direct non-LLM use.
-Analyst cannot activate children because its surface and dependencies contain no planner port.
-Valid Analyst and Invocation Service app-log ownership remains; autonomous runtime and Planner dependencies remain free of `appLogs`.
-
-Server composition is the sole restart-availability derivation boundary.
-It combines authentication policy with the optional boot input into one immutable `RestartCapability`: unavailable has no port, while available requires its `RestartPort`; authenticated composition without that port fails immediately.
-The exact capability is passed unchanged through runtime, tool, Analyst, and REST composition. Scheduled chat restart acknowledgement belongs to REST response finish, not observation-only sockets.
-`buildRuntimeStatusReadModel()` is the sole projector of its discriminator to public `restart_server_available`.
-
-Chat handlers receive only the runtime application and restart capability; `AuthPolicy` remains at the HTTP/WS admission boundary. Configuration authority remains with its existing runtime, config, Files, and MCP owners. `ServerInstance.saivageConfig` remains a separate in-process config inspection surface, not an HTTP exposure or chat dependency.
-
-`AnalystSession` is a plain serial phase coordinator. `application/analyst-operation-surface.ts` owns shared Analyst tool composition independently of that conversation. Configured policy identity and selected tool references determine permission; actual agent/external authorship independently determines card/bootstrap/record provenance, mailbox source and audits. External selections cannot borrow omitted tools for record-write conjunctions. The invocation core returns call-local normalized image blocks separately from durable results; real LLM settlement alone publishes selected PNG descriptors. The application receipt owner appends only known settled, body-free external observations to app log, without a start journal, transcript or provider attempt.
-
-`config/analyst-mode.ts` resolves startup-only interaction selection. External-only
-skips global Analyst model binding while retaining its configured participant and
-strict history/evidence admission; card participation still binds normally.
-`server/analyst-mcp-server.ts` owns the authenticated loopback SDK1.32.1 stateless
-HTTP component, exact project-digest endpoint and revision2025-11-25 boundary.
-Request-local SDK transports await actual application work before disposal;
-`application/external-analyst-operations.ts` owns signals and in-flight joins,
-receipts and one application-lifetime external direct process scope. Neither
-socket close nor request-local disposal cleans that shared surface. App synchronous
-admission closure and cleanup contain/join it with fatal publication precedence.
-The separate bearer never grants REST authentication/restart confirmation.
-Admission moves one pending restart-confirmation capability into one accepted operation, whose immutable accepted ID identifies ingress and confirmed-restart publication and is distinct from every fresh initial, tool-continuation, and repair invocation source.
-Its tracker consumer alone installs reusable idle, permanent failed, or disposed settlement and delivers the caller.
-Reusable non-scheduling outcomes restore confirmation before delivery; successful schedule return alone consumes it.
-Confirmed restart separates one accepted-ID activation/user batch from schedule entry and fences both after the complete writer boundary and immediately before scheduling.
-Analyst normal submissions, confirmed restart, and Oversight use one global-agent ingress tuple builder: the activation marker followed by the durable user row in one append. Synchronous publication observers can dispose Analyst ownership; ordinary ingress retains its post-publication currentness check, and confirmed restart captures its disposal request before permitting schedule entry.
-Analyst turns have no cancellation authority or second terminal winner.
-
-The direct Conversation LLM union carries each exact canonical input, provider lease, parked tool context, and concrete child lease in its owning phase.
-Direct replacement is the sole transition authority.
-Provider entry creates the invocation lease; canonical writer entry owns publication plus every synchronous observer.
-Completion then publishes mandatory provider-exchange evidence, synchronously hands the exact terminal input to the enclosing Analyst or Card operation, and settles the direct promise.
-Analyst outer settlement writes a required terminal-source notice only after an error/model-issue row and evidence.
-No queued terminal event, lifecycle join, registry, ledger, or mutable latest-input authority exists.
-
-Application teardown directly disposes Analyst and Conversation LLM ownership and joins their owned completion; it does not route through an Analyst-turn cancellation callback, terminal request, transcript notice, or fabricated result.
-Controlled card interruption instead uses graceful owned cancellation: it closes execution/continuation admission and cancellation-propagates the current provider or tool operation while retaining the parked call and any known returned evidence until one no-continuation settlement completes. It never disposes first, revives a call, scans history, or invokes recovery. Permanent application teardown may take over only after freezing ownership and joins the same local settlement.
-
-For internal summaries, the transport owner translates transport-associated aborts to the exact supplied owner reason. The provider-attempt owner awaits recording once and retains that identity inside the evidence-bearing `ProviderTurnFailure`; the invocation owner accumulates and indexes only real settled attempts before disposition, including cancellation at loop/retry-wait exits. Exact cancellation ends execution without recovery handoff or availability mutation. A nonidentical failure racing abort terminates with that actual failure and any real accumulated attempts, not a substituted cancellation. The summary owner first projects exchanges to the canonical source conversation, then throws the direct exact owner reason only after successful publication. The LLM actor retains its strict identity rule and joins through existing card ownership. No generic cause traversal, error-name matching or fabricated attempt is involved.
-
-Recorder and summary-projection failures remain authoritative; publication uncertainty crosses the fatal boundary before cancellation settlement, cleanup, result/audit construction or stopped publication. Supervisor urgent settlement still claims the exact root/boundary and suffix, joins owned summary/evidence work and stops descendants leaf-to-root; a targeted root is stopped before its existing in-run STOPPED replacement. A distinct failure may reject the notification request after enqueue and halt runtime rather than certify interruption. This adds no partial-result protocol or automatic descendant reactivation.
-Ordinary tool-result settlement and successful no-continuation `restart_server` result settlement are separate direct effects with the same disposal-after-entry rule: an entered writer appends its one exact caller-supplied result, disposal owns everything after it, the public settlement and Analyst submission reject with the exact disposal reason, internal settlement and joins succeed, and no continuation/provider work is admitted.
-The `restart_server` case additionally installs no confirmation.
-Disposal while merely parked revokes later result admission.
-Entered provider/model-error completion retains `${terminalSource}:error`, mandatory evidence, handoff, required `${terminalSource}:message`, and delivery despite disposal.
-Only later optional runtime/UI/read-model projection is suppressible.
-Append, observer, evidence, or handoff failure is preserved unchanged and authorizes no retry, read, fallback, or compensation.
-
-Explicitly classified pre-ingress Analyst preparation rejection includes returned focus byte-budget rejection, mandatory orientation-budget overflow and finite prepared-static capacity exhaustion, but not strict topology/current-card or configuration invariants. These preserve prior restart confirmation. Primary-local exact-admission rejection is reusable only when `LocalExactAdmissionError` carries both `source:primary_local` and `reason:capacity`: the inner rejection owner settles its exact invocation lease, owned progress/observers and internal settlement normally before rejecting the public result with the original error. The outer Analyst then returns idle with restart confirmation cleared. No lifecycle join barrier, admission closure, actor recreation, drain API or completion registry is involved. A continuation may already have one durable result and tool effect; neither is replayed, and no pre-provider primary error/evidence row is fabricated. A later explicit submission prepares fresh context on retained history without guaranteed fit.
-Separately, any non-publication error escaping the exact invoked-tool await after call recording is reusable only after successful parked-turn abandonment and only when application disposal has not won. Internal-summary exact admission retains original identity/provenance through preventive/local compaction and remains poisoning even for capacity; primary configuration-only admission, wrapped summary construction, strict preparation, result/continuation publication, failed abandonment, observer/settlement/cleanup and other invariant rejection retain poisoning precedence. Publication uncertainty remains fatal and disposal wins over reuse. Authoritative mandatory re-admission still yields ordinary `ProviderTurnFailure` evidence and Analyst notice/response/reuse; retained-candidate integrity failure still poisons. Existing summary-policy safe outcomes and strategy-specific recovery are unchanged. These boundaries use semantic owner provenance, not diagnostic messages or nested-cause searches.
-Disposal and shutdown snapshot exact operation, provider-lifecycle, and child-lease joins, start all joins, and propagate ordinary failure only after all settle.
-Disposal after ordinary ingress writer entry retains the one activation/user batch and rejects before reread or provider admission.
-During confirmed restart, disposal after the two-row publication enters suppresses scheduling after writer return; disposal re-entering from an already-entered schedule preserves the single schedule and scheduled response.
-These are direct publication/effect fences, not a hidden generic terminal protocol.
-The supervisor's plain owner, `ownershipTransition`, parent-bound planner port, lease phases, and result winner remain singular.
-Exact result claim installs direct `continuation_closed` before record publication; an ordinary runtime halt may abandon that near-terminal result and fences every continuation from post-freeze mutation.
-
-Explicit Run preparation installs `prepared_root` before its recovery/running publication. Fresh startup settlement has no Run owner or processor.
-Owners have only the result/cancel terminal winner; Stop, application close, and terminal actor-main invariant failure converge on one supervisor halt identity.
-Outcome-unknown publication instead reaches fatal delivery before halt installation.
-The actor callback verifies exact current authority or frozen-halt membership for ordinary actor-main failure.
-The ordinary halt freezes the owner graph, closes admission, settles promises, and aborts/disposes owners before joins.
-Successful quiescence clears process-local authority; interruption/join/termination failure retains the halt and graph.
-Runtime controls remain delegation-only, and the supervisor remains the sole lifecycle-status and status-derived intervention-admission owner.
-
-The card format is one replaceable `card-head.json` selecting an immutable `card-history/<UUID>.json` ordinary snapshot or terminal tombstone, plus ordered current-only `mailbox/<UUID>.json` references.
-Current ordinary fields come from the selected snapshot; revision/time and pending selection come only from the head. Queue-only mutations advance current revision without creating ordinary history. Tombstones retain pre-delete mutation facts, select empty pending, and terminate normal traversal.
-Operator hierarchy and displayed detail are separate strict generated transport schemas.
-Dedicated notification, lifecycle, child-link, reorder, and deletion methods freshly admit current state. Ordinary mutations publish a snapshot before replacing the head; queue operations publish at most one fresh UUID message before replacing pointers in that same head. Lifecycle settlement and pending clearing share one head selection.
-
-Identity derives structural parent/depth but never membership.
-CardService card-ID inputs fail fast on malformed syntax; well-formed inactive targets retain each operation's explicit not-found result.
-`contracts/builtin-tool-inputs.ts` uses the owning `cardIdSchema` for `get_card.id`, `get_tree.rootId` and optional `list_cards.parent`. The real card-inspection binders and `llmToolDefinition` derive runtime admission and provider JSON schemas from those same inputs; omitted parent remains unrestricted discovery. `invokeToolForLlm` rejects malformed arguments before executor entry, while valid absent IDs enter execution and settle ordinary not-found failures. Domain canonical consumption stays strict; no general Zod-error conversion masks malformed heads, records or conversation indexes, unrelated I/O or publication uncertainty.
-Exact target reads prove only the reached committed root-to-target path, current artifacts, and parent-child linkage.
-Subtree reads recursively apply that same strict reached-state proof in committed child order.
-`getParent()` and `getAncestors()` use exact target scope, while `readCurrentSubtree()` returns a disposable deep-cloned, root-inclusive active preorder after complete exact subtree consumption.
-Analyst delete, cancel and reorder consume this projection only for immediate synchronous status observations, not as publication authority or an atomic snapshot. Delete freshly admits its full linked index and allowed-status predicate; reorder freshly admits the current child permutation; Supervisor cancellation retains its independent current activation or stored-target admission.
-Strict `cardRecordSchema` parsing owns root identity/type and unique immediate child shape, while card-ID parsing owns depth and canonical linked traversal owns reached membership.
-Disposable complete active projections used by `list()` and deletion preflight additionally apply dependency-only `validateParsedCards()` for target existence and dependency cycles.
-Narrow relationship reads neither open unrelated branches nor validate dependency references merely because a reached card contains them.
-Analyst project context derives parent IDs only from records returned by its just-completed validated `list()` call; this does not make structural identity an independent membership authority.
-Operator and tool convenience fields are separately named explicit projections.
-`CanonicalCardFilesReadModel`, through CardService's exact canonical selections, is the sole `.saivage/cards/**` Files path: it returns serialized virtual current or selected historical documents and propagates strict consuming failures without generic filesystem fallback.
-Full-chain recovery remains leaf-to-root with valid partial prefixes, but v2 replay recognizes lifecycle-only stopped transitions.
-
-The supported runtime is Node.js 24 with npm `>=10 <12`, matching `package.json` engines and CI.
-
-All backend packages, including runtime, use owner-published package roots where permitted and narrow explicit owner entrypoints for central packages; defining modules remain the implementation homes, and owner-internal imports stay local. An explicit owner API need not be a forwarding barrel: the exact defining `schemas/round-id-server.ts` module is the public server-only round-ID generator surface, with terminal `.ts` normalized to `.js` by boundary admission. This admits neither neighboring/nested schema leaves nor arbitrary `*-server` modules, and is not a legacy/debt or runtime-origin exemption. `application/index.ts` publishes composition, read models (including runtime's consumed actor read-model types), mutation services, and preparation. `contracts/index.ts` publishes shared freshness contracts and their single frozen no-op, the intervention-admission facet/error, application lifecycle registration/report declarations, and the immutable Oversight tool policy. SyncHub still implements freshness, Supervisor derives intervention admission from runtime status, and boot owns terminal coordination. `agents/execution-api.ts` exposes provider routing, invocation composition, and provider-exchange projection, while `agents/tool-api.ts` exposes the audited Analyst tool runner. `cards/store-api.ts` publishes CardService, its inputs, `PROJECT_CARD_ID`, and backend-only notification construction; `cards/status-api.ts` supplies pure lifecycle/status/linked-card predicates and operator permission projection to persistence and projections without loading CardService. Other narrowly owned exports include `config/index.ts` for configuration and effective-config projection, `schemas/index.ts` for schema-derived record definition types, and the boot/server entrypoints for startup and server construction, not shared terminal registration. Runtime-local `analyst-sanitization.ts` supplies `sanitizeAnalystText` to changed propagation with its existing redaction/workspace dependencies and behavior. These entrypoints publish existing ownership, not new execution or persistence authority.
-
-The import-boundary baseline is zero (count and empty-array digest), including runtime-origin imports, with no surviving exception tables or blanket runtime deep-import permission. Agents import no runtime modules, and runtime imports no agents modules, even through public APIs; workspace imports no runtime modules, and server imports no boot modules, including type-only references. Runtime's sole public entry is `runtime/runtime-api.js` (also normalized terminal `.ts`); only boot may import server across packages, and it still requires a permitted public surface. Contracts and schemas retain their bottom-layer ownership prohibitions, which public-surface admission does not override. Redaction primitives may reference only schemas and contracts across packages, including type-only references, before public-surface admission. One shared classifier serves scanning and self-tests and selects at most one rule per matched import/export-from occurrence, in precedence order: `contracts-declarative`, `schemas-bottom-layer`, `redaction-primitive`, `agents-runtime`, `runtime-agents`, `workspace-runtime`, `server-boot`, `server-import`, then `cross-package-deep`. Count means offending occurrences; the digest hashes their sorted multiset of slash-normalized source path, selected rule, and normalized target tuples. Repeated identical edges remain repeated tuples; line numbers and diagnostic wording are presentation only. This is a cross-package admission rule, not a claim that the complete eager module graph is acyclic or that the checker covers every possible import syntax.
-
-Public leaf admission is the reviewed exact owner-path set in `scripts/check-import-boundaries.cjs`, not wildcard `*-api` admission: `agents/{execution,tool}-api`, `cards/{status,store}-api`, `contracts/tool-api`, `mcp/{manager,tool}-api`, `persistence/session-api`, `server/server-api`, `tools/{execution,prompt,tool}-api`, and `utils/prompt-api`, plus the singular runtime entry and exact schemas round-ID exception above. Terminal `.ts` and `.js` identify the same entry. Deleted artifact entries, arbitrary API filenames, neighboring owners and nested versions of admitted entries are not public. Permitted package roots remain unchanged. Lint runs both backend boundary admission and the existing reachable-browser import guard, alongside its existing guards and non-mutating source format check; [validation internals](../validation.md) records required coverage and prerequisites.
-
-Runtime remains a consumption-curated aggregate entry, not a set of newly split lifecycle/process/workflow/execution facades. Type-only references are erased and do not create module-evaluation edges; value imports and value re-exports do, even when imported bindings are used only inside function bodies. The residual application/runtime/tools evaluation cycles are explicitly accepted without an acyclicity or arbitrary first-import-order guarantee. Fresh-process regression tests exercise the existing relevant first entries, excluding the deleted dispatcher, and preserve the eager unsupported-tool policy's template identity, canonical bytes, and hash. Boot's restart helper imports its fixed-warning logger from boot-local `shutdown-report.ts`, not the startup implementation, removing the separate small boot cycle without moving terminal behavior.
-
-## 1. Ownership Model
-
-The runtime is card-centered and alone dispatches work.
-Startup structurally compiles the complete named-agent catalog and one independent workflow per card type, then binds that immutable artifact once to live dependencies before any actor starts.
-A card selects only by its immutable type; there is no family or role dispatch and no runtime config lookup or merge.
-
-`compileProjectWorkflows` is the sole deterministic local structural stage.
-For each card type it compiles declared record metadata, agent record-name globs, `{mode,gate}` requirements, nodes, entries, prompts, and capabilities into explicit drafts; validates reachability, terminal paths, exports, promotion topology, and declaration-only descendant context over each transitive permitted-child closure; then builds and structurally validates one immutable semantic state table.
-Every requirement must match its node agent's glob for framework-close attribution.
-Direct `write` is required for both clean gates, `continue + updated`, and each selected initializer; `continue + exists` without initialization may omit it, and neither `edit` nor `webfetch` substitutes.
-One startup template compiler exact-selects root-major project/bundled and card/shared agent, process, and direct-fragment artifacts, expands one fragment level under closed host policies, freezes agent tokens, eagerly renders process text, resolves ordered tool references through the provider-owned global/card catalog, and expands each selected route/profile into immutable `orderedModelIds` using the strict array-form equivalence and direct-failover order.
-It performs no provider credential, MCP, process, network, or generated-state work.
-Process prompt IDs remain on node and transition contracts, while the workflow's `processPrompts` map solely owns selected process-prompt bodies.
-`init`, `reset`, ordinary start, and `start --create-runtime` all receive that singular result before generated-state publication or deletion.
-`bindRuntimeWorkflows` is the startup-only second stage: it discovers the selected Analyst plus distinct agents from direct node states and installs one `agentBindings` map containing each structural contract, selected tool set, retained complete-surface capability request, and explicit-ID Registry candidate chain.
-The runtime compiler consumes the concrete agent-owned Router and Registry only through its two local structural ports: ordered `resolveModels(ids, request)` routing and `getEffectiveCapabilities(candidate)` lookup. Server composition supplies the existing objects directly; neither provider construction nor routing implementation moves into runtime.
-Bindings sit beside and never rebuild the singular state tables.
-Server composition passes only the bound artifact to runtime actors; real invocation binds scope closures without source-config selection, and reconfigure's candidate compile is validation-only and is never installed.
-
-Agent execution reads each process-prompt body by ID directly from the exact compiled workflow's `processPrompts` map, with no runtime registry or global re-lookup. Action execution has no prompt or synthetic session.
-
-Shipped `project` graphs specialize the planning declaration with
-`classic-shared.ts::projectCompletion` before `classicRecordContext` adds record
-suppliers/initializers. Classic and classic-typed share this specialization;
-paad-typed retains the identical typed config. It removes project
-`handle-notifications`, replaces plan/recover direct closure with assessment,
-and makes review approval nonterminal to Planner `assess-completion`. Goals and
-leaves retain their graphs. Assessment uses existing `status.md` continue/updated
-acceptance, ordinary edges and recipient notification handling, not a runtime
-objective gate, ledger or new agent/session. Urgent interruption still targets
-STOPPED's `recover` entry.
-
-All node-to-node and terminal edges share one acceptance owner.
-`NodeExecution` prepares required closed/open projections before mutation, terminal routes claim the existing winner before close, and agent-updated streams close once in requirement order. Actions freshly select accepted requirements without opening/closing records.
-The returned immutable close projections are the only source for accepted URLs, transition context, and terminal exports.
-`CardProcessActor` retains the latest accepted result per node only in activation memory and applies `current` or graph-reachable `latest_node` promotion at the terminal route.
-Project reviewed completion promotes the accepted Reviewer result from `review`
-but exports the terminal assessment's accepted Planner status. Export selection
-uses the terminal source's close projections, independently of result promotion;
-the immutable accepted review remains history, not Planner-authored evidence.
-STOPPED re-entry has no prior activation's promotion memory. The configured
-assessment must establish objective/evidence applicability; generic runtime
-acceptance cannot infer it from natural-language reports. Removing the former
-project node is an [incompatible participating-identity adoption](../runbook/index.md#agent-and-workflow-identity-cutovers),
-despite unchanged durable family contracts; startup does not compare prior graphs.
-A primitive-classified `PublicationOutcomeUnknownError` from a close reaches fatal delivery before result acceptance, Supervisor halt, lifecycle publication, or parent settlement.
-Ordinary pre-commit close errors remain ordinary node failures.
-
-One plain `CardActivationOwner` holds each mapped activation in exactly `prepared_root | child_admission | active | settling`.
-The sole `CardProcessActor` directly extends the narrow `BaseActor` and owns configured process position, activation tracking, exhaustive guarded activation settlement, LLM ownership, node transitions, and local join.
-BaseActor treats an event without a transition in a non-terminal state as an `InternalActorError`; the existing actor-main failure path invokes the fatal-task hook, latches that exact failure, rejects current and future lifecycle waiters, emits one main-failure notification, and never restarts the pump.
-Terminal completion remains unchanged.
-`NodeExecution` owns common acceptance and the one direct executor scope; `AgentExecutor` owns the selected agent surface, prompt, corrections, notifications and conversation lifecycle. The bound surface retains other cleanup but does not duplicate direct-scope cleanup.
-The supervisor's one map, terminal winner, and nullable halt record are the sole publication, cancellation, currentness, and freeze authority.
-Durable running without an exact owner fails fast.
-
-Supervisor pre-admission and project-root preparation are the only root activation boundary.
-Startup uses required concrete `actorStore`; there is no second root reader.
-Explicit Run installs root ownership before its recovery or running publication; startup settlement has no root activation owner.
-Child activation exists only through the exact parent-bound port and invocation lease.
-Every processor is started ready before owner visibility and activated only after successful running publication.
-
-Cancellation claims the exact active suffix synchronously, preserves already-done descendants, aborts only under cancellation authority, publishes deepest-first, and joins one cached owner settlement.
-Natural release removes the exact owner/relationship from the one map before caller delivery.
-This is process-lifecycle authority, not a persistence lock, queue, transaction, generation, or currentness mechanism.
-
-Card status behavior is intentionally operation-named rather than one terminal taxonomy.
-The cards-owned `card-status.ts` implementation exports exactly four small predicates/effects, and `status-api.ts` is their singular cross-package entrypoint: `canCreateChildInStatus` admits backlog, changed, running, blocked, and stopped; `canCancelCardStatus` admits every status except done and cancelled; `acceptsCardNotifications` admits backlog, changed, running, blocked, and stopped; and `analystRecordEditEffect` preserves backlog/changed/running/stopped, reopens blocked/done/failed, and rejects cancelled. The same pure status entry publishes `isSetStatusTransition` and `summarizeChangedFields` from lifecycle, `validateParsedCards` from linked-card validation, and `allowedOperatorCardActions` from cards-owned permission projection; their implementation and error ownership remain local to cards.
-Caller scope, root, runtime, type, dependency, draft, and publication gates remain at their owning surfaces.
-Planner creation requires every dependency to be an existing immediate sibling under its current parent; Analyst creation delegates an existing-active-card dependency rule to CardService and additionally rejects a running parent.
-Dependency completion is activation admission, not creation admission.
-
-The Analyst's first-class `reopen_card` is a narrow audited application mutation, not a generic transition API.
-It admits only intervention-ready blocked/done/failed targets and delegates the target and eligible resting ancestors to existing `propagateChange`; it adds no planner permission or operator card action.
-
-The Planner's same-named card-scoped operation is a separate owner-bound contract. It accepts only an ownerless done/failed immediate child of the exact active/open parent activation and publishes one `setStatus('changed')` call through `SupervisorRuntimeApi.publish(parent, write)`. Success changes no parent or ancestor, performs no propagation, notification, dispatch, audit, or activation, and returns only `{card_id,status:'changed'}`. Ordinary admission denial occurs before publication. Outcome-unknown remains fatal; other publication failure enters the existing Supervisor halt and returns the retained stopped interruption, with no reread, retry, compensation, cleanup, or alternate mutation boundary.
-
-Status-to-process admission has one nullable mapper: backlog maps to BACKLOG, changed to CHANGED, blocked to BLOCKED, stopped to STOPPED, and running/done/failed/cancelled to null.
-It grants no transition authority.
-The supervisor invokes it only after exact owner absence and one admission read; rejection precedes owner/processor construction.
-Stopped uses dedicated `activateStopped()` publication.
-
-Each card type publishes one immutable state table as its only compiled topology.
-Every transition carries one target state ID, reentry, and a semantic variant containing no duplicate destination locator; node or terminal identity comes only from looking up that target state.
-Configured-outcome transitions own edge prompts and terminal promotion/exports.
-`CardProcessActor` executes that table one node at a time and retains accepted result-by-node memory only for the activation.
-The narrow `BaseActor` reads the same table through only transition, parked, and terminal mechanics; there is no projected actor definition or retained node/edge index.
-Same-node reentry clears the settled task before entering the new node.
-CardProcess joins every frozen lane and chooses failure in fixed order: pre-join cleanup, LLM actor order, tracker, then lifecycle.
-App-log publication failure sends no event and makes Supervisor start the singular runtime halt; actor-main failure reaches the same halt through the narrow exact-owner callback while remaining a distinct failure policy.
-
-Every accepted edge uses one record-acceptance algorithm before transition.
-Node entry applies `clean` or `continue` only to exact requirements and captures head UUID/revision baselines after preparation. Updated acceptance requires both a different identity and a greater mutable revision. Reviewer snapshots carry each current subtree card's head UUID/revision and included records' head UUID/revision plus accepted entry/version; context stamps expose the card selection and final equality includes those identities.
-One synchronous root-inclusive subtree projection supplies initial or refreshed Reviewer display and comparison stamps; acceptance independently rereads current subtree and record selections. This is call-local reuse, not an atomic filesystem snapshot or retained admission authority.
-Acceptance checks eligible effective content for `exists` or post-baseline `updated`, then closes eligible required open records in declaration order followed by other activation-written open records in sorted name order, recording only close-return URLs.
-Direct tools and framework close are distinct capabilities under the same compiled name-glob authority.
-Graceful non-accepted settlement discards activation-written drafts before generic invocation-surface cleanup; correction loops retain them.
-Once finalization begins, ordinary failure stops at the committed prefix without compensation or retry; primitive-classified uncertainty permits no later record or cleanup effect.
-A hard crash loses the activation-local set: exact requirement entry may later handle a requirement draft, but a free draft is only directly readable/reusable by a later same-name authorized activation or removed by whole-state reset.
-No discovery, catalog, adoption, or selective repair exists.
-
-Other status decisions remain exact and local: running-chain membership is `status === 'running'`; dependency completion is `status === 'done'`; descendant completion is done-or-cancelled; activation settlement is done/failed/blocked with a distinct cancellation branch; deletion and Analyst reorder reject running; and projected start admits only backlog/changed/stopped.
-`CardService.editCard()` singularly owns Planner metadata-delta pruning and coupled publication: no effective delta returns unchanged; a real backlog/changed/stopped delta appends only metadata; and a real blocked/failed delta invokes public `setStatus('changed')` for its nested fresh admission/publication before appending metadata from the returned card.
-Running/done/cancelled reject.
-Planner reorder directly targets its current parent and may therefore reorder a running parent; Analyst reorder is intervention-ready, globally addressed, and rejects a running parent or any running member of a requested child subtree.
-Both return `changed:0` without card/status publication, propagation, or notification for identity order; the Analyst invocation still receives its ordinary successful audit settlement.
-A real Planner reorder has no propagation, notification, or control-action audit, while a real Analyst reorder performs changed propagation after the same parent-only canonical reorder.
-
-Default allocation is a configured workflow/API boundary for trusted agents.
-Analyst has global create/reorder/reopen/cancel/delete maintenance plus generic record mutation but no child activation or Planner metadata edit; Planner has immediate-child create/edit/cancel/activate/reopen and current-parent reorder but no delete; Reviewer and Executor have no default structure tools.
-Their child ceilings permit creation only for Analyst and Planner and grant neither dispatch nor reopening by themselves. Reopening comes only from the selected scoped tool: global Analyst application authority or the Planner's exact parent-bound port.
-Runtime dispatch still exists only through the active exact parent-bound port and invocation lease.
-
-Cancellation preserves the same caller separation.
-Planner delegates an immediate child owner-first without reading the target or subtree.
-Analyst rejects root and preflights the whole requested subtree, denying the entire request when any member is done or cancelled.
-Supervisor alone claims active suffixes and publishes deepest-first while preserving noncancellable stored descendants.
-Analyst deletion instead preflights running members and survivor dependencies and publishes permanent tombstones; it is not cancellation.
-
-Generic record mutation likewise has conjunctive admission rather than tool-name authority.
-Application admission takes content-free authority inputs, while executable write/edit requests require their operation-specific payload.
-Application admission performs one active proof, then applies cross-card, writer-glob, required-tool, and Analyst lifecycle gates using only the reached card; denials perform no definition or record read.
-After success, reached-card definition/classification detects open conflict.
-The reached value is call-local data, and later public writes independently prove current authority.
-Content checks and card-agent-draft versus direct Analyst acceptance effects remain operation-owned.
-Application record admission and runtime record-specific changed propagation consume the same cards-owned `analystRecordEditEffect`. Changed, stopped, and reopening targets share one target-inclusive propagation branch: walk through the first running card inclusive, or root if none is running; reopen only encountered blocked/done/failed cards, never repeat a changed transition; attempt the ordinary notification to the target and each child-capable ancestor using compiled `permittedChildTypes` and runtime `notifyCard` authority. Cancelled ancestors remain unreopened and notification refusal stays owner-local. Backlog retains ancestor-only notices and running retains target-only notices. Each effective edit or whole write may publish fresh advisory notices without activation, cross-call deduplication, retries, or stronger delivery guarantees; ordinary partial-report behavior and fatal publication-uncertainty handling remain unchanged. Generic changed propagation and explicit Analyst/Planner reopen admission remain separate and unchanged.
-
-Both changed-propagation entrypoints accept the application owner's direct summary string. After status effects, the runtime sanitizes it to 1000 characters and constructs fresh `Card changed: …` notifications with `source: 'card_changed'`; no structured issue or origin alternative is involved. The strict nested mailbox schema still treats notification `source` as an optional nonempty opaque string. Historical source values remain factual provenance without mapping, rejection, or rewrite.
-Analyst Webfetch-to-record preparation uses shared read-only admission before its sole HTTP fetch, requiring both `webfetch` and `write`, then the existing final record-write path performs fresh full mutation admission under that same lifecycle and open-draft policy. Changed gains no separate Webfetch exemption, alternate mutation path, or retained write authority.
-
-## 2. Card Identity And Discovery
-
-Operator Card reads remain direct exact-path projections owned by `CardsReadModelService`, split into hierarchy, displayed detail, compiled descriptors/current record artifacts, card/record history, selected versions, and diffs.
-Hierarchy proof consumes each reached current head/selected snapshot once, omits tombstoned links, and never follows grandchildren.
-For each reached card, the read model projects required `permitted_child_types` directly from its startup-compiled workflow into the hierarchy summary and fails if that workflow is absent.
-Metadata history lists rows from the same complete fold and sends every durable change through the one source-adjacent ordinary-change projector.
-Explicit history selects the exact requested row and uses the shared card-artifact projector also consumed by agent hashes and Files.
-No cache, repository, generic Files bridge, or alternate validator exists.
-
-The browser mirrors those four authorities.
-Parent-keyed slices carry explicit undiscovered/loading/error/loaded-nonempty/confirmed-leaf view state.
-The Cards tree combines the hierarchy summary's compiled `permitted_child_types` with that local state: only a configured-nonempty, non-confirmed-leaf row has disclosure.
-This rules out impossible discovery without claiming descendant knowledge or introducing a separate config or card-type client authority.
-Deep reveal advances one accepted ancestor slice at a time.
-Selected detail owns no descriptors.
-Descriptor and `(cardId,name)` content owners are abortable and selection-scoped; reconnect reloads descriptors for the new server epoch and refreshes only mounted accepted mutable resources.
-Generic Files is separate and remains available for explicit file browsing.
-
-Card identity follows the [exact card identity contract](../spec/system-specification.md#exact-card-identity-contract) and uses a deterministic parent-local spreadsheet sequence.
-One schema-owned maximum governs identity parsing, parsed-state validation, mutation, canonical Files path parsing, and browser route reconstruction.
-Every create starts at the first segment; exact candidate namespace creation claims the segment, and only candidate `mkdir` `EEXIST` advances to the next segment.
-Collision handling never lists siblings or inspects the candidate.
-Parent, depth, namespace, exact card/record heads and referenced-document paths, and named-agent conversation paths are forward-derived.
-`CardRecord` has no `position`.
-Exact-path reachability follows monotonic `child_membership`; backend `listChildren`, logical paths, runtime chains, Files, and web projections follow complete `active_child_order` after filtering exact folds to live members.
-
-One non-root attempt exact-reads and validates its linked parent, then CardService computes resulting depth.
-Over-limit depth is rejected immediately so the explicit safeguard wins over ordinary parent admission and request-type/dependency errors.
-In-limit creation next applies ordinary parent workflow/lifecycle admission, resolves the selected child workflow, and requires an empty child `permittedChildTypes` set exactly at the maximum in the [exact card identity contract](../spec/system-specification.md#exact-card-identity-contract).
-That complete initial sequence precedes dependency processing, fresh-parent reads, namespace claim, publication, linking, and freshness effects.
-It then validates existing dependencies and exclusively claims `.saivage/cards/project/children/<s1>/.../children/<sn>/` for the first candidate whose direct `mkdir` succeeds.
-`publishInitialChildCard()` constructs the complete card and brief from exact child input; `publishInitialProjectCard()` separately constructs the complete root from only title and brief.
-Dependency state is immutable after version 1.
-Existing-card-only dependency creation is cycle-free by construction, so mutation-era service/index cycle preflight does not exist; `validator.ts` alone retains whole-loaded-graph dependency-cycle rejection.
-The later parent append alone grants linked membership.
-A failed claimed namespace remains consumed and ignored.
-
-Successful-path visibility begins only after the confirmed parent-link append.
-Readable initial child streams before that link are not membership.
-Publication uncertainty authorizes no read, retry, reconciliation, or artifact inspection.
-Card-only readers derive the bounded linked path and consume reached heads/selected snapshots.
-Complete initial publication separately establishes bootstrap record head/accepted selection.
-A terminal tombstone terminates traversal; exact-known conversation access remains available.
-Unlinked namespaces are ignored orphans.
-
-## 3. Direct File Persistence
-
-Saivage-owned persistence is direct stateless synchronous file I/O by the domain or actor owner:
-
-Owning schemas and semantic consumers govern family discriminators under
-[AGENTS Storage Policy](https://github.com/salva/saivage-v3/blob/HEAD/AGENTS.md#durable-format-versioning).
-The existing [durable format reference](./durable-format-changes.md) records source
-contracts and historical applicability; versioning introduces no runtime registry,
-detector or compatibility mechanism.
-
-- `card-files.ts` owns deterministic child-namespace claiming, fixed owner-directory initialization, exact card heads, ordinary predecessor documents, current-only mailbox messages/pointers, parent membership and tombstone selection. Only complete initial publication followed by parent selection grants child reachability. Immutable artifacts are first-published before head replacement; no cumulative all-version catalog or independent mailbox head exists. Physical documents never surface as Files metadata.
-- `authored-record-files.ts` owns `records/record-<stem>.json` heads and `records/accepted/<UUID>.json` accepted predecessor documents. Bootstrap acceptance 1 from `runtime:bootstrap` precedes head selection; optional heads are absent until mutation. Heads contain current draft/revision and latest accepted reference, not a duplicate accepted body. Open/edit/discard replace the head; close first-publishes acceptance then selects it and clears draft in one replacement. Direct explicit Analyst acceptance advances revision once without a transient workflow draft and retains repeated CHANGED correction/propagation. Acceptance derives provenance from the complete fresh active-card projection retained within that synchronous operation; later mutations still freshly admit. Existing drafts still reject Analyst mutation. An undeclared valid name uses deterministic generic metadata; first publication refuses any exact present target. No proof survives as later write authority, and no registry, sibling scan, retry, cleanup, or historical normalization exists.
-
-  Initialization follows explicit node `initialize_records` → exact absence read →
-  lazy render → baseline publication, never startup or record requirements implicitly.
-  Configuration uses `initialization:{format_version:1,template}`. Its exact template
-  field alone skips env interpolation. The existing compiler's narrow
-  `record-initializer` host admits cardType/cardId/cardTitle/nodeId/recordName and
-  direct fragments using ordinary card-host lookup and artifact closure accounting.
-  No agent registry, prompt retention/authority or record-body macros are supplied.
-  Insertions are single-pass data, `${NAME}` stays literal, and templates are frozen.
-  Shared classic construction selects status starters at responsible work nodes
-  and neutral review starters at review nodes in all three profiles, including
-  both typed architecture reviews. Bootstrap briefs are never initialized;
-  starters do not replace authored work or acceptance.
-
-  `NodeExecution.prepareRecordRequirements` initializes before explicit clean
-  requirements and then captures updated head/revision baselines. Existing heads,
-  including empty-after-discard, suppress rendering and publication. Continue
-  preserves state; clean discards an open draft and opens from baseline0 or empty
-  with accepted backing preserved. It never rerenders. Auto-only initialization is
-  not in `writtenRecords`; genuine writes retain cleanup ownership. Existing
-  invalidation hints follow known publication success, not uncertainty.
-
-  Head3 selects baseline0, explicit draft version/target, accepted backing or empty.
-  The baseline is current-only and has no attribution/history artifact. Opening it
-  consumes it into draft0/target1; ordinary changed nonempty mutation sets version
-  to target. Untemplated drafts start at1; later drafts target accepted n+1.
-  Accepted-artifact2 numbers documents consecutively, independent of head revision.
-  The shared eligibility predicate excludes baseline/draft0 and empty drafts, never
-  borrowing accepted backing. Integrity hashes remain; seed fingerprints disappear.
-  `CurrentRecordProjection` has a real UUID/revision; `AcceptedRecordProjection`
-  constructs historical selections directly with null head/revision and no draft
-  or baseline. The union is used only for mixed VFS/diff selections; current node,
-  mutation, repair and Reviewer consumers stay strictly current. Bootstrap/repair
-  accepted1 history receives no inferred revision. Conversation12 observations,
-  nested results, compaction and model facts preserve this split without body recall.
-  Provider evidence remains unchanged strict transport metadata under shared
-  envelope1, not those composed conversation record facts. No new history promise,
-  takeover, registry or publication mechanism exists.
-
-Current operations strictly validate each consumed exact head and selected document. Historical selectors traverse committed predecessors with decreasing versions: sparse ordinary card revisions or consecutive accepted record document versions independent of mutable record revision. Exact misses are not found only after absence is established. Catalog paging counts entries. Missing or malformed referenced documents fail at consumption without fallback. Current reads do not certify unconsumed predecessors or mailbox bodies. Inherited check-once/own-write trust and complete startup certification remain unresolved; this representation introduces neither remembered admission nor weaker consumed-byte validation.
-
-Mailbox documents use the producer's single fresh notification UUID unchanged in path, content identity, pending reference, receipt and removal callback; each recipient/edit gets its own UUID. Selected references must match message and card identity; duplicate pointers fail. Delivery publishes conversation bodies before fresh exact-ID pending removal, preserving later enqueues. Dirty shutdown between those successes can duplicate delivery, an accepted tradeoff. Removing/clearing pointers does not erase bytes: obsolete messages, superseded selections and unselected publications remain ignored forever, with no pending predecessor, supported lookup, orphan discovery or GC. Head selection is current application authority, not a transaction/recovery manifest. Every uncertainty stops before follow-up effects.
-- `canonical-conversation-artifacts.ts` owns strict format-12 version-index, conversation filenames, ordinary/compacted segment-genesis, segment-envelope schemas and source metadata. `conversation-file.ts` owns exact pathing, direct publication, one shared current/historical segment loader, genesis-derived validation seeds, and compaction publication. The loader permits validated torn-suffix consumption only for the indexed current version, including a historical route selecting that version; noncurrent indexed segments remain strict immutable reads without truncation. Its optional publication notifications use only a persistence-local callback shape. It never imports Agent projection policy, shortens an index, or searches semantic checkpoints. Ordinary and compacted genesis make each current segment independently valid. Initial ingress and compaction call `replace-file.ts::publishFreshFile` with the exact preallocated segment identity and prepared envelope bytes; its one exact-target `lstat` refuses every present object and only `ENOENT` delegates to `replaceFile`. The fresh exclusive same-directory temporary is written/fsynced/closed, renamed once, and its parent opened/fsynced/closed. Successful segment directory synchronization precedes separate cumulative-index replacement with a separately generated temporary; successful index publication alone grants discoverability and permits hints. Pre-rename temporary failures retain their exact ordinary errors; rename and subsequent parent-sync failures retain `PublicationOutcomeUnknownError` through compactor and actor fatal delivery before later effects. Every failure stops immediately without index continuation, inspection, retry, or cleanup. An unindexed allocation remains ignored forever; this ordering is not transactional and adds no crash-loss guarantee. Current-segment mutations still append one envelope. Earlier formats, including 11, fail current reads; format-12 adoption follows the separate reset/external-migration decision, with no loader conversion. Generic growing-file envelope1, card head/history1, record head3 and accepted artifact2 retain independent ownership. The canonical conversation validator owns semantic grouping, protected-list validation, and exact successor derivation, while `agent-conversation-read-model.ts` owns application projection.
-- `contracts/app-log.ts` owns the strict event/control/external-receipt union described by the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies). `persistence/app-log.ts` owns direct synchronous preparation/validation/serialization/append and exact consuming reads of `.saivage/logs/app.jsonl`. Its call-local semantic validator rejects duplicate logical IDs across all app-log row types before filtering, not across files. App log and provider evidence share rows envelope2. Append admission validates only the final envelope on a clean tail; a torn tail uses that full prefix validator before truncation. Domain producers supply preparation closures and invoke narrow direct post-commit effects only after successful publication.
-- `contracts/provider-exchange-log.ts` owns the strict provider row and pure internal-summary evidence-ID derivation. `layout.ts` derives the exact provider-evidence path from a parsed canonical conversation session: `<card namespace>/conversations/<agent name>/provider-exchange.jsonl` or `.saivage/agents/conversations/<agent name>/provider-exchange.jsonl`. `persistence/provider-exchange-log.ts` owns direct preparation, final-envelope clean-tail admission or full validated torn-prefix consumption, append/first publication inside an existing conversation root, and strict complete owner-local reading. A selected read rejects wrong-owner/internal-summary identities and repeated derived IDs in that physical stream before truncation, then reduces only primary rows by greatest timestamp and attempt index, retaining the earlier physical row on an exact tie. It never aggregates other sessions, consults app log, or retains a lookup map; internal-summary rows are validated but do not compete. Missing evidence is empty; complete invalid data fails unchanged. This stream spans all conversation segments of its owner without being cataloged in the conversation index.
-- `ResolvedConfigAuthority` owns selected YAML document reads, the sole card-type source-resolution boundary, internal effective validation, and config mutation orchestration. Its source schema accepts an optional complete `card_types` map; omission resolves to the bundled `classic` template's `card_types` data, and the deleted `card_type_set` key fails strict validation as an unknown key with no fallback or merge. The authority resolves the source once into the required complete effective `card_types` map before parsing and compiling. Its source schema accepts the same nested string-array `models.equivalents` representation consumed by effective configuration, with no legacy preprocessing. The browser-safe declarative schemas layer separately owns the strict outbound effective-config schema/type, which contains the resolved complete map and no source-only form. Contracts and backend projection implementation both depend on that schemas package root; schemas and contracts never depend on backend config or redaction implementation. `config-file.ts` owns canonical atomic replacement.
-- The config authority's private decoder shares interpolation, strict source/effective parsing, card-type resolution, and frozen warnings between full validation and current mutation preconditions. `validateDocument` and `loadEffective` still compile for startup and all ordinary read callers, including REST config, Files, and `show_config`; only current mutation decoding skips compilation, and candidate compilation remains validation-only until a fresh startup installs an artifact.
-- `auth-profile-file.ts` and `project-identity.ts` own their single canonical files.
-- Config authority returns advisory `warnings: readonly string[]` without console
-  effects. Environment retains its successful load's warnings as immutable
-  `configWarnings`; boot emits them immediately after loading and before runtime
-  construction, while offline CLI composition emits its own load's warnings before
-  returning workflows. Config-owned `formatConfigWarning` applies primitive text
-  redaction and the static `Configuration warning: ` prefix; callers own stderr.
-  REST config applies text redaction directly to its existing warning array.
-  None of these paths reloads configuration to report diagnostics or introduces
-  warning state, deduplication, credential probes, or new admission semantics.
-- `runtime/lock.ts` is the exceptional process-exclusion boundary only.
-
-The [established conversation and card-owner layout](../spec/system-specification.md#established-conversation-and-card-owner-directories) is produced by these owners, not inferred from regular-file presence. `card-files.ts` creates the card's `conversations/` container and initializes each distinct card-scoped node agent in its compiled workflow. `conversation-file.ts::initializeConversation` creates the deterministic session root, then `versions/`, then publishes the empty index. Initial card publication also creates `card-history/`, `mailbox/`, `records/`, and `records/accepted/` before publishing bootstrap acceptance and the initial card artifact/head. `project-runtime-bootstrap.ts` creates the cards root and publishes the project card (including the global conversation container), then establishes the selected global Analyst conversation.
-
-An established index retains its root and `versions/` requirement even before any segment exists. Empty-index selection returns no segment without reading `versions/`; first ingress and compaction use exact segment paths and same-directory fresh publication without creating parents. The initially empty mailbox and the card-established accepted-record parent similarly support later direct publication. Missing parents fail at the consuming publication, not through a layout preflight or automatic repair. Optional record heads and provider evidence need not exist merely because their parent does.
-
-Fixed establishment is distinct from lazy owner paths: child allocation creates `children/`; Oversight establishes its selected session only at actual check use; app log creates `logs/`; process-output and stash owners create their own needed work paths. `initializeMissingConversation` returns for an existing Oversight index without recreating its directories. Neither startup nor successful file-only validation certifies every later publication parent, and the four generated roots used as a complete replacement boundary do not require unconditional creation of every root or descendant. No directory inventory, discovery, or remembered admission is introduced.
-
-Strict head/document owner schemas validate every exact consumed identity and selection. Ordinary payload excludes queue and current mutation metadata; `cardRecordSchema` validates derived current/historical projections. Fresh live transition validation preserves immutable fields, membership/order, lifecycle and tombstone grammar; historical traversal validates exact reached predecessor ordering and relations without fictional queue replay or whole-history current preflight.
-
-The current singular operation grammar has no common patch writer, caller-selected context, optional terminal companion, generic dependency mutation, or broad transition API.
-`commitActivationOutcome()` is the sole running-to-done/failed/blocked publisher and derives lifecycle, both required status companions, and notification clearing from the non-cancelled outcome and one settlement timestamp.
-One cards-domain generic set-status relation serves live admission and ordinary replay for only backlog/blocked/changed-to-running, blocked/done/failed-to-changed, and the six admitted cancellation sources.
-Recovery running-to-stopped and STOPPED stopped-to-running retain their distinct replay branches and construction owners, while terminal settlement retains its dedicated validator and publisher.
-Every actual delta has deterministic order and recomputed summary.
-The eight discriminated history families carry fixed row-local provenance.
-Replay scans no child stream and proves only row-local facts: notably child-link is runtime-owned, while reorder replay proves the complete same-membership full-order primitive, not the public operation's historical active-set admission.
-
-The bottom-layer card schema keeps its notification-format invariant locally and imports no card behavior: complete done, failed, and cancelled records require empty `pending_notifications`, while backlog, changed, running, blocked, and stopped may retain them.
-This exact schema refinement intentionally duplicates the higher-layer notification predicate rather than creating a `schemas -> cards` dependency.
-
-Planner child admission exact-reads the linked target and each dependency in declared order.
-It never invokes list/tree/index APIs and retains no authorization state.
-Linked-tree operations start at the exact root and recursively follow committed `child_membership`; their disposable projection validates active dependencies and hierarchy and is discarded with the call.
-Multi-root deletion uses that one fresh projection to form a subtree union, reject permissions and surviving dependents, and topologically order dependent-before-dependency plus child-before-parent tombstones.
-This graph is call-local write admission, not persistence coordination.
-
-Card heads and mailbox messages use format1; immutable ordinary/tombstone documents use format3.
-Every parent snapshot has duplicate-free direct-child `child_membership` and `active_child_order` arrays with equal sets and lengths.
-Membership is monotonic link chronology; order is a complete carrier retaining tombstones.
-`CARD_RECORD_FIELDS` remains the exhaustive inventory—`id`, `type`, `child_membership`, `active_child_order`, `title`, `priority`, `urgency`, `created_by`, `created_at`, `updated_at`, `version_seq`, `depends_on`, `lifecycle`, `status_text`, `status_text_updated_at`, and `pending_notifications`—and derives business deltas, so link changes exactly both relationship fields while reorder changes only order. Nine null-only placeholders are absent, not optional or normalized. The strict parser also rejects removed `tags` and `related` members.
-`cardRecordSchema` owns structural/direct-child/equal-set checks; canonical transition validation alone owns prior-relative link/reorder grammar, exact metadata, and no-piggyback admission.
-Immediate hierarchy reads each membership fold once and emits live folds in carrier order.
-A real reorder appends requested active IDs followed by retained tombstones in prior carrier-relative order; active identity returns before successor construction or effects.
-Card publication writes the immutable ordinary/tombstone document completely before selecting it through the fresh head publication; queue-only changes publish a fresh head without a new ordinary history artifact (enqueue first publishes its mailbox message). Previous slots and publication-uncertainty boundaries remain unchanged.
-
-CardService uses membership for exact reachability and linked-history traversal, active order for semantic hierarchy and `CardIndex.childrenOf()`, and writes both arrays only for `child_link`.
-Files keeps `children` as the active virtual directory name. A non-tombstoned current `card.json` is a `card-current` projection carrying exact `head_id`, mutable revision and selected history revision, with no `format_version` field. Current tombstones and historical ordinary/tombstone selections use artifact wrappers with format3. Both projection forms expose the durable arrays through queue-free outbound card content; only artifact wrappers include the ordinary-change projection.
-The Cards REST hierarchy and web store remain ordered active projections and do not interpret durable arrays.
-Current inspection sections are exactly summary, workflow, dependencies, children, and records; immutable inspection sections are summary, dependencies, and children. `list_cards` filters only by status, type, and parent. Historical section `children` is intentionally the selected row's complete stored carrier. Planner/Analyst creation has no tag or generic relationship input, Planner edits only title/priority/urgency, and `depends_on` retains its caller-specific admission and read authority.
-Outbound history and selected artifacts expose both relationship fields, omit `pending_notifications`, and require nullable `{summary,changed_fields,actor}` ordinary change metadata. Initial and queue-only publications project null; mixed lifecycle/queue publications retain only ordinary metadata. Public diffs remain queue-free, and authored-record diffs continue to apply `projectRecordArtifact()` before `recordView()` comparison so redaction remains before comparison.
-
-Planner activation validates schema and immediate-child identity, reserves the exact invocation lease, and delegates through the bound parent port.
-The supervisor validates parent and lease before I/O; owner absence alone authorizes one admission/dependency/status read.
-It constructs and starts a ready processor, silently installs owner/relationship/lease, performs one running publication, then transfers currentness and activates the processor.
-Exact same-lease joins perform no I/O.
-
-Planner reopening validates the scoped `{card_id}` schema and immediate-child identity, then delegates through that same parent-bound port without creating a lease. The Supervisor rejects stale, closed, halted, settling, result-won, cancel-won, or application-closed parent authority and any target with an activation owner before exact target access/status admission. The sole successful mutation is the existing parent-authorized `publish` of done/failed to changed; there is no raw store path or second publication owner.
-
-Dependency and non-activatable-status rejection precede owner and processor construction.
-They cause no running publication, relationship/currentness change, or execution work and add no scheduler, traversal, propagation, or cancellation behavior.
-
-Configuration and project identity replacement call `replaceFile` directly. Card heads, record heads and conversation indexes call owner-local `publish-head.ts::publishHeadFile` with established initial/replacement mode and deterministic layout-owned previous slots, then the same `replaceFile` primitive. Fresh-file publication, including ordinary and compacted conversation segments, calls `replace-file.ts::publishFreshFile` → `replaceFile` after exact-target refusal. Card/record immutable documents likewise refuse any present exact target before the fresh temporary/fsync/close/rename/parent-fsync publication. UUID collisions fail once without alternate allocation, content inspection, adoption or cleanup.
-Immutable ordinary/accepted predecessors retain history only, never rollback authority. Card lifecycle, pending pointers and current freshness have one head boundary; accepted selection and current draft have one record-head boundary. Multi-root deletion publishes independent tombstones before heads, dependent-before-dependency and child-before-parent. No cross-card or record-to-propagation transaction is added.
-Every selector publication first unlinks exact prev (ENOENT only), hardlinks established current to prev, and fsyncs its parent, then fresh-publishes current. Owner-established initial absence instead clears prev/fsyncs the parent with no link; link ENOENT never selects initial. Queue-only mutations, draft edits/discards, tombstones, compaction and repair use this same path. Normal publication/read/startup never consumes previous bytes. Only the separately consented offline exact-target repair CLI may consume the whole previous head and fresh-publish content. No artifact predecessor fields, scans, copy fallback, retries, cleanup, registry or coordination layer are introduced. Slot directory-durability failures are publication-unknown; unlink/link errors are direct. Every failure ends the attempt with the established fatal no-follow-up boundary where uncertainty applies. Prev may be absent or equal to current after interruption, and shared-inode corruption affects both; usable recovery is not guaranteed.
-Strict card/record heads require fresh random `head_id` for every publication. `CanonicalCardProjection`, current record projections, DTOs, tool observation hashes and reviewer snapshots preserve the actual consumed selector identity alongside revision; historical record projections use null current identity. This is not a predecessor or a remembered admission token. Immutable source provenance remains unchanged, and future restoration must produce a new head ID rather than resurrect stale currentness. Required field adoption is independently incompatible even with outer format 1; the external/reset decision adds no runtime fallback.
-Crash-left temporary files remain ignored forever.
-
-All file, directory, append, and lifecycle-lock creation uses ordinary Node defaults filtered only by the process umask.
-No mode argument, chmod/fchmod, permission probe, or repair exists.
-
-Growing canonical JSONL files use one result-bearing `appendEnvelope()` primitive: `appended` means write, fsync, and close all succeeded, while `missing` means only that the initial exact-path open returned `ENOENT` before a descriptor existed. The narrow required-append operation rejects missing already-published streams; log owners handle missing for first publication.
-Immutable first publication separately calls `lstat` on the exact target exactly once: any successful result is ignored and means already published, only `ENOENT` permits one unchanged replacement attempt, and every other error propagates. Head/index initial publication instead receives absence already established by its owner (new claimed namespace, optional-head read or exact lazy-index absence); it adds no probe or fallback.
-It never opens or classifies an existing target, so files, directories, symlinks, FIFOs, sockets, and devices take the same present branch.
-App log and provider evidence may use append `missing` for one first-publication attempt, but retain distinct directory ownership: app log may be the first log writer and creates exactly `.saivage` and `logs`, tolerating only mkdir `EEXIST` without a subsequent directory/type proof; provider evidence requires an established conversation directory. Lazy Oversight conversation establishment similarly keeps owner-local mkdir and lets exact subsequent use reject an unusable existing parent. Card child allocation retains shared-parent mkdir with EEXIST continuation and exclusive candidate mkdir; candidate EEXIST alone advances allocation without inspection. These operations do not replace exact-target first-publication refusal. No directory discovery or orphan handling occurs. Nonempty conversation owners require their previously consumed append target to remain present; card/record owners instead publish immutable documents then replace their exact head.
-
-Append acquisition uses plain `O_WRONLY | O_APPEND`, without no-follow/nonblocking flags or descriptor-stat admission. A write, zero-progress, or fsync failure is publication-unknown and stops without close; success reaches one close attempt, whose failure is also publication-unknown. Close is never retried. The primitive never reads or truncates existing bytes, and append-open `missing` alone selects first publication.
-After incoming schema admission and typed serialization, app-log/provider append reads plain exact bytes: a clean LF-terminated file validates only its final envelope, not full-history uniqueness. A torn tail invokes the owner's full retained-prefix schema and semantic validator before truncation. Card/record/conversation writers already consume current state and add no second tail pass or prospective full-history fold. Conversation keeps incoming batch/session/duplicate-ID admission; records keep explicit operation admission. Compaction candidate validation remains separate and unchanged.
-
-`growing-file.ts` owns plain exact `readFileSync`, narrow initial-byte-read-or-missing handling, one typed nonempty-envelope serializer for already admitted rows, and `consumeGrowingFile`. Each of the three remaining JSONL families supplies its own complete schema/semantic prefix validator; conversation retains its distinct envelope. A clean file validates without mutation. Otherwise the last LF identifies a nonempty complete retained prefix; the whole suffix is discarded only after that prefix passes every semantic check. Empty/no-prefix files and all complete corruption fail unchanged; interrupted UTF-8 in the discarded suffix is permitted. The operation opens that exact file with `O_RDWR`, truncates to the validated byte offset, fsyncs, closes once, and returns the already validated projection without a second read. Open failure is ordinary; any failure from ftruncate onward retains `PublicationOutcomeUnknownError` and permits no follow-up operation or cleanup. App-log initialization delegates to its ordinary read without creating a file. No owner selects additional paths, retains validation authority, or scans orphans. Card/record JSON documents gain no prefix-repair permission.
-`schemas/canonical-json.ts` owns recursive code-unit string key ordering, array order, and ordinary JSON.stringify value/integer-index enumeration behavior, without locale collation or Unicode normalization. `schemas/sha256.ts` owns the singular synchronous browser-safe `sha256Hex(string | Uint8Array)` and `canonicalValueSha256`, exposed through the schema root; domain raw-byte/text hash inputs remain unchanged. Audit formatting uses that canonical serializer rather than a second stable stringify. These shared helpers retain independent tool-policy/result, per-block replacement/evidence, orientation, admitted-request, identity/artifact, and MCP consumers; they attest neither aggregate prepared-context continuity nor conversation compaction history. Current conversation format12 retains the format-4 removal of that checksum closure; incompatible adoption follows the separately authorized reset/external decision, not conversion or deployment by source approval.
-Agent summary reads do not use transcript readers: they obtain `started_at` directly from canonical conversation index metadata and decorate the result from one request-local executing-session snapshot map. Runtime membership is derived from that map's keys; its nullable compaction member is projected only onto the exact owning session.
-
-The inferred strict `LoggedEvent` union and runtime event schema agree on the event-kind list in the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies).
-The actionable-error envelope is strict.
-Error events are explicitly `runtime_diagnostic`, `runtime_actionable_error`, and failed `mcp_tool_invocation`; `operator_runtime_control` is informational even for rejected requests. There is no generic routing metadata, replay-only event kind, content-review lane, or dedicated error lane.
-
-Provider-exchange publication belongs to its agent producer, not generic app-log persistence. `InvocationService.projectProviderExchanges` receives the canonical owner session and explicit `primary` or `internal-summary` purpose. Ordinary actor calls use their canonical session; the summarizer supplies its known source session, and the pure contract helper derives the unchanged internal-summary evidence ID. Immediately before strict parse and owner-local append, the typed projector preserves contract/provider/model/account, session/source/output, transport, attempt, status, time, response, finish, token, and terminal-tool identities.
-A direct `generic | codex | openai-responses` request switch copies only each adapter's known members; the HTTP(S) endpoint keeps scheme/host/port/path while removing userinfo/query/fragment disclosure, and only error message is prose.
-Logged-event and control-action producers likewise apply their discriminated projector before append and readers reuse it: actionable `contract_response_violation` and `invalid_enum_value` state have direct variants, while event/action/actor/target/surface identities remain exact.
-Schemas validate these projected singular contracts but never sanitize canonical bytes, and neither persistence owner selects redaction behavior. Only successful primary evidence appends issue a canonical-session freshness hint; uncertain publication permits no follow-up.
-
-There is no app-log dependency forwarded through Supervisor, `CardActivationOwner`, `CardProcessActor`, `NodeExecution` or `AgentExecutor`.
-Planner reopen and reorder use canonical card/runtime evidence and append no control action. Public notifications are configured-global operations; internal notification producers remain independent.
-Analyst mutation settlement and Invocation Service retain their independent valid app-log ownership.
-`listControlActions()` is the shared HTTP/tool projection owner: it performs one complete strict app-log read, applies outbound control-action redaction, then optionally narrows by `card_id` and `since` and sorts newest first.
-It applies no actor or validity filtering, so historical Planner control-action rows remain readable; adding direct-control events changes neither this reader nor the sole current bounded Analyst action producer.
-
-`appendAppLogEntry(projectRoot, entryType, prepareEntry, context?)` prepares identity/time, centralized redaction or projection, schema validation, and serialization before exact-byte tail admission; a missing target is admissible, a clean tail validates only its final envelope, and a torn tail requires full owner-prefix validation before truncation.
-The owner then calls the direct append primitive once; append-open `missing` retains owner-local mkdir with only EEXIST tolerated, no post-EEXIST proof, and one exact-target-refusing first-publication attempt.
-Explicit reads still run the shared semantic validator over the complete stream before filtering.
-Append uncertainty is `PublicationOutcomeUnknownError`; every reachable catch preserves it for immediate fatal delivery before retry, fallback, ToolResult/model/card conversion, later attempt, write, SyncHub hint, or volatile containment.
-
-Terminal propagation follows the current ownership graph: direct `ConversationLLMActor` into plain `AnalystSession` or `CardProcessActor`, then the Supervisor's centralized owner/lease graph.
-CardProcess halts its failed task state without joining its own activation-tracker consumer.
-On rejection, Supervisor first installs the halt, terminally interrupts every admitted/settling child lease and owner settlement, then starts all processor joins.
-This settlement-before-join order breaks the Conversation LLM → child lease → activation dependency and prevents deadlock.
-Dynamic execution uses existing direct scopes under the runtime-card, operator-session, and service-infrastructure process roots; halt cleanup closes/joins only owned volatile scopes and cannot replace the publication error at its owning boundary.
-Exact continuation fences compare map owner, activation identity, relationships, and absence of halt before and after every await that could publish, activate, settle, or release.
-The exact consuming roots remain the global Fastify error handler and Supervisor `activateProcessor()`. The Supervisor observes both processor activation rejection and both resulting settlement chains. A current-owner settlement invariant rejection enters the singular `runtime_failure` halt with the original error retained as that owner's halt and settlement evidence. A stale observer with a remaining live run or retained halt still starts or joins containment as applicable without attributing its obsolete error to a current owner; a stale observer finding neither run nor halt has nothing left to contain and returns without effects.
-They publish no replacement evidence and expose no cause through HTTP or WebSocket responses; delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr.
-
-`EventQueryService` is the sole event/error query authority for the authenticated operator API and Analyst tools.
-Each query performs one complete strict event-lane read and then filters/slices.
-`/api/events` supplies non-UI operator event queries with strict oldest-page or newest-tail selection, maximum 1000, and no session/since filters; `/api/debug/errors` is its complete derived error projection and the Debug UI's only event-derived input.
-Debug has no event Timeline; `/api/debug/timeline`, ErrorLog, and duplicate event read models do not exist.
-
-The strict global agent catalog is the sole agent authority. Startup selects one immutable participant collection containing configured Analyst and Oversight contracts and compiled global prompts; binding, prompt lookup, generic Agent admission, and REST reads use that collection. Conversation admission is owner-specific rather than collection-wide: startup strictly requires the selected Analyst index, while Oversight retains lazy index initialization at actual check use. Unselected global catalog entries are not participants, and unrelated generated state creates no durable Oversight provenance.
-
-At each submission or check, Analyst and Oversight prepare their selected role with shared generated status, reopenable/target status, configured card-type, and urgency vocabulary and their own selected compiled tool contracts. Vocabulary grants no authority; recorded role text remains historical evidence rather than a current-template reconstruction.
-
-`ProjectOversight` in application is the process-local schedule owner. It owns either one monotonic deadline or one runtime-owned `OversightSession`, records only current-epoch attempt timestamps/outcomes in memory, and receives explicit authoritative Supervisor status transitions. It uses chained bounded timeouts for deadlines beyond Node's single-timeout range, never `setInterval`, catch-up ticks, a queue, persistence, reports, or a health latch. `OversightSession` owns check execution in runtime: it creates one ordinary global-purpose `ConversationLLMActor` per check over the retained canonical global session, renders the selected compiled card-type vocabulary through the shared tool-owned global vocabulary formatter used by Analyst, binds shared observation dependencies plus only its caller-authorized notification port, and settles known tool/provider evidence before suppressing continuation on cancellation. Its outer check owner clears the task and cancellation controller before publishing the existing exact global-session membership invalidation on every completion, so the subscriber's next projection cannot retain a settled executing snapshot. Analyst binds that same notification input/result contract to its audited runtime-cancellation policy without intervention readiness. Compilation permits public notification selection only for those two exact configured globals; card agents have no binder. No binder infers authority from an agent name or falls back to raw runtime submission. Permanent application disposal follows owned settlement.
-
-The notification port exact-reads the target and admits only card types whose declared recipient has at least one compiled node with both child-creation and child-activation capability. It also requires the exact AbortSignal owned by the currently active check, so another global participant cannot borrow Oversight admission. The same derived `planningNotificationTarget` appears in the bounded `get_card` workflow projection. Oversight receives no Analyst mutation context, process scope, lifecycle port, command, MCP, skill, or queue observation. Unexpected non-publication owner/protocol failures invoke the existing application terminal coordinator: admissions close synchronously, Oversight joins as one bounded cleanup leaf, safe shutdown warnings are emitted, and the process exits 1. Publication uncertainty still enters the nonreturning publication-fatal boundary before cleanup.
-Each safe agent name selects one strict `{reference,compactable}` prompt declaration, exact ordered tools, one named model route, skill capability, session scope, and child-creation ceiling. Nodes use the same static declaration shape; durable entry, correction, nonterminal-edge, and pending-notification declarations may additionally carry an exact `compaction_key` only when non-compactable. Policy is compiled on the consuming declaration while shared selected prompt text remains policy-free.
-Skill index `target_agents` values are exact configured names; model temperature and token limits belong to named routes.
-No behavior is attached to the default strings `planner`, `reviewer`, `executor`, or `analyst`.
-
-## 4. Card-Process Compilation And Execution
-
-System templates are configuration-owned, typechecked TypeScript modules under `src/config/system-templates/<name>/template.ts`, each a complete materializable config plus its own exact prompt closure under `src/config/system-templates/<name>/prompts/`.
-The classic family shares `createClassicConfig` in `src/config/system-templates/classic-shared.ts`. Each call constructs fresh explicitly typed mutable agents, routes, and config declarations, then recursively freezes the completed config once; each template supplies only its own card graph, name, and prompt-root identity. Shared agent/model/server/compaction values and ordered tools are unchanged, and prompt files retain their independent byte-checked closures. `src/contracts/oversight-tool-policy.ts` owns the immutable `OVERSIGHT_ALLOWED_TOOL_NAMES` tuple, published through the contracts root: templates spread it into the source tool array and the existing runtime compiler uses it as the configured Oversight allowlist. Valid configured subsets remain admitted; tools outside the policy reject rather than being trimmed.
-`src/config/system-templates/registry.ts` explicitly registers three complete templates, `classic`, `classic-typed`, then `paad-typed`; no directory scan, data parser, runtime loader, manifest, or implicit registration exists, and module-load validation rejects duplicate or empty names and schema-invalid configs.
-`classic` is the bundled default (the omission `card_types` source and the bundled prompt root) and preserves its plan/review and one-node execution graphs and contracts unchanged.
-`classic-typed` is configuration and process-prompt content: it supplies purpose-specific planning, code, test, research, data, and architecture graphs while retaining one-node doc/ops flows.
-`paad-typed` directly reuses classic-typed's deeply frozen config, including ordered tools, routes, records and every graph declaration, and owns a complete independent physical prompt closure with its own module-relative root. Only the shared Planner/Executor/Reviewer and architecture component/system review prose differ. This immutable data reuse adds no runtime inheritance, fallback or compatibility path. The optional PAAD guidance uses existing owners and outcomes, not new gates; classic and classic-typed bytes and behavior remain unchanged.
-Templates are data used once by `saivage init --profile <name>`, which materializes the selected template's complete prompt tree, provenance marker, and config YAML (published last) into the instance; after init the runtime reads only the instance and no template registry is consulted.
-Global agents, `analyst_agent`, model routes, providers, compaction, server, and MCP remain ordinary instance keys, and compilation validates resolved references against them.
-`RecordDeclaration` derives from the effective record-definition schema in `schemas/saivage-config.ts`. The schemas root publishes `RecordDefinition` as that declaration plus runtime `filename: RecordName` and `declared`; compilation derives its distinct `name: RecordName` declaration from the same schema type. There is no separate records package or hand-mirrored format/schema/bootstrap contract. Workflow compilation and `genericRecordDefinition` remain runtime-owned.
-
-Build packaging checks the explicit classic/classic-typed family using each independently compiled prompt closure: selected shared agent/fragment path sets must match and their bytes must be equal; common-path shared process prompts must also match byte-for-byte, while typed-only process paths remain permitted. Registry and copy-script Jest suites protect that compiler-derived parity operation. Separately, build's compiled prompt-composition smoke verifies source/package byte equality and selected-role composition for all five roles. Release reaches both packaging parity and compiled composition through build; routine validation does not run compiled composition.
-
-The separate paad-typed/classic-typed invariant requires identical complete config and compiled path membership, with byte equality outside the five intentional prose deltas described in [Prompt handling](./prompts.md#optional-paad-typed-guidance). It does not expand classic-family byte parity to the adapted roles. Every profile still passes exact per-template physical/source/package closure checks; the Planner's non-procedural pinned MIT notice travels with ordinary prompt copying.
-
-After `ResolvedConfigAuthority` resolves the exclusive source choice, startup strictly parses the resulting complete `card_types` map, requires its reserved `project` root entry, validates identifier keys plus duplicate-free closed non-project child references, and structurally compiles every and only effective entry in declaration order.
-The compiler and all runtime consumers have no set selector or selector/map union.
-One immutable map and its frozen ordered all-key vocabulary are the sole membership/projection authorities.
-Local-input compilation, topology validation, and final-table construction are separate phases, and no phase publishes a parallel graph.
-Every transition has one dispatch target; destination kind and identity are classified from the looked-up target state.
-States are `lifecycle:ready`, `entry:<port>`, `node:<id>`, and `terminal:<port>`; accepted outcomes are `result:<outcome>`, while `execution:failed` and `execution:blocked` are runtime-owned.
-Nodes reference card-scoped named agents and contain their exact contextual record and child authorities.
-Entries are exactly `BACKLOG | CHANGED | BLOCKED | STOPPED`; terminal ports are `DONE | FAILED | BLOCKED`.
-Every node is entry-reachable and has a terminal path.
-Terminal exports must be source-node requirements, and `latest_node` promotion must name a node with a directed path to that terminal source.
-
-Neither compilation, binding, actors, REST, nor the browser branches on a selected init profile.
-Init materialization is erased into the same complete immutable map; every consumer follows declarations and state tables.
-Typed node IDs therefore remain ordinary graph identities, including hyphenated `add-coverage`, `component-review`, and `system-review`, with no template-aware engine path.
-
-The typed `test` graph configures `diagnose/coverage_ready` to enter the existing `verify` node through the existing `test-to-verify` prompt when diagnosis establishes both meaningful adequate coverage and passing tests, including after re-entry. Verify still owns the only successful terminal; its prompt may reuse immediately preceding same-card focused evidence only while relevant inputs are unchanged and the evidence applies, and requires remaining acceptance checks. Typed code-green, test-repair, and data-implement prompt policy selects existing retry outcomes only for a materially informed useful next attempt and existing `failed` outcomes on evidenced bounded exhaustion, while reserving `blocked` for a specifically unavailable required input, access, or decision. These are instructions at existing outcome owners, not an engine branch, retry counter, persisted phase, record/schema identity, or durable-format change.
-
-Typed architecture demonstrates the existing record/transition mechanism without extending it.
-Executor `draft` synthesizes current proposal progress and outstanding review obligations in `status.md`, retaining immutable accepted-review citations rather than cumulative revision accounts; Reviewer `component-review` opens and closes a clean updated `review.md`; accepted transition context carries that exact immutable `&v=N` URL into Reviewer `system-review`, which opens a newer clean cycle of the same `review.md`.
-Revision carries the accepted scope-specific review URL back to `draft`; successful system review promotes the latest accepted `draft` result and exports the current review.
-Historical component and system evidence remains readable because transition context references immutable versions.
-No alternate review record, selected agent prompt, persisted graph phase, or engine branch exists.
-
-Wire and durable schemas validate card-type identifier syntax, not deployment membership.
-Strict generated-state startup resolves every reached active card through the compiled map before parent/type admission; a reached tombstone terminates traversal before workflow/session/record admission. Runtime creation resolves the child workflow and selected parent's permitted set before publication.
-Operator DTOs therefore accept valid custom identifiers, while a removed configured type fails at startup with no fallback or repair.
-Child capability, rather than a literal type name, also owns Analyst record-edit ancestor notification.
-
-The one ordered compiled vocabulary supplies Analyst prompt/create admission, global and card-agent `list_cards` binding, and Planner execution membership.
-It includes `project` as configured wire vocabulary but does not authorize another root.
-Debug Graphs iterates the compiled map rather than a default catalog and uses the same effective node-tool selector as invocation binding.
-The browser imports the shared identifier contract; default labels are a partial presentation map and unknown configured names render raw.
-
-All prompts use one singular tree with exact `<root>/<agents|process|fragments>/<card-type|_shared>/<reference>.md` paths.
-Project paths precede bundled paths and card scope precedes shared within each root; only exact `ENOENT` advances.
-One discriminated `PromptHost` represents selected global agent, workflow agent with card type, process with card type, or record-context with card type and selects both artifact scope and placeholder policy.
-Agent paths use configured prompt references.
-Direct fragments inherit the host discriminator and cannot include fragments.
-A card type named `global` is therefore ordinary card scope, never the Analyst sentinel.
-::: v-pre
-
-Startup requires exactly one `{{contractDescription}}` only for effective workflow-agent system prompts and eagerly renders process `{{cardType}}`.
-
-:::
-Prompt validation enforces structure, not authored-prose semantics; generated node contracts and actual tool/result schemas remain authoritative. Custom stale or contradictory instructions require author review, with no automatic override rewrite or compatibility fallback.
-Immutable agent tokens and final process strings admit no workflow-family or runtime prompt selection.
-The five shipped role prompts, including both global Analyst and Oversight hosts, each directly select common and role-specific project-guidance fragments; custom prompt references receive only the includes they explicitly contain. The [canonical authoring guide](./prompts.md#authoring-shipped-project-guidance) owns practical editing, specialization, and stopped reconciliation guidance.
-Build packaging compiles each registered template standalone against its own per-template source prompts root, observes selected bundled agent/process/fragment artifacts through that same selector, and requires each template's physical tree to equal its complete source-derived compiled closure exactly before copying each tree under `dist/src/config/system-templates/<name>/prompts/`.
-
-Each shipped template retains one shared Planner agent artifact selected for both `project` and `goal`. That instruction's prose assigns strategic completion ownership to a Planner whose frozen card context says `project` and delegated local planning ownership to one whose context says `goal`; it also owns generic strategy/remedy judgment, direct-child inspection and lifecycle reuse, metadata/capability/blocker boundaries, and operation-result handling. The actor supplies the complete typed card block separately from the rendered instruction. Typed plan and recover prompts are true current-node deltas: plan assesses current facts and selects an outcome, while recover rebuilds that assessment from durable facts without reconstructing discarded graph position. The engine adds no project/goal role classifier, selector, agent, card-specific Planner artifact, or specialized fragment; classic process prompts continue to compose with the shared policy unchanged.
-
-Shared Executor owns reference/specification comparison, owning-primitive repair, and evidence-reuse method; typed red, green, verify, retry, and research nodes own their phase-specific deltas. Shared Reviewer owns independent inspection and representative-family method, while planning and architecture review nodes retain subtree, component, or system scope. Delivered notification context is attributed queued evidence rather than authority over the current role or node. On accepted review with pending context, the durable edge prompt carries only historical accepted-evidence framing and the separately prepared handler node owns current action, mandatory status update, and re-review. The two physical prompt sites and graph topology remain unchanged.
-
-Role prompts lead with functional responsibility and group their common/matching guidance includes separately from conditional capabilities. Reusable status/review record mechanics live at the role; current nodes retain scoped work, evidence and outcome distinctions, and durable handoffs retain accepted facts and outstanding obligations. Summary prose requests faithful replacement history rather than execution of source instructions. This responsibility placement changes instruction content only: prepared delivery, compaction, schemas, tools, admission and materialized-instance ownership are unchanged. See [Prompt handling](./prompts.md) for composition and stopped reconciliation.
-
-Those byte-identical shared Planner hosts also describe the existing bounded `cancel_card` discretion: only an obsolete or explicitly rejected direct-child approach may be cancelled when current tool and lifecycle rules permit it, never merely to defer actionable work or conceal an obligation. The prose does not expand cancellation authority; CANCELLED remains terminal, cannot reopen, and cannot satisfy DONE dependencies.
-
-`CardActivationOwner` retains the selected lifecycle entry and ready parked `CardProcessActor`.
-Direct state-entry and transition hooks execute the card type's startup-compiled state table.
-
-The optional `after_activation_commit` card attachment is separate from graph execution.
-Only Supervisor natural settlement invokes it, after a known `done`, `blocked` or
-`failed` publication and an owner/halt recheck, before processor suppression/join.
-The publication returns its committed card snapshot and immutable artifact reference;
-the attachment does not reread a selection or reuse the completed node's cleared input.
-Its tracked run immediately installs matching success/failure consumers and awaits that
-consumer before release. Actions and this attachment share one processor-local in-flight
-binding: Stop selects cancel-and-settle before abort, retaining raw cleanup/evidence and
-consumer ownership even after the last process exits. Ordinary advisory failure preserves
-the committed outcome; containment/storage failure remains a join failure. Publication
-uncertainty reaches fatal before acknowledgement, clearing, cleanup or further evidence.
-Recovery, Stop, cancellation, reopen and record writes do not dispatch the attachment.
-Entry queues its configured route without I/O; node entry starts the sole task; transitions invalidate runtime projection.
-If any transition, entry, task-result callback, or framework invariant escapes, BaseActor terminally latches and reports it; CardProcess rejects its unsettled activation before synchronously notifying the exact Supervisor owner.
-The first node ordinal is 0 and accepted node reentry advances it once.
-`NodeExecution` consumes common record, descendant-context and outcome contracts; `AgentExecutor` consumes the compiled agent, prompt, tool and model selection without role or family lookup. Operations consume an exact qualified/versioned definition, never a fake agent binding.
-
-The shared roles own [selected dedicated-file-tool preference](./prompts.md#dedicated-file-tool-preference): Executor prefers available `apply_patch` for deliberate source edits over shell replacements, retaining appropriate `write`/`edit` use, including permitted records, and legitimate role-authorized shell/generator work. Prepared delivery and permissions are unchanged. Tool definitions, not that method prose, remain authoritative for invocation contracts; independently authored prompt references require deliberate adoption.
-
-The same shared Executor hosts own [authorized Git-delivery guidance](./prompts.md#dedicated-file-tool-preference), not Planner/Reviewer or individual nodes. This is prompt method, not enforcement; compilation, selected tools, prepared delivery and retention remain unchanged.
-
-Provider modules own immutable tool identities/descriptions and one bind-time schema-factory binder contract.
-The scope-aware runtime catalog aggregates those entries, rejects duplicate `(scope,name)` pairs, and structural compilation retains their exact ordered references without freezing context-dependent schemas.
-Both global and card binding contexts carry the selected compiled card-type vocabulary.
-Analyst `create_card` constructs its type enum from that vocabulary and binds one required explicit `cardIdSchema` parent.
-Planner binds its separate no-parent plain-string create schema, derives the parent from the active Planner session, and checks compiled membership in execution.
-The catalog intentionally defines `reopen_card` once in global Analyst scope and once in card Planner-control scope. The Analyst shape is `{cardId}` with intervention-ready global propagation; the Planner shape is `{card_id}` with exact parent-owner/direct-child admission. Shared spelling does not alias arguments, result shape, readiness, propagation, or authority, and configured named agents receive only explicitly selected capabilities regardless of their names.
-The one shared global/card `list_cards` binder also constructs its enum from the vocabulary, and invocation parsing rejects unconfigured filters before its shared filter executor.
-A bound invocation surface is the authoritative definition source; startup capability requests retain only tool presence and exclusive choice, preserving one named-agent candidate chain rather than routing per card.
-One pure effective-card-node selection preserves ceiling order and removes `create_card` exactly when `childCreationTypes` is empty; execution binding and Debug Graphs consume that same selection.
-The shared node-result owner creates the strict node-specific schema and sole `emit_result` definition appended after the operational array.
-A terminal call first passes the direct non-null, non-array object guard and then strict schema validation; either failure is appended through the same-node correction loop.
-Beside this owner, one strict `EmitResultSettlement` parser admits only accepted `{accepted:true}`, a nonempty-error failure without data, or the exact pending-notification reason.
-Every direct malformed-argument, notification, record, stale-context, incomplete-descendant, and accepted branch parses its value immediately before the existing append or settlement.
-The `emit_result` outcome selects a compiled edge and is distinct from the compiled `DONE | BLOCKED | FAILED` terminal ports; this boundary does not alter record closure, acceptance, fatal-publication escape, continuation, or cleanup order.
-
-`SkillCatalog` is the narrow stateless boundary for the exact optional `.saivage/skills/index.json` and selected skill files.
-On each explicit call it validates the complete strict current index, filters by the supplied configured agent name, preserves operator order, and projects names or reads one exact authorized file.
-Only exact index `ENOENT` means an empty catalog; malformed present data and selected-file failures propagate.
-Compiled tool selection installs skill access only when that named agent declares both `skills: true` and the `skill` tool; the runtime catalog's `skillToolBinders` entry and live context binding own the resulting invocation definition.
-`mcp_tool_call` remains separately and singularly owned by `mcp-provider.ts`. The transports' protocol mapper validates the complete live native CallToolResult envelope; its schema-inferred `NativeMcpResult` flows through runtime, manager and internal invocation port to the provider and converter. `mcp-native-result.ts` owns projection, image/size checks and exact-session publication without a second envelope parse. It projects metadata/text and serializes non-image blocks at their original positions without fetching resources or promoting JSON lookalikes. Structured/envelope metadata is ordinary `data.result`; indexed block metadata and captures are `data.native_content` and `data.images`. Native errors preserve diagnostics without selecting pixels. Complete projected non-image text/JSON is bounded at 1 MiB, never truncated. Ordinary final projected transport/input error fields remain bounded to 512 UTF-8 bytes. Independent tool-argument, durable-result, selected-image and provider/framework consumers retain their own validation; the internal type grants no persistent admission authority.
-
-The producer-neutral `normalizeImage` owner accepts matching native PNG/JPEG/WebP MIME and strict canonical base64; the independent workspace wrapper still admits PNG/JPEG only. Sources are at most 32 MiB individually/aggregate and 40 million pixels; static, oriented, sRGB PNG selections are at most 16 MiB each. MCP uses the shared local `max_dimension` schema/default 1600, not forwarded server arguments. Captures retain source/oriented/sent dimensions, orientation, resize/scale/bound without invented source paths. All asynchronous normalization/validation precedes the exact invoking signal's immediate fence before the first synchronous `publishConversationImage`. Recognized conversion failures check that same reason before tool failure; unrelated errors and publication uncertainty propagate without later effects. Stdio raw frames and HTTP JSON/SSE use 48 MiB UTF-8 wire bounds before assembly. Format-6 descriptors, selection/materialization, primary call-linked Responses/Codex output and atomic summary/refine ownership remain unchanged.
-
-`mcp-argument-validator.ts` owns deterministic external-schema dialect dispatch:
-Ajv2020 for absent `$schema` or declared `https://json-schema.org/draft/2020-12/schema`,
-and the draft-07 Ajv class only for explicit `http://json-schema.org/draft-07/schema`.
-Each URI also accepts its empty-fragment spelling; other/non-string declarations
-fail before transport invocation. Both engines validate schemas and all argument
-errors without coercion, defaults, property removal or dialect fallback. Local
-references and declared keyword semantics remain intact; unresolved references
-fail with no network loading. `strict:false` allows annotations/extensions, not
-a custom-vocabulary or format-assertion guarantee. The complete schema remains
-unchanged through discovery and whole-schema fingerprinting; each runtime retains
-its existing `(toolName,fingerprint)` use cache and clearing rules. This is external
-protocol language support, not multiple durable-state readers. The negotiated June
-2025 protocol stays unchanged; the adopted default-language rule is the November
-2025 clarification.
-
-Native MCP ingress is implemented over the existing ordered-content family.
-Runtime MCP lifecycle/discovery-control ports reuse McpManager and McpServerRuntime.
-Start reads only the exact effective entry via ResolvedConfigAuthority, rejects
-unknown/disabled, overlapping start or changed-live entries, and replaces only a
-contained owner. Ready equivalent start is idempotent. Stop fences the retained
-owner without waiting behind reconciliation. A single runtime-owned 180-second
-timer includes fetch/install, initialize and all discovery pages; cancellation
-closes admission and awaits direct containment inside inner start work, then only
-untracked outer completion joins stop. Manager shutdown joins retained inner starts,
-calls, containment and reconciliation before clearing owners; failed containment
-retains closed owners, with root failure precedence. Stdio children use project cwd
-and answer negotiated roots/list with that workspace; protocol stdout stays clean.
-One connection-owned bounded stdio receiver remains installed from initialize
-through discovery, idle intervals and successive calls until disposal. Its single
-pending response slot is registered before request writing; method requests are
-dispatched before response correlation, so colliding server IDs cannot consume a
-client response. Roots answers use the immutable admitted workspace URI. Runtime
-serialization remains the only call queue; HTTP advertises no roots capability.
-Invocation defaults to 900,000 ms (15 minutes), distinct from the 180-second
-startup and 30-second catalog-refresh budgets. The stdio runtime starts its active
-exchange deadline after serialized dispatch admission, excluding queue wait; HTTP
-owns the forwarded deadline through request/response-body consumption. A consumed
-response clears its timer. Caller cancellation or owner shutdown can interrupt
-earlier. Actual stdio expiry retains connection-wide containment and can discard
-all sessions on that server, not independent server scopes; HTTP abort remains
-request-local and cannot certify remote termination. No automatic restart/replay
-or public timeout configuration is introduced. Timer scheduling and containment
-joins do not promise hard wall-time completion.
-Ordinary receiver failures settle the pending error before runtime-owned admission
-closure and direct containment. Disposal detaches only connection-owned listeners
-and pipes, never process-runner-owned streams. A consumed correlated response ends
-its deadline and retains its mapped known outcome even when a later line or EOF
-closes the connection; the original caller can still cancel, including at the
-mandatory native image-publication fence. Transport EOF fences admission immediately
-but the existing exact-launch terminal observer, not EOF, supplies delayed exit or
-capture-error status. Stop joins that observer and retains its classification;
-failed containment takes precedence and releases its wait race without retirement.
-Publication uncertainty escapes before ordinary cleanup, containment or later effects.
-The exact-launch observer distinguishes unavailable process evidence from normal terminal/capture settlement. Registry first-loss notification rejects runner waits promptly; the observer checks both typed rejection and exact runner observation, preserving genuine capture error independently. Open admission uses existing transport closure once, clearing readiness/cache while retaining the failed handle/launch. The observer never joins public stop from tracked work. Intentional closure and failed direct containment may win the race; failed-containment precedence, identity and operation joins remain, with no late retirement or replacement. Owner-local admission and `responseCompleted` fences still preserve correlated native results and single telemetry outcomes. Publication uncertainty escapes before evidence inspection or any follow-up.
-After the existing completion-sensitive caller/admission checks, McpServerRuntime
-classifies the validated returned native envelope once with `isError !== true` and
-supplies that same boolean to invocation counters and event publication, returning
-the envelope unchanged. Native failure is not a transport exception. The returned
-result publication stays outside the transport catch; publication rejection escapes
-unchanged without retry, compensating event or containment. Counters may already
-have advanced before a failed append; this is not a cross-resource transaction.
-Native failure rows omit optional error text and enter the unchanged Errors filter
-and generic browser presenter. Safe remote diagnostics remain in tool results,
-not duplicated in the app log. Later projection, conversion or image-publication
-failure does not change the recorded native outcome or promise model delivery.
-Strict authenticated lifecycle routes share operator contract registration; new
-control/discovery/registration agent selections remain independent from invocation. No
-install registry, enable persistence, new reconciliation scheduler or second containment
-owner is introduced. One browser context is shared and disposable. Generic descriptor
-inspection alone is not proof of production/delivery; historical ordinary MCP
-metadata stays opaque and is never normalized into selected images.
-
-The tool-result persistence boundary retains the provider's complete invocation envelope unchanged.
-For skill success this is exactly `{success:true,data:{skills:[{name}]}}` or `{success:true,data:{skill_name,skill_content}}`; failure remains the generic `{success:false,error}` envelope.
-`tool-friendly.ts` passes that serialized complete result through the public presenter registry.
-The registered skill success presenter reads only the complete envelope's `data`: lists render `N skill`/`N skills`, including zero, and named loads render `skill loaded`.
-The registry classifies failed envelopes through its generic error path before any skill success presenter; there is no bare-payload compatibility projection or skill-specific error path.
-
-One LLM options path carries the supplied ordered tool list to every provider transport.
-A non-empty list is sent with only `tool_choice: 'auto'` and `parallel_tool_calls: false`; an empty list omits the tool fields.
-There is no forced-name choice or provider terminal-phase path.
-New provider-exchange `request_params` retain transport-specific metadata but omit the obsolete `phase` key.
-
-`contracts/llm-usage.ts` owns the singular strict optional five-counter usage value shared by provider results and exchange payloads. Transport-local `agents/llm-usage.ts` allowlists numeric leaves: Chat prompt/completion/total and nested cached/reasoning details; Responses input/output/total and equivalent details. Responses and Codex share the latter extractor; Codex carries only the first accepted terminal response's usage into message/tool results, without accumulating deltas or extending stream lifetime. Unknown wire members never pass through; absent/null facts remain unknown, zero survives, and invalid consumed values produce safe path-only parse failures. Subsets are not added to totals. The attempt recorder, InvocationService publication/outbound projectors, exact owner evidence stream, summary identity and latest-primary read/API ownership remain unchanged. Usage instrumentation itself introduces no ledger, persistence mechanism, request/cache-key change, or failure-retention path; Codex affinity is the separate request composition contract described below. See [usage semantics](../spec/system-specification.md#provider-reported-token-usage) and [incompatible payload adoption](../runbook/index.md#provider-usage-payload-adoption).
-`offered_tools_count` records the number of tools offered in the provider request, taken from the adapter's request tool-list length; terminal-tool firing remains separately evidenced by `terminal_tool_fired`.
-
-Routing occurs only when the matching activation-owned tracker consumer runs after the settled task slot has been cleared, stages the accepted result or ordinary failure, and sends the corresponding event.
-Ordinary failure routes through code-owned `execution:failed` without routine fatal-hook notification. CardProcess intercepts publication uncertainty inside the raw node callback, around its captured successor guard and entire awaited execution, before a failed `TaskResult`, tracker consumer, event, or cleanup. This fatal interception remains active when cancellation has already settled the tracker wrapper and abandoned raw work rejects later.
-BaseActor state reads before start throw `InternalActorError`; start-entry and actor-main failures retain their fatal-hook notification and existing lifecycle failure ownership.
-Activation trackers own node cancellation and remain separate semantic owners from provider invocation lifecycles over shared low-level `ContainedOperations`.
-Each activation task synchronously registers its completion and one consumer delivery, even after admission closes; the deferred raw callback checks admission before entering caller work.
-Tracker joins snapshot currently owned operations and deliveries, not future registrations. CardProcess also awaits actor lifecycle settlement.
-Ordinary node rejection may settle an authoritative FAILED outcome without failing containment; owned consumer, required cleanup, and actor-main failures retain their existing failure lanes and precedence.
-Retiring and current node trackers remain separate owners.
-
-The operator LLM-exchange handler is a separate external operator response/non-disclosure boundary.
-It reuses the same idempotent typed provider-exchange projector on the latest strictly read canonical payload and parses that projection before response without rewriting persistence.
-Its failure path emits only a stable generic API body and a stable log event containing the validated session and operation identifiers; no exception object, diagnostic message, malformed value, stack, or project path crosses either operator sink.
-
-### Process-owned outbound HTTP observations
-
-Server composition binds the declarative `contracts/outbound-http.ts` closed event
-union to the already-created `fastify.log`, before runtime/MCP construction.
-`server/composition/outbound-http-logger.ts` projects explicit metadata fields into
-one synchronous `info` call with fixed message text. The emitter passes explicitly
-through application/invocation composition, MCP manager/runtime and web-tool
-composition; downstream packages do not import Fastify. `observability/outbound-http.ts`
-supplies call-local request UUIDs, monotonic elapsed time and safe identity
-projection, not a global interceptor, ambient context, bus, queue or registry.
-Agent/model identities are SHA-256 references, canonical session components supply
-the owning card, and valid input UUIDs survive. Internal-summary invocation identity
-remains separate from canonical source identity; arbitrary configured endpoint,
-account/profile/MCP names and request/error content never reach this sink.
-
-The actual consuming owner emits dispatch immediately before fetch, headers before
-parsing and terminal on existing response handling, before later canonical
-publication. Coverage is provider Chat/Responses/Codex in `consumeProviderRequest`,
-Codex/Copilot refresh in `consumeRefreshRequest`, MCP initialize and
-initialized notification, every tools/list page, tools/call, and web `fetchPublic`
-for search, ordinary/metadata/bounded fetch and Analyst
-record preparation. Each owned fetch is one lifecycle: retries and existing manual
-web redirects get fresh UUIDs; provider/auth/MCP native automatic redirect hops
-remain hidden within their single fetch. No transport/redirect algorithm changes
-or packet-level coverage are implied. Existing parsers/readers report body
-disposition without teeing, cloning, draining or reading for observation.
-
-Tool binders project only the initiating session/input into observation source.
-MCP invocation and start options forward it through installation, manager, runtime
-and all discovery calls; ownerless startup/autostart/reconciliation omit it.
-No server handle remembers its last caller. Websearch/Webfetch pass the same source
-through every fetch variant and recursive manual redirect. Analyst's audited
-record-preparation `fetchText` closure captures that invocation's source, not the
-destination record card. Owners lacking model/attempt/source facts do not recover
-them from history or guess a global identity.
-
-`InvocationService` emits retry/availability metadata only where its scheduler
-actually awaits. `waiting_candidate_ref` hashes the selected wait owner, not the
-next-dispatch promise; route eligibility is recomputed on wake. Optional preceding
-request/attempt attribution includes auth refresh, while shared availability can
-have no preceding request. Delay is the selected sleep duration; the optional
-deadline is the finite invocation availability deadline, not a transport deadline.
-Overload waits omit that deadline. No timer ticks or new scheduling policy exist.
-
-This process output is separate from `createEventLog`, app-log rows, settled provider
-exchange evidence, private finite diagnostics and UI Debug. It creates no Saivage
-file or durable reader/discriminator. Retention belongs to deployment stdout/journal
-handling, with no flush, acknowledgment, retry or lossless promise. Only the emitter
-call tolerates an ordinary sink exception, without logging it or using a fallback;
-publication-unknown is never swallowed. Relevant catches check the fatal signal
-before emission; existing unknown-publication cleanup exclusions remain. There is
-no outer publication `finally` emission. CLI control requests to Saivage, browser
-API/live-sync requests, stdio/process/browser-peer network and dependency tooling
-are not external-owner coverage. See the
-[runbook](../runbook/index.md#outbound-http-lifecycle) for interpretation and output.
-
-## 5. Stable Sessions And Full-Chain Recovery
-
-### Tool outcome and settlement boundary
-
-Current tool providers, synthetic failures, and terminal `emit_result` branches return only privately tokened nominal action outcomes created by the success/failure constructors.
-The sole settlement authority validates that token, performs outbound projection and redaction, creates the strict wire `ToolResult`, and emits its exact canonical bytes.
-Any earlier description in this document of direct terminal result parsing or unchanged structural provider output is superseded by this boundary.
-Filesystem and record mutation domain outcomes are `applied` or `rejected` and are mapped once at the tool boundary, so denial is a top-level failure.
-The contracts-owned exact record URL parser throws `RecordUrlInputError` only for authored syntax, decoding, identity, and version failures; decoding converts only `URIError`. The record mutation admission owner catches that type only around parsing and returns `record_mutation_invalid_target`, as it does for valid read-only historical targets, before state I/O. The failure carries only `code` and `operation`, with no invented record identity. Scoped read/write resolution converts only that same parser type to its input error; historical reads remain supported. No global invocation classification, actor, or recovery change is involved. Existing current-state-unavailable conversion and card Webfetch's broader boundary remain distinct; unexpected mutation and publication-unknown errors still escape unchanged.
-Webfetch successes compose `write:{kind,data}` and never nest a result envelope.
-
-The durable conversation append owner uses the settlement authority's exact bytes and returns the same settled result and bytes through the LLM actor. For corrective continuation, the LLM actor builds the settled result row and all known continuation rows before one append. The result keeps its parked source-input/call identity while the continuation rows use one fresh continuation input identity. Plain-text repair similarly batches configured repair, diagnostics, and ordinary continuation context. Post-append callbacks alone remove notifications or install refreshed review context; publication uncertainty keeps its original cause and admits no callback, reread, retry, or cleanup.
-A shared live-invocation projector outbound-projects arguments but passes this complete result unchanged to Analyst REST; it does not narrow or re-redact the result. Socket conversation invalidations remain the live observation path, without tool activity fan-out.
-Historical/read-model rows remain strict wire values and use the application Agent conversation read-side projector rather than becoming current producer outcomes.
-
-The shared browser conversation renderer owns direct tool-family semantic presentation
-over source-owned safe DTOs, including bounded compact target/reason excerpts with unhidden
-essential outcomes and full expanded detail, not runtime display metadata or persisted summaries.
-Current and selected-history folding use the same canonical outbound tool projector
-after private-row exclusion. Physical rows retain identity, time and order; projection-local
-exact pairing renders matched exchanges once at the call position, suppressing only the
-matched result's visual row. Nonadjacent pairs show a later-result cue and both source
-coordinates/times plus intervening-entry count; other messages keep relative source order.
-Two unique Request/Result anchors reveal the correct half via owner-local scrolling.
-Family presenters
-interpret full success/failure envelopes, preserving domain outcomes, uncertainty and
-known partial effects. Named semantic sections precede separate complete received-safe
-payload disclosures; expansion does not fetch or enrich evidence with current state.
-
-`AgentConversationView` and the existing Analyst reader each bind their own single reading
-surface to `useAgentTimeline`, the sole accepted-arrival following owner. No Analyst frame
-callback bottom jump bypasses its pinned/Pause policy. Analyst Jump is one-shot, clears
-unseen source-entry count and does not uncheck explicit Pause; pinned unpaused arrivals
-follow normally. Context/markdown/code/raw/instructions expand in normal flow, with wrapping
-and the existing large-highlight guard; all rounds mount directly, not an invented virtualizer.
-Tree/Analyst panes remain independently owned. Same-identity details survive refresh;
-replacement/departure resets local state, with no persisted reading-position store.
-`DiagnosticRow` keeps issue, repair-directive and interruption-uncertainty events at source
-position with visible truthful summaries and initially closed full safe bodies opened by
-exact targeting. It neither claims repair achieved nor changes runtime recovery behavior.
-
-Bounded response admission measures the exact canonical bytes of the final post-outbound ToolResult.
-Current and immutable card summaries share one summary projector, ensuring identical final-byte truncation rules across those surfaces. There is no notification section.
-
-Stable sessions are `agent:<agent-name>:global` or `agent:<agent-name>:<card-id>`.
-The configured scope and exact card context derive the identity and deterministic encoded path.
-Inventory takes the global Analyst plus each active card's compiled workflow agents and directly reads only those candidates.
-Chat uses unparameterized `/api/chat`; its response supplies the configured global session identity.
-Direct known-session I/O remains lifecycle-ungated and no session directory is enumerated.
-
-Generic Agent successes preserve matching exact identities; conversation rows equal their enclosing identity, and LLM-exchange success returns exactly `{session_id,exchange}`, where `session_id` is the selected Agent-session identity and `exchange` is the strict provider-exchange projection.
-Raw Vue route input is parsed once through the shared parser before any detail component, store selection, REST call, or live-sync work.
-Raw live-sync frames are parsed before socket mutation or acknowledgement.
-After known-successful physical conversation publication, the owner emits exact conversation freshness through the last physical message ID and, on first publication, the applicable card/global membership-reconciliation hint.
-Failed and outcome-unknown publication emits no freshness, and non-first append emits no membership hint.
-No event, broadcaster, or listener registry mediates freshness.
-
-Runtime-owned LLM and barrier state remains private to runtime behavior and does not decorate Agent reads.
-The supervisor map and concrete lease remain the sole structural-child authority; every relationship carries immutable invocation identity.
-
-Global Agent inventory derives exact candidates from the compiled global Analyst and active linked cards' compiled workflow agents.
-Card-session inventory derives only one active card's candidates.
-Inventory, card-session, exact-summary, and bounded Agent-tool summary reads capture one request-local set of canonical live session IDs: Supervisor walks only installed activation owners, while composition adds an Analyst snapshot only when its lazy runtime cache already exists.
-The read model opens exact candidate conversation indexes, omits only exact absent/current-version-less inventory, uses index `created_at` for `started_at`, and joins only by canonical ID membership.
-Presence projects `active`/`busy`; absence projects `inactive`/`idle`, including retained tombstone detail.
-It reads no transcript or app-log state to infer liveness.
-There is no browser join, cache, repository, worker lifecycle, telemetry registry, or persistence generation/currentness protocol, and runtime status has no Agent array.
-
-Ordinary autonomous and Analyst projection callbacks remain no-argument and reuse existing card/global Agent-membership targets.
-Supervisor halt is a distinct authority boundary: after all frozen joins succeed it validates the frozen graph, completes the gate transition, clears installed owners and Run fields, retains runtime invalidation, and only then publishes every removed card's existing membership target.
-Callback granularity is transport noise rather than public semantics.
-
-Runtime status has no agent array.
-The chat handler returns only the configured global Analyst identity.
-AppShell initiates that identity-only request independently of Cards and owns pending/resolved/failed mount arbitration, but owns no transcript request, cursor, reconciliation, handoff, or lease.
-Each mounted persistent Analyst panel lifetime claims the store's retained current identity handoff, owns one exact acknowledged conversation lease, and only after matching acknowledgement uses the cursor-transcript resource.
-The panel may project already-loaded Cards children but never initiates Cards loading.
-Identity replacement or lifetime end releases the exact lease; a replacement mount reacquires a fresh lease from retained current identity even when Pinia's identity has not changed.
-`AnalystSession.submit()` is the one process-local live-turn owner; REST `chats.send` is its sole operator submission transport.
-Overlap receives immediate typed busy and no server queue; request-local `sending`, acknowledgements, and optimistic messages are presentation state only.
-Exact REST busy removes only its optimistic send owner and restores that captured draft only when the composer is empty; live-sync/REST later reveal the durable winner.
-
-Operator egress calls typed source-adjacent owner projectors directly; there is no source-tagged dispatcher or artifact forwarding entry. Agents own provider exchange, observability owns logged events, persistence owns control actions, config owns effective configuration, application owns card and process projections, tools own tool invocation, and MCP owns its tools projection. One strict outbound-change schema and one exhaustive source-adjacent projector convert validated durable card change metadata; one adjacent card-artifact projector combines it with the queue-free card. REST selection, agent artifact hashes, and Files share that artifact projection rather than a generic card-history redaction branch. Direct card-diff callers retain existing projection behavior and authored-record diffs retain redaction before comparison; `buildProcessView` uses its local defining projector.
-`redaction/index.ts` exports only primitive text, URL, and dynamic redaction and has no higher-owner dependency. Cross-owner projectors are published through `agents/execution-api.ts`, `observability/index.ts`, `config/index.ts`, `application/index.ts`, `tools/tool-api.ts`, and `mcp/tool-api.ts`; owner-internal callers import defining modules locally. The control-action projector stays persistence-local in `control-action-outbound.ts`, used by the existing audit owner in `control-action-audit.ts`, with no forwarding export through `persistence/index.ts`. Server-local `ws-envelope.ts` owns the minimal strict connected-status transport projector next to WebSocket serialization, with no deleted chat/activity/error branches restored. `tools/execution-api.ts` continues to publish low-level invocation helpers and types for the audited runner, separate from catalog-facing `tools/tool-api.ts`; `mcp/tool-api.ts` also publishes the installation error with its original class identity, separate from `mcp/manager-api.ts`. These ownership cuts do not assert that pre-existing application/tool module cycles are gone.
-Workspace's operator command projection and runtime's ProcessRunner command-record projection both call the existing `redactTextForOutbound` primitive directly; there is no runtime command-redaction alias or workspace→runtime dependency. Process execution still receives the original command. Command timeouts and the call-time inherited-environment policy remain runtime-owned.
-
-The primitive text owner derives credential matching, replacement labels, and
-final-text boundary recognition from one private ordered family declaration.
-Existing family labels and Bearer handling remain; GitHub `ghp_`/`github_pat_`,
-shaped `AKIA` access-key IDs, and the Slack `xoxb-`/`xoxp-`/`xoxa-`/`xoxr-`/`xoxs-`
-family use explicit ASCII token bodies. Boundary recognition includes every
-resulting family placeholder as an indivisible span, even when its spelling no
-longer matches the original credential. This adds neither fixed-point redaction
-nor an exhaustive secret-detection guarantee.
-Browser-to-server Analyst `message` input is a separate strict contract and never enters the egress projector.
-The effective-config projector is the sole behavior owner: it accepts the internal effective type and validates its completed immutable projection against the browser-safe outbound schema, structurally omitting provider/account `baseUrl`, replacing API keys and stdio environment values, and applying `redactUrl` to streamable-HTTP MCP URLs.
-Webfetch argument projection is owned by the singular tool-invocation branch, and webfetch results use its generic opaque-result projection; there are no standalone webfetch dispatcher branches.
-Each branch validates its result.
-The explicit `dynamic` branch is only for owner-classified opaque leaves; complete known owners never enter it.
-
-Card egress uses resource-specific projection.
-Hierarchy projects only `id,title,type,status`; detail projects only displayed identity/lifecycle/version/urgency/timestamps/actions; descriptors and exact content project their own strict shapes.
-Current authored-record content, explicit record versions, and record diffs share one source-adjacent authored-record artifact projector.
-Record-diff processing follows the strict order `strict read -> shared authored-record artifact projection -> view selection -> comparison/hunk construction -> strict response validation`, so no canonical raw authored content reaches comparison or the browser.
-Card tools, ordinary history artifacts, and field-directed diffs retain strict projections over the same queue-free outbound card shape. `list_card_versions` and REST catalogs share the nullable ordinary change projection; selected REST artifacts, agent hashes, diff-side hashes, and Files share the complete projected artifact.
-Classified prose is redacted source-adjacently before each strict response parse.
-Unknown diff fields fail rather than becoming dynamic.
-
-Tool invocation uses the [exact shipped tool identities](#exact-shipped-tool-identities) for its direct argument switch.
-Its leaf input is structurally `complete` with real arguments and result, `call-row` with raw canonical argument string and no result, or `result-row` with a strict result and no arguments.
-Known-valid, unsupported, known malformed-JSON, and known schema-invalid argument classifications are distinct, so rejected calls remain readable without settlement-message inference.
-The shared live/current/history argument switch applies complete outbound text defense to
-free-form workspace locations: read/image/write/edit `path`, glob `directory`, grep
-`path`, command `cwd`, and webfetch `save_as`. Strict valid `record:///` selections,
-including historical versions, preserve their supplied spelling; arbitrary record/work
-scheme prefixes confer no exemption. Webfetch `url` retains its separate URL projection.
-Optional `skill.name` is a lookup key: explicit secret assignments/query values are
-filtered, while credential-shaped aliases remain exact. Filtering is independent of
-success, failure or an absent result and changes neither execution arguments nor raw
-canonical evidence.
-Results instead have one shape-independent path: parse only the generic success/failure envelope and recursively redact opaque optional data and error without consulting tool identity.
-Existing Analyst array/wrapper and terminal payloads are ordinary values of `data: unknown`, not versioned or compatibility shapes.
-Exposure paths are live `chats.send`, complete generic Agent transcript rows, and direct or recursively nested bounded `read_agent_session` rows.
-`ToolDefinition`, invocation execution, MCP, and provider output contracts remain unchanged.
-
-Workspace navigation has one strict shared target-and-intent contract owned independently of that generic transport.
-Navigation tool input, current producer output typing, and browser route application derive from it, while durable and outbound result data remains opaque.
-The browser is the effect-admission owner: immediately before route application it strictly parses successful navigation data and requires exact tool/intent correspondence.
-Invalid or cross-wired data fails before any route effect; failed and unrelated tool results remain non-navigation outcomes.
-
-The canonical-row leaf imports neither the Agent read owner nor the invocation switch and requires a concrete invocation-projector callback; no default, stub, or fallback callback exists.
-`agent-conversation-read-model.ts` supplies that concrete tool projector and owns visible folding, covered-fact reconstruction for compacted segments, provider-private omission, provider-decoration stripping, canonical outbound projection, the shared strict segment-context projection, cursor selection, and bounded tails. It projects only segment context at the shared boundary: `AgentOperatorReadModelService` owns the outer current and historical HTTP DTOs, while `read_agent_session` owns its distinct outer tool DTO. That tool separately packs `messages` and zero-or-one-item `context` collections, so a large projected context progresses through ordinary JSON slices without occupying fixed message metadata or being truncated. No public read returns the durable compaction object verbatim.
-All bounded collection and scalar success checks measure the same canonical settled success envelope through `settledSuccessBytes`; workflow scalar sections therefore include the provider-visible wrapper rather than measuring inner JSON alone.
-`ValidatedConversation` is the immutable durable-fact result of the singular state machine: physical/source rows, classifications, rounds/segments, compactions, call settlements, and its optional sole final unmatched call.
-Complete conversations derive validity solely from durable physical order.
-Within each row reduction, the tool-result envelope is parsed once; its transient value supplies failure/repair facts and is reused for ordering, tool-local semantics and evidence checks in their existing phases. Every owning read still freshly validates its complete consumed scope; parsing content alone does not establish conversation validity.
-Every result has one earlier exact matching call; zero or one unmatched call is permitted only when it is the final source row.
-Duplicate/mismatched calls or results, result-before-call, multiple unmatched calls, and a nonfinal unmatched call fail.
-The permitted final call has no liveness meaning.
-Cursor and bounded suffixes are selected only after complete validation, may begin with a result whose call lies before the boundary, and are never expanded to recover mates.
-
-Observation-only WebSocket registration has no runtime application, restart capability, or fatal-port dependencies. It synchronously parses JSON and admits only strict subscribe/unsubscribe frames through LiveSyncSocket; malformed/unsupported input closes 1008 with a fixed non-disclosing reason. No socket branch submits Analyst work or publishes durable state. REST retains its global Fastify fatal boundary and response-finish restart acknowledgement.
-
-Each role, Analyst turn, compactor summary call, repair, and continuation uses a fresh opaque UUID `source_input_id` generated by its live owner.
-Tool identities derive only from the original source UUID `S` and provider tool-call ID `T`:
+# System architecture
+
+Saivage is a card-centered runtime: configuration compiles the workflow, Supervisor
+owns dispatch and activation lifetimes, domain owners publish ordinary files, and
+read models expose selected evidence. The browser observes those owners; it is not
+a scheduler or persistence authority. This is the canonical architecture
+explanation. [System requirements](../spec/system-specification.md),
+[exact UI contracts](../spec/operator-ui-contracts.md) and
+[operating procedures](../runbook/index.md) have separate owners.
+
+## Ownership and dependency direction
+
+| Owner | Owns | Does not own |
+| --- | --- | --- |
+| `schemas`, `contracts` | Strict identities/data, pure validation, operation-indexed transport and execution contracts | Filesystem, provider execution, scheduling or application lifecycles. |
+| `config` | Selected YAML/effective input, registered init templates and structural candidate validation | Live replacement of installed workflows or compatibility detection. |
+| `cards` / direct persistence owners | Current linked cards, named record mutations, exact selectors/history and file publication | Dispatch, generic stores, transactions or orphan adoption. |
+| `runtime` | Compile/bind, Supervisor, CardProcess, NodeExecution, conversation phases, context/compaction | Provider transport implementation or an independent durable runtime-state file. |
+| `agents` | Registry/Router, request plans, protocol adapters, attempts, credentials and exchange projection | Card dispatch or runtime actor topology. |
+| `tools`, `workspace`, `mcp` | Scoped invocation, resource admission, transport/discovery and owned effects | Inferred role authority, remote restart guarantees or historical replay. |
+| `application` | Composition ports, Analyst operation surface, read models, mutations, Oversight schedule and freshness effects | Generic repository/store lifecycle or a second Supervisor. |
+| `server`, `boot`, `cli` | Auth/contract transport, process startup/exclusion/terminal coordination, command composition | Browser-side authority, automatic migration or implicit Run. |
+| `web` | Accepted REST resources, exact subscriptions, ephemeral selection and safe presentation | Durable currentness, mutation admission, provider context or inferred liveness. |
+
+Deployment supplies external LXC isolation; Saivage neither creates nor verifies
+it. Trusted in-container agents may run commands as root. Internal controls
+simplify work, prevent accidents and preserve explicit API/data invariants, not
+contain that principal. External authentication and outbound confidentiality remain
+real boundaries. Ordinary deployments use bearer auth; disabled auth requires
+deployment-owned trusted-origin isolation. Wildcard CORS is not authentication.
+Bearer tokens remain header-only, never URLs; the UI has no token-login surface.
+
+### Published package boundaries
+
+Cross-package backend code uses owner-published roots or exact public entrypoints;
+implementation imports within an owner stay local. Contracts/schemas retain their
+bottom-layer prohibitions even through a public surface. Agents and runtime do not
+import one another; workspace does not import runtime; server does not import boot.
+Only boot imports server across packages, still through an admitted public surface.
+Redaction primitives depend across packages only on schemas/contracts.
+
+The exact reviewed leaf set is in `scripts/check-import-boundaries.cjs`:
+`agents/{execution,tool}-api`, `cards/{status,store}-api`, `contracts/tool-api`,
+`mcp/{manager,tool}-api`, `persistence/session-api`, `server/server-api`,
+`tools/{execution,prompt,tool}-api`, `utils/prompt-api`, the sole runtime entry
+`runtime/runtime-api`, and exact server-only `schemas/round-id-server`.
+Terminal `.ts`/`.js` identify the same entry, not arbitrary neighboring/nested API
+leaves. The round-ID generator is not exported from the browser-safe schema root.
+
+`application/index.ts` publishes composition/read models/preparation; shared
+freshness/intervention/lifecycle declarations belong to contracts. Agent execution
+ports publish routing/invocation/exchange projection, tool ports the audited runner;
+cards status ports expose pure lifecycle/permission predicates without loading
+CardService. Runtime remains one consumption-curated aggregate, not newly split
+facades. The boundary baseline is zero offending occurrences and an empty-array
+digest. The shared scanner selects one rule per import/export occurrence, in
+precedence contracts, schemas, redaction, agents→runtime, runtime→agents,
+workspace→runtime, server→boot, server import, cross-package deep import; the digest
+uses sorted path/rule/target tuples, retaining duplicate occurrences. It is not an
+acyclic-module or complete-JavaScript-syntax proof. Type-only imports erase;
+value reexports create evaluation edges. Residual application/runtime/tools cycles
+are accepted and tested at relevant first entries, not promised universally safe.
+
+## Startup: select, compile, bind, admit, listen
 
 ```text
-${S}:tool-call:${T}
-${S}:tool-result:${T}
+CLI StartInputs → canonical root + bound lifecycle exclusion
+  → selected environment/YAML → structural workflows → live bindings
+  → optional first publication + strict current generated-state admission
+  → registered terminal owners + bounded configured-global settlement
+  → Supervisor startup card-chain settlement (execution stays stopped)
+  → outbound MCP reconciliation/install → external Analyst listener
+  → operator HTTP listen → published lock control endpoint
 ```
 
-The next provider UUID is unrelated.
-Provider attempt indexes order attempts within one invocation only.
-`ProviderConversationProjection.sourceSessionId` is the stable identity of the validated source conversation; `LlmInvocationInput.inputId` is the fresh identity of one logical provider call, and `LlmInvocationInput.sessionId` owns invocation logging and any newly persisted turn rows.
-For every ordinary persisted configured card-node or Analyst call, `LLMActor` requires invocation session equality with the projection source session before the pre-provider hook and requires it again on the hook result before turn-start append, candidate admission, or provider use.
-A mismatch fails without relabeling rows or either identity.
+`src/cli.ts` parses command-specific options once, rejects duplicate singletons and
+passes typed `StartInputs`; boot does not reparse argv. Root precedence is CLI,
+environment, cwd; config is CLI, environment, selected-root default; host/port are
+CLI, environment, YAML, defaults. Each chain selects the raw source before
+validating it. Token, log level and Node environment remain environment-owned.
+`boot/app.ts::startApp` acquires exclusion before environment and generated effects,
+narrows the lock to immutable `{pid,startedAt}` and injects it. A post-listen TCP
+observation supplies the announced bound address, not delegation authority or proof
+of reachability; lock endpoint publication is separate.
 
-Summary materialization is the explicit one-way projection exception.
-It selects original rounds/safe prefixes only from `ValidatedConversation`, preserving durable IDs, hashes, evidence, and coverage, then renders selected bodies through the bounded exact-request materializer; those transformed values are not durable `AgentMessage` rows and never re-enter canonical validation.
-Its dedicated provider path persists no invocation or completion rows to the actor conversation, so the internal `internal:compaction-summary:<source-session-hash>` evidence session and fresh input UUID remain distinct from the stable actor source session and outside every Agent inventory.
-It does not construct a durable row or weaken the durable conversation grammar.
+### Structural compilation and live binding
 
-Successful strict startup settlement leaves a structurally consistent stopped card chain for later Run; malformed input or failed publication can deny availability, and semantic completeness or lossless recovery is not guaranteed.
-For example, the recovered state may be stale, redundant, or lossy: a done card may reactivate, a stopped card may resume, a duplicate activation is harmless, and a missed activation is recovered by ordinary runtime flow.
+`ResolvedConfigAuthority` reads/interpolates/parses strict source YAML, resolves
+omitted `card_types` to the complete classic map (no per-key merge), validates the
+required effective map and calls `compileProjectWorkflows`. Deleted selectors and
+old model shapes fail, not normalize. The same decoder serves mutation
+preconditions without compiling current graphs; a correcting candidate is fully
+compiled before replacement. Reconfigure publishes next-start YAML and returns
+`requires_restart:true`, never installs it into this process. Load warnings are
+immutable advisory strings; boot/offline CLI own redacted stderr output, REST its
+warning array, without diagnostic reload or probes.
 
-At startup settlement, Run preparation, and natural-root-settlement call sites, the one strict selector traverses every canonical committed child link reachable from project, exact-reads each linked card, validates parent identity, and proves that every linked `running` card belongs to one unique project-rooted chain.
-Branching, missing, malformed, and discontinuous running topology fails without repair or normalization.
-One private Supervisor loop handles selected cards leaf-to-root: each card's distinct configured agent sessions stabilize in graph order (skipping action nodes), then Supervisor immediately stops that card before advancing to its ancestor. Startup invokes it with direct synchronous publication while uninitialized and ownerless; explicit Run shares that loop under per-session/per-card prepared-owner checks and existing `publish` authority. It does not bundle operations into one publication or consume execution logs.
-The shared publication callback returns true only when the operation completed and its caller still authorizes progression. Startup returns true or throws its contextual failure (publication uncertainty goes to fatal); prepared Run may return false after a known publication failure or synchronous halt takeover following a write. False ends the loop before any further session/card effect, leaving Run rejection to the prepared owner's existing settlement. The diagnostic operation string supplies startup context, not a second recovery policy.
-These Supervisor-named defaults are examples only; participant discovery traverses every node of every selected compiled graph, including specialized nodes.
-This Supervisor path is the sole broad card-chain corrective-recovery exception and is card-session-only; it consumes canonical settlement facts before applying card interruption policy. Two distinct bounded actual-use owners exist. `AgentExecutor`, after common node/record preparation, strictly folds only the exact configured card session. `AnalystSession`, after pure preparation for a newly admitted explicit request in an already-running server, strictly folds only its configured global session. Either may append one uncertainty-only failed mate for a sole final unmatched call using its old identity and persisted policy through the delivery-log primitive, then separately append fresh activation marker/ingress. Neither classifies other interrupted states, appends a notice, continues the old invocation or inspects another session. Malformed, nonfinal or multiple-unmatched history fails at use; publication uncertainty permits no follow-up. Actions have no session to stabilize and logs grant no replay authority.
-Fresh server composition additionally invokes runtime-owned `settleFinalUnmatchedCall`, published through `runtime/runtime-api.ts`, with a `ConversationFileContext` and `ConversationSessionId`. Analyst is required; composition selects optional Oversight through persistence-owned `isConversationCatalogEstablished`, published through `persistence/index.ts`. This helper freshly calls the strict `readConversationCatalog` exactly once: a valid index, including an empty one, returns true; only that exact index read's `ENOENT` returns false; all other errors propagate unchanged. It consumes no indexed segments. Generated-state admission independently calls the same helper before optional Oversight evidence consumption; composition calls it again before bounded settlement, with no cached or carried admission fact. Established Oversight is selected even with scheduling disabled; missing referenced content or evidence-consumption failures remain errors outside the helper's catch, not absence. No global notice, activation marker, ingress, provider/tool work, schedule restoration, or follow-up read is added.
-Composition, `AnalystSession` and `AgentExecutor` share the bounded strict `conversation-recovery.ts` helper. It reads the selected current conversation once and appends only the sole strict-valid final unmatched call's permanent uncertainty-only failed mate. No unmatched call means no publication, including valid empty indexes and text-ended history. The helper grants no admission and selects no session: composition retains configured Analyst-then-established-Oversight startup timing before Supervisor start, Analyst retains admitted pure preparation before fresh ingress, and agent execution retains preparation before activation publication. It adds no notice, replay, failure handling or follow-up read. Supervisor `stabilizeAgentSession` remains the separate card-only classification/notice branch.
-Both bounded settlement and Supervisor recovery use the delivery-log uncertainty-result payload operation. It accepts already consumed canonical call facts, uses the persisted template bytes/hash, and appends one `execution_failed` result with `{outcome_unknown:true}` and evidence `none`. Actual use and global startup retain the exact prior-activation/no-replay wording; Supervisor recovery retains its interrupted-activation wording and separately owned recovery notice. The payload helper does not read history, select sessions, validate a prospective fold, append notices, or handle publication failures. Existing strict writer consumption before append remains mandatory; no earlier read certifies a later write.
-`stabilizeAgentSession` is effect-only: it retains strict initial consumption and each append's independent writer read, then finishes after its last necessary append without returning a refreshed snapshot or adding post-write verification.
-The recovery module has its own exhaustive visibility decision for every current message kind and rejects unsupported runtime values in a complete pass before filtering or classification.
-`activity` and `provider_private` are ignored for implicit-state derivation; the marked visible Responses projection is authoritative for text, tool, and terminal state, while its private companion remains canonical for provider replay.
-This module-local recovery boundary is distinct from provider projection, compaction, observation, and operator visibility.
-Empty, system-only, settled-terminal, and exact settled-recovery sessions are read-only.
-Tool-pending receives interrupted `outcome_unknown:true` plus notice; provider/text-pending receives the notice only.
-Unmatched `activate_card` is always ordinary interruption, regardless of a referenced child's status; no child outcome is reconstructed or replayed.
-Configured-global startup settlement does not enter this card classification/notice path.
+Compilation has no credentials, network, MCP, process or generated-state effects.
+It resolves named agents/tool references/model order, records/globs/gates,
+prompts/initializers, entry/node/edge declarations, child permissions and
+descendant context. It validates reachability, terminal paths, source requirements
+for exports, promotion reachability and transitive child context closure, then
+publishes one immutable semantic state table per type. States are ready, lifecycle
+entry, node and terminal; each transition has one target ID and semantic variant,
+not a duplicate destination/node index. Entries are BACKLOG/CHANGED/BLOCKED/STOPPED;
+terminals DONE/FAILED/BLOCKED. Result outcomes and runtime execution failure/block
+edges remain distinct. A card selects by immutable type, not init profile or role.
 
-Every non-clean session and settled-recovery recognition binds to the strictly validated latest `activation_open` role/card/session/input association.
-The notice derives `${inputId}:model-recovered` and its deterministic pre-round and settles only as the final canonical source row after that marker.
-Malformed association, collision, or newer same-activation work fails directly.
-Append error permits no same-attempt read or later effect.
+`bindRuntimeWorkflows` discovers actual participants by traversing every graph node
+plus selected globals. It installs bindings beside the same tables, using local
+structural Router/Registry ports, preserving ordered candidates and complete
+capability requests. It retains maximum positive usable input `floor(U*C)-O` for
+capacity-eligible candidates without credential/network probes. External-only mode
+omits internal Analyst model binding, not its policy/index/evidence requirements
+or card participation. Invocation later binds scopes, not source configuration.
 
-After all conversations for one card stabilize, the supervisor immediately calls singular `stopRunning` for that card before moving to its ancestor; an exact existing `model_recovered` notice is read-only conversation state and does not suppress the stop.
-The notice has no resume, redispatch, or actor-reconstruction authority.
-Only explicit Run calls `activateStopped` for project after all selected cards are stopped; startup publishes stopped runtime without activation, provider or tool invocation, or old-node replay.
-`stopRunning` requires running and is shared by Supervisor startup/Run recovery and safely joined urgent live-card interruption, including root before in-run replacement; `activateStopped` requires stopped and is also used by planner activation of an exact stopped child.
-CardService remains the sole lifecycle writer for both exact reasons, `recovery stopped lifecycle` and `STOPPED activation`. Other running-to-stopped literals are rejected without compatibility interpretation.
-Format-v2 replay requires those reasons, runtime actor/surface, status history kind, `changed_fields: ['lifecycle']`, exact source/target statuses, and a lifecycle-only snapshot difference.
-Launch prepares and installs only project through `STOPPED`; descendants remain stopped until ordinary immediate-parent activation.
-A status append failure leaves stopped descendants below a unique running ancestor as a valid partial prefix; a genuinely new process may freshly settle that remainder at startup. Ordinary same-process Stop leaves running rows and a later explicit Run freshly selects them. First failure ends correction; publication uncertainty exits before further read, write, halt, or cleanup.
-There is no actor reconstruction, multi-card installation, transaction, rollback, retry, generation, or graph-position recovery.
+### Templates and prompt closure
 
-### Interruption-suspect selection and writer ownership
+`config/system-templates/registry.ts` explicitly registers classic, classic-typed
+and paad-typed complete frozen configs. There is no scan/loader/manifest.
+`createClassicConfig` constructs fresh typed declarations then freezes once;
+`OVERSIGHT_ALLOWED_TOOL_NAMES` is the shared contracts-owned allowlist. PAAD reuses
+typed config, not runtime inheritance. Config-absent init materializes the selected
+complete prompt closure/marker and YAML last; existing config preserves them.
+Runtime follows the instance, not the selected init-profile label. The default
+bundled prompt/card-type source remains classic where the instance omits overrides.
 
-The production write-path ownership invariant is that no ordinary conversation or provider-evidence append targets a durably stopped card. Root start, child admission, and stopped-card reactivation publish running before actual-use mates, ingress/context, tool/provider rows, or evidence writes. The node/LLM activation owns ordinary and summary evidence publication. Supervisor recovery completes each running card's configured-session stabilization before publishing that card stopped; urgent interruption joins owned node, tool, provider and summary writes before stopped publication. Aborting alone is insufficient because summary evidence can settle after cancellation. Ordinary Stop/application close contains and joins work but leaves durable running heads for the shared later startup/Run settlement. Notifications and Analyst edits may change stopped-card heads, records, or pending mailboxes, not append their conversations. This is an ownership contract, not a new runtime assertion or root-agent containment defense.
+The compiler exact-selects project-card/project-shared/bundled-card/bundled-shared
+hosts and direct fragments. Global scope uses shared tiers only. It freezes role
+tokens and eagerly renders process text; a typed `global` card is not a global
+host. Packaging compiles each template standalone and checks exact physical
+source/package closure, classic-family shared bytes and PAAD's five explicit
+differences. Compiled composition runs through build, not routine alone.
+[Prompt handling](./prompts.md) owns host tokens, declaration retention,
+customization and prepared-versus-historical explanation.
 
-Initial conversation publication atomically publishes the complete genesis and first batch before selecting it in the index. First provider-evidence and app-log files likewise use complete atomic first publication rather than a partial canonical initial append. Compaction publishes its complete successor segment before replacing the index; after that replacement no append targets the old segment, which remains immutable historical state. Unselected artifacts and crash-left temporary paths stay ignored forever.
+### Canonical admission before readiness
 
-Together these facts explain the complete practical interruption-suspect set under ordinary process interruption: indexed current conversations and exact evidence of every configured session on the strictly selected linked running chain, always the configured Analyst, configured Oversight only when its exact index is established (including disabled scheduling), and the shared app log. Older indexed segments gain no new eager admission. Suspect selection bounds corrective ownership, not ordinary consumption: the unchanged broader startup/init gate still strictly consumes all admitted card-session current bodies and evidence, including stopped cards, required Analyst state, established Oversight evidence, app log, and existing card/record/index admission; server composition also consumes established Oversight current history. Existing owning reads may truncate a stopped-session torn suffix only after full retained-prefix validation, but startup does not append corrective rows to non-running card sessions. Exact-session actual-use settlement remains separately permitted after running publication.
+First publication requires all four generated roots absent. Existing state is
+admitted through exact project head/selected ordinary artifact and bootstrap
+record selection; partial/old/mixed state fails, never probes or reconstructs.
+Init validates/compiles and binds identity/exclusion before generated admission;
+the bootstrap owner publishes complete root/card sessions and then required global
+Analyst index. Failure can leave a strict partial publication, not an implicit reset.
 
-This rationale does not establish completeness after host, power, or storage loss: a lost running-head update or other lost storage can leave inconsistent state outside the suspect set. Existing startup and later strict consumers detect only what they actually consume, without broader correction, scans, remembered admission, own-write trust, or certification of unconsumed bytes. File persistence and these operations provide no lossless or exactly-once guarantee.
+`current-generated-graph.ts` traverses linked current cards, validates active
+dependencies and compiled parent/type membership, and stops at retained tombstones
+before workflow/session/record admission. It reads required Analyst and each
+card's distinct configured-agent indexes deterministically, then app log, required
+session evidence, optional established Oversight evidence, current conversations
+and configured records. Bootstrap authority is required; optional record heads are
+not created. Empty valid indexes pass; missing required indexes fail. No old card
+predecessors or unrelated namespaces are scanned. Current JSON documents have no
+torn-tail permission. Broader consumed stopped-card JSONL remains strict, with
+owner-local validated current-tail truncation where permitted. Server composition
+separately consumes established Oversight current history before readiness.
 
-## 6. Notifications And Terminal Arbitration
+Selected configuration is not a record of the previous graph. Required indexes
+detect some identity changes, not same-agent node removal or every reused index.
+Reached active cards, including non-tombstoned DONE/FAILED, still participate in
+identity adoption. Never-used unpublished Oversight is different from replacing
+known published Oversight. [State adoption](../runbook/state-adoption.md#participating-identity-changes)
+owns the operator decision, not a startup fingerprint or session scan.
 
-Notifications persist only in the target card's ordered `pending_notifications`; `queue_notification` is the only public agent-facing notification tool. The request requires one `card_id` and exact lowercase `urgency:'normal'|'urgent'`; urgency is call-local and is not stored. Cards-owned `createCardNotification`, published through `cards/store-api.ts`, constructs the UUID, timestamp, source, and body immediately before tools/application submit through their already-held runtime ports. Construction has no runtime value dependency; callers preserve signal forwarding and project the submission owner's result without changing admission or delivery guarantees. No role/session recipient or session-delivery result exists. Each compiled card workflow owns one card-scoped designated recipient. Only nodes run by that recipient select and remove queue entries during entry, continuation, plain-text correction, or same-node result arbitration; Reviewer does not consume Planner context merely because it is the current node.
+## Activation and node execution
 
-Lifecycle admission permits backlog, changed, running, blocked and stopped and rejects persisted done, failed and cancelled with `terminal_card`. Supervisor consults the exact activation owner synchronously: a claimed result/cancellation/interruption winner returns `activation_closed` before durable enqueue. Submission composes message-before-head publication with optional urgency only after known enqueue success, returning unchanged UUID identity plus `not_requested`, `not_applicable`, exact `interrupted` stopped IDs or `suppressed` with completed stopped-ID prefix. Denials remain `missing_card`, `terminal_card` with persisted status and `activation_closed` without winner/status discriminator. No retry or redirect follows.
+```text
+explicit Run / exact parent-bound child activation
+  → Supervisor owner + lease → running publication → ready CardProcess activation
+  → NodeExecution common resources → AgentExecutor OR invokeOperation
+  → common acceptance/record close → accepted edge or terminal winner
+  → natural card outcome publication → optional advisory hook → join/release/delivery
+```
 
-Card-originated notification entry checks exact active/open caller identity and application admission once. Immediately before enqueue it rechecks that retained caller's mapped identity, active phase and open winner; halt capture/application close alone does not revoke an already-entered notification while target remains open. New calls after halt/close remain denied. Mutators freshly consume exact current heads/selections before synchronous publication; removal uses selected UUIDs against the fresh pending list, preserving later arrivals.
+### Supervisor and exact authority
 
-For urgent admission the Supervisor selects exact committed parent links, enqueues the original target first, then eligible ancestor notices bottom-up through the nearest eligible live running owner. This cascade skips DONE, FAILED, CANCELLED and BLOCKED ancestors only for synthesized notes; direct BLOCKED notification and parent BLOCKED-entry activation retain their shared status contracts. Each notice identifies the original descendant and the receiver's immediate child even across skipped cards. Inactive parents are recipients, not invented owners. With no eligible active owner there is no interruption, activation, Run or retry; an ineligible project gets no note. A workflow may reopen a DONE/FAILED direct child, activate an actionable BLOCKED direct child, or decline; no capability-specific relay requirement or forced dispatch exists.
-The notice qualifies the immediate child's status as observed when queued, not current at delivery. Later ordinary activation remains discretionary; reopening requires the child to be DONE/FAILED when considered and ordinary admission to permit it. Notification ordering is unchanged.
+Supervisor owns one activation map, singular halt identity and guarded synchronous
+`ownershipTransition`. Plain `CardActivationOwner` phases are prepared_root,
+child_admission, active and settling. The transition changes in-memory phases,
+relationships, currentness, run/gate/leaf/winner state and coherent invalidation;
+I/O, abort delivery and joins occur outside it with exact identity checks after
+awaits. Durable running without an exact live owner fails. No owner repository,
+factory, queue, generation or second authority exists.
 
-The one Supervisor-owned claim captures exact owners, leases and the boundary node ordinal before cancellation, reserves the node's result/control arbitration and one owner-local `urgentSettlement` task synchronously, then stops the affected suffix leaf-to-root. A claimed boundary retains its activation, parent lease and original direction. Its old task consumer synchronously sends the derived `notification:interrupt` event after truthful tool-result settlement, installs a new current tracker and the ordinary successor task without waiting for Supervisor. That successor awaits the captured settlement before any session, record, process scope, LLM or provider preparation. Supervisor joins only captured retiring tracker/consumer and LLMs; Stop joins both that retiring snapshot and current guarded operation, and captures the same urgent settlement promise without creating a cycle. Known child lease results get one matching durable settlement. Public notification callers are global and await captured interruption settlement; no card self-tool retained consumer remains. Pause before claim suppresses; Pause after claim leaves the new frontier gate-waiting until Resume. Stop/close owns containment and suppresses further publication or replacement without awaiting its own halt from the urgent task. Uncertain publication reaches fatal without follow-up.
+Each processor is ready before owner visibility and starts only after known running
+publication. Run installs prepared root before recovery/publication; startup has
+no activation owner. Child work enters only through an exact-parent
+`PlannerChildControlPort` and invocation lease; provider code cannot choose parent
+authority. Same-lease joins perform no target I/O. Dependency/status denial precedes
+owner/processor creation. Natural release removes the exact relationship/map owner
+before caller delivery. Root natural settlement requires no owned children and the
+strict durable chain `[project]` before publication, with no post-publication scan.
 
-The ownership boundaries are deliberately distinct:
+`CardProcessActor` is the one narrow BaseActor micro-actor and owns graph position,
+accepted-by-node activation memory and task/consumer joins. Unexpected nonterminal
+events/start-entry/actor-main invariants latch `InternalActorError`, reject waiters
+and notify the exact Supervisor owner once, never restart the pump. Ordinary task
+failure instead uses code-owned `execution:failed`. Node ordinals begin at 0 and
+accepted re-entry increments once. Tracker and consumer ownership remain distinct
+from provider invocation lifecycles; joins snapshot current work/deliveries, and
+failure precedence is pre-join cleanup, LLM order, tracker, lifecycle.
 
-| Boundary | Owner and invariant |
+### Agent path and shared acceptance
+
+`NodeExecution` owns record preparation, descendant snapshots, promotion,
+notifications and terminal claim. `AgentExecutor` owns selected role/tools/full
+node/parent preparation, the real conversation loop, corrections and finalization.
+Record modes/globs remain conjunctive: clean, continue/updated and selected
+initializers require direct write; edit/Webfetch does not substitute. Entry performs
+initializer/clean/continue work then captures actual head UUID/revision baselines.
+Updated acceptance requires a different UUID and greater revision; effective
+baseline0/draft0/empty content is ineligible.
+
+Reviewer context/snapshot uses one call-local root-inclusive subtree projection,
+preserving each card and record head UUID/revision plus accepted entry/version.
+Acceptance independently rereads it. A stale review discards written drafts,
+reprepares clean requirements, captures refreshed context and corrects the same
+node under original entry baselines. This is not an atomic filesystem snapshot or
+remembered admission. The one joint 16-rearm budget covers malformed/plaintext
+results, pending notifications, stale context, record and other corrective causes.
+
+Acceptance checks records/descendants/freshness/promotion before terminal claim,
+then closes required records in declaration order and other activation-written
+records by sorted name. Only returned immutable close projections supply URLs,
+transition evidence and exports. Nonaccepted graceful finalization discards owned
+drafts; correction retains them. First finalization failure stops at committed
+prefix; uncertainty permits no next close/cleanup. Crash-lost free-draft ownership
+is not recovered by discovery. Result promotion (`current`/reachable `latest_node`)
+is separate from terminal-source record exports; no prior activation memory is
+recreated on STOPPED.
+
+Shipped project assessment uses ordinary graph edges and status continue/updated
+gates: classic-shared specializes project plan/recover/review into
+`assess-completion`; goals retain notification handling. Reviewed completion can
+promote Reviewer result while exporting Planner assessment status and immutable
+review citation. It is not a natural-language objective checker. Typed architecture
+likewise uses component then system review as clean cycles of the same record,
+passing immutable accepted URLs; successful system review promotes accepted draft.
+Typed test coverage-ready routes to verify, the sole successful terminal owner.
+Other typed retries/research/data distinctions are selected instructions, not
+template-aware runtime branches or persisted phase machines.
+
+### Action path, stdout and advisory hooks
+
+`operation-contract.ts` explicitly compiles builtins or declared plugins with
+qualified identity/contract version and reserved namespace checks. It is not a
+dynamic plugin service. `operation-routing.ts` resolves literal/factual/typed
+predecessor inputs and validates strict bounded fields; first matching case owns
+routing. It does not evaluate expressions, merge sources or replay log values.
+`operation-execution.ts::invokeOperation` records entry before launch, joins its
+direct scope, validates one return and records only known settlement. Invalid
+post-effect results are engine failures, not retry/no-effect outcomes. Actions
+have no fake agent/session/tool call. Ordinary continue/exists uses accepted records.
+
+Only a compiled shell node's `stdout_record` grants direct acceptance into its
+one declared nonbootstrap continue/updated record. Entry rejects drafts/captures
+head baseline; after direct cleanup, absent group+EOF+no stdout error permits one
+exact capture read (at most 1 MiB + 1 byte). Strict UTF-8 preserves BOM/CRLF/trailing bytes;
+NUL, empty/whitespace, oversized/nonregular capture fails. Cancellation/currentness
+is checked before synchronous ordinary `acceptRecord`. Accepted format 4 embeds independent
+content and exact shell provenance; equal text may advance version. Nonzero,
+signalled or timed-out complete captures can publish factual reports; later gate
+failure does not undo them or turn them into workflow approval. Current/history/VFS
+read the accepted artifact, not capture/log. The shared author union includes
+agent, external-agent, runtime bootstrap/repair and shell-stdout; typed observations
+remain author-free and draft/baseline `content_author` is null.
+
+`after_activation_commit` runs only after natural done/blocked/failed publication
+and owner/halt recheck. Supervisor passes the returned committed snapshot/artifact,
+not reread state or cleared node input. The tracked advisory run joins its matching
+consumer before release. Ordinary hook failure preserves outcome; containment and
+storage failures retain failure authority. Recovery/Stop/cancel/reopen/record edits
+do not dispatch hooks. Actions/hooks share one processor-local nonagent in-flight
+binding through raw operation, finite cleanup and matching delivery. Stop/cancel
+selects cancel-and-settle before abort, even after process exit; no successor runs.
+
+## Caller-specific tools and Analyst operations
+
+Names do not grant authority. Provider-owned catalogs define immutable identities,
+descriptions and scope-aware schema factories; compilation preserves ordered
+references, real binding supplies vocabulary/parent/process context. Effective node
+selection removes create only when no permitted child creation remains. The bound
+surface supplies actual definitions/capabilities; generated strict `emit_result`
+is appended separately. Exact object/schema rejection enters the shared correction
+loop; terminal settlement parses accepted, error or pending-notification variants.
+
+`invokeToolForLlm` is the required complete LLM-context boundary; only
+`ConversationLLMActor.toolInvocationContext` constructs that context. External
+execution has its own invocation UUID/principal/owned signal, never a fake lease
+or conversation. Direct non-LLM invocation may be context-optional. Expected
+input/discovery errors convert only at their owning boundary; exact cancellation
+is identity with `signal.reason`, while returned results remain known facts.
+Unclassified I/O, canonical/invariant failures, missing MCP installation and
+publication uncertainty escape unchanged.
+
+### Structure and records
+
+Planner create/edit/cancel/activate/reopen/reorder is exact-parent scoped; Analyst
+global maintenance is different. Shared `reopen_card` spelling has different input
+(`card_id` versus `cardId`), readiness, result and propagation. Planner reopening
+proves active/open parent before target I/O, permits ownerless done/failed direct
+child and publishes changed once, without ancestor propagation, audit, notification
+or activation. Analyst intervention-ready reopening uses ordinary changed propagation.
+Planner dependencies are existing immediate siblings; Analyst creation uses active
+card dependencies and rejects running parent. Activation requires dependencies done,
+not creation. Planner owner-first cancel differs from Analyst subtree/root/status
+preflight; deletion publishes tombstones with surviving-dependency checks, not cancel.
+No-op metadata/reorder emits no publication/propagation; real Analyst reorder does
+changed propagation while Planner reorder remains parent-only.
+
+Pure cards status predicates serve precise operations, not a universal terminal
+taxonomy: create/notifications admit backlog/changed/running/blocked/stopped;
+cancel excludes done/cancelled; Analyst record edits preserve backlog/changed/
+running/stopped, reopen blocked/done/failed and reject cancelled. Descendant
+completion is done-or-cancelled; dependency completion is done. Projected operator
+actions do not substitute for caller admission.
+
+Record mutation first proves active reached card and cross-card/name-glob/required-
+tool/lifecycle authority before record definition/state reads. Later writes prove
+authority afresh. Card agents own drafts/framework close; Analyst directly accepts
+with open-draft conflict. Webfetch-to-record requires Webfetch+write admission before
+network and fresh readiness/resolver/mutation afterward, not retained preflight
+authority. Invalid/historical mutation targets return content-free typed rejection.
+Current URLs are reusable mutation targets; immutable accepted URLs are evidence.
+Record-specific changed propagation and generic reopen remain distinct: target/
+ancestor reopening and notices depend on precise source status and stop at the first
+running ancestor. Fresh sanitized 1000-character summaries become ordinary
+`card_changed` notices; no dedup/retry or delivery guarantee is introduced.
+
+### Internal and external Analyst callers
+
+`application/analyst-operation-surface.ts` composes one shared policy surface,
+independent of `AnalystSession`. Required-tool conjunctions use the actual selected
+subset; omitted external tools cannot be borrowed. The application bundle invokes
+owners once under audited lifecycle timing: ordinary intervention mutations assert
+readiness immediately before mutation; prepared mutations prepare first; record
+Webfetch uses the two admission boundaries above; runtime cancellation, normal
+notifications and permitted nonrecord write/edit do not require intervention-ready
+runtime. No post-effect cancellation/readiness check repeats known effects.
+Best-effort propagation failure retains principal success/audit ok with partial
+report; no-op reorder has none. Audit coverage excludes shell/patch/nonrecord
+Webfetch effects and is not every filesystem change.
+
+`config/analyst-mode.ts` freezes internal(default), external or both startup choice.
+External uses a separately authenticated loopback project-digest endpoint in
+`server/analyst-mcp-server.ts` with request-local stateless SDK transports. The
+application external-operation owner holds in-flight joins and an app-lifetime
+direct process scope across calls, not request-socket lifetime. Disconnect does not
+cancel/replay; project Stop leaves listener alive, App close contains it. Both
+permits concurrent operations, not shared chat or lease. External-only preserves
+strict internal history and disables internal submission before ingress/provider.
+Principal identifies credential use, not verified client identity. External images
+return call-local normalized bytes; only real LLM settlement publishes PNG selections.
+Known settled body-free app-log receipts contain no args/results/start journal or
+provider transcript and prove neither complete audit nor delivery. Full protocol,
+headers/tool subset and restart confirmation recipe belong to
+[inbound MCP](../runbook/mcp.md#external-client-to-analyst).
+
+## Conversations and settlement
+
+Stable session identity is `agent:<name>:global` or `agent:<name>:<card-id>`;
+activation and source-input UUIDs are separate. Every logical call/repair/
+continuation uses a fresh source UUID S; tool rows derive `${S}:tool-call:${T}` and
+`${S}:tool-result:${T}` from provider call T. Repeated T across source inputs is
+not one exchange. Persisted invocation/source sessions must agree before hooks and
+provider use. Internal summary is the explicit nonpersisting exception with
+distinct invocation/evidence identity and canonical source attribution.
+
+`ConversationLLMActor` is a direct purpose-discriminated phase owner, not BaseActor,
+topology/event pump or actor lifecycle. Only autonomous card purpose owns the
+RuntimeGate. Its deferred raw callback checks captured lease **at entry** before
+supplier/compaction, not only when scheduled. Provider completion, canonical writer,
+tool parking/result, child lease and terminal handoff each retain exact owning
+input/currentness; no mutable latest-input registry exists.
+
+Privately tokened nominal tool outcomes cross one settlement owner which projects,
+redacts, constructs strict success/failure (optional ordered success content) and
+serializes exact canonical bytes. Domain applied/rejected maps once; Webfetch write
+data does not nest a second envelope. Corrective continuation builds result plus
+fresh-input continuation rows in one append; only post-append callbacks remove
+notifications or install refreshed Reviewer context. The result retains old
+parked source/call identity. Live Analyst transport receives that complete settled
+result unchanged; current/history readers use strict wire values, not nominal
+producer outcomes. Arbitrary old result data remains opaque.
+
+`conversation-file.ts` strictly validates the selected complete consumed segment
+through the single canonical reducer before any bounded suffix/cursor/public filter.
+Tool results require exact earlier calls; only a sole final unmatched call is valid,
+without liveness meaning. Private/visible pairing, row policies/hashes, rounds,
+source-prefix atomic boundaries, protection and facts derive together. Incoming
+append validates schema/session/batch IDs after current consumption, not a second
+prospective replay. Bounded tails may start with a result whose call lies earlier;
+they never expand to recover a mate. Initial/global markers bind actual identity/
+timestamp/input and preparation; unmarked/mixed histories fail without inference.
+
+### Global ingress, disposal and reuse
+
+Internal Analyst is one serial live-turn owner: REST overlap returns busy, not a
+server queue. Ordinary ingress appends marker/user together, then reads canonical
+context; confirmed restart uses accepted-ID marker/confirmation without model work.
+The accepted submission ID differs from every provider continuation UUID. One
+pending restart-confirmation capability transfers into admitted operation ownership;
+only successful schedule consumes it, while specified reusable nonscheduling
+outcomes restore it. REST response finish acknowledges scheduled restart; sockets
+cannot. Server composition derives immutable available/unavailable restart capability
+from auth and boot port, passing it unchanged; missing required port fails.
+
+Disposal closes admission and joins exact ownership, not a fabricated cancel/result.
+An entered result writer completes its exact row even if disposal reenters; it admits
+no continuation/confirmation. Entered provider-error completion retains error row,
+mandatory exchange evidence, terminal handoff and required notice; only later optional
+UI projection suppresses. Ordinary ingress disposal preserves the committed batch
+but rejects before reread/provider. Confirmed restart disposal before schedule
+suppresses it; after schedule entry preserves its known response. Failures do not
+authorize retry or compensation.
+
+Pure focus/orientation/static-capacity pre-ingress rejections are reusable; strict
+state/config invariants poison. Primary-local exact capacity rejection is reusable
+only under its typed provenance after inner lease/progress settlement; confirmation
+clears, and prior tools/results are not replayed. A nonpublication invoked-tool await
+error is reusable only after successful parked-turn abandonment without disposal.
+Summary/configuration/result/observer/cleanup failures retain poisoning precedence;
+authoritative provider failures retain ordinary evidence/notice/reuse. No nested-
+cause/message classification, drain protocol or actor recreation supplies reuse.
+
+## Control, notifications and recovery
+
+Supervisor alone derives runtime status, current leaf and intervention admission.
+Public reads project injected process identity/observation clock, never enumerate
+cards/sessions or infer runtime from files. Intervention requires initialized stopped
+or settled paused; uninitialized/starting/running/pausing/closing/error rejects.
+Pause gates only autonomous provider entry; admitted tools/processes/actions/backoff
+continue and global agents do not use that gate. Resume opens that same Run frontier.
+
+### Notifications and urgent joins
+
+Mailbox selection belongs to current card head. Only the compiled designated
+recipient delivers/removes selected UUIDs, append-before-remove; interruption can
+duplicate delivery. Normal enqueue acknowledges admission, never delivery. At
+recipient terminal arbitration, pending context receives a failed paired result/
+bodies/correction in one append before exact-ID removal. Nonrecipient DONE has a
+source-declared pending alternative to recipient in the same table; it performs
+normal acceptance before testing presence, without exposing the queue. BLOCKED,
+cancel/refusal/failure may clear undelivered context. Ordinary queries expose no
+queue count/IDs/membership; generic version changes may still reveal activity.
+
+Urgent selection enqueues target first, then eligible ancestor notes bottom-up to
+nearest eligible live owner, skipping terminal/blocked ancestors only for synthesized
+notes. Each note describes original descendant/immediate child **as observed when
+queued**. No eligible owner means no interruption, activation or Run. Claim captures
+exact suffix, node ordinal, winners, leases and one settlement before abort.
+
+| Join edge | Purpose |
 | --- | --- |
-| Selection → claim | Supervisor selects before enqueue, appends target first, then installs exact node/suffix winners and the same settlement before cancellation/invalidation. |
-| Result vs claim | Processor result handoff and urgent claim compete for one exact node control winner; the runner returns only that claimed control outcome after known result settlement. |
-| Retiring consumer → successor | The captured old consumer installs the new tracker/guard and sends one derived event without awaiting Supervisor completion. |
-| Successor → execute | The ordinary tracked task captures the guard and performs no preparation until it resolves and authority/signal admission passes. |
-| Completion | Supervisor joins stopped descendants and boundary retiring resources, never the surviving boundary lifecycle/current guarded task. |
-| Stop/close | Halt joins current and retiring ownership plus the captured settlement; urgent settlement never awaits the encompassing halt. |
-| Root replacement | The same run/gate persists; one old root retires before one replacement, transferring the same promise across the map swap. |
-
-The join graph is current guarded operation → Supervisor settlement → descendant joins / old boundary tracker-consumer and LLM joins. Halt → current activation joins and Supervisor settlement. There is no edge back from retiring join or urgent settlement to the current guard or halt promise. These boundaries are exercised by the real notification-admission held-LLM-join, child-lease, selected-global tool, result-claim, root-replacement, and public Stop/Pause slices, including external Oversight tool settlement after postclaim check cancellation.
-
-For an urgent root target, the full chain stops descendants first, then root. The joined old root owner is replaced synchronously by one prepared STOPPED root owner in the same run, using ordinary `activateStopped` publication and actor launch. The same in-flight `urgentSettlement` promise transfers to the replacement owner during the map swap, so a reentrant Stop during activation publication captures it in the frozen halt snapshot; completion clears both owner-local references. The gate and run identity are not reset, no public Run occurs, and there is no parent lease or overlap of root processors. Stop before launch takes over; Pause persists through launch. Stopped bystanders and targets re-enter their configured recipient-first STOPPED node only by later ordinary immediate-parent activation. The surviving boundary has no stopped publication. No old invocation is replayed or synthetic completion promoted.
-
-Every card, Analyst, and Oversight conversation loop dispatches each newly returned provider outcome through one owner-local entry before other state use. A shared stateless helper matches an owned cancelled returned tool call with `rejected_before_execution`; terminal policies remain local. Analyst retains `nested` and `waiting_tool` handoffs during teardown and uses a fieldless owner-local `settled_cancelled` step after matching a cancelled call or consuming a persisted terminal return whose synchronous handoff was suppressed. Only the real terminal callback installs `settling_llm`. `ConversationLLMActor` decides terminal callback and lease settlement from the current disposition after terminal-error/provider-exchange publication, on both success and typed provider failure; publication fatality and provider facts retain priority.
-
-`invokeToolForLlm` is the single invocation dispatcher and records whether executor entry occurred. Typed argument-validation and discovery-packing errors are expected input failures but become executed failed outcomes after entry; exact cancellation is recognized only by identity with `signal.reason`, and returned execution results remain known facts after cancellation. Unrelated I/O, invariant/canonical failures, missing MCP installation, and publication uncertainty propagate unchanged. Planner create/edit title and urgency admission belongs to their schemas, not throwing executor validators; Analyst card application owners return the specified ordinary create/delete denials before store mutation, preserving strict store admission and publication ordering.
-
-Recipient nodes share one append-before-remove path. Node-entry and continuation context append the selected ordered bodies before removing their IDs. At an otherwise accepted recipient terminal `emit_result` candidate gate, the node captures one ordered set and, when non-empty, appends failed paired evidence with `pending_notifications`, those exact bodies, and the resolved correction before removing exactly those IDs in `afterAppend`. Any append failure removes nothing.
-
-Every nonrecipient DONE source has a source-declared pending alternative compiled into the same immutable state table as `result:<outcome>:pending-notifications`. This conditional transition carries the real accepted outcome and edge prompt but targets exactly one recipient node; it is not a hidden jump, terminal continuation, completion token, or second graph. A nonrecipient DONE candidate performs normal record, freshness, descendant, completion, and promotion validation, then synchronously tests only queue presence: it claims the ordinary terminal result when empty or selects that conditional event without claiming when context is pending. Queue entries remain hidden from the nonrecipient. Record close and successful tool settlement follow the decision. Recipient entry later selects, delivers, and removes the queue, including arrivals during record close. A nonrecipient nonterminal edge never inspects the queue. Cancellation, BLOCKED settlement, refusal, and ordinary failure may still clear queued context without delivery, so enqueue acknowledges admission rather than delivery.
-
-Ordinary card query surfaces provide no explicit queue collection, count, membership, IDs/bodies, availability field, direction discriminator, or delivery receipt. Generic version/time/diff/invalidation observations may signal or support inference of hidden queue activity and are not a supported queue query. Explicit enqueue attempts/results, delivered context, and opaque retained conversation evidence remain outside that boundary.
-
-With no pending context, reviewer semantic currentness may still reject.
-Its snapshot contains only each card's `version_seq` and each included declared record's accepted `source_version`; it uses no content hash.
-On change it discards every activation-written draft, reprepares clean requirements, captures refreshed exact context/snapshot, appends that context, and continues the same node while retaining the original entry baselines.
-Accepted `revision_required` closes and settles review evidence, cleans the reviewer node, and routes through ordinary graph transition context to the configured planner target.
-Accepted review with pending designated-recipient context is likewise real accepted evidence: its conditional transition context preserves the summary and immutable record URLs while the recipient reconsiders new context and traverses the configured review path again.
-
-## 7. Runtime Controls
-
-Runtime lifecycle is process-local and has one Supervisor status field.
-It begins at internal `uninitialized`.
-Supervisor startup establishes the initial empty ownership/gate state, strictly selects all linked running cards and settles configured sessions and lifecycles leaf-to-root before its final transition to public `stopped`; failure leaves `uninitialized`. After lifecycle exclusion, configuration/canonical admission and bound-workflow construction, composition performs bounded global settlement, Analyst first and established Oversight second, immediately before `runtimeApplication.runtimeApi.start()`.
-Services are not returned and Fastify does not listen until that startup succeeds. Composition registers runtime, Analyst, Oversight, process, MCP and inert transport/LiveSync cleanup before the fallible global and Supervisor settlement; it then reconciles and installs MCP before routes/listening/control endpoint publication. Ordinary failure disposes registered non-persistence resources without undoing known committed corrections; publication uncertainty reaches the fatal boundary without cleanup or any next-subject operation. Admission is not all-or-nothing: permitted tail truncation or a global mate may commit before a later topology failure. Even an empty running chain follows global settlement; no provider work or automatic Run occurs.
-`startApp()` derives an immutable `{pid, startedAt}` identity from the exact acquired lifecycle-lock handle and passes it as required data through server and runtime composition to the supervisor; no production clock or process fallback constructs it.
-Boot also projects its single post-listen TCP address observation into the required ephemeral `App.boundListener` host/port pair for CLI presentation. This bind fact is not endpoint authority or a reachability guarantee; lifecycle-control origin/auth publication remains separate and unchanged.
-Explicit Run preparation installs the project root owner, run identity, current root, and opaque one-shot launch authority as `starting`, then uses complete durable-chain selection to validate and stabilize the interrupted chain, reset it leaf-to-root, and perform project STOPPED admission.
-Launch consumes that exact authority, rechecks owner and application admissibility, publishes `running`, opens the gate, and begins configured-node execution before the successful Run result.
-
-Application composition exposes one supervisor-backed `RuntimeApi`.
-The nested `runtime/actors/supervisor-runtime-api.ts` defines that Supervisor implementation and is re-exported through `runtime/runtime-api.ts`, the sole cross-package runtime surface. The nested filename is not another public entrypoint; public admission depends on the exact owner-published surface, not a basename.
-The supervisor directly owns Run preparation and launch, one lifecycle status, and gate mutation.
-The concrete supervisor also implements the narrow read-only Analyst intervention facet, which reads that status once at invocation and admits only initialized `stopped` or settled `paused`; internal `uninitialized` and `starting`, `running`, `pausing`, `closing`, and `error` reject.
-Composition passes that facet directly to both Analyst contexts without adding it to `RuntimeApi`.
-The supervisor independently retains its exact process runner and injected runtime root without exposing either object reference or undeclared broad access, and retains no ordinary constructor-options bag containing them.
-Composition keeps the concrete supervisor only for those internal capabilities, application lifecycle cleanup, and executing-LLM snapshots; they are not a second control port.
-Analyst final tool results are REST request-client-only and are not a socket activity broadcast.
-No runtime-state cache, readiness binding, initialization flag, or replacement mechanism exists.
-Public runtime-state reads fail fast while internal status is `uninitialized` and otherwise are freshly built from supervisor status, injected lock identity, `ActiveCardLeaf`, and the observation clock.
-Compact status uses the same identity/currentness and the installed actor maps.
-Neither public projection serializes `uninitialized`.
-Neither read enumerates cards, children, ancestry, history, or conversations/sessions; direct reads of already-installed card actors remain valid.
-Complete durable running-chain selection is confined to its two runtime boundaries: explicit Run preparation and natural root settlement.
-At natural root settlement, after the no-owned-child assertion and before settlement state or publication, the selector must return exactly the one-card project chain; this is the sole topology guard and there is no post-publication empty-chain assertion.
-This process-local intervention admission is distinct from the public HTTP readiness contract at `GET /health/ready`.
-
-Pause is cooperative at exactly one autonomous-card admission frontier: `RuntimeGate.waitUntilOpen()` immediately before provider transport. Global Analyst and Oversight owners do not participate in that card gate.
-It does not interrupt already-admitted external, tool, or process work; that work may finish, and its continuation parks only when it reaches the next provider admission.
-The gate retains at most one parked frontier, and Resume clears and schedules it once.
-There are no Pause gates at tool, process, child, reviewer, or generic round boundaries.
-
-The operation-specific REST contracts are distinct: Pause, Resume, and `stop_project` declare no request body, while `restart_server` declares the strict exact `{confirmation:'RESTART SERVER'}` body.
-The three bodyless handlers inspect the raw request first and locally return their declared 400 validation envelope for every defined body before invoking runtime control; this is not a shared `ContractRuntime` parser policy.
-Clients emit JSON `Content-Type` only with an actually serialized JSON body.
-Authentication and ordinary headers remain independent, so bodyless Stop retains them without advertising JSON.
-
-Run installs one prepared project owner before reset/publication and selects STOPPED; descendants stay stopped until immediate-parent activation.
-Live continuation is the nested parent/child lease chain.
-Publication and joins precede one-map release and caller delivery.
-Natural root settlement requires complete process-local unwind and, before publication, the exact durable chain `[project]`.
-Rejecting any other topology before the append preserves a valid durable prefix without compensation, and successful publication performs no post-publication chain reread.
-
-A primitive-classified replacement or append uncertainty leaves canonical visibility outcome-unknown.
-The owner performs no retry, reread, reconciliation, further lifecycle write, result delivery, natural release, or Supervisor halt.
-The first fatal boundary emits one synchronous credential-free stderr line and exits. Its fixed fatal sentence carries the captured direct-syscall cause message when present, preserving ordinary errno, syscall, and path detail without logging or follow-up inspection.
-
-`stop_project` is a restartable non-domain runtime halt, never cancellation.
-First claim installs one halt identity, freezes the exact owner snapshot, closes the gate and parent/root admission, and publishes `closing`, which rejects intervention.
-Before any await, linked leases become terminal `interrupted`, owner settlements reject, and every owner is aborted and disposed regardless of terminal winner.
-Therefore a near-terminal result or cancellation can be abandoned, with either durable prefix accepted.
-Stop writes no card/root outcome or event.
-All Stop, application-close, and actor-main containment callers share that operation.
-Complete joins and one runtime-root termination clear to intervention-admitting `stopped`; any failure retains the graph in intervention-rejecting `error`, rejects every later caller with the settled failure, blocks Run, and requires service restart.
-
-The terminal call graph is explicit: `App.stop()`/signals/startup failure/acknowledged restart → sole App terminal coordinator → flat admission closers and cleanup leaves.
-The runtime admission closer permanently closes application admission and starts or joins the supervisor halt; the runtime leaf awaits that exact promise rather than calling `stopProject` or creating a second cleanup.
-The named `http-admission` closer is intentionally an empty callback: the App terminal coordinator has already changed the shared closing flag, Fastify `onRequest` observes that flag, and retaining the no-op closer preserves complete closer identity, order, and reporting without duplicating closure mutation.
-No edge reaches cancellation.
-The coordinator tries every closer synchronously before its first await, then sequentially settles reverse-registration-order leaves through the bound in the [exact cleanup timing contract](../spec/system-specification.md#exact-cleanup-timing-contract).
-Rejection/timeout records only fixed allowlisted component+code data and never skips later leaves.
-Direct `App.stop()` returns an immutable `ShutdownReport` and does not log; process-boundary adapters log fixed warnings and preserve exit/restart/original-error behavior.
-
-Outer server composition creates one `ManagedProcessGroupRegistry`, allocates the disjoint sibling `runtimeProcessRootScope`, `analystProcessRootScope`, and `mcpProcessRootScope`, and then creates one `ProcessRunner`.
-The registry alone owns group/scope truth and exact scope/category authorization.
-`ProcessRunner` owns output and user-facing presentation, exposes no registry or component-root object reference or undeclared broad access, and owns no component roots.
-Its narrow declared registry-mediated operations cover launch, launch-admission close, scope creation and close, termination, and exact final-consumer retirement.
-Native privacy is implementation encapsulation; exact registry scope/category checks preserve ordinary correctness for supported calls, and neither mechanism contains the trusted root-capable agent.
-The source-owned `sanitizedCommandEnv()` in `src/runtime/command-policy.ts` is the singular inherited-environment policy for ordinary ProcessRunner and stdio MCP children. It admits the four optional Git metadata variables `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` without admitting arbitrary inherited credentials or process controls; this limits accidental outbound secret exposure and simplifies ordinary process behavior, not containment of trusted root-capable agents. Stdio MCP starts from that same sanitized base and then applies its existing explicit configured environment overlay, whose values are not sanitized and retain precedence on duplicate names.
-Composition injects each exact root only into its component owner.
-The registry owns child-event safety immediately when platform spawn returns, attaches its mandatory `error` listener before inspecting the leader PID, and admits a group only with a positive leader PID.
-A rejected child can therefore emit its asynchronous OS launch error without escaping the already-handled launch failure.
-
-Dynamic direct scopes close and retire event-by-event.
-Exact close-and-contain retires an empty scope synchronously; a nonempty closed scope retires only when its last exact group record is positively absent.
-First positive absence removes that exact record and membership and invokes its exact callback once.
-A concurrent observer of the same captured record idempotently uses its confirmed-absence fact; the first confirmation removes both memberships and delivers absence once. Unverifiable groups remain retained.
-Callers observe containment through `ProcessStopReport`, exact absence callbacks, and capability retirement; the registry exposes no group-membership or settlement inspection API.
-There is no scan, tombstone, compatibility identity, or cleanup registry.
-A pending bounded runner wait owns its referenced timer and clears it on success, rejection (including unavailable evidence), or timeout; timeout remains observation, not containment.
-Each runner presentation retains its exact direct scope and one-shot settlement promise. Raw readable and ordinary append-open capture failures are recorded owner-locally, force `failed` only after confirmed absence and both drains, and reject that promise; an immediate observer prevents background unhandled rejection without swallowing the consumer's rejection. Registry `onUnverifiable` sets the first retained group diagnostic before notifying the exact launch once. It immediately marks the presentation unavailable and rejects waits, without joining drains, probing again or restoring authority on later exit. Existing capture failure retains original error precedence; later capture failure is visible in fresh waits/evidence. Publication-outcome-unknown output writes reach the fatal port before evidence or cleanup.
-
-Runner/API evidence keeps group tracked/absent/unverifiable, actual leader exit and independent leader error, and each stream's open/EOF/closed/not_captured fact separate from nullable first capture errors. Close does not erase EOF; error does not manufacture EOF, exit -1 or completion. Nested snapshots are copied. Interactive MCP streams are transport-owned, not runner-captured. Unavailable has null completion and no fabricated terminal outcome. Failed groups/scopes and unavailable presentations remain inspectable until disposal; only exited/failed/killed can retire. Exact direct/root cleanup joins successful selections without awaiting unavailable drains and retains failed stop reports.
-
-`buildProcessView` and the outbound redactor are the singular API/list-query projection, including all error diagnostics. Byte packing still bounds whole/sliced generic list observations. Successful list query is not successful process/containment. Retained list data is unconstrained generic tool-result data, not today's required ProcessView: canonical reader and current-primary accept old omitted evidence unchanged and new supplied facts without backfill. Strict successful run/wait/kill status/data remains singular and unchanged; unavailable uses ordinary bounded failed results without auto-kill on wait rejection. No historical store or new durable wrapper is introduced.
-
-Terminal wait, kill, and containment methods capture presentation references before their first registry await and return call-local record snapshots rather than looking up an ID afterward. This permits the consuming command or normally settled MCP observer to copy terminal status and output metadata, then synchronously retire the matching presentation, without invalidating already-entered overlapping consumers. Fast background launch, running timeout inspection, and timed-out wait are explicitly non-consuming and do not retire. Stdio MCP's normally settled observer retains status in the MCP projection; its unavailable branch retains handle and runner entry. Exact direct-scope close is the final consumer for residual terminal results: it uses local all-settled joins, retires every eligible presentation even when one ordinary settlement rejects, and rethrows the first captured rejection; running and unavailable entries remain. Publication uncertainty escapes before retirement in every join path. No completed-result cache, expiry protocol, or historical list is introduced.
-
-Scope-tree containment uses the pre-termination presentation snapshot and joins only `ProcessStopReport.stopped`, awaiting each original terminal settlement (confirmed absence plus both readable drains). It then retires exactly those presentations using their captured direct scopes and propagates the first ordinary settlement rejection after all selected settlements complete. Failed groups and unrelated or already naturally completed presentations outside that report are not swept. Concurrent tool/direct-close retirement remains idempotent, and an entered waiter or kill still forms its result from its captured record and retained output files. Tool-owned kill result formation/retirement is unchanged. Publication uncertainty remains nonreturning and permits no retirement or cleanup.
-Analyst composition captures its root only for session creation and root termination; available-tool inventory projects the installed Analyst binding directly and allocates no synthetic process scope or temporary surface.
-`AnalystRuntime` and `AnalystSession` retain only their declared operations, session state, and unrelated direct-containment operation without exposing registry/root object references, undeclared broad access, or a full dependency bag.
-Runtime halt, Analyst cleanup, and MCP cleanup start owned termination before aggregate waits; a nonempty fulfilled `ProcessStopReport.failed` rejects the owning leaf.
-Project Stop and App runtime cleanup share the same supervisor halt and cannot overlap duplicate runtime-root work.
-
-The public `McpManager` retains its runner, injected MCP root, runtime collection, and invocation-statistics recorder as implementation dependencies without exposing registry/root object references or undeclared broad process access.
-Tool catalogs are exact-server; MCP availability derives from status, not independent health probing.
-The configuration schema's factored strict `stdio` and `streamable-http` connection variants serve operator YAML and the MCP-owned lazy `.saivage/config/mcp-servers.json` format-1 definitions. Stateless synchronous exact-file reads and fresh-temp/fsync replacement publish register/replace/remove changes without a store, queue, previous selector or remembered write authority. Absence is empty; malformed data and source collisions fail strictly. Dynamic definitions persist across reset/restart but never autostart; YAML policy remains unchanged.
-
-Synchronous `McpManager.replaceServer` validates the whole connection and exclusive
-agent ownership. Its retained runtime owns the small eligibility predicate over existing
-facts: contained, or admission open with no handle/operations. Public stopped status
-is not containment proof. No await separates admission from the single map publication;
-only successful publication permits deleting that eligible runtime. Subsequent observation
-uses the current stopped definition, null binding/process and zero tools; explicit start
-creates a fresh owner even after identical replacement. There is no hidden stop/start,
-configuration reconciliation, new scope, retry or write authority. Uncertain publication
-escapes before retirement or follow-up. The independent optional binder enters existing
-selected/bound inventories and prepared provider tools, with no default/Oversight grants.
-Register and replace share `projectMcpConnectionDefinitionForOutbound` before input
-validation fallback, structurally suppressing env values even for rejected inputs and
-redacting URL/command secrets through existing public live/historical projections.
-
-Unregister captures the runtime, publishes removal and enters its existing stop fence without an intervening await. Failed containment retains that closed owner even without a definition; no compensating publication or replacement occurs. Publication uncertainty escapes before any further operation. Startup reconciliation and application root/direct-scope joins remain the existing owners. Selected dynamic start requires prior containment before constructing a fresh owner.
-
-Explicit restart is one `McpManager.restartServer` operation through the existing
-installed authority, shared by `mcp_server_control` and authenticated `mcp.restart`.
-It requires a retained owner (missing is 404), captures that object and joins its
-existing stop. Failed containment retains ownership and blocks new launch. After
-the join it rechecks manager admission, exact caller cancellation and map-object
-identity (replacement/removal conflicts), then immediately uses existing fresh
-start with the selected current definition. A contained runtime is never reopened.
-No coordinator, queue, retry or compensation spans these non-atomic phases;
-independent explicit actions keep their semantics, including a concurrent stop
-completing before the following start. Failed fresh start cannot restore the old
-connection. Successful completion means discovery-complete readiness then, with
-fresh binding/catalog; later cancellation does not erase a known lifecycle result.
-Old queued/prepared calls cannot dispatch to the successor, while completed native
-responses retain their original source/schema/invocation ownership. Interrupted
-effects remain uncertain, never replayed. HTTP reconnect is local, not remote
-restart or target continuity; stdio uses existing exact-scope containment.
-Publication uncertainty permits no subsequent operation. Default tool selections,
-all registered template graphs (including optional PAAD) and the prompt composition
-mechanism remain unchanged; the generated lifecycle contract now includes restart.
-
-Each runtime owns a random transient connection `bindingId` and one replaceable catalog snapshot `{serverName,bindingId,catalogId,tools}`. Initial discovery and every successful explicit refresh create fresh catalog UUIDs; public reads clone the snapshot, preserving exact identities/schemas without mutation authority. Manager discovery and `findToolCapability` consume that single read. Invocation compares both identities and validates the selected schema at dispatch, inside the stdio queue or immediately before HTTP I/O. Fresh dialect-appropriate Ajv compilation per tool schema isolates `$id` namespaces without rewriting schemas or fetching refs; validators remain runtime-local and clear on catalog replacement. Generic prepared gateway contracts remain frozen: remote tools are discovery data, not native model definitions. Status unions exact definition names with retained owners, distinguishes starting from ready/running, and exposes safe source, containment and current launch association only.
-
-The independently selected ordinary `mcp_catalog_refresh` binder follows the existing installation/manager/runtime chain for global/card agents, with no default grants or Analyst-special route. Manager resolves only an exact existing ready configured runtime; it does not reconcile configuration. Transports separate initialize/initialized from a shared-decoded paginated list path. Refresh lists on the same stdio connection or HTTP session, accumulating a call-local complete candidate. A runtime-local busy flag and existing admitted-operation/controller lifecycle own one 30-second deadline covering queue wait and every page. Stdio queues the whole traversal beside invocation exchanges; a cancelled queued no-op remains owned until settled, without closing the preceding invocation. Active interruption closes exact admission and completes stop through untracked outer completion, never self-joining. HTTP cancellation joins request settlement without remote shutdown. Correlated list rejection can preserve the previous complete observation; uncorrelated stdio failure contains the connection. Stop/readiness/signal fences precede synchronous snapshot publication without an intervening await. Publication success remains known despite later cancellation; stale/local-invalid calls add no remote invocation telemetry. Already-dispatched calls retain response ownership, including HTTP outcomes after replacement. No replay, persisted catalog registry, prepared-tool rebinding or notification subscription is introduced.
-
-The shared ProcessRunner retains runtime ownership (`mcp:<name>`, `service_infrastructure`) for interactive stdio launches. MCP consumes settlement and retires the ID; shared process observation does not grant activation/session wait/kill admission. Interactive streams remain `not_captured`. HTTP has no local launch or remote-kill promise. Process attachment, notifications/native projection, tree visibility/inheritance and richer lifecycle/edit controls are deferred.
-MCP process-local configuration revisions reuse schemas-owned `canonicalValueSha256`: recursive object-key ordering uses code units, arrays retain order, and ordinary JSON.stringify omission/enumeration semantics remain. These revisions are ephemeral reconciliation identities, not durable-format commitments; effective defaults remain configuration-owned.
-Its operator projection is one server hierarchy containing each server's name, transport, status, tool count, and nested tools with direct statistics; opaque integration metadata and duplicate flat/keyed projections are absent.
-Browser totals derive from that hierarchy.
-Manager admission and cleanup ownership remain unchanged.
-For streamable HTTP, JSON responses use bounded body reading before JSON parsing; the shared JSON/SSE readers await body cancellation before releasing the reader lock. Invocation and discovery share these readers. Only actual malformed JSON parsing is classified, not arbitrary body-read or lock-release failures. Ordinary cancellation failure does not replace the original response or error; publication uncertainty propagates immediately without subsequent cleanup. No drain, retry, or separate body-cleanup owner exists.
-
-Streamable HTTP startup admission uses initialize, the initialized notification and complete tools/list pagination, with no separate HEAD prerequisite. The single 180-second startup budget and ready-after-discovery publication remain unchanged. Transport response owners classify explicit discovery JSON-RPC rejection, unsuccessful discovery HTTP status and premature stdio response closure as `TransportError`, preserve exact cancellation reasons, and leave unknown fetch/reader failures unchanged. Safe diagnostics use fixed stages/reasons and numeric status or finite codes only. Runtime start closes admission, awaits direct containment, then its outer completion joins stop before rethrowing the original classified failure. The narrow binder converts it to an executed failed result with evidence `none`; containment failure supersedes it and blocks replacement. A subsequent explicit new start may replace a successfully contained owner; there is no retry/replay. REST still maps only lifecycle admission errors to 404/409: discovery rejection follows the existing internal-failure response. Autostart reconciliation still fails startup.
-
-Runtime and Analyst mechanics receive one required immutable `McpToolInvocationPort` facade.
-Server composition retains the only installer, reconciles the concrete manager, installs it once, and starts runtime only afterward.
-Pre-install invocation and every duplicate installation are fatal typed composition invariants; classified ordinary MCP capability, policy, transport, timeout, server, and tool failures remain tool results.
-The once-installed invocation port forwards the actual caller signal unchanged.
-For active stdio exchanges, the runtime operation owns the deadline; its first
-abort reason wins. Abort or an ambiguous stream failure synchronously fences
-admission, readiness and discovered schemas before the serialized callback can
-advance. Each runtime's admission closes permanently; continuations check that
-same owner-local state, with caller cancellation checked first. Restart constructs
-a fresh runtime and binding only after successful containment of the old owner.
-That callback awaits only direct containment, never public stop (which
-joins admitted inner operations). An untracked outer completion joins stop after
-successful direct containment; containment failure retains the closed owner and
-propagates unchanged without a second stop. Queued cancellation dispatches nothing
-and does not invalidate another active exchange. Complete correlated response
-consumption detaches invalidation and clears the deadline. HTTP timers/readers
-preserve exact reasons while cancelling only the request. The MCP provider converts
-only classified MCP failures; publication uncertainty, caller reasons, missing
-installation and unclassified failures escape unchanged. Event-publication
-uncertainty permits no subsequent stop or telemetry. Application cleanup joins
-runtime stops/inner work, direct/root containment and current reconciliation;
-it never joins outer completions that themselves wait for stop.
-No consumer receives an optional manager, provider callback, replacement setter, unavailable fallback, or MCP-driven cache invalidation path.
-The full manager remains at the server boundary for reconciliation, status, tools projection, event logging, admission, and cleanup.
-
-The process provider owns the one shared card/global `run_command` description and passes each command unchanged as one `bash -c` argument.
-The description conditionally directs card disposable command work to purpose-named children of `SAIVAGE_CARD_WORK_ROOT`, reserves that root's `processes/` and `tmp/` children, keeps product work in the project workspace, forbids invented project-root card-work siblings, and tells global/non-card callers that the variable is absent and must not be used.
-For card launches only, the provider derives the environment value through `layout.cardWorkRoot(projectRoot, cardId)`; there is no alternate derivation.
-`ProcessRunner` remains the generic launch/output owner and does not infer this variable: its synchronous recursive creation of the exact card process-output directory establishes the advertised parent before child spawn.
-Direct generic launches, interactive launches, MCP server launches, and all non-card launches receive no implicit card-work value.
-There is no discovery, cleanup, adoption, or compatibility owner for old sibling scratch paths.
-`timeout_ms` is the sole wait timeout. The provider reads each exact output file once as a buffer, decodes its valid UTF-8 prefix, applies complete text redaction, and uses the certified-prefix operation shared with MCP to select independent 2,048-byte/30-line stdout and stderr heads. Raw buffer counts, capture-relative completeness, and both canonical log URLs accompany every success. `validateProcessToolResult()` singularly enforces stable current heads, exact `proc-<12 lowercase hex>` identity, canonical matching card/non-card URLs, and the 32,768-byte complete canonical successful provider envelope through `settledSuccessBytes(data)` before any primary omission.
-Durable settlement, operator/live activity, and summarizer source retain the exact original URL-bearing row. Only `providerConversationFromComposedContext()`'s direct canonical branch copies a successful current process row: after semantic acceptance it independently removes a done+complete stream's URL, canonically serializes every successful copy, updates only the copied result-content hash, and validates the copy. Protected instructions and prepared blocks have already been composed and remain unchanged; the summarizer continues to consume canonical source bytes. Chat, Responses, and Codex adapters and exact request admission operate afterward on the copied primary bytes. The measured pre-omission canonical envelope is not the original retained serialization, whose separate exact hash permits harmless whitespace, key-order, or equivalent-escape differences and receives no new original-row byte cap.
-The process provider owns cwd classification: it handles scoped URLs first, then resolves native absolute paths directly, and routes remaining plain relative paths through project containment. Canonical project and system roots/descendants remain accepted; absolute native paths have the same execution authority as system URLs naming those destinations. Relative and explicit project paths retain containment, and malformed, unknown, or non-cwd scoped schemes fail before spawn. Native filenames are not URL-decoded or subject to scoped URL query/fragment rules; runner/OS accessibility handling and project-rooted output capture remain unchanged.
-
-Public-web fetching selects one explicit body policy.
-Bounded-content operations acquire one body reader under `max_bytes`; metadata-only `webfetch` retains guarded GET and redirect semantics but awaits stream cancellation for each discarded redirect and the final response without acquiring or reading a reader. The bounded reader normally fails immediately on the first byte beyond the ceiling, without acquiring cancellation failure. Its sole alternate policy is a final successful no-save response classified as text by the existing mode/content-type rule: that branch retains only the allowed raw prefix, positively observes an extra byte, awaits cancellation, and returns overflow evidence. Non-2xx, binary, websearch, filesystem or card-record save, and Analyst prepared-record paths retain max-byte failure precedence; Analyst pre-network admission and second readiness/mutation ordering are unchanged.
-A successful no-save text owner decodes natural EOF with ordinary nonfatal UTF-8 replacement semantics and initial-BOM preservation. For positively observed raw overflow it uses streaming decode without flush, withholding a valid code point split by the artificial ceiling. Normalized UTF-8 expansion beyond effective `max_bytes` fails before result or work publication. It redacts the complete normalized text once, then asks the text-redaction owner for call-local final-text boundary information. That owner applies its text-redaction rules and separately scans the fixed final text with the same recognizers and replacement decisions, including the family-derived placeholder boundaries. Every recognized whole match is atomic, a changing match lowers the maximum stable prefix endpoint, credential-literal boundary coverage excludes truncation-created matches, strictly overlapping spans merge while touching spans do not, and Unicode endpoints never split a surrogate pair. This certificate deliberately need not advertise every accidentally stable cut and does not claim global redaction idempotence or bypass generic settlement.
-The webfetch owner walks those certified Unicode endpoints once and packs the longest prefix under the clamped redacted-head limit and a fixed 1,000,000-byte complete settled-success limit. Complete output is eligible only when the full endpoint is certified and both budgets fit. Otherwise one prospective canonical `content_url` fixes the incomplete branch while binary search measures actual generic settlement; even an empty incomplete head retains real counts and a pointer. Fixed-envelope failure occurs before directory or file publication. Only an admitted incomplete result publishes the complete normalized unredacted retained text through the existing replace-file primitive beneath `.saivage/work/tmp/stash/`; complete results create nothing. There is no stash discovery, cleanup, retention, adoption, registry, retry, or recovery owner, and publication uncertainty propagates unchanged.
-A shared typed URL projector strips invocation userinfo/query/fragment, and every metadata/body/content/save/redirect/brief result has `redacted_url` without a raw `url`, including durable call rows. No-save text uses one strict head/count/completeness/truncation/optional-pointer shape; binary, metadata-only, and saved shapes remain distinct. Generic settlement, durable opaque result storage, WebSocket projection, and historical projection remain unchanged.
-
-`resolveWritePath()` and `assertScopedWritable()` form the singular filesystem write, edit, and preauthorization gate.
-Its lexical input conveys capability: only resolved kind `tmp` retains the narrow resolver-scoped write into the current card's temporary backing namespace.
-Its normalized absolute-destination input independently blocks plain/project/system aliases equal to or beneath project `.saivage`, including a system spelling of that same tmp backing path.
-The gate does not infer tmp capability from destination identity.
-
-## 8. Lifecycle Lock And CLI Delegation
-
-Read-only lock classification is `missing | live | dead | indeterminate | malformed`.
-Live requires a valid record plus matching process-start identity.
-Dead requires positive proof.
-Permission denial, unavailable process identity, and observation races are indeterminate.
-No classification authorizes lock removal or takeover.
-Acquisition preserves canonical-root and project-identity ordering, obtains the current process-start identity, then admits exactly two parents in order: non-recursive default creation of `.saivage`, followed by `.saivage/locks`.
-Only `EEXIST` permits `lstat`, and only real directories pass.
-Bound missing identity and process-start failure therefore create no layout; fresh init may create both levels, while a valid bound project may create only missing `locks`.
-Exclusive lock publication, exact-write handling, file and parent-directory fsync, classification, binding/replacement, and outcome-unknown ownership remain downstream and unchanged.
-
-`readProjectCardOrAssertInitialPublicationAllowed()` is the synchronous bootstrap classifier.
-Four absent generated roots are the sole first-publication authority.
-Existing state is admitted only through exact required current-format project card head/selected snapshot and bootstrap record head/selected acceptance; partial required publication and old or mixed layouts fail reset-required.
-It never scans descendants or infers compatibility.
-
-Direct init performs pre-acquisition identity selection, exclusive lock publication, missing-only configuration publication, config/workflow validation, and identity creation/binding before generated-state classification.
-When first publication is admitted, the singular bootstrap helper creates cards authority and the root card's distinct compiled node-agent indexes, publishes the project card, and only then initializes the selected global Analyst index. A failure in that sequence is strict partial publication; startup never coordinates, repairs, or reorders it.
-It then enters the same common generated-state gate as ordinary start. CLI init retains its existing reads and gains no server-only global settlement.
-The first identity read is non-mutating; failure after exclusive lock publication may retain the lock.
-
-After successful acquisition, ordinary failure releases the exact current bootstrap-unbound or bound lock record without rolling back completed config, identity, or generated durable effects; identity remains after a create-then-bind failure.
-Current card, record, and conversation authorities are strict and never roll back to prior state.
-Each exact growing-JSONL owner may truncate a proven unterminated final suffix after validating the complete retained prefix at use, including existing startup consumption; uncertainty from attempted truncation is fatal and authorizes no follow-up operation.
-Publication uncertainty may retain its target and lock and authorizes no inspection, repair, or rollback; generated-publication failure may retain partial state.
-Reset is a separate explicit stopped-service operation over the four roots.
-There is no `init --force` path.
-
-`src/cli.ts` performs the sole strict token-producing command parse with command-specific definitions and rejects duplicate singleton names from that same token inventory.
-It passes typed `StartInputs`, never argv, into `startApp()`.
-`src/boot/app.ts` owns server startup ordering and derives canonical project root plus `createRuntime` from that object before acquiring the exact bound lifecycle lock, because exclusion and existing identity must precede startup publication.
-Environment loading consumes the same object; there is no startup reparser or manual pre-lock scanner.
-Root selection is CLI > environment > cwd, config is CLI > environment > selected-root default, and host/port are CLI > environment > config > built-in default.
-Each chain chooses the highest-precedence raw source before validating only that choice, while node environment, log level, and API token remain environment-only.
-The App immediately narrows the owned lock handle to immutable process identity for required dependency injection, without reading the lock path or exposing the broad record.
-Inside the existing terminal-cleanup boundary it then loads and fully validates the selected config/environment.
-Only a valid environment and a `null` bootstrap decision may invoke `publishInitialProjectRuntime()`; an existing card skips publication, and ordinary start never bootstraps.
-The unified generated-state operation uses `listCards()` over the exact current linked `listActiveCardTraversal()`, rejects an empty projection, retains the traversal's dependency-only `validateParsedCards()` validation, and flat-checks compiled workflow/parent admission for every reached active card. A reached retained tombstone is strictly consumed and terminates traversal before workflow lookup or descendant access. Admission retains only each current card and its compiled workflow, not historical rows; it never opens unconsumed old card predecessors. Historical consumers, including the content-policy history projection, retain their strict reached-predecessor validation. Card JSON heads and immutable documents have no torn-suffix truncation permission; only the remaining growing-JSONL owners may truncate a validated torn suffix. No preflight graph pass is added.
-It derives the selected Analyst session plus each admitted card's sorted distinct node-agent sessions and strictly reads every exact index in deterministic Analyst/traversal order. Empty valid indexes pass. An index-read `ENOENT` becomes the actionable required-session error; malformed, identity-mismatched, and other I/O failures propagate strictly. Only after all required indexes pass does it consume the event/control app log, then each required session's optional evidence file in that order. It reads the selected Oversight global catalog once and, if present, consumes its optional evidence even when scheduling is disabled; exact missing catalog is allowed and no Oversight evidence is read. Only after these admissions does it invoke the ordinary required-session current readers and consume configured record heads/selected acceptances. Selected growing-file reads retain owner-validated prefix consumption, not startup-specific repair, including consumed stopped-card streams. The common gate does not read Oversight current history; server composition does so separately before readiness. Bootstrap heads/selected acceptances remain required; optional record heads are consumed only when present, never created. No eager predecessor proof, retained admission or smaller startup certificate is added. Startup does not discover or certify provider streams from retained tombstoned cards, descendants below tombstones, removed agent assignments, or formerly selected global sessions; a current session's old segments remain covered by its one evidence file.
-Bootstrap record heads and accepted documents are published only at card creation; missing declared bootstrap authority fails and startup never recreates it.
-Server start and control-endpoint publication follow.
-A pre-mutation admission failure uses ordinary terminal cleanup to release the lock.
-Reset remains bound to existing identity.
-A confirmed authenticated restart's exit 75 remains a handoff acknowledgement, not replacement-process or replacement-boot proof.
-
-After workflow compilation derives the exact configured global Analyst session, unified startup requires its deterministic index even if it has no segment or messages, then later invokes its ordinary current-conversation reader before creating Fastify, reconciling MCP, constructing runtime/Analyst process scopes, or exposing transport admission. Existing-state startup never publishes that missing index. The selected Oversight index remains outside this gate and is initialized only by `OversightSession` at actual check use.
-Settled/text-ended history is read-only and final assistant text is not interruption evidence.
-A sole strict-valid final unmatched call receives its uncertainty-only failed mate in the later server-composition global operation; invalid complete history still fails unchanged. Only an identifiable unterminated final suffix may be truncated after complete retained-prefix validation against index, genesis, session, and conversation semantics.
-No global notice, recovery actor, new ingress or activation is constructed. Established selected Oversight receives the same bounded operation; absent Oversight remains lazy.
-Supervisor card-chain settlement runs at startup after bounded global settlement and remains card-only; a later explicit Run reuses it when same-process Stop left running cards, without adding global settlement or evidence admission to Run.
-
-The compiled graph is current selection, not durable evidence of the prior effective graph. Card metadata and historical attribution do not provide a complete previous-identity authority, and old namespaces remain inert unless exactly addressed. Required-index admission prevents automatic replacement for many card-agent/selected-Analyst changes but does not detect/certify every cutover, including same-agent state-ID changes or already-existing expected indexes. Operators assess the bounded incompatibility predicate and choose consented reset or explicit external migration; no config snapshot/fingerprint/session scan/inventory/alias/retirement/history probe. Never-used unpublished Oversight can change without reset; replacing known published Oversight is operator-assessed incompatible adoption.
-
-CLI status, pause, resume, stop, and restart delegate only for a verified live record and only through its published non-null `control_endpoint.origin` and `control_endpoint.auth`.
-A null endpoint fails exactly `active lifecycle owner; runtime control unavailable`; no phase is inferred.
-
-- missing/dead status reports stopped;
-- missing/dead stop succeeds with `contained:false`;
-- missing/dead pause/resume fails no-live;
-- dead also reports manual abandoned-lock repair;
-- indeterminate/malformed fails closed.
-
-The shared operator HTTP client appends only canonical operation paths.
-It sends bodyless Pause, Resume, and Stop requests without JSON `Content-Type`, while confirmed Restart carries its exact JSON body and content type.
-It never rediscovers YAML, flags, host/port environment, defaults, runtime files, or current process config.
-Published disabled auth omits Authorization; published bearer requires a non-blank `SAIVAGE_API_TOKEN` and sends it only in a header. The client rejects empty and whitespace-only values before delegation.
-Connection, authentication, response, or schema failure has no fallback.
-
-## 9. Conversation Compaction
-
-Ownership boundaries are singular.
-The `contracts` package owns shared provider conversation projections and source-row assertion, turn/result types and the singular `ProviderTurnFailure` class, effective capability data and capability-request shape/projection, candidate/request/adapter/transport declarations, pure admission records and verdict/integrity checks, prepared invocation/context data, pure Responses private-row parsing and pair validation, usable-input budget arithmetic, pure protocol-tool argument parsing, and the strict Zod-to-JSON-Schema projection. Its root also exposes shared tool inputs and outcomes, record mutation and scoped-path contracts, provider failure and exchange contracts, canonical conversation validation and protection/coverage derivation, and compiled-graph response contracts to backend cross-package consumers. Agent modules retain request construction, capability resolution and matching, concrete protocol adapters, provider execution, and invocation scheduling; runtime actors retain invocation-input ownership, context-block compilation, projection assembly, compaction, Oversight check execution, and the `AnalystSession`/`AnalystRuntime` execution owner; persistence retains canonical conversation/evidence publication. The shared data and pure checks do not move those effects into contracts.
-
-The global card-type vocabulary formatter lives with tool prompt contracts in `tools/prompt-api.ts`; the lowercase UUID-v4 schema lives in `schemas/uuid.ts`, shared by contracts and canonical artifact validation. Backend cross-package schemas consumers, including runtime, use browser-safe `schemas/index.ts` for configuration types, card and message identities, actor vocabulary, and validators. Web consumes this root as well as selected contract/schema leaves. Shared round grammar/types remain browser-safe in `schemas/round-id.ts`; the two Node-crypto generators belong only to the exact server-only public `schemas/round-id-server.ts` defining module, never the shared root. Schemas-internal references retain leaf ownership. Backend cross-package consumers of shared contracts use `contracts/index.ts`, with contracts-internal imports local to their declarations; its browser-safe operator leaves remain distinct from that backend-facing aggregate. UTF-8-safe byte slicing lives in `utils/utf8.ts`, and runtime consumes the clock through `utils/index.ts`. Runtime consumes system templates through `config/index.ts` and MCP invocation contracts through `mcp/manager-api.ts`.
-
-The `application` root exposes the Analyst workspace-focus and orientation projections and consumed runtime actor read-model types. Shared freshness, intervention-admission, and application lifecycle declarations instead belong to `contracts/index.ts`; their defining modules import no implementation owners. SyncHub, runtime/Supervisor, and boot retain the respective effects and coordination. The `persistence` root explicitly re-exports the file operations and types used across package boundaries: canonical card, record, conversation, log, audit and provider-exchange reads/publication, artifact projections and hashing, layout, replacement and exact-write primitives, version filenames, plus CLI discovery, project identity, generated-state admission and reset-root selection. These public imports do not relocate direct synchronous file I/O from its domain or actor owner or create a repository/store lifecycle; audit persistence projects control actions through its local projector rather than invoking the aggregate outbound dispatcher. Runtime conversation owners use `persistence/session-api.ts` for current reads, append, missing-session initialization, current-segment reads and compaction publication, including their consumed context/publication types; implementation remains in `conversation-file.ts`. Existing persistence-root consumers remain ordinary public-surface consumers, not a compatibility path. `tools/tool-api.ts` publishes the consumed invocation/catalog contracts, policy constants, cleanup, process-result validation and tool-outcome settlement, while `cards/store-api.ts` publishes CardService and `PROJECT_CARD_ID`. `runtime/runtime-api.ts` is the sole cross-package runtime entry; neither agents→runtime nor runtime→agents is permitted. This routing completes runtime's backend leaf burn-down without promising cycle freedom. The CLI remains the command composition root, not an agent facade.
-The prompt compiler owns the provider-only static prefix bytes built from the rendered instruction, ordered provider tool-definition bytes, and terminal tool names.
-The tool catalog and binding own `CompiledInvocationToolContract` policy templates; settled results own result-derived evidence; `AgentExecutor` owns the unchanged prepared card block, full actual-compiled-node block and producer-local durable prompt policy. The Analyst orientation builder owns complete-observation (`fullObservationSha256`) and content (`contentSha256`) commitments. The context composer owns represented-content verification, latest-replacement selection, complete tool-bundle policy derivation, bounded model facts, exact recovery/refusal rendering, inherited retained instructions, successful-prefix omission and prefix/dynamic/boundary/canonical ordering. The conversation validator owns paired bundle policy, rounds, atomic source-prefix, protected-list and model-fact semantics; the compactor owns call-local latest-key selection, release, accumulated-history replacement and candidate-specific protected lists; persistence owns one immutable successor publication.
-
-Compaction is context construction by the stable session owner over one validated current segment.
-It publishes an immutable successor segment, then commits that segment by replacing the cumulative conversation index.
-Successful publication emits one freshness target `{session_id,segment_id,segment_version,visible_message_id}`; `segment_id` is the published entry's existing immutable UUID. Append retains that identity; compaction publishes a fresh one. Read-model current responses and cursors preserve it, and incremental admission compares exact ID/version before cursor lookup. A rollback/recompaction can reuse an ordinal but never the old segment identity.
-The source segment remains historical and is never reopened by current projection, repeated compaction, or recovery.
-There is no actor-side repository, queue, retry, or alternate publication path.
-
-Compacted genesis carries exactly `summaryText`, variable-sized ordered `protectedPrompts`, and `requiredModelFacts` containing two nullable bounded recovery/refusal slots plus required descriptor-only `latestRecordObservations` as history. Observations preserve original source coordinates, message identity and timestamp, without body/template copies or new occurrences. Their size grows with actually observed card/record/view keys, without eviction or a fixed-memory guarantee. Alongside history, genesis carries identity/session/version/time, `source:{version,filename,covered_through_message_id}`, and explicit continuation that is `between_rounds` or `inherited_open_round` carrying only validated marker ID, canonical input UUID, and active initial/repair segment kind.
-Genesis is the sole self-contained prior-history input to the next compaction; a successor never opens a predecessor body for current projection. Current reads validate exact row policy, session, unique/disjoint identity, monotonic extraction coordinates and source bounds. Publication's existing fresh source read checks current selection/cutoff, a nonempty contiguous prefix and atomic tool/private bundles in exact source order, exact derived protected records and latest facts, then builds the physical suffix directly. Index/genesis source metadata and predecessor-catalog agreement stay strict. Accumulated disposition accounting, serialized group inventories, checksum lineage and all `retained_rows` metadata are absent; no replacement attestation, registry, predecessor read or preflight is introduced. Structurally and semantically valid summary/retained-content edits are not detected by a compaction checksum.
-The successor identity is preallocated once and shared by the validated candidate and the published genesis.
-No ordinary durable current-node model-context copy or synthetic composition-boundary transcript row exists, and no `retained_static` structure remains. The existing activation marker owns once-recorded structural prepared evidence; the shared strict `schemas/activation-instructions.ts` parser serves canonical validation, recovery, public projection and browser consumption. Preparation records named role/node, actual activation, stable card orientation, trusted caller and exact rendered parent direction. Globals use null node/card/activation/parent, and model-free confirmation uses explicit not-applicable evidence. The outbound projector positively reconstructs identity plus allowed instruction fields and independently privacy-filters role/node/parent text, card title and caller tool-call metadata, never exporting prefix containers, tools, arbitrary dynamic blocks or private evidence. These structural snapshots never enter provider/summarizer composition, accounting, protected lists or required facts; the actual stable prepared blocks remain separately supplied to primary and summary. Entry/edge/pending-notification/correction prompt owners preserve one positive `workflow_prompt` literal on their existing durable text/repair rows and protected copies; ordinary neighbors and summary prose remain unmarked. Declaration-based retention remains unchanged. Compacted source navigation uses known source_version without carrying snapshots into genesis. Successful compaction over a validated atomic prefix is the sole omission authority, with uncovered summary-only/evidence-only bundles primary-visible below the trigger.
-
-The invocation boundary for ordinary execution is two-owner.
-Runtime owns prepared context and composes its stable and record blocks with canonical
-history into `providerConversation`. The application provider adapter passes that
-conversation and explicit request inputs to Invocation Service, not a parallel
-episode payload or runtime prepared-context object. Cancellation is a separate
-materialization/execution argument; prepared compaction remains an admission input.
-`InvocationService` owns one-build candidate admission, pure capability classification, the immutable admitted membership authority, the mutable invocation-local attempt state (explicit `untried`, `temporarily_unavailable`, `retry_waiting`/`retry_ready`, `context_failed`, and `exhausted` records), admitted-chain scheduling, recovery preparation, and resumption.
-`ConversationLLMActor` owns the fresh prepared projection, at most one `local_exact_admission` compaction transition before provider I/O, and temporary exclusive custody of the typed suspended execution during authoritative compaction.
-The compactor never receives routing state; the provider-attempt layer accepts and sends only admitted retained bytes and reasserts capability compatibility solely as a fail-fast invariant.
-Capability-ineligible ordinary candidates neither trigger nor suppress compaction because the aggregate verdict counts only capability/output-compatible `projection_too_large` candidates as size-fixable, so a fit-but-incapable A cannot block compaction needed by an oversized compatible B, and the unchanged immutable capability request reclassifies A ineligible after compaction.
-When rate-limited or temporarily unavailable A context-fails alongside B, A's retained state is not `exhausted`, so A remains viable after B's mandatory compacted retry—the context-failed member must re-admit and be attempted first, then the existing scheduler resumes over still-viable earlier and later members.
-Originally rejected and exhausted identities cannot reopen because recovery preparation rebuilds plans only for the context-failed and non-exhausted records named by the retained execution state and never enumerates configured routes.
-The pinned content-policy pass is a separate pure preflight plus restricted common-loop mode with actor-owned evidence combination. Only overload repeats its admitted plan; it has no ordinary admission authority, suspension, failover or edge to any compactor.
-
-`conversation-file.ts::readConversation()` performs direct synchronous current consumption and returns an ephemeral source-identified `ValidatedConversation`; current and historical selection share one segment loader with current-growing versus noncurrent-immutable semantics.
-Its one left-to-right source-aware boundary validates canonical row identity/order, tool call/result policy and independent row hashes, marker-defined rounds, private/visible pairing, safe source-prefix endpoints, and the sole final unmatched call; genesis supplies self-contained inherited history and continuation.
-Every physical row must belong to the requested stable source session; missing files fail with `ENOENT`.
-The application Agent conversation read model consumes those validated segments without retaining write authority.
-`ValidatedConversation` retains physical/source rows, rounds, calls, safe prefix endpoints, the sole unmatched call, compacted genesis identity, effective compacted history, and required facts, but no effective coverage commitment. Loaded `ConversationSegment` retains entry, genesis, rows, and validated conversation, not a raw-byte copy for hashing. Parsing and torn-tail handling still consume bytes; offline repair inspection separately retains exact observed bytes for consent/recheck. Neither change narrows strict current/historical validation or authorizes repair of old formats.
-Append performs that strict current consumption and admits incoming row schemas, session identity, and duplicate batch IDs without folding current-plus-candidate history again. Runtime producers own protocol correctness; a complete invalid durable sequence fails at its next consuming validator. Typed index/envelope publication does not reparse already admitted values, and no persistent validation state is retained.
-Every exact current-file read uses the uniform validated torn-suffix rule. Historical error mapping and downstream unavailable/not-found wrappers first preserve publication uncertainty unchanged for the existing fatal owner; no response, diagnostic append, settlement, or later effect follows uncertain truncation.
-
-`AgentExecutor` reads the selected agent node's compiled full process text before common record preparation, notification or ingress effects. It leaves the canonical card block unchanged and appends one activation-local retained node block after it, not an ordinary node-text row. The actual compiled node is selection authority. A named-agent session can cross nodes, but each later node prepares its own block; old node-looking rows remain ordinary history. Static role instruction/generated outcome contract remain in the prefix; tools remain in the compiled tool contract. Entry order is required-record preparation, strict exact-session fold/optional unmatched uncertainty mate, fresh activation marker/ordinary context, then provider projection. Mate and marker are separate existing appends, not a transaction.
-
-`PreparedInvocationContext` names stable and record blocks separately. `composedPreparedBlocks` supplies their ordered concatenation to primary/compactor projections without a duplicate array. Continuations share frozen prefix, compiled tools and stable blocks by ownership, not serialized prefix blobs or aggregate continuity hashes. Compiled tools retain provider definition and local result-policy bytes/hash for settlement/recovery; block commitments remain independent. `AgentExecutor` binds the transient synchronous bootstrap supplier to its exact card/node, only in LLM-owned callbacks, never provider input/durable data. After deferred raw-entry lease checking, each fresh logical operation reads conversation knowledge, selects accepted bootstrap in one owning record read, appends needed full-exposure descriptors and constructs immutable input. Same-operation maintenance and pinned/transport retry retain it. Recovery never refreshes it; admitted input is never mutated. Role/node evidence remains separate; globals retain stable-only preparation and public history reads never invent past preparation.
-
-That supplier also selects the node's finite ordered `record_prompts` inputs: one
-owning read per distinct record in their union with bootstrap. Accepted/effective
-views and optional JSON-quoted bodies derive from the same projection. The closed
-record-context compiler retains tokens in the immutable node artifact and follows
-the existing process/fragment override closure. Conditional comparison uses actual
-pre-batch card/record/view knowledge, never node/site introduction state. Fired
-workflow-origin prompt bytes and needed descriptor rows publish together in one
-envelope before compaction/admission. No record currentness reread follows.
-Descriptor-only latest observations have their own primary/summary projection,
-independent of protected text and without reconstructed body recall. These facts
-grant no acceptance/write authority; record and Reviewer gates remain unchanged.
-From one `ValidatedConversation`, its one effective compacted history, and those blocks, the singular `composeContextProjection` owner emits prepared dynamic context first, then one concise system provenance boundary before any non-dynamic context, the derived synthetic accumulated-summary context, newest-only recovery/refusal facts, and the uncovered source suffix. The summary header identifies the accumulated prefix by source segment version and exact covered-through message ID. Existing persisted source coordinates (or the prospective candidate's exact cutoff) pass through the required validation seed, materialized genesis identity, and conversation-session projection to this transient header. Prospective, publication-return and reconstructed projections share that contract; no predecessor lookup, cutoff-date inference or durable change is involved. Shared ordinary/corrective refine guidance scopes status and authority to inherited history plus only the supplied labeled source ranges, not unseen ranges, later continuation or prepared orientation. Later supplied decisions may supersede earlier ones without expiring unsuperseded obligations. Its request-only provider-item union is either an intact canonical row or synthetic role/content with explicit origin and block identity; synthetic items carry no fabricated durable row identity or timestamp. This request boundary distinguishes current compiled instruction, synthesized history, and canonical evidence without asserting that historical replay proves transition or approval, and without expiring still-applicable one-time handoffs or owner requirements.
-Uncovered summary-only and evidence-only bundles remain primary-visible; only successful compaction over a validated atomic source prefix omits them.
-Eligible OpenAI Responses private/visible bundles in the uncovered suffix remain paired and ordered.
-Every projected row must exactly match the projection source session; Responses additionally requires exactly one private row and one marked visible row per source input with exact mutual IDs.
-Wrong-session, missing, duplicate, or mismatched pairs fail before transport without filtering, relabeling, remapping, or normalization.
-Summarizer projection is a distinct post-validation one-way function and is never passed back through this durable/provider-source contract.
-
-`llm-failure-classifiers.ts` owns one shared direct provider-failure classifier with an explicit discriminated source boundary between rejected non-OK HTTP responses and terminal protocol payloads after a response opened, plus the narrow numeric Retry-After conversion admission used by ordinary headers and Codex payload fields.
-Numeric source values enter recovery metadata only when unit multiplication and rounding produce finite nonnegative milliseconds; unusable optional metadata is omitted rather than clamped or normalized by recovery.
-The Chat, public Responses, and Codex adapters call shared classification before provider-specific generic failures.
-Exact HTTP 400 gates input-context eligibility only for the non-OK HTTP source; exact typed Responses and Codex terminal evidence remains eligible after HTTP 200.
-Embedded terminal status participates in classification precedence but never replaces the actual HTTP response status retained by every failure.
-Direct content-policy evidence precedes residual embedded-403 authentication evidence.
-Public Responses retains the complete original JSON body and Codex retains normalized SSE `dataText` as failure evidence.
-Exact direct lower-cased `code` or `type` `server_is_overloaded` or `overloaded` is `server_overloaded`, including supported Codex `error` and `response.failed` events after an HTTP 200 stream opens; the exchange truthfully retains response status 200. With an overload alias, auth (including 403), explicit rate limit, context/content ambiguity, eligible exact context, content and opened-200 prompt rejection precede overload. Without an alias the existing precedence remains unchanged; generic 5xx alone is finite transient.
-Prose, nested/recursive values, prefixes, suffixes, and near matches do not qualify, while independent HTTP or embedded 5xx, retry, and rate-limit evidence retains its existing authority.
-Output exhaustion is the separate `output_token_limit_exceeded` kind.
-The similarly named durable lifecycle blocker vocabulary is outside this transport taxonomy.
-
-The Codex stream reader tracks natural EOF locally. Every earlier exit requests cancellation, immediately handles cancellation rejection, and releases the reader lock without awaiting cancellation or draining the body. Cleanup cannot delay or replace the known `response.completed` result or original abort, parse, or provider failure; natural EOF only releases the lock.
-
-The strict schema admits only one complete compaction mode: literal `enabled: true`, shared context-utilization fraction, trigger/tail policy, and a structured exact summarizer candidate.
-Each configured agent selects one compiled named route through `agents.<name>.model_route`; that route's numeric temperature and maximum output tokens are exact invocation authority. Startup binding receives the Router and its same immutable Registry snapshot explicitly, derives `floor(U*C)-O` for every capacity-eligible concrete candidate, and adds only the maximum positive usable-input number to the nonpersisted binding. Unused agents remain exempt; structural compilation remains provider-independent.
-Neither provider adapter synthesizes either value.
-`ProviderRegistry` projects implicit account identity by object identity and preserves every explicit account name and slash-bearing model verbatim.
-Immediately after Registry construction, `createRuntimeApplication()` validates candidate membership exactly once.
-It retains candidate identity only in one fixed-element summarizer closure, while both runtime and Analyst receive the same identity-free numeric/fraction/snap policy, compactor port, and fixed summarizer provider.
-Analyst primary/continuation invocation uses the selected route's ordered candidates and failover.
-`PreparedCompaction`, compactor calls, and summarizer prompts carry no candidate/model label.
-
-Each new workflow-node activation builds its compiled named-agent prompt and ordered tool surface once.
-Each configured global Analyst submission uses its compiled agent surface and rendered prompt, including exact-or-throwing construction of the bounded Analyst orientation snapshot as one activation-local latest-snapshot context block, then calls `prepareCompaction()` with that agent's configured output request before any marker/source append.
-An ordinary project-context failure reaches `AnalystSession` settlement and poisons the session; publication uncertainty reaches its existing consuming fatal boundary before caller settlement or transport response.
-The route maximum determines preparation thresholds; candidate-specific `floor(U*C)-O` determines exact-wire admission. Requested completion is exact provider output authority. Preparation rejects invalid fractions or static trigger/hard capacity before ingress. Runtime composition independently applies the same arithmetic to the fixed summarizer's 2,000-token output request and invariant empty-source serializer/instruction overhead; it does not manufacture task or accumulator blocks. Accumulator-local geometric whole-component growth and component-width bisection, followed only as needed by code-point bracket refinement in the next text component, own packing density without changing semantic coverage.
-The singular `ConversationLLMActor.turn()` accepts prepared input for every persisted named-agent call and rejects stale/cast unprepared input before transition or persistence.
-Direct summarization is the explicit unprepared, nonpersisting exception: it uses the one Registry-validated candidate, the completion-token limit in the [exact context and compaction limits](../spec/system-specification.md#exact-context-and-compaction-limits), a no-tools prose request, distinct evidence identities, and no self-compaction or replay.
-
-Process-local availability compares structured candidate triples directly.
-`/api/providers` owns its strict effective-capability, candidate, availability-variant, and provider-summary schemas locally rather than reusing the independent partial source-config capability contract.
-Its one Registry-backed read-model projection preserves model/candidate order, projects exact `HEALTHY`, `BLOCKED_UNTIL`, and `COOLING` recorded variants with positive finite deadlines only on blocked/cooling records, computes the current expiry-aware available count, and omits transport `baseUrl`.
-`capabilitiesByModel` is computed per model through `getEffectiveCapabilities(model, null)`: provider/model defaults plus the implicit-account override, never an aggregate or an explicit account's effective capabilities.
-Explicit account identity and process-local availability remain on the separate candidate rows.
-Route composition requires that read model and has no config-derived fallback or account-only list.
-The producer is aligned through the operation-indexed success type, while `ContractRuntime` remains the sole runtime egress validator.
-A running server has no disabled status because invalid compaction cannot boot.
-`init` publishes all nine workflows with named model-route/profile scaffolding, enabled compaction, and a summarizer candidate, but leaves `providers` empty and supplies no credential.
-That default structurally compiles offline without provider contact.
-`start --create-runtime` does not synthesize a provider, credential, or replacement model/compaction choices.
-
-Named-agent source classification is session-aware and current-format-only.
-Every global round begins with the exact activity payload `{agent_name,event:'activation_open',input_id,timestamp,instructions}`; card rounds add exact `card_id`. Required instructions are prepared role/node evidence, explicit unavailable/not-recorded historical absence, or global not-applicable/non-model ingress; no missing-field fallback exists.
-Agent/card identity must match the session, the timestamp must equal the row timestamp, and the input is a canonical UUID.
-Global sessions permit no preamble.
-Ordinary Analyst ingress appends `[marker, operator user text]` in one physical batch, publishes each change, rereads the canonical session once, and creates the sole source-identified provider projection before preventive compaction and turn-start evidence. Preparation reads one strict linked-card list for both project-tree and send-time workspace-focus projections; the latter is an immutable bounded activation-local primary-and-summarizer block, refreshed per submission without delta cache or durable focus row. Only a returned pure renderer byte-budget rejection is converted to recoverable pre-effect HTTP 400; strict list/orientation/conversation failures retain their existing terminal/fatal ownership. Retained valid system-text rows remain admitted as ordinary history, including compaction source.
-`buildAnalystWorkspaceFocus` belongs to the application read model and accepts the schema's complete `readonly CardRecord[]` from that linked-card read, not a cards-service type or a reduced card DTO. Its shared `ChatWorkspaceContext` input belongs to contracts; redaction and bounded focus rendering remain in the application owner.
-Confirmed restart uses `[marker, user confirmation]` and never enters preparation, compaction, or provider I/O.
-A next valid marker closes the preceding round; the newest remains open/verbatim unless a selected safe fallback covers a settled atomic prefix.
-Unmarked, malformed, wrong-agent/card, or mixed histories fail strict reads without inference or compatibility classification.
-
-Compaction selects at most two deterministic positive safe prefixes before construction: the base outside the configured backward tail and the furthest legal closed/open atomic fallback. Equal, absent, and zero endpoints are omitted; empty inherited rounds add no endpoint. One `compact()` creates one sequential refine accumulator and retains at most the current/best candidate, with no all-cutoff collection or memo.
-Successful summary coverage of the logically open round may publish `inherited_open_round` with an empty physical tail; an unmatched call is never coverable and remains in the tail.
-Canonical source IDs, physical suffix rows, and explicit continuation remain authority; no raw-row compaction hashes remain.
-Successful compaction commits the new index head before emitting its segment-aware freshness hint.
-Publication uncertainty authorizes no reread, retry, predecessor inspection, or effect.
-
-The compactor is the single sequential admission owner for one `compact()` call.
-It has no worker pool, queue, semaphore, generic scheduler, or persistent retry owner, and admits at most one summarizer provider call at a time. Cancellation is observed with its exact reason before source work, every send, and resumed packing. One call-local correction bit and latest genuine-fold recipe are the only added recovery state; normal and corrective folds share the 16-call ceiling.
-The accumulator derives each advance as the disjoint source-row slice between its committed cutoff and the requested larger cutoff, so each projected source byte is transported once.
-It owns semantic accumulator change separately from exact canonical coverage advance: a structural-only increment performs zero provider I/O, leaves the genuine nullable accumulator unchanged, advances the committed cutoff, and returns that accumulator or `EMPTY_COVERAGE_SUMMARY` when it is null; the sentinel is never stored or reduced.
-Content-bearing increments refine the non-null genuine accumulator with newly superseded inherited fact meanings and new projected source.
-Accumulator coverage advance does not accept or publish a candidate; candidate construction and prospective validation plus the compactor strategy own acceptance, and only the strategy-selected candidate is published.
-Required-model-fact slots are derived newest-only from inherited slots plus newly covered rows, a superseded slot's meaning is folded before replacement, and unchanged slots are carried without re-summarization.
-
-Every refine request orders the dedicated instruction, full selected frozen prepared blocks, genuine accumulator, and projected new source. Tool arguments and results are distinct labeled components; evidence uses the existing evidence projection. The actual-use range packer probes geometrically growing whole-component widths, clamped to the remaining count, then bisects the admitted/rejected component bracket. A mid-component cursor contributes its remaining range first. After finding the greatest fitting whole prefix, only the next rejected nonempty text component receives minimum-code-point admission followed by doubling/bisection; the whole-remainder rejection is reused. Empty ranges remain explicit; image-bearing bundles remain indivisible, with no skip past a rejected component. Labels identify component identity/kind, exact UTF-8 range, total bytes, and zero omitted bytes, without source-component checksums; `SummaryRequestItem` carries the exact role separately. Actual wrappers, escaping, prepared context, accumulator, and fixed 2,000-token output are measured through unchanged exact serialized admission against `floor(U*C_s)-2000`. Only the winning input/admission and bracket are retained, not a candidate table; service re-admission preserves the existing hash-integrity check and exact send bytes.
-
-This search relies on the current real Chat, Responses and Codex summary mappings: appending synthetic items does not merge or shrink earlier items; order denominators and range-end decimal widths never shrink; canonical JSON byte length and additive image reservations are nondecreasing. The first image can enable the wire-byte ceiling, never disable it. Fixed request options/session identity do not depend on probe UUIDs. Capability, serialization and invariant errors propagate rather than becoming size rejections. For fitting small components, geometric growth reduces admissions to logarithmic count and cumulative growing payload to linear size; rejection bisection and giant components carry no universal linear-cost guarantee. Cancellation fences before/after probes and at range construction observe synchronous aborts, not event-loop interruption of serialization. No cache, surrogate estimator, fallback packer, scheduler or persistent state is introduced.
-An advance computes the next accumulator, inherited-fact fold markers, and cutoff in locals and commits them together only after all refine work succeeds. The latest valid fold retains only its pre-fold inherited summary and exact admitted ranges. One eligible correction rebuilds that fold with the same frozen orientation/source, a fresh UUID, changed 6,000-byte target instruction, and fresh exact admission; a next-minimum-range obstruction resumes at its unconsumed cursor. Invocation and progress counters are separate operation accounting: admitted invocations and started folds remain counted, while only successfully validated folds are recorded complete.
-Abort, infrastructure/protocol failure, summary-evidence projection/publication failure, or invariant failure leaves the preceding committed advance state unchanged and terminates candidate admission. Eligible model/output/size/capacity failure may instead select an already complete qualifying candidate; partial folds are never candidates.
-Summary evidence uses the internal `internal:compaction-summary:<source-session-hash>` namespace and label, never a configured agent identity or Agent inventory entry.
-
-The compactor requires `preventive`, `local_exact_admission`, or `authoritative_context_recovery` strategy and returns `compacted` or clean `no_smaller_projection`.
-Preventive retains a strictly estimated-token-shrinking hard-budget-fitting preferred candidate while trying furthest when the trigger is not reached, then chooses the smallest qualifying estimated-token projection; the trigger is a target, not a success ceiling. Authoritative recovery keeps its first strict token reduction. `local_exact_admission` retains the smallest complete image-aware accounting-byte projection strictly below rejected, tying toward furthest. All measures include encoded image parts/raster reservation while preserving text-only values. Only the closed expected model/output/size/capacity classes may fall back; infrastructure, protocol, unknown, cancellation, evidence, and invariant failures remain terminal even when a candidate exists.
-Candidate construction and prospective validation precede publication of one immutable successor segment followed by cumulative-index replacement; `compacted` means both known publication steps completed and freshness followed.
-No-smaller means no append and no new coverage.
-`compaction/summarizer.ts` owns the soft 12,000-byte prompt target and direct completion consumption. Complete nonempty prose has no byte or phrase veto. Empty/tool/Chat-length output is correction-eligible `SummaryResultValidationError`. Only the final exchange with successful status and transport `generic` selects Chat finish interpretation, independently of candidate naming or earlier attempts. After publishing the successful exchange once, Chat content filtering becomes a safe fixed content-policy `ProviderTurnFailure`; unknown or result-inconsistent explicit metadata becomes safe fixed protocol failure. Responses/Codex retain native completion handling, and every transport still receives shared nonempty trimmed prose/no-tools result validation. The compactor's recovery classification is separate from terminal ownership: only non-provider construction failures receive fixed `CompactionSummaryConstructionError` reason/count/measurement diagnostics, while exact provider failures, abort, evidence-publication, invariant, and publication failures retain their owners.
-Source/candidate validation, returned projection/source mismatch, cancellation, and other summary failures preserve their own identities; append uncertainty is never reread, retried, repaired, or converted to no-smaller.
-
-Classification computes each source row's existing visible-message estimate once and one aggregate per round; preferred retained-tail sizing reuses those values across all marker-defined agent-session rounds, including the newest open/inherited round. `compactor.ts` owns endpoint preference: when newest fits `floor(I * tail_fraction)`, it retains wholly fitting rounds backward and applies configured whole-round snap to the first older straddler. Only an oversized newest round gets a row-level suffix target, retaining the crossing row (stopping at equality; zero target desires an empty suffix), then snapping the covered prefix backward to the greatest existing safe boundary at or below it, or zero. The ordinary whole-round branch retains exact-safe-boundary-or-zero behavior. Safe tool/private bundle boundaries and inherited marker/input/initial-or-repair continuation remain validator-owned, not redefined by the selector.
-At most two distinct positive increasing endpoints—the preferred prefix and unchanged furthest legal fallback—feed the same sequential accumulator. Earlier rounds and the newest round's older prefix are one contiguous selection, not separate summaries or slots; advancing fallback consumes only the new slice plus genuine accumulated history. Atomic snapping may retain more source than the target; strategy acceptance or fallback may retain less or no settled tail. This is a source preference, not a fit or retention guarantee. Candidate/endpoint policy is ephemeral: one accumulator and one self-contained genesis, existing strategies and shared 16-logical-call bound remain unchanged, with no format/configuration/API change or reset.
-
-Analyst orientation and the card discovery/read/version surfaces share one byte-packing discipline whose source-derived limits are in the [exact context and compaction limits](../spec/system-specification.md#exact-context-and-compaction-limits).
-The orientation builder renders the bounded compact tree with compact JSON serialization, existing outbound text redaction of each full title before UTF-8-safe slicing, running-branch expansion, exact active path, deterministic wide-parent aggregates, and an explicit fresh-observation marker. It owns truthful redacted preview byte/truncation metadata and budget admission against the actual redacted rendering, without mutating canonical titles. Its `fullObservationSha256` remains the canonical commitment over complete ordered `{card_id,version_seq}` pairs, including omitted cards, plus runtime `{status,current_card_id}`, not title bytes; its `contentSha256` hashes the actual final redacted JSON. This one shared projection supplies primary and summarizer context.
-`list_cards`, flat `get_tree`, current-section `get_card`, every general `read` branch, `glob`, `grep`, the card-version catalog/diff surfaces, and `read_record_version` pack provider-visible results through the shared exact-`ToolResult` envelope. Collection-bearing surfaces and sections use deterministic stateless collection continuation; for `get_card` only dependencies, children, and records use it, while bounded scalar summary and workflow reject position. Plain text and diff owners retain plaintext `TextSlice`; collection owners use lowercase-hex `JsonSlice` over decoded UTF-8 byte intervals of the complete outbound-projected canonical JSON item. The shared collection packer is the sole serialization, strict consumed-position, positive-progress, continuation, and final settled-envelope sizing owner. Generic settlement, historical/operator projection, and provider adapters remain ordinary defenses and opaque transports: they neither decode hex nor bypass redaction.
-
-Workspace tools own glob/grep matching and retain only the requested contiguous candidate window while one complete fresh traversal of the eligible domain computes the exact total. VFS owns deterministic depth-first filesystem order by explicit string comparison, reusable native/URL display paths and same-order declared-record visits; record searches use only canonical effective declared records, and work searches retain existing read-only process/stash/work scope. For each project-directory invocation only, the workspace owner direct-reads and strictly parses the project-root `.saivage-search-ignore` once, and the shared walker compares project-root-relative directories before their first `readdir`. Native entry points resolving inside the project (absolute or aliased included) and `project:///` pass that invocation-local value to the same walker. Explicit files, external native roots and non-project URL scopes never load it. The policy changes recursive discovery, not permission or confidentiality. It is target-project source/configuration rather than runtime configuration or Saivage persistence; there is no Git index, `.gitignore` interpretation, cache, registry, startup check, or generated-state owner. Search performs no writes or stash publication. Reissuing `matches.next` against stable source and policy input rediscovers candidates; no cache, snapshot, index, currentness protocol, or new observation-evidence policy exists. Existing opaque durable readers continue to admit old arrays and plaintext collection slices without interpretation or rewriting.
-
-Agent text inspection uses `workspace/agent-read-path.ts` through VFS `resolveAgentReadPath`, shared by read and discovery. Native absolute paths resolve directly and native relative paths default to the project; ordinary explicit symlinks may select external targets. Admission checks lexical and realpath identities for known secrets and generic `.saivage` namespaces before content access or enumeration. Explicit resource owners retain containment, ownership and provenance; physical record paths grant no logical observations. Traversal exclusions are independent: explicitly named ordinary build/dependency files are readable, while directory listing and recursive discovery skip fixed dependency/build/cache and `.git` entries. Encountered directory symlinks are not recursively followed. No scan or race/currentness protocol is introduced. The contained resolver still owns mutations, image sources and the separate operator Files read model; agent absolute text reads do not expand those surfaces. Work text projection precedes packing, and `settleToolActionOutcome` projects data/errors before constructing provider and durable settled results, not just operator display.
-Canonical tools, not orientation, remain card authority: current readers are observational and never emit immutable evidence. Dedicated `get_card_version`/`read_record_version` select exact ordinary/accepted predecessors and alone emit canonical retained locators/hashes. Queue-only and draft-only revisions are not immutable selectors.
-
-For immutable `get_card_version`, only summary is scalar: omit position; every supplied position, including all-zero, is rejected. After that error remove position rather than retrying it. Dependencies and children are collections: omit position initially and copy a non-null `next` unchanged for the same section over stable input. Historical children page the selected row's complete carrier, including retained tombstoned links, without child-liveness reads or a current-liveness claim.
-
-Diagnostic, session, process, control-action, and MCP surfaces stay outside that response-paging API. MCP preserves complete native ordered content and ordinary metadata within its 48 MiB wire/32 MiB aggregate source/1 MiB projected non-image bounds, with no lossy prefix or continuation; ordinary projected transport/input error fields remain at most 512 UTF-8 bytes. Process success separately uses independently bounded certified heads and one 32,768-byte complete canonical successful provider envelope, while retaining file-backed fallback URLs outside eligible primary copies. Diagnostic, session, and control-action result bodies remain arbitrary and enter the shared coverage-preserving compaction and exact admission path, where an uncovered oversized bundle keeps driving `local_compaction_required` until bounded chunking/materialization plus the one post-compaction admission produces retained admitted bytes. MCP and process settlement participate in ordinary compaction and admission without joining the paging API.
-
-All transports consume that one ordered projection and perform transport-only wire mapping; they neither select context nor append card/Analyst text.
-The rendered static instruction occurs exactly once at each protocol's instruction position. Chat maps synthetic items as ordinary ordered messages. Responses and Codex map synthetic and canonical system/user/assistant items to equivalent ordered input messages rather than concatenating them into static instructions. Chat and Codex omit provider-private canonical rows; Responses projects valid paired native output by candidate-local producer identity while enforcing pairing only across canonical rows.
-
-`llm-openai-responses-account.ts::responsesProducerAccountId` hashes only `JSON.stringify(['openai-responses-account', candidate.provider, candidate.account])` using the existing schema-root SHA-256 helper. Model, secrets, endpoint and remote organization are excluded. The adapter stamps the actual successful candidate through required parser context into private completion data; `llm-delivery-log.ts` persists required per-row `producer_account_id` beside its visible mate. Invocation forwarding and publication ownership are unchanged. Alias equality is not credential or organization equivalence; unchanged aliases with replaced credentials compare equal, while different aliases sharing credentials compare different.
-
-`contracts/responses-conversation.ts::parsePrivateContent` is the singular parser accepting a lowercase 64-hex producer. `reduceCanonicalConversationRow` delegates private-content acceptance to it within the existing `validateConversation` reduction. The exact selected-segment loader and `readCurrentConversationSegment` reach that reduction before public filtering, so otherwise format-12 rows with missing/invalid provenance fail even on outward reads. There is no extra scan, validation pass or duplicated persistence parser.
-
-The Responses adapter supplies the target identity to `responsesInputFromProviderConversation`. For each marked mate the mapper preserves original native item values/order on equality; on mismatch it omits only whole reasoning objects with their own `encrypted_content`, retaining nonencrypted reasoning, native text and function calls. It never replays the marked visible mate additionally; the later result maps once. Missing mates still fail on mismatched accounts. Each candidate constructs this projection before `buildCandidateRequest` serializes, hashes and measures its admitted bytes; routing, exact-byte retries, publication and public projection owners are unchanged. Residual invalid-encrypted-content HTTP 400 is terminal, not reactive repair. Compaction copies retained mixed-producer private strings unchanged and excludes covered private bytes from summary source; no producer registry or new public DTO is introduced. Required payload adoption is independently incompatible even with equal outer versions; external conversion needs evidenced provenance, not adapter inference/backfill.
-Transport code cannot request physical durable history or independently render compaction metadata.
-
-Actor compaction weighting and provider wire admission are distinct contracts.
-Compactor message estimates aggregate the complete composed projection, including every full frozen prepared block and synthetic historical item, while canonical visible rows retain their existing projected-content/structural weighting; `provider_private` remains fixed at zero actor weight while the marked visible row is counted and its bundle remains indivisible.
-This row-derived result drives preventive compaction only.
-Separately, for each eligible provider candidate the actual request builder maps the projection once, canonicalizes the complete protocol body once, estimates `ceil(UTF8 bytes / 4)` plus raster reservations for emitted images, and hashes those exact bytes. Image-incompatible candidates reject before unsupported serialization.
-Equal units do not make actor weighting provider-wire admission authority: only the complete canonical provider body is used for exact admission, and its deterministic best-effort estimate is not fit proof.
-Admission, retries, and the final transport send reuse that exact serialized body without rebuilding or normalizing it, so Responses wire admission includes private output bytes present in the sent body.
-Prepared persisted requests prohibit ordinary `modelParams.maxTokens`; Invocation Service uses only prepared requested-completion tokens for candidate admission and options.
-Prepared requests prohibit a second utilization source. Unprepared requests may carry explicit U; one service accessor supplies both admission limits and retained bindings. Only genuinely absent U defaults to .80. Summary packing retains its actual successful `AdmittedSummaryRequest`, including configured U and serialization/hash, through normal/split/corrective groups and the runtime-api/composition boundary into `executeInternalSummaryTurn`; the service verifies the retained request hash and sends unchanged bytes. This adds no admission owner or layer, prepared summary object, cap, or second margin.
-Chat emits `max_tokens`, public Responses emits `max_output_tokens`, and Codex emits neither while retaining admission/options authority.
-
-Invocation Service captures one required invocation-local `CandidateRequestPlan` per candidate: the structured candidate, one effective-capability snapshot, the one adapter selected by a closed exhaustive protocol switch, and the canonical body/bytes/estimate/hash.
-That plan is the sole wire-request authority.
-
-Selected source-owned binder definitions and the compiled node's `emit_result` definition
-are projected directly into explicit frozen wire layouts: Chat nests the function fields,
-while Responses and Codex flatten them. Projection selects only name, description and
-parameters, preserves tool order and the original parameter reference, and freezes that
-schema subtree and the wire wrappers/array. Empty surfaces remain omitted by the adapters.
-Model arguments and external MCP schemas retain validation at their invocation/discovery
-owners; exact admitted-request integrity and capability checks remain separate from this
-typed projection.
-
-`agents/llm-options-factory.ts::buildLlmOptions` requires `{projectRoot, sessionId}` and derives transient required `LlmCompleteOptions.providerSessionId` with the existing SHA-256 helper over `JSON.stringify(['saivage-provider-session', projectRoot, sessionId])`. InvocationService supplies its application-owned absolute project root and actual request owner; `application/runtime-composition.ts` supplies the same owner inputs for production summary probing. Internal-summary session identity, not `providerConversation.sourceSessionId`, keeps summaries distinct from primary owners. Fresh input IDs do not change the label; turns, retries, activations, compaction and reconstruction at the same root/owner retain it. No persistence, registry, fallback identity, realpath resolution or alias discovery is involved. Moving roots changes the label, and coincident root/session names in separate installations are not globally unique. The opaque digest is not encryption, a secret, authentication or private-replay authority.
-
-Only `llm-openai-codex-adapter.ts` emits body `prompt_cache_key` before the unchanged request-plan serialization/hash/measurement/admission path. Wire derivation reads that already-built body's key for `session-id` and rejects a missing, non-string or empty key at use. Probing, admission and send include the same body bytes, including summaries; no field is appended at fetch time. Chat/public Responses ignore the internal option and retain their wire contracts. Context ordering, tools, routing and account-specific replay are unchanged. This client affinity contract makes no provider cache-hit, retention or economic guarantee; exchange/API/UI/log metadata does not expose the label, headers or raw requests.
-
-The ordinary invocation also carries the exact immutable capability request retained by startup binding; pinned content-policy retry retains it, while direct fixed-candidate summarizers supply their explicit no-tools request without exclusive tool choice.
-The adapter maps the planned body and carries only its credential requirement plus protocol-specific endpoint, headers, request metadata, HTTP interpretation, and response parser.
-Response mode is protocol-owned: Chat and public Responses request and parse complete JSON, while Codex requests and parses SSE.
-Credential resolution consumes the adapter's requirement and never rediscovers capabilities or protocol.
-Every Invocation Service attempt unconditionally enters the shared runner and runs cancellation → unconditional serialized-body hash verification → one generic check against the caller-supplied capability request → credential resolution → adapter wire derivation and runner-owned recorder/fetch.
-Provider admission never recomputes capability policy from transport tool options.
-A mismatch throws the singular `CandidateRequestPlanIntegrityError`; Invocation Service rethrows that object before admission/recovery classification, accounting, indexing, availability mutation, delay, retry, failover, later-candidate I/O, or publication.
-
-The shared attempt runner exclusively creates and settles one in-process recorder per started attempt.
-A path that reaches success or catch settles exactly once; caught raw name/message and typed status are recorded before owner-cancellation or transport recovery typing.
-For a successful fetch, the selected adapter directly consumes the original `Response`; there is no recorder tee, response-body wrapper, or raw-body capture.
-Recorder evidence remains structured response status, usage, finish reason, terminal-tool evidence, and caught error metadata.
-Only a caught value identity-equal to an aborted signal's reason becomes the existing typed cancellation after recording.
-Invocation Service retains ordinary retry/failover and chronological indexing.
-On normal actor completion, the admitted raw `InvocationLifecycle.runExternal()` callback rechecks currentness, persists actor output, and publishes each indexed redacted provider exchange with its post-append canonical-session hint before the callback returns, wrapper settlement occurs, and the consumer delivers.
-Abort may reject the containment wrapper while raw work remains unresolved.
-Such work may never settle, or may later settle and aggregate internally, but lifecycle currentness fences it from actor persistence, provider-evidence publication, read-model hints, actor-level retry/reconciliation, and delivery.
-The runner uses the agents-local `consumeProviderRequest` callback scope for fetch and awaited HTTP classification/protocol consumption. That scope alone owns one request-local AbortController and one fixed 120,000-ms inactivity timer, armed immediately before fetch; it forwards the original owner reason without aborting the caller's controller. Its required `LlmResponseConsumption` adapter context exposes effective `signal`, `onData()`, `readText(response)` and `onBodyDisposition(disposition)`, not public completion options or an alternate untimed adapter contract. The disposition callback lets the existing Codex parser report EOF versus intentional terminal-event cancellation without an observational body reader.
-Headers do not renew the window. Chat/public Responses and non-OK provider bodies use `readText` on the exact original response reader, renewing on nonempty byte chunks and decoding with Response.text-compatible UTF-8 replacement/BOM semantics; the reader lock is released in finally. Codex reports activity at its existing ordered SSE data-output consumer, before JSON handling, for both push and EOF finish outputs; comments, unknown fields, event-only frames and partial framing do not count, and valid completion stops consumption immediately. No tee, reconstructed Response, body wrapper, second framing parser or raw capture is introduced.
-Expiry aborts the effective request signal with fixed-safe `ProviderInactivityTimeoutError`. The scope normalizes only abort-associated outcomes, preserving the exact owner reason when it races with timeout; unrelated errors keep their authority. Timer/listener cleanup occurs on every exit, owner abort clears the timer immediately, and activity after abort/settlement cannot rearm it. Known success has no post-consumption abort/timeout check and ends timed ownership before recorder settlement. The runner records raw timeout evidence before the classifier maps the explicit error class to existing `timeout`; Invocation Service retains retry/cooling, budgets, alternatives and availability waits. Recorder/auth persistence and recovery waits are never inside this timer.
-The same scope also arms an absolute 900,000-ms HTTP-consumption timer immediately before fetch, never renewed by activity. Its safe `ProviderRequestDeadlineError` maps to finite `timeout`; continuous bytes/nonterminal SSE cannot keep an attempt alive indefinitely. Both timers/listeners end on every exit before recorder work. OAuth refresh and model request own separate scopes; auth publication, evidence and recovery waits are outside them. Deadlines are event-loop scheduled, not hard real-time or semantic-progress guarantees, with no configuration knob. The runner owns no containment tracker, app-log, publication projection, or read-model effect.
-
-Invocation Service owns exact ordinary admission and admitted execution.
-`preparePrimaryRequestAdmission()` builds and capability-classifies exactly one request plan per route candidate per projection, freezes the admitted membership authority from only admitted verdicts in route order, and returns aggregate `admitted`, `local_compaction_required`, or `local_admission_failed` without provider exchanges, availability mutation, retries, or failure normalization; a mixed chain executes only admitted candidates in relative order, and an unavailable but admitted candidate keeps ordinary wait/failover semantics while every retry sends the same retained serialized bytes.
-`executeAdmittedWithRecovery()` mutates the one process-local record set while the existing scheduler chooses attempts; on a real authoritative `input_context_exhausted` it marks only that member `context_failed`, appends the exchange to the settled attempts, and suspends through the typed `AdmittedProviderTurnFailure` custody handoff.
-The singular prepared `ConversationLLMActor` retains turn-start append, source consumption, completion persistence, output, state, tool delivery, preventive compaction, and the bounded ordinary recovery seam for configured card-node and Analyst turns: exact admission returns the effective prepared input together with its retained admitted execution, after the sole `local_exact_admission` compaction it re-admits once before any primary I/O, and after the sole `authoritative_context_recovery` compaction it returns the unchanged suspension to recovery-scoped preparation/resume, which retries the context-failed member first and then resumes the existing scheduler over still-viable retained members with unchanged attempt/deadline/exchange continuity. Recovery, settlement, terminal handoff, and parked tool continuation all retain that effective input or its authoritative replacement rather than an obsolete pre-compaction projection.
-The retry keeps the same input/source identity, static instruction, tools, captured stable and record blocks, prepared capacity, temperature, and ordinary route behavior; only the history portion changes, and marker/ingress/result/preparation rows are not re-appended. Prospective, published, local-admission, preventive, pinned, and authoritative-recovery projections all receive those same blocks. A later newly armed logical continuation prepares current bootstrap afresh, not this retry.
-A second context rejection after the authoritative retry, a terminal local admission failure after the one local compaction, or any non-viable retained state is final; there is no third pass, second compaction of either kind, or candidate-route × compaction loop.
-
-The Chat, public Responses, and Codex parsers share direct failure classification, but endpoint/header policy and response decoding remain protocol-owned.
-Chat derives Copilot behavior only from `candidate.provider`: `github-copilot` uses the Copilot `/chat/completions` endpoint and required Copilot client headers for canonical or custom base URLs, while every other Chat-compatible provider uses the generic `/v1/chat/completions` rule and never gains Copilot headers from URL text.
-Authorization remains the resolved transport credential.
-Chat does not append request-section diagnostics to classified provider failures.
-Chat and public Responses parse one complete JSON body.
-Codex alone uses the unchanged incremental SSE line reader in `llm-sse.ts`, which owns fatal UTF-8 decoding, pending-CR state, CRLF/LF/CR line completion, blank and EOF dispatch, event/data fields, `[DONE]`, and normalized `dataText`.
-The Codex parser owns parsed backend events and backend completion: deltas are validated observations rather than a returned-text assembler, nested text done forms are ignored, and each complete assistant output item replaces the latest-message candidate.
-Function finalization owns raw-name validation: it selects the completion name when non-nullish, otherwise the raw pending name, allowing valid late replacement, and each new finalization requires a nonempty string without coercion, trimming, or registry lookup. Invalid selected names produce a fixed safe typed parse failure; real-identity deduplication precedes validation, preserving standalone items, aliases, and argument assembly.
-A `response.completed` first validates its non-null, non-array object `response` and string `response.id`, then propagates one direct boolean terminal signal through the event handler, ordered output consumer, and read loop.
-Only that valid signal returns finalized tools before the message immediately and releases the reader lock in `finally`, without waiting for closure or consuming later events; malformed completion, pre-completion failure, `[DONE]`, and EOF retain failure authority, while outputs dispatched by SSE EOF finalization are consumed before truncation is decided.
-There is no delta assembler, fallback terminator, or generic lifecycle mechanism. Request inactivity expiry and owner cancellation abort the transport through the effective signal; terminal success/parse failure still only release the reader lock and do not introduce general unread-body cancellation or draining.
-The common classifier orders 401, explicit 429/rate tokens, 5xx/transient tokens, eligible context/content ambiguity, exact context, content, residual 403/auth, opened-200 prompt rejection, timing-only rate hints, then unmatched failure. Actual HTTP status remains evidence; timing cannot turn transient cooling or terminal auth into rate-limit blocking.
-Thus HTTP-200 failed Responses objects preserve the exact complete JSON body, while Codex terminal frames preserve normalized `dataText`, without retaining request bytes.
-
-`ConversationLLMActor` construction requires immutable `autonomous-card` or `global-agent` purpose and validates it against the stable session identity.
-`CardProcessActor.#createMainLlm()`, `AnalystSession`, and each freshly constructed `OversightSession` check are the production construction sites.
-`LlmInvocationInput`, both provider ports, `createInvocationServiceProvider()`, and `InvocationRequest` carry one required `routePass`: ordinary bound chain or pinned content-policy candidate.
-Only the private autonomous-card branch can produce pinned.
-It appends/rereads the fixed truthful retry row before requesting the pass.
-Invocation Service keeps planning, integrity, admission, credentials, cancellation, recording, and indexing. One private restricted-mode loop serves ordinary, fixed-singleton internal summary and pinned execution. Pinned repeats its one admitted byte-identical plan only after overload, never consulting availability for substitution, failing over, compacting or suspending. It can expose advisory cooling; all other pinned failures are terminal and a second refusal gains no third logical policy authorization.
-Pre-transport failures make zero calls and are final.
-Global agents retain their existing owner/cancellation scopes; direct summarizers gain overload transport recovery without primary refusal recovery.
-
-The invocation-local candidate record, not shared availability, owns overload retry permission. It separates total diagnostic/evidence attempts from the unchanged four-failure finite budget, retains overload wait reason/due time and a delay doubled from 30 seconds to a 600-second cap. Another failure resets the streak and restores finite/terminal policy. Two-hour finite availability expiry excludes finite waiters, never viable local overload. Suspension validation preserves this state and immutable admitted membership; only authoritative context recovery can rebuild plans for a smaller projection.
-The selector preserves mandatory context retry, eligible finite/untried work and original route membership. Ready overload outranks finite waits; ready finite work outranks overload waits. Overloads use oldest due time, route order for ties; no eligible work waits abortably for the earliest applicable due time/deadline and recomputes without expired-deadline spin. Shared `COOLING/server_overloaded` remains process-local advice, not cross-call unlimited budget or backoff authority.
-Retries retain input UUID, per-candidate bytes/hash and source bindings; exchange identities are fresh and indexes contiguous. The actor combines original/pinned evidence once; new ordinary continuation uses a fresh UUID/full original route. Completed tools/results remain outside the transport seam. Publication errors never retry; uncertainty escapes before observation, logging or cleanup. Evidence accumulates until settlement, unbounded in memory during a long outage and loss-tolerant on interruption.
-Summary overload repeats one packed summary UUID inside one of at most 16 logical calls, not additional completed folds/corrections or omission permission. First real refusal retains existing exact-once evidence publication and eligible candidate/local-omission handling; auth/protocol/finite exhaustion gains no omission. No 64-wire ceiling applies to overload.
-Pause remains a cooperative gate: admitted work/backoff continues and `pausing` can persist indefinitely; Stop/shutdown forward exact cancellation and currentness fences late effects. Active execution and `foldInFlight` mean outstanding logical work, not bytes in flight or completed progress. Existing provider refresh exposes advisory cooling, not a countdown or exact send promise; no provider wait is inserted into the tool/child/process barrier.
-Private failed-provider diagnostics advance `format_version:2→3` for strict `failure_kind:server_overloaded`; `failed-provider-request-privacy-2` is unchanged. Retained diagnostics are unconsumed and untouched. Conversation 8 and shared app-log/provider-evidence `version:1/type:rows` are unchanged; no durable retry state or migration is introduced. See the [format record](./durable-format-changes.md#provider-overload-diagnostics-2026-10-12).
-
-At the invocation-to-continuation phase boundary, the actor distinguishes actual-attempt input from retained continuation routing. Each invocation captures its original ordinary route once; the current attempt input remains pinned during the retry, including its refreshed canonical projection and original source-input UUID. Completion persistence, terminal handoff, and failure attribution use that actual attempt input.
-Only parked tool and retained plaintext continuation seeds copy the persisted completion input with its route replaced by the complete original configured ordinary chain, preserving candidate order, frozen prepared context, and refreshed history. Existing continuation consumers allocate a fresh UUID and reread canonical history before ordinary admission, with attempt indexing restarting at zero. Invocation Service reevaluates that configured chain normally; neither it nor the provider gains new continuation authority.
-The route-only copy does not reopen terminal or cancelled work: existing workflow disposition and lease rules still determine whether a tool continuation or configured plaintext repair occurs. Accepted output needs no new call; repeated refusal, pinned preflight rejection, and other pinned failures remain terminal for the invocation.
-
-On a second refusal the actor owns marker-first completion: combine/reindex all original and pinned attempts, append one marker containing only the pin's terminal raw refusal response, publish all safe exchanges once with the marker as each error's `terminal_conversation_output_id`, then hand off typed BLOCKED.
-Error exchange payloads always carry that required nullable identity and never successful `assistant_output_ids`; successful payloads retain assistant IDs and never the error identity.
-A transport-successful attempt whose output fails local validation therefore links its assistant `model_issue` through `assistant_output_ids`; only provider error attempts use `terminal_conversation_output_id`.
-Ordinary provider-error model issues provide their row identity and direct summarizers provide null.
-Provider/summarizer projection and compaction consume the synthetic marker text, never physical raw evidence.
-`NodeExecution` carries the explicit runtime-owned blocked union, every compiled node has the code-owned `execution:blocked` edge, CardProcess stages the strict result, and Supervisor/CardService publish running-to-blocked before the waiting parent receives the one nested safe `activate_card` result.
-
-For Analyst continuations, the actor first settles the waiting call, appends exactly one tool result, allocates a fresh continuation UUID, and rereads canonical history while retaining the submission's prepared object.
-Preventive compaction then runs before the continuation provider call.
-The accepted tool invocation, external/domain effect, and persisted result are outside the provider retry seam; a context rejection retries only that same continuation input and never replays the tool or duplicates its result or source ingress.
-Restart-confirmation settlement remains terminal and model-free.
-
-Clean no-smaller remains an ordinary final actor outcome with the triggering attempts linked to its ordinary terminal model issue, including when compaction needed no summary-provider call. Successful compaction outcomes and post-await abort recognition are discriminated outside summary-error classification; a compactor rejection that is identity-equal to the exact aborted signal reason is likewise rethrown before summary classification. Neither exact abort case is summary unavailability.
-Transport-successful empty/tool/Chat-length summary output first raises a reasoned `SummaryResultValidationError`; one source-faithful correction is available. Repeated noncompliance becomes a fixed non-provider construction diagnostic. A complete summary over 12,000 bytes and ordinary recoverable-evidence wording are valid.
-Actual typed provider output/input capacity remains eligible for bounded maintenance selection. The first actual summary content-policy failure, exact prompt-policy flag, or typed completion filter becomes `SummaryPolicyRefusalError` only after once-only exchange publication. No identical retry, correction, range search or failover follows refusal. Primary execution and unrelated transient recovery remain unchanged. Cancellation, source/projection/invariant and unrelated provider failures grant neither retained-success nor omission fallback; publication uncertainty retains fatal priority.
-`compaction/summarizer.ts` separately owns summary-attempt evidence: each refine call uses the internal `internal:compaction-summary:<source-session-hash>` evidence session and fresh input UUID, projects settled attempts exactly once through `InvocationService.projectProviderExchanges()` with empty assistant output IDs, and never merges them into the triggering input.
-`summarizer.ts` captures actual provider outcome separately from evidence publication and retains the exact summary request UUID/cause in the unified refusal. Evidence publication is outside conversion catches: `SummaryEvidencePublicationError` preserves the exact publisher cause so misleading typed errors cannot authorize fallback; outcome-unknown publication remains unchanged and fatal before follow-up. Fully completed qualifying ordinary candidates remain preferred after eligible failure/refusal; partial endpoint advances never supply coverage. If none qualifies, the compactor constructs fixed declared-omission prose at the existing positive preferred endpoint, then distinct furthest only if needed, using the unchanged strict validator and artifact-before-index publisher. No additional provider, packing, image or historical read occurs for this local construction. It discards inherited compactable prose and covered narrative, not exact protections, newest canonical facts, frozen prepared context, continuation or physical suffix. Known publication returns ordinary `compacted`, not published-but-blocked. Nullable `{summaryInputId}` on the result is carried only by the existing invocation operation across later maintenance strategies to prohibit more summary calls; it is neither durable nor a session latch. Failed no-candidate refusal retains existing card/global safe settlement and authoritative original-primary-evidence ownership. The unchanged durable blocked result remains historical/currently valid.
-Invocation Service remains the sole retry/deadline/cancellation/evidence-recovery owner for the fixed summarizer candidate.
-Available untried admitted alternatives precede standard-cooling waits, without changing the mandatory context-failed retry, remaining selector priorities, membership, budgets, or deadlines. The Codex parser preserves exact caught effective abort reasons, including inactivity timeout, and independent AbortError values and releases its lock; the shared runner owns raw evidence and classification, while unrelated malformed streams remain parse errors. Function identities and delta targets must be real provider call/item references, with unknown or malformed deltas rejected rather than normalized or discarded; latest-completed-message replacement and strict JSON semantics remain unchanged.
-An ordinary or pinned known successful return survives a racing abort with its indexed attempts/private context, but cannot mark availability succeeded after abort. The existing retained graceful conversation owner publishes output/evidence and settles cancelled tool calls without continuation. Immediate revocation still fences all late persistence, hints, and delivery; no runner-side rescue or second publication owner exists.
-
-The last-chance actor boundary has one narrow non-provider ownership marker plus the typed summary-policy terminal signal.
-After summary `ProviderTurnFailure` evidence has been published, `ConversationLLMActor` first publishes the original planner context-failure attempts once under the planner input with null terminal output.
-Any publication failure or uncertainty supersedes the marker.
-Otherwise it throws `LastChanceSummaryProviderUnavailableError` with only its unchanged safe generic message and exact summary failure cause; provider exhaustion is never routed through construction diagnostics or normal-context failure.
-The marker carries no exchanges, phase, route, candidate, or classification, makes no retry decision, and exists only so ordinary operation-failure handling cannot republish/reidentify summary attempts or fabricate a planner model issue. The typed summary-policy signal is handled before generic wrapping: preventive/local strategies create no primary row, while authoritative recovery first publishes the real original context-failure attempts once with null terminal output. Autonomous-card ownership hands off the strict `compaction-summary-blocked` result through node/process/CardService; global ownership hands off the ordinary fixed-safe error outcome and settles the actor lease.
-It is not a second provider taxonomy. Analyst writes its ordinary safe unavailability notice and remains reusable for a later explicit submission. One Oversight check settles failed and is disposed; `ProjectOversight` creates a fresh check actor against the same canonical global session only at the next ordinary cadence. Neither path writes card state or schedules an immediate replacement.
-
-Internal/runtime execution activity is exactly active, waiting, or inactive.
-Provider/tool phases remain private. The conversation actor exposes only nullable ephemeral compaction work progress—strategy, start time, completed logical folds, and whether one fold is in flight—through the existing executing-session snapshot and Agent summary. A known failed logical fold clears in-flight without increment before correction; publication uncertainty leaves it untouched. This does not create a runtime phase, durable record, internal summary session, denominator, ETA, or percentage.
-Waiting is reserved for the explicitly segmented unfinished process, public-fetch, or child promise.
-The separate public Agent-summary vocabulary is exactly `activity: busy | idle`, paired with `status: active | inactive`; an internally waiting but live Agent session is `active`/`busy`.
-
-### Private failure-only request observation
-
-The shared InvocationService owns optional `FailedProviderRequestDiagnostics`
-(`agents/failed-provider-request-diagnostics.ts`). The start-only UUID flows through
-StartInputs/server composition, not effective provider configuration or lifecycle
-persistence. Setup follows canonical admission and lifecycle exclusion. Exclusive
-activation mkdir and fresh publication of a session-local self-ignoring `.gitignore`
-precede dumps; reuse disables capture without inspecting retained files.
-
-`executeLlmProviderAttempt` binds the immutable serialized request actually passed
-to transport and its verified hash. Ordinary/resumed/summary owners supply canonical
-source and actual invocation identities, purpose/input UUID and settled-attempt
-offset. The actor passes `firstAttempts.length` through the application provider
-binder for pinned diagnostics; service pass-local evidence and actor combination
-are unchanged. Parser/classifier structured codes remain ephemeral error metadata;
-observed HTTP status is separate from embedded status. Noncancellation transport
-failures and explicit parsed `content_filter` use one shared capture boundary, with
-no successful archive, auth-refresh capture or change to downstream outcomes.
-
-Owner-local monotonic deadline and counter permit 16 failure publication attempts
-within one hour, without timers, scans, refunds or retries. Each slot allows at most
-8 MiB of UTF-8 JSON; oversized raw bodies/envelopes yield only bounded metadata
-(16 KiB), never a prefix. The adjacent agents-local pure owner
-`failed-provider-request-projection.ts` parses only captured wire JSON, explicitly
-dispatching Responses/Codex versus Chat. Its positive native-position grammar retains
-visible prose (including Codex system strings), ordered content, function names and
-call/result correlation, not native IDs, annotations, opaque/unknown items or extensions.
-Unknown extension names never survive the fixed `_diagnostic_omitted_extensions`
-marker; wholly omitted subtrees retain array positions without descendant traversal.
-Its separate ordinary JSON walker preserves application type/ID-shaped data and
-schemas while omitting structured credentials/config and image payloads. Only known
-serialized argument slots are decoded/projected/reencoded once; invalid slots have
-no raw fallback, and result/instruction prose is never decoded. Existing outbound
-redaction, data-URL removal and active-credential replacement cover retained leaves,
-not a general secret inventory. Projection changes neither submitted bytes nor native
-private-row publication/account replay. The version-2/policy-2 document reports
-literal exact/redacted/omitted fidelity, reencoding,
-counts/reasons, raw-body and decoded-stored-body hashes/byte counts. This is sensitive
-local text, not a secret-free export, provider receipt or replay fixture.
-
-Omission counts are owner-local: one per whole native item/content or omitted field
-subtree (annotations once), one per image object/payload field, with no hidden-child
-counting or repeated leaf redaction. Retained v1 diagnostics are not policy-2 captures
-and remain untouched; no retained reader, converter, scan or cleanup is introduced.
-
-Synchronous publication reuses the ordinary fresh-temp/fsync/rename/parent-fsync
-primitive with defaults/umask. Known errors yield fixed content-free local notices
-without replacing provider failures; outcome uncertainty reaches the fatal boundary
-before settlement, logging, retry or cleanup, even if cancellation races. No index,
-manifest, queue, registry or retained-document reader exists. Diagnostic files and
-hashes never enter canonical evidence/public projections; Files' shared lexical and
-resolved-target private-path admission excludes the whole namespace before listing,
-content or image inspection. Retention is manual and separate from reset roots;
-noncanonical temporaries remain ignored forever. Existing canonical discriminators
-are unchanged (conversation 6; app-log/provider-evidence shared envelope 1).
-
-## 10. Availability And Credentials
-
-Credential ownership follows the selected provider contract.
-Public OpenAI Responses resolves the configured provider API key; the separate `openai-codex-backend` resolves an OpenAI Codex OAuth auth profile.
-The Registry and transport credential resolver do not treat those sources as aliases.
-The selected-candidate credential resolver returns only the URL, optional access credential, and optional derived Codex account identity; profile names remain internal to selection and refresh, with no provenance diagnostics.
-
-Candidate availability is one process-local map that resets on process restart.
-Provider completion checks the exact invocation signal before changing it.
-No availability file, replay, restabilization, or persistence-health dependency exists.
-
-Auth profiles use direct strict whole-file reads and optimistic replacement.
-Exact-path `ENOENT` alone means absence.
-OAuth refresh threads the original invocation abort signal through the attempt runner, transport resolver, and refresh implementation; it checks after response/body awaits and immediately before the synchronous latest-file reread and replacement.
-Both refresh owners use the same local request scope, with a fresh 120,000-ms preheaders/byte-activity window per HTTP request, never a simultaneous encompassing-attempt timer. Successful-status text consumption is byte-aware; JSON parse fallback remains refresh-local and cannot swallow inactivity timeout or owner abort. The network scope ends before token-shape handling and latest-file reread/replacement.
-OpenAI Codex and GitHub Copilot refresh network rejection or inactivity timeout becomes `server_transient` status `0`, preserving exact owner cancellation instead; refresh HTTP 5xx becomes `server_transient` with the actual status. Every non-OK refresh decision is status-only and ends at headers without body consumption or a timer persisting into recovery waits.
-The two refresh response owners classify exact HTTP 429 as typed `rate_limit` status `429` and directly reuse the unchanged agents-local `parseRetryAfterMs(headers)` from `llm-failure-classifiers.ts` for seconds/date timing. They do not consume the OAuth response body, interpret other rate-limit hints, or pass refresh responses through a provider-protocol classifier.
-One agents-local frozen Copilot client-identity object supplies the same four unchanged identity headers to chat dispatch and token refresh; each request owner retains credentials, Accept/Connection, and endpoint choices.
-Credential refresh precedes adapter wire derivation and recorder creation, so these thrown failures perform no auth replacement, send no stale-token provider request, and create no provider exchange or synthetic 401. An invocation without actual exchanges reports `pre_provider`; any later alternative exchanges retain ordinary indexing and evidence.
-Invocation Service remains the existing admitted retry/failover owner: network/inactivity/absolute-deadline/5xx refresh failures use standard finite cooling, while refresh 429 uses candidate-local `BLOCKED_UNTIL` rate-limit handling. Positive parsed Retry-After timing determines its deadline; absent, declined, or zero timing keeps the fallback of at least 60 seconds. Healthy admitted alternatives remain immediately eligible, with existing finite waits, unavailability deadlines, and failure ceilings otherwise unchanged. Refresh owns no wait, and pinned refresh failures retain no recovery; OAuth refresh never inspects overload bodies or grants overload authority.
-Refresh HTTP 4xx other than 429 and malformed successful responses return null, retaining the previous token and ordinary final-auth handling based on the subsequent real provider response; timing or body hints on 403 do not create the 429 exception.
-An exhausted admitted record is excluded from the final generic availability-wait scan within that invocation, so cooling expiry cannot reopen it or produce a terminal zero-wait loop.
-An available untried admitted alternative precedes a standard retry wait; other ready/rate-limit priorities remain unchanged, and retained process-local cooling remains available to other or future invocations.
-Concurrent refresh is accepted last-completed-write-wins behavior with credential-loss risk and no revision, CAS, lock, or merge protocol. A failed 429 refresh writes nothing and does not undo an independently successful concurrent replacement.
-
-## 11. API And UI Projection
-
-REST and WebSocket are projection/transport surfaces.
-REST remains authoritative; WebSocket carries lossy freshness hints.
-Runtime, readiness, and debug responses contain no persistence-health component, durable runtime/snapshot file, or global card index.
-Concrete server availability is required from operator composition through readiness and runtime get-state/status/Pause/Resume schemas and browser admission.
-Its declaration-level states and component sources are the [exact availability vocabulary](../spec/system-specification.md#exact-availability-vocabulary); runtime observation failure is `degraded`.
-The browser's availability null exists only before its first accepted response and never normalizes response omission.
-Provider views label availability as process-local.
-Card routes and links preserve immutable hierarchical card identity; the browser derives mutable display paths only from loaded hierarchy-slice order.
-`CockpitView` is the singular route-presentation owner for home, card, and exact
-Agent-session addresses. Exact session metadata resolves before card/global scope
-is adopted. Card scope reuses CardStore's selected detail and hierarchy-slice
-owners while the keyed conversation reader retains its independent lifetime;
-global scope clears card selection and fabricates no card context. There is no
-detached session layout or second card-detail reader.
-
-Runtime freshness publication follows direct synchronous mutation ownership.
-`CardService` invokes the singular typed `cardProjectionChanged(target)` boundary only after successful canonical publication, and invokes separately ordered runtime changes where applicable.
-Every actual card version for `C` publishes `detail(C)`, `history(C)`, `diff(C)`, `children(C)`, and `children(P)` when its already-known active parent is `P`; link/reorder therefore covers both changed membership/order under `C` and the changed row for `C` under `P`.
-A tombstone additionally publishes one `record(C,name)` target for every compiled record definition.
-A successful accepted record publication emits only its exact record name; initial pre-link bootstrap publication, no-op, and reported write failure emit no Cards target.
-Deletion uses each preflight-known parent and publishes each successfully committed tombstone's targets before attempting the next append.
-These hints maintain no operator card aggregate, do not cascade above `P`, and authorize no persistence or later write.
-
-Actor-only owners synchronously report post-mutation lifecycle/run-identity boundaries, every retained-card insertion, retained-card release, active-leaf changes, retained-agent membership, and autonomous-agent public phase changes through the supervisor's single translation callback.
-`ActiveCardLeaf` is the sole current-card source.
-Launch reports the prepared project running boundary before actor construction, reports the one retained project insertion at its `Map.set`, and installs/reports the project active leaf only after running ownership installation and validation complete.
-Mutations that remain visible after a later synchronous throw have therefore already supplied a freshness hint.
-
-Owners call narrow application-level SyncHub effects directly: runtime, exact Card projection, Agent membership, conversation-through watermark, and exact LLM exchange.
-SyncHub is lossy, non-throwing, debounced, and socket-only.
-Its unscoped wire vocabulary is exactly `runtime`; Timeline, Files, and Processes have no invalidation frame.
-Cards coalesce by exact scope/card/record key.
-Agent membership coalesces by card or global session, conversation coalesces by exact session retaining the last accepted arrival's segment ID/version and visible-message watermark (including lower versions), and exchange coalesces by exact session. Browser SyncClient uses the same connection-order coalescing and retains its epoch fences; numeric ordinals do not order freshness.
-This server-side SyncHub coalescing remains exact-key publication behavior and is distinct from the browser's later reconciliation of pending callbacks for one shared lease.
-Connection-local acknowledged leases are independent for global Agents, one card sessions scope, one conversation, and one exchange.
-Subscribe replaces an exact key before acknowledgement, stale unsubscribe cannot remove its replacement, and socket close drops all lease state.
-Frames route only to matching leases; a card-membership frame additionally reaches global Agents leases.
-WebSocket hints carry no membership or write authority.
-Server event egress is the strict connected `status` envelope; browser input admits only subscribe/unsubscribe, with no Analyst message, activity, error, or thinking wire member.
-Its final source-owned projector copies only declared fields, with no undeclared dynamic passthrough lane.
-The browser's server-egress parser is a throwing boundary: structurally invalid, unknown, malformed, and wrong-direction events do not dispatch.
-The sole event envelope is transport status `{type:'status',content:{event:'connected',timestamp,clientCount}}`, with no Analyst identity. Independent subscribed/invalidate frames retain their strict contracts. Ordinary Cards freshness remains scoped identity-only invalidation; no activity or turn acknowledgement is emitted.
+| Old boundary consumer → successor tracker | Installs derived interruption event/new guarded task without awaiting Supervisor. |
+| New task → captured urgent settlement | No record/session/process/provider preparation before settlement and authority checks. |
+| Urgent settlement → descendant + retiring boundary joins | Never joins surviving boundary lifecycle/current guarded task. |
+| Halt → current/retiring owners + same urgent settlement | Urgent work never waits on its encompassing halt. |
+
+Descendants stop leaf-to-root; boundary retains activation/parent direction. Urgent
+root replacement stops root last, retires it and installs one STOPPED replacement
+in the **same** Run/gate, transferring settlement through map swap. Pause-before-claim
+suppresses; Pause-after-claim parks successor provider frontier. Stop/close suppresses
+replacement. No old call/result is reconstructed from child status or replayed.
+
+### Stop, application close and cancellation
+
+Result/cancel compete for one terminal winner. Cancel claims exact active suffix,
+preserves already-done descendants, publishes deepest-first and joins cached
+settlement. Controlled interruption preserves parked calls and known evidence for
+truthful no-continuation settlement. App teardown directly disposes/freeze-joins;
+it can take over that same settlement, never revive work.
+
+Project Stop is one non-domain halt, not cancel or full-chain durable settlement.
+It freezes owner graph, closes admissions/gate, interrupts leases and rejects owners
+before awaits, aborts/disposes all then joins. This settlement-before-join breaks
+LLM→child lease→activation cycles. Success clears authority to stopped; failure
+retains halt/graph in error and blocks Run. Stop writes no card outcome. App close,
+Stop and actor-main containment converge there; publication uncertainty bypasses it.
+
+Boot's terminal coordinator synchronously tries every admission closer before its
+first await, then reverse-registration bounded cleanup leaves. Runtime cleanup awaits
+the same halt, not duplicate Stop/root termination. Fixed component/code reports
+record timeout/rejection without skipping later leaves. `App.stop` returns report;
+process adapters own warnings/exit. Confirmed restart exits 75 after acknowledgement/
+cleanup, not proof of replacement boot. Bodyless Pause/Resume/Stop reject any defined
+body before runtime; Restart requires exact confirmation and authenticated capability.
+See [runtime control](../runbook/runtime-control.md) for operational decisions.
+
+### Startup and Run recovery
+
+After strict admission but before usable stopped/readiness, composition settles the
+configured Analyst and established Oversight's sole valid final unmatched call via
+shared `conversation-recovery.ts`, with one permanent uncertainty-only failed mate.
+Absent Oversight stays absent; no notice/new ingress/provider/tool/check is started.
+Init does not gain this server-only correction. Separate actual-use owners may do
+the same for only imminent configured card activation or a new explicit internal
+Analyst submission. Malformed/nonfinal/multiple-unmatched history always fails.
+
+Supervisor's one broader card-chain loop is shared by startup and explicit Run.
+It selects all committed linked running cards, rejects branching/discontinuity, then
+for each leaf-to-root card stabilizes distinct configured agent sessions in graph
+order and immediately publishes stopped before next ancestor. Card recovery owns
+classification/recovery notice, not globals. Clean/system-only/settled-terminal/
+exact recovered sessions are read-only; tool-pending gets uncertainty mate+notice,
+provider/text-pending notice only. Notice binds latest valid activation and exact
+deterministic source, not child outcome. Actions/logs grant no replay.
+
+Startup is ownerless and stays stopped; Run installs prepared root and uses its
+publish/currentness checks, then STOPPED root launch. First failure ends loop; a
+known partial stopped-descendant prefix is valid for a genuinely new attempt.
+Ordinary Stop can leave durable running for later Run recovery. No multi-card
+transaction, actor reconstruction, graph-position recovery or automatic Run exists.
+
+Ordinary conversations/evidence write only under durable running card ownership;
+urgent recovery joins summary/evidence before stopped publication. Thus running
+chain/configured globals/app log explain interruption-suspect writers, **not** a
+narrower startup read scope or host/storage-loss completeness proof. Strict existing
+stopped-session reads still occur; they do not gain corrective appends. Recovery is
+loss-tolerant, not exactly-once effects or semantic completeness.
+
+### Oversight schedule and check ownership
+
+`application/project-oversight.ts` owns one monotonic deadline or one runtime
+`OversightSession`, not a persisted schedule. Each eligible Run epoch waits the full
+configured interval; check completion re-arms only if still running. Long deadlines
+use bounded chained timeouts, not interval/catch-up ticks. Pause/Stop/close disarms
+and cancels current check; retained timestamps describe only this service epoch.
+Enabled or disabled configuration still compiles its selected global policy.
+
+Each check creates a fresh global-purpose ConversationLLMActor over the retained
+configured session, renders generated vocabulary and appends ordinary marker/ingress.
+No-action may succeed. Known returned tools settle truthfully on cancellation before
+continuation suppresses. The session clears task/controller before membership hint,
+so next executing snapshot cannot retain a completed check. Expected attempt failure
+settles failed; unexpected owner/protocol failure closes App admissions, joins bounded
+cleanup and exits 1. Publication uncertainty bypasses that cleanup at the fatal port.
+
+Oversight's allowlist has no command/MCP/skill/record-write/child/lifecycle authority.
+Its only intervention is the shared notification input/result port, admitted under
+the exact active check signal, for a card with compiled child-capable designated
+recipient. Another participant cannot borrow that signal. Observation/materiality
+guidance favors useful bounded advice rather than micromanagement or new strategy
+ownership. Analyst uses the same notification contract under its own audited runtime-
+cancellation admission, never an agent-name-inferred fallback.
+
+## Canonical graph and direct persistence
+
+Identity derives parent/depth, never membership. CardService exact target traversal
+proves only committed root-to-target membership and reached heads/selections;
+subtrees follow committed order. Narrow relationship reads do not validate unrelated
+dependencies. Disposable full active projections validate dependency references/
+cycles when required by list/delete; they are discarded after call.
+
+Creation starts parent-local segment a every time and exclusively mkdir-claims each
+forward-derived candidate; **only** that mkdir's EEXIST advances spreadsheet sequence.
+No candidate/sibling inspection or allocation from history. Exact parent read comes
+first, then overdepth rejection; in-limit workflow/lifecycle/child permissions and
+depth-twelve leaf check precede dependency work/claim/publication. Complete child
+bootstrap, configured sessions, artifact/head precede one parent snapshot/head adding
+both monotonic membership and complete active order. Failed claimed namespaces stay
+consumed and ignored. Tombstones retain membership/order and terminate traversal.
+
+### File owners and selection
+
+| Owner | Canonical data and consuming scope |
+| --- | --- |
+| `card-files.ts` | Card head selects ordinary/tombstone predecessor document plus current-only mailbox UUIDs; exact current read does not traverse old history. |
+| `authored-record-files.ts` | Record head selects sole draft/baseline/latest acceptance; exact accepted predecessors are consecutive documents, independent of mutable revision. |
+| `conversation-file.ts` | Exact cumulative index selects self-contained ordinary/compacted segments; shared loader distinguishes growing current from immutable historical. |
+| `app-log.ts` | Complete strict event/control/external-receipt union and duplicate-ID validation before query filtering. |
+| `provider-exchange-log.ts` | One strict stream per canonical session across segments; validates primary/internal-summary IDs, then latest primary by time/attempt, earlier physical tie. |
+| `card-execution-log.ts` | Lazy execution format 1 entry/spawn/known finish associations and exact captures/artifacts; incomplete not live/replay state, no startup scan. |
+| `config-file.ts`, `auth-profile-file.ts`, `project-identity.ts` | Exact configuration/credentials/identity files under their owning contracts. |
+| `runtime/lock.ts` | Exceptional process exclusion, not durable application state coordination. |
+
+Current family labels are card ordinary/tombstone 4, head/mailbox 1, accepted 4,
+record-head 3, conversation 12 and shared app/provider rows 2. Versions are change
+labels, not revisions, segment ordinals, currentness or whole-project compatibility.
+The [format reference](./durable-format-changes.md#current-source-baseline) owns
+complete baseline/history; equal-number historical incompatibilities stay historical.
+
+Current projections pair exact fresh head UUID with mutable revision. Historical
+accepted selections have null current identity/revision, not fabricated old heads.
+Queue-only changes advance card revision without ordinary history; current draft
+and pending pointers have no predecessor history. Ordinary cards have sparse
+historical revisions; accepted documents are consecutive. Each reached predecessor/
+selection/link is strict at use; current reads certify neither unconsumed history
+nor future write authority. Live mutation grammar owns immutable type/fields,
+membership/order, exact lifecycle companions and provenance, not fictional queue replay.
+`commitActivationOutcome` is sole running-to-done/failed/blocked publisher; recovery
+stop and STOPPED activation retain separate exact branches.
+
+Record initialization is absence-only current baseline0; opening consumes it into
+draft0/target1, changed nonempty mutation becomes target document, later drafts
+target accepted n+1. Baseline/draft0/empty is ineligible even with accepted backing.
+Root bootstrap/repair use exact runtime authors; child bootstrap actual creator.
+Direct Analyst acceptance has no transient workflow draft. No head/version catalog,
+free-draft recovery or seed-provenance inference exists.
+
+### Publication primitives and uncertainty
+
+Immutable documents/segments publish before selector. Fresh exact-target lstat
+refuses every present object, accepts only ENOENT and never inspects it. Owner-
+established initial head absence needs no extra probe. Replacement uses one fresh
+random same-directory UUID temporary opened O_CREAT|O_EXCL|O_WRONLY once, write/fsync/
+close, rename target, fsync parent. No retry/alternate name/temp cleanup. All creation
+uses Node defaults/umask, no mode/chmod/probing.
+
+Head/index publication first unlinks exact prev (ENOENT only), links established
+current to prev, syncs parent, then fresh-replaces current. Initial absence clears
+prev/syncs without link; failed link never chooses initial mode. Normal reads/writes
+never read previous bytes. Prev can be absent/equal-current and share inode damage;
+it is neither transaction nor guaranteed recovery. Each card/record publication
+creates a fresh head UUID including queues/drafts/discard/restoration.
+
+Growing JSONL append is one newline physical strict versioned envelope with nonempty
+ordered rows. Plain append-open missing alone permits owner's first publication.
+Clean app/provider tail admission validates final envelope; ordinary reads validate
+complete stream semantics. Torn tail requires full retained-prefix validation then
+exact ftruncate/fsync/close, returning validated projection without reread. Complete
+malformed data, empty/no-valid-prefix and immutable old segments fail unchanged.
+Conversation writer already consumes current and validates incoming batch/session
+IDs, not a prospective second fold. No writer retains validation authority.
+
+`PublicationOutcomeUnknownError` is direct owner signal; injected fatal port writes
+synchronously to fd 2 and exits 1 before any next read/write/retry/log/response/halt/
+cleanup/lock release. Rename/parent sync, append writes/fsync/close and current-tail
+ftruncate onward are potentially uncertain. Direct unlink/link/open errors retain
+their owner classification. The policy-free exact-write loop advances only positive
+short-write unsent suffix; no JavaScript thrown-write retry or unknown resend.
+CardProcess raw callback catches uncertainty even after wrapper cancellation; read-
+owned truncation preserves it through all projection/tool/HTTP catches. Primitive
+failure never becomes model failure/no-smaller/Doctor issue/containment success.
+
+### Layout, reset and repair
+
+Card publication establishes history/mailbox/records/accepted/conversations and each
+distinct configured card session root/versions/empty index. Bootstrap establishes
+global container and required Analyst. Existing empty indexes require established
+parents at actual publication; no preflight repairs missing directories. Children,
+Oversight, app log and work/stash paths remain owner-local lazy. Successful file
+reads/readiness do not certify all future parents or require every lazy root.
+
+Reset owns exactly cards/agents/logs/work wholesale and publishes fresh project
+under exact lock; source, target outputs, search-ignore, identity, credentials,
+prompts/skills/instructions, diagnostics, repair-attic and locks remain outside.
+Every pre-existing lock blocks; no siblings/orphans are discovered. Noncanonical
+temps/unlinked namespaces remain ignored forever during normal operation.
+
+`repair-target.ts` is pure exact candidate inspection, shared with CLI consent/
+byte-absence recheck. Previous selectors are whole candidates; indexed rollback is
+only immediate wholly valid predecessor, never historical tail truncation. Current
+tail is reported truncation; restoring index publishes first then truncates its
+now-current reported suffix. Eligible separate discard needs both unusable card
+selections, strict ancestor/type/depth proof and distinct loss consent; record damage
+alone is insufficient. Six exact own roots move wholesale to fresh attic without
+children/inventory; fresh synthetic runtime:repair FAILED1/placeholders/empty indexes
+do not invent old facts. Later healthy-ancestor Run may let Planner reopen it.
+First failure stops, no compensation; uncertainty is fatal before report/descriptor
+or prompt/lock release. Full [adoption procedures](../runbook/state-adoption.md)
+require stopped exclusion, successful complete preserved backup, report/consent and
+separate restart. Repair is not old-format conversion. External migration is only
+explicitly requested, offline and outside product/packaged utilities. No detector,
+dual reader, normalization, automatic rollback/reset or binary-only downgrade exists.
+
+## Processes, workspace and tool evidence
+
+Server composition creates one ManagedProcessGroupRegistry, disjoint runtime-card,
+Analyst and MCP roots, then ProcessRunner. Registry owns scope/category authorization
+and group truth; runner owns output/presentation, not roots or raw registry access.
+Spawn installs error listener before leader-PID inspection. Dynamic direct scopes
+retire only after exact positive absence; unverifiable groups remain retained.
+This is ordinary lifecycle correctness, not containment of trusted root agents.
+
+Group tracked/absent/unverifiable, native leader exit/error and each stream EOF/
+closed/open/not-captured/capture failure remain independent. First authority loss
+marks unavailable and rejects waits without probing again, manufacturing exit/EOF
+or restoring authority on later exit. Wait timeout is observation, not containment.
+Terminal wait/kill/cleanup captures records before await, forms call-local results
+and retires only eligible exact presentations; entered overlapping consumers keep
+their captures. Scope cleanup joins only report-stopped groups/drains, retains failed
+and unavailable scopes and propagates ordinary failure after selected joins.
+Process logs append synchronously per callback, no retained WriteStream lifecycle;
+uncertain output writes are fatal before retirement/evidence/cleanup.
+
+`command-policy.ts::sanitizedCommandEnv` owns inherited allowlist including optional
+four Git author/committer variables; no default identity or arbitrary credentials.
+Stdio MCP applies explicit configured env afterward. Ordinary run_command sends one
+unchanged bash -c argument; shell.run has its own compiled script/argv/env/time/artifact
+contract. Card tools alone derive `SAIVAGE_CARD_WORK_ROOT`; globals/MCP receive none.
+Native absolute cwd is direct, relative/project paths contained; scoped schemes have
+their own admission. Captures remain project-owned regardless cwd.
+
+Process result owner reads captures once, normalizes valid UTF-8 prefix/redacts then
+selects certified 2048-byte/30-line heads, raw counts/completeness and fallback URLs.
+Strict successful run/wait/kill envelope is at most 32768 canonical bytes; generic
+historical list data is not backfilled to today's ProcessView. Primary-only URL
+omission happens after strict successful result validation; durable/history/summary
+source keep original bytes. Missing output is not completion or containment.
+
+Agent read/glob/grep use native absolute or project-relative paths via
+`workspace/agent-read-path.ts`, distinct from contained mutations/images/operator
+Files. Explicit ordinary aliases may read external targets; secrets/internal
+namespaces remain excluded before content/enumeration. Discovery skips fixed
+build/cache/dependency/.git directories and does not recursively follow directory
+symlinks. Project recursive search reads strict `.saivage-search-ignore` once per
+invocation, before directory traversal; explicit files/external roots/nonproject
+schemes do not load it. This is pruning, not confidentiality or permission.
+One fresh deterministic traversal computes total and requested window; no snapshot,
+index or stash. Record search reads effective declared logical records, not physical
+head files. Current reads are observations; immutable version tools alone emit
+retained locators/hashes.
+
+Shared collection packing measures final settled envelope, with stateless continuation
+and lowercase-hex JSON byte slices for complete projected items. Scalar summary/
+workflow rejects position; historical children page stored carrier without live-child
+claims. Plain text/diffs use their own slices. Process/MCP/session/diagnostic/control
+surfaces do not join that paging API. Bounded webfetch owns one reader; metadata GET
+discards bodies by awaited cancellation. Only successful no-save text overflow can
+retain normalized raw source to exact stash and return certified redacted head/count/
+pointer under final-envelope budget. Binary/non-2xx/save paths fail max bytes.
+No stash discovery/GC/retry. Write/edit admission distinguishes lexical tmp capability
+from normalized destination identity; a plain/system alias to protected .saivage
+does not acquire tmp authority. URLs redact userinfo/query/fragment before output.
+
+## Provider context and compaction
+
+Contracts own pure provider/context/request/failure/validation declarations; runtime
+owns source selection and context; agents own actual request/admission/attempts;
+persistence owns successor publication. `composeContextProjection` orders stable and
+fresh record blocks plus latest record descriptor facts, one provenance boundary,
+accumulated history, newest recovery/refusal facts, retained instructions and uncovered
+suffix. Structural preparation snapshots never reenter context.
+Summary source is validated then projected one-way; transformed range text is not a
+durable row. [Prompt handling](./prompts.md#composition-compaction-and-evidence)
+explains retention and prepared/current/historical distinction.
+
+### Self-contained successor and sequential construction
+
+Compacted genesis contains summaryText, ordered protectedPrompts, newest recovery/
+refusal slots and descriptor-only latestRecordObservations, exact source/cutoff and
+between-rounds or inherited-open continuation. It is sole prior-history input;
+current projection never opens old bodies. Required facts grow with actual keys,
+not fixed-memory eviction. Strict fresh source consumption proves candidate prefix,
+atomic tool/private bundles, exact protections/facts and physical suffix. No checksum
+lineage/retained-row inventory certifies prose edits. Successor UUID is allocated
+once for candidate/publication; segment publishes before cumulative index selection.
+Freshness/cursors compare UUID **and** ordinal, including rollback/recompaction.
+
+One compact call chooses at most two positive endpoints: backward-tail preferred
+safe prefix and furthest legal fallback. Whole fitting rounds use configured snap;
+oversized newest round permits row-level suffix target snapped backward to atomic
+boundary. The target is preference, not guaranteed tail/fit. One sequential refine
+accumulator advances disjoint source ranges, transporting new projected source once.
+Structural-only advances use no provider and no fake accumulator; local state commits
+only after whole advance. Latest genuine fold recipe and one correction bit share
+16 logical calls, no pool/cache/candidate table. Whole-component geometric probes/
+bisection precede code-point refinement of next text component; images stay atomic.
+Wrappers/escaping/prepared blocks/accumulator and 2000 output tokens enter actual
+summary serializer admission. Cancellation checks do not interrupt synchronous
+serialization mid-step. There is no universal linear-cost or fit guarantee.
+
+Preventive strategy seeks strict estimated-token reduction within hard budget,
+choosing smallest qualifying candidate; trigger is a target. Local-exact uses strict
+image-aware accounting-byte reduction, tie furthest; authoritative accepts first
+token reduction. Only complete prospective-valid candidates qualify. No-smaller
+publishes nothing. Soft summary targets 12000/6000 bytes do not reject complete long
+prose. Empty/tool/Chat length output may receive one source-faithful correction;
+protocol/infrastructure/invariant/cancellation/evidence failures do not become size
+rejection. Ordinary completed candidate precedes eligible declared omission.
+
+First real summary policy refusal publishes source-session exchange evidence once,
+then forbids more summary calls for that invocation. Without ordinary candidate,
+eligible local declared omission may discard inherited compactable prose/covered
+narrative at the same strict endpoints, retaining protections/facts/context/
+continuation/suffix. Partial folds supply no coverage; no extra image/history/provider
+read is used. Concrete days of narrative may be lost. If no candidate succeeds, card
+compaction-summary-blocked/global safe failure retains original primary evidence
+and summary ownership. `SummaryEvidencePublicationError` cannot authorize fallback;
+unknown publication remains fatal. Last-chance summary-unavailable marker carries
+no route/attempts and prevents duplicate/reidentified primary/summary evidence.
+
+### Request plans and exact admission
+
+Actor weights and provider wire admission are separate. Candidate builder maps
+ordered projection once, serializes canonical body, hashes and estimates
+ceil(UTF8bytes/4) plus each emitted image raster reservation. Each CandidateRequestPlan
+retains structured candidate, capability snapshot, adapter and exact bytes; admission,
+retries and send reuse them. Actor-visible weight drives preventive maintenance,
+not provider fit/billing. Usable input is floor(U*C)-O; runtime binding stores max
+positive capacity, actual candidate admission uses its own. Prepared input supplies
+completion/utilization once, not modelParams fallback; summary uses same retained
+winning admission/hash through application boundary.
+
+InvocationService admits capability-compatible candidate membership once per
+projection in route order, without credentials/exchanges/availability changes.
+Incapable candidates neither trigger nor suppress size-fixable compaction.
+ConversationLLMActor may do one local-exact compaction/readmission before primary
+I/O. Authoritative input-context failure suspends typed admitted execution; one
+compaction can rebuild only context-failed/nonexhausted retained members, retrying
+the failed member first. It never enumerates routes to reopen rejected/exhausted
+ones. Same input, captured blocks/tools/temperature and attempt continuity remain;
+only history changes, without reappending ingress/results. Later logical operation
+refreshes records. Second rejection/failed one local pass is final, no third pass.
+
+Attempt runner orders cancellation, unconditional body-hash integrity, retained
+capability invariant, credentials, protocol wire derivation, recorder/fetch.
+Integrity error escapes before classification/retry/availability/evidence. Ordered
+tool schemas project frozen Chat nested or Responses/Codex flat layouts. Nonempty
+surface uses auto tool choice/parallel false; no forced terminal phase. Chat/public
+Responses use JSON; Codex SSE. Chat sends max_tokens, Responses max_output_tokens,
+Codex neither, while admission authority remains exact. Adapters cannot read history
+or choose context. Responses native private replay compares required producer-account
+hash(provider,account); mismatch omits only whole encrypted reasoning objects, not
+native text/functions or marked pairing. Alias equality is not credential equality;
+invalid encrypted content is terminal, never inferred provenance/backfill.
+
+Codex affinity derives transient SHA256(project root, actual invocation owner),
+including distinct summary owner. Body prompt_cache_key enters hash/admission and
+header session-id derives from that body. It is not encryption/auth/global identity
+or a cache-hit/economics guarantee. Protocol parsers preserve real call identities,
+latest complete output and strict terminal signal. Codex valid response.completed
+returns known result without waiting EOF, no delta-text assembler/fallback terminator.
+
+### Failure, retries and evidence
+
+Direct structured classifier distinguishes non-OK HTTP versus opened terminal
+payloads; real status remains evidence. Auth/rate/context-content ambiguity/exact
+context/content/terminal precedence is not prose/nested-cause matching. Exact
+overload aliases alone grant unbounded abortable backoff 30–600 seconds outside
+ordinary four-failure/two-hour finite budgets; generic 5xx is finite. Ready viable
+admitted alternatives retain scheduler priority and exhaustion never reopens on
+cooling expiry. Pinned autonomous content-policy pass retries only that refusing
+candidate/byte-identical plan after overload; it cannot failover/compact/suspend or
+gain a third policy pass. Continuation returns to original ordinary route with fresh
+input, never replays completed tool/effect/result. Second refusal appends marker
+first, links real error attempts and delivers safe BLOCKED through normal owners.
+
+Recorder owns actual started attempts once. Owner cancellation is exact reason
+identity; unrelated racing error retains actual failure. Known success survives
+abort as facts but cannot update availability after abort. Lease revocation fences
+late raw work from canonical publication/hints/delivery; wrapper rejection alone
+does not prove raw work stopped. Summary evidence publishes under canonical source
+session with internal-summary identity, not triggering primary input. Errors link
+terminal_conversation_output_id; successes link assistant_output_ids. Provider-
+reported five-counter usage preserves zero versus unknown, never sums subsets or
+estimates billing. Latest-primary reader validates summary rows but excludes them
+from latest competition.
+
+Request consumption owns 120000 ms inactivity and 900000 ms absolute timers before fetch;
+headers do not renew, actual body bytes/SSE data outputs do. Comments/partial frames
+are not progress. Timers end before recorder/publication/recovery waits; owner reason
+wins abort-associated normalization. OAuth refresh has independent scope and strict
+status-only non-OK handling:429 rate-limit/Retry-After,5xx/network finite transient;
+other 4xx/malformed successful payload may retain old token for subsequent real auth
+handling. Refresh failures send no stale-token provider call or fabricated exchange.
+Latest-file replacement is accepted last-completed-write-wins with credential-loss
+risk, no CAS/merge/lock. Process-local availability resets on restart and is not
+durable health. Provider API projects Registry capabilities/candidate records.
+It exposes no endpoints and uses no configuration fallback.
+It does not present an account aggregate as model facts.
+
+### Operational observations and private diagnostics
+
+`observability/outbound-http.ts` supplies call-local UUID/elapsed/safe source to
+explicit provider/auth/MCP/web fetch owners and scheduler waits. Composition binds
+one Fastify info sink; downstream packages do not import Fastify. Dispatch/headers/
+terminal/body disposition follow actual consumption, without tee/drain. Manual
+retries/redirects get new IDs; native automatic redirects remain one fetch. Wait
+candidate is not next-send promise. Only sink's ordinary exception is tolerated,
+never publication uncertainty. This is deployment-retained stdout/journal, not app
+log, public Debug or lossless durable request ledger. CLI/browser/stdio peers and
+dependency tooling are not covered external fetch owners.
+
+Opt-in `FailedProviderRequestDiagnostics` observes actual serialized failed requests
+after canonical admission/exclusion. Exclusive activation UUID and self-ignore
+precede finite 16 slots/one hour, 8 MiB documents or 16 KiB metadata; reuse disables
+without inspecting retained data. Current diagnostic 3/privacy 2 positive native-position
+projection distinguishes exact/redacted/omitted/reencoded fidelity, drops extensions/
+images/credentials and reports hashes/counts without a general secret-free claim.
+It is sensitive private text, no replay fixture/provider receipt/canonical evidence
+or UI export. Publication uncertainty is fatal before notices/retry/cleanup. Files
+excludes lexical/resolved namespace; diagnostics stay outside reset and have no
+reader/index/scanner/cleanup. [Diagnosis](../runbook/diagnosis.md) owns safe use.
+
+## Outbound MCP connections and native content
+
+This is Saivage→configured server, not external client→Analyst. Composition creates
+one required immutable invocation port and sole installer, reconciles McpManager
+then installs once before inbound work. Duplicate/preinstall use is invariant failure,
+not unavailable fallback. Manager retains definitions/runtimes/status/cleanup;
+tools receive narrow installed invocation/control ports and independent grants.
+
+YAML connection policy and lazy strict format 1 `mcp-servers.json` definitions share
+connection schemas. Dynamic literal definitions cannot shadow YAML, never autostart
+and survive reset. Register/replace/unregister are exact synchronous publication,
+not partial config patch or topology journal. Replacement needs contained/eligible
+owner, publishes whole connection then retires it; stopped status alone is not
+containment proof. Unregister can commit removal before stop failure and retains
+closed owner without compensation. Restart captures retained owner, joins stop,
+checks identity/admission/cancellation and fresh-starts selected definition. HTTP
+reconnect is local, never remote-service restart. Failed containment blocks replacement.
+
+Each runtime owns transient binding UUID/catalog UUID and a complete discovery snapshot.
+Ready requires initialize/initialized/all list pages under one 180 s budget. HTTP has
+no HEAD prerequisite or roots advertisement; stdio uses project cwd and answers
+negotiated roots/list on one permanent bounded receiver. Method requests dispatch
+before response correlation; pending slot registers before write. Catalog refresh
+uses same connection,30s queue-inclusive budget and fresh UUID even identical tools;
+only complete current candidate publishes. Whole schema remains intact/fingerprinted.
+Ajv2020 handles absent/2020-12 declaration, draft07 only explicit draft07 (each empty-
+fragment variant allowed); no coercion/default/removal/network refs/dialect fallback.
+
+Invoke validates binding/catalog/schema **at dispatch**, inside stdio serialization.
+Default 900000 ms deadline excludes stdio queue, HTTP covers request/body. Queued
+cancellation dispatches nothing; active stdio abort/ambiguous closure permanently
+fences admission and joins direct containment before outer stop, never self-join.
+HTTP abort is request-local, not remote termination. Fully correlated consumed native
+response remains known after later EOF; exact caller cancellation/publication fence
+still applies. EOF alone does not invent process exit; exact runner observer supplies
+terminal/unavailable facts, preserving failed owner and failure precedence. No
+automatic restart/replay/remote continuity or hard wall-clock completion guarantee.
+
+Live protocol mapper validates full native envelope once; converter retains ordered
+text/image/nonimage metadata rather than stringifying or promoting nested lookalikes.
+Native isError alone supplies telemetry success before later conversion; a later
+image/publication failure does not rewrite known native outcome. Safe diagnostics
+stay tool-local, not duplicate event errors.48MiB wire,32MiB aggregate decoded source,
+1 MiB complete projected nonimage and 512-byte ordinary error limits are not lossy
+prefix paging. Native errors select no pixels. Process/presentation ownership remains
+MCP service scope, not agent wait/kill capability. Shared browser context is disposable;
+catalog readiness is observation, not guaranteed present connection/known delivery.
+
+## Images: selection, materialization and inspection
+
+`contracts/tool-result.ts` owns strict producer-neutral ordered text/image success
+content; `image-normalization.ts` owns source/oriented/sent dimensions/invariants.
+Workspace view_image adds admitted source label and matching strict metadata;
+native MCP reuses neutral content without inventing workspace paths. Backend-only
+Sharp static decode/orient/resize/sRGB produces PNG. Workspace admits PNG/JPEG,
+native additionally WebP with strict canonical base64; source bound 32 MiB/40 million
+pixels, selected PNG 16 MiB, shared max dimension default 1600.
+
+Transient produced content crosses exact invoking-signal fence before real LLM
+settlement publishes `images/<UUID>.png` via fresh-file primitive and canonical result
+descriptors. External calls return call-local bytes instead. Descriptors select raw
+PNG under conversation format 12, no image index/family wrapper/scan/GC. Physical Files
+excludes this subtree. Source/session ownership and repeated occurrence order survive.
+
+`conversation-image-materialization.ts` follows selected original-source descriptors,
+validates bytes/hash/decode/dimensions and binds request-local content. Provider
+adapters are pure serializers; shared OpenAI serializer emits metadata then all
+ordered parts under the original call-linked function output, not a new user image.
+Synthetic summary images keep their distinct user-source path and atomic bundles.
+Each actual emission adds wire bytes/4 plus `2*ceil(width/32)*ceil(height/32)` raster
+reservation under 32 MiB image-bearing request cap; this is approximate accounting,
+not billing. Covered images leave active pixels; later folds inherit prose/tail.
+Both composition and actual retained-image summary use independently check compatible
+fixed summary capability even after tools are removed.
+
+`AgentOperatorReadModelService` independently admits exact session/segment UUID/
+version/result/content-index/image descriptor then uses strict byte reader. Missing/
+changed/unavailable remains typed, no fallback source. Ordinary Files raster inspection
+freshly admits current source separately. Browser caller-local ImagePreviewDialog owns
+one abortable read/object URL, Fit/1:1, exact selected occurrences and focus/background
+scroll. Optional normalization enrichment can fail without hiding typed actions;
+Native MCP capture is a label, not schema source_path. Metadata/copy never fetch pixels.
+Recorded selection/prepared request is not provider perception.
+
+## Read models, transport and browser state
+
+REST is authoritative; WebSocket carries lossy exact-resource freshness hints.
+`operatorApiContracts` is the sole GET/POST request/status-response/auth registry,
+shared by backend and web through operation-indexed types, not generated clients.
+Only liveness/readiness are registry-public; API is operator-session. Auth precedes
+request validation. `ContractRuntime` admits params/query/body, projects allowlisted
+validated identity, invokes narrow handler, validates exact declared status and sends
+one descriptor outside its catch. Handler has headers/finish hook, no status/send.
+Unexpected pre-send errors produce fixed-safe 500 plus phase log; final transport/serializer
+failures belong to Fastify. Undeclared/malformed browser responses fail before store/
+auth signaling. Query-free Pino request URL avoids ticket logs. Static SPA/docs and
+ticket-or-disabled observation WS are separate boundaries; no socket submits work.
+
+### Source-adjacent egress
+
+Owners project classified fields directly: agents provider exchange, observability
+events, persistence control action, config effective input, application cards/processes,
+tools invocation and MCP catalog. `redaction/index.ts` exports primitive text/URL/
+dynamic filtering only, not a generic dispatcher. Strict known outputs never enter an
+opaque fallback. Config omits provider/account base URLs, masks keys/env, filters MCP
+URL; tool arguments filter locations independently from execution, while valid record
+URLs retain exact spelling. Generic old result data stays opaque; strict successful
+typed content/selected images retain their owners. Record/card diff projection occurs
+**before** comparison, sharing artifact projection with REST/tools/Files/hashes.
+Text defense has finite credential families/placeholders, no exhaustive detection or
+fixed-point guarantee. Record prompt redaction lifts rules through exactly one JSON
+string layer, never recursively reconstructs body/template. Browser message ingress
+is not an egress projector.
+
+Successful navigation data is independently parsed against the strict shared
+target/intent contract immediately before browser route effects, requiring exact
+tool correspondence. Invalid/cross-wired/failed/unknown results cannot navigate;
+opaque historical payload inspection does not bypass this effect admission.
+
+### Granular card, session and evidence resources
+
+CardsReadModelService supplies separate immediate hierarchy, selected detail,
+compiled descriptors/exact records, history/version/diff. Hierarchy reads immediate
+membership once and projects compiled permitted_child_types; current semantic order
+filters complete active carrier through exact live children. No aggregate index/cache.
+At depth d exact path consumes d+1 heads/selections; history adds reached predecessors,
+records their selected documents. Writes avoid history-sized copies, not body/pointer-
+size work or indefinite immutable accumulation. Virtual Files is exact linked semantic
+card/record content, never raw head/index/mailbox or fallback filesystem access.
+Current card wrapper is versionless/head-identified; historical/tombstone wrapper 4
+is projection, not another durable family.
+
+Agent read model derives inventory from configured globals/active cards, direct known
+session from current/tombstone type and exact session grammar, without enumerating
+sessions. One request-local executing-session map supplies active/busy, not transcripts/
+app logs/browser joins. Started_at comes from index; exact history access remains
+lifecycle-ungated. Current/history both validate canonical data then exclude private
+rows and project safe opaque results. Cursor/version selection follows complete
+validation. Current instructions render all matching **loaded** bindings without
+conversation/evidence/disk reread, dynamic context/tools/wire bodies or provider
+invocation; initially closed browser disclosure owns abort/discard/reopen/Refresh.
+Same-session segment updates do not refetch it. Historical text remains separate.
+
+Execution read model strictly consumes lazy non-LLM history then selects bounded rows/
+invocation/file reference. Preview/download delegates same Files confidential text
+owner, not raw capture. Events read complete app log then filter/page; Errors are
+explicit runtime diagnostics/actionable errors/failed MCP, never direct-control
+informational events. Control actions/external receipts are separate bounded
+observations, not delivery/effect ledger. Content-policy endpoint follows exact linked
+history/tombstones and refusal metadata; it has no bootstrap/reconnect UI store/banner.
+Doctor alone converts ordinary one-cards-read failure to fixed diagnostic 200, preserving
+publication fatality first. Workflow presentation is immutable per-type compact
+topology; Debug Graphs projects rich installed declarations/bindings without body/path/
+accounts, not a reconfigure disk view.
+
+### Freshness and request owners
+
+Owners call typed SyncHub picks after known publication: runtime; exact card scope;
+Agent membership; conversation UUID/version/last physical row; primary exchange.
+No EventBus, event freshness, Files/Processes/Timeline topic or write authority.
+Card changes invalidate detail/history/diff/own children and known parent children;
+tombstone adds declared records, accepted record only its exact name. Initial pre-link
+bootstrap/no-op/failed writes emit none. Conversation first publication adds membership;
+summary evidence emits no primary exchange hint. Coalescing uses last accepted arrival,
+not numeric max ordinal.
 
 ### Exact SyncHub debounce policy
 
@@ -2031,355 +1058,160 @@ constant.sync-hub-debounce-ms = {"unit":"milliseconds","value":75}
 ```
 <!-- saivage:value-contract:sync-debounce:end -->
 
-In the web dependency direction, SyncStore owns only the connection manager's exact socket state, while RuntimeStore owns acceptance and lifecycle for the combined runtime REST payload pair.
-RuntimeStore preserves the accepted `runtime.status` snapshot: the lifecycle label, `currentCardId`, and `actorRuntime.cards` workflow positions derive only from that observation, while `/api/state` supplies project identity and availability with no cross-field fallback.
-RuntimeStore separates never-loaded loading/error from accepted-state refreshing/refresh error, retains accepted state on refresh failure, and records only the absolute completion instant of its last current-epoch success.
-Accepted null is stopped/no-live rather than absence.
-Socket state, runtime payload, request state, and command errors are not fused; there is no runtime age or callback-provenance model.
+LiveSyncSocket owns connection-local acknowledged exact-key leases for global/card
+membership/conversation/exchange. Replacement subscribe precedes ack, stale unsubscribe
+cannot remove successor; close loses all leases. Browser generations fence old callback
+completions, baseline callbacks precede pending reconciliation, and each registration
+gets its own ack baseline even shared callback object. Global distinct pending scopes
+broaden to null baseline; one repeated scope stays scoped. No global cross-generation
+flight gate. Ordinary non-Cards refetch registrations use one active plus latest trailing
+function; Cards has its separate invalidation/reconnect branch.
 
-Every non-Cards SyncClient registration is exactly `{resource,refetch: () => Promise<void>}`.
-Connected registration and each socket open enter one per-resource single-flight: one call is active, every trigger while active replaces one latest trailing function, and either resolution or rejection starts that trailing call.
-There are no registration scopes, ownership modes, completion booleans, callbacks, or connection/event/refetch timestamps.
-Cards remains the distinct `{resource:'cards',onInvalidate,onReconnect}` branch with its baseline-open behavior.
-Agent/conversation/exchange leases instead own one exact-key transport lease and distinct consumer registrations.
-Each current registration receives exactly one initial `null` baseline invocation per acknowledged transport generation, including a late join after wire acknowledgement and two registrations that reuse one callback object; joining never sends another subscribe. The browser tracks the transport acknowledgement separately from the callback value: a global Agents registration may later receive an additional `null` baseline reconciliation when distinct pending membership scopes have been combined, while other lease types gain no additional baseline from that rule.
-Each lease retains one pending slot. For global Agents, an empty slot retains the incoming exact membership scope, another hint for that same exact card or global-session scope remains scoped, and a distinct pending scope broadens the slot to `null`; that broadened baseline is absorbing until drained. This merges only hints pending together, so an executing scoped callback followed by one new scope remains selective rather than forcing a whole-Agents refresh. Conversation version selection and other exact-key leases retain their existing rules.
-Within one generation, acknowledgement baseline callbacks settle before the retained pending reconciliation, release suppresses a not-yet-invoked registration, and only acknowledged current registrations receive frames.
-Reconnect installs a fresh lease and generation-local dispatcher state, so newly acknowledged work may run while obsolete-generation callback work remains unresolved; every old completion is inert toward the current flight and trailing frame.
-There is no cross-generation or global flight gate.
+RuntimeStore owns combined REST state/status acceptance, not socket state; accepted
+null is stopped/no-live and refresh failure retains last success. CardStore owns
+parent-keyed hierarchy, selected detail, ordered exact record slots and independent
+catalog/version/diff. Each request owner/AbortController compares exact identity on
+success/error/finally; reset/selection replacement aborts first. Record current responses
+never overwrite captured historical/diff fields. Exact detail 404 clears subordinate
+admission; optional record absence differs from canonical damage. Reconnect refreshes
+only accepted mounted scopes, skipping failed-stale until Retry; no fanout/preload.
+Deep reveal traverses accepted nonstale slices with ephemeral action token, bounded
+by card depth. Display paths derive loaded sibling order, never identity normalization.
 
-Runtime, Card, and Agent Pinia stores own separate resources.
-Global Agent inventory exists only while the System Participants section holds the acknowledged global lease and is partitioned by global/card scope. Targeted global membership requests own independent exact session-ID keys and upsert only that session in the shared global partition; they never replace or cancel a sibling. Card hints still replace their exact card partition. A fresh whole-inventory request aborts outstanding membership requests and fences their late responses with the baseline generation; baseline acceptance also aborts and fences hints started while that baseline was pending. The selected session reader additionally owns one exact summary reader. It is the sole `currentSession` writer, independent of transcript and inventory requests, and uses the selected conversation token plus one in-flight read and one coalesced trailing-refresh bit. Existing scoped membership hints trigger only relevant exact summary rereads; unrelated known scoped hints remain suppressed, while unknown card scope may exact-read the selected summary but never infer scope or fetch inventory for detail. A whole-Agents baseline reconciliation also exact-rereads the currently selected summary when one exists, independently of the inventory baseline; it neither writes nor acknowledges the transcript.
-Card Conversations owns a separate card-keyed store and lease.
-`workspaceRoute` remains the sole bounded logical-navigation-history owner. Its
-one owner-local single-flight automatic selection replaces an unselected
-Conversations address with the canonical exact session and suppresses only the
-matching successful synthetic source. Concurrent duplicates are inert; failures
-project and suppress nothing, and ordinary pushes retain normal recording. This
-call-local exception is not a second history, selection cache, or retry protocol.
-The persistent Analyst store owns a readonly discriminated identity projection and one explicit epoch/AbortController identity resolver; replacement resets identity handoff/transcript exactly once, and stale completions are inert.
-Analyst and selected-Agent stores retain separate identity/send and selection/detail lifetimes, but directly share one browser conversation-tail core for request epochs and abort, baseline-versus-tail acceptance, exact cursor rebase, and retained refresh failures. Append acceptance requires the same session and segment UUID/version; a different hint clears the cursor even with the same visible row, and a segment-changed 409 retries one cursorless baseline. Catalog/content `entry_id` remains immutable identity; historical ordinal navigation selects the present catalog, not an old incarnation.
-Their acceptance callbacks remain projection-specific: Agent uses the complete accepted aggregate for warning state, while Analyst reconciles optimistic rows only against the newly accepted response entries.
-Exchange ownership remains independent.
-Application bootstrap starts runtime/project, root Card, and Analyst identity reads only.
-`SystemView` owns System routing, section selection, selected-section requests, and the Agent-membership lease.
-The `components/debug/*Panel.vue` and `components/system/*Panel.vue` components own only the State, Operator observation, Errors, Participants, Events, Processes, MCP, Provider availability, Configuration, Installed workflows, Actions, and Doctor presentation and report typed events to that route owner; they do not acquire routing or leases.
-The keyed `DebugAgentDetail` descendant remains the independent selected-detail resource lifetime.
-DebugStore owns only derived Errors among error-backed resources, and section selection triggers that automatic read only while Errors is selected; Doctor is manual, hidden sections own nothing, and MCP has no polling.
-The events store owns bounded retained-event observations (card-scoped tails for the Evidence facet and the unscoped System Events section) with explicit refresh, retry, and oldest-page browsing; it registers no invalidation resource.
-The exact event inventory is `runtime_diagnostic`, `runtime_actionable_error`, `mcp_tool_invocation`, and informational `operator_runtime_control`. Error membership is explicit: the first two kinds and failed MCP invocations only, never a negative default-kind test. Exhaustive outbound and browser presentation branches preserve the new kind's strict fixed `actor:'operator'`, `surface:'operator_api'`, and operation-discriminated `result`; it has no card/session association and cannot enter card-filtered Events. The runtime transport handlers own its sole producer through stateless `createEventLog(projectRoot)`: one append at known Pause/Resume status returns, exact Stop returns, successful restart scheduling, and explicit body/capability rejections. No Supervisor audit wrapper, new store, endpoint, freshness callback or WebSocket value exists. Analyst tools and internal transitions do not invoke this producer. Post-effect publication failure propagates without reread, retry, undo or compensating event. Restart orders schedule → append → finish-acknowledgement installation → response; publication uncertainty escapes before any later operation. See the [bounded result/omission contract](../spec/system-specification.md#direct-runtime-control-evidence).
+Agent inventories partition exact global/card keys and independent targeted requests;
+baseline aborts/fences hints and selected-summary refresh remains separate from transcript.
+Card Conversations owns its own store/lease. Selected conversation and Analyst share
+tail request/cursor core, not selection/send ownership. Append needs exact segment
+UUID/version; segment-changed 409 rebases cursorless once. Explicit history ignores current
+hints. useSelectedConversation subscribes before fetch, token/epoch fences delayed
+cleanup even same-ID replacement; exchange has separate token. Analyst panel owns
+acknowledged handoff/transcript lifetime, AppShell only configured identity arbitration.
+Inspector/panel swap waits teardown tick. Busy removes only optimistic send and
+restores captured draft only if empty; no server queue or socket acknowledgement.
 
-`useExactSessionRoute` owns opaque nonempty scalar `entry` query selection verbatim and scalar decimal positive-safe-integer `segment` selection; missing segment means current and invalid segment is an explicit local failure. Cockpit/CardConversations pass that selection to the one ordinary `AgentConversationView` owner. `useSelectedConversation` and AgentStore retain existing catalog/current/exact-version reads, with cancellation and same-session version fencing; explicit current-equal versions still read the exact response. Accepted current response `segment_version`, not a later session summary or inferred successor, supplies current link authority. Card Evidence links carry each catalog version. The browser-local pure activation projection consumes only already returned public entries, rejects malformed claimed markers at consumption, and retains source order/identities. Its selected-segment index links to actual marker transcript anchors, including activity-only rounds. Exact DOM identity comparison avoids interpolating opaque IDs into selectors. Current hints cannot displace selected historical content; route changes, reload and Back retarget the same reader. Inherited continuation is separate context, not another marker. This adds neither persistence nor a backend activation read model, durable index, scan, registry, all-version read, cross-session chronology, or Debug Timeline; the Analyst inspector exception is unchanged.
-Generic Files remains independently mounted and uses the ordinary non-Cards registration for authoritative REST refetch on registration/open while mounted. Its route watcher solely owns selection resolution, and directory activation only changes the route. A registration/open callback joins a pending initial or newly opened route resolution; it never replaces that operation with a default-root read. Once selection settles, Refresh and reconnect refetch the represented accepted listing directory—the parent for a selected preview—and that preview, with initiating route/preview identity fencing every continuation from superseded navigation or unmount.
-Metadata and Output each own one retained listing slot, root-local loading/error
-and a bounded 30-second age deadline reset only by that slot's accepted listing
-success. Preview/image observations cannot reset listing age or errors. The
-deadline is advisory and performs no read; Files has no invalidation or polling.
-Registration/open is a refresh attempt, not a successful observation: ordinary
-listing failure still permits the independently selected preview attempt.
-Files stale age still derives only from completed REST snapshot time; Files owns no WebSocket freshness timestamp or provenance state.
-The Files key is not part of the SyncHub wire vocabulary.
+Cockpit is one route owner for home/card/exact session, resolving session first;
+global creates no card context and readable conversation may survive unavailable
+card context. Five facets are Overview, Conversations, Executions, Records & History,
+Evidence. Overview reuses record/session owners, not a correctness/completion/wait-
+reason oracle. Executions owns selection/file abort boundaries. Evidence catalog
+uses local direct promises; **not every facet** inherits owned-fetch fencing.
+`createOwnedFetch` handles its consumers' instance-local current request only;
+Cards, graph, directory, inventory and conversation owners keep separate contracts.
+Current-card orientation is an independent last-known detail plus runtime-admission
+observation, no atomic synchronization/polling. SystemView owns sections/requests/
+membership lease; panels present typed events, hidden sections own no automatic work.
+Errors selected-only, Doctor manual, MCP no polling, Events explicit refresh/pages.
 
-`projectCompiledGraphs()` is the source-adjacent non-disclosure projector for Debug Graphs.
-`projectWorkflowPresentation()` projects only one exact installed card type's nodes and full structural topology for `workflows.presentation`. It never projects all rich graphs and discards fields. The cockpit header and participant rail share a per-type presentation store; late detail arrival/type changes select the matching immutable facts, same-type pending reads are shared, and failure allows explicit retry. Accepted data is reused without reconnect refresh or invalidation, and never grants runtime/liveness/card authority. System retains DebugStore and rich installed workflow bindings.
-Server composition passes the one bound `CompiledRuntimeWorkflows` startup object directly to the operator handler.
-Projection derives selected global agents, entries, nodes, configured edges and runtime-owned edges from the immutable startup artifact. Globals expose exact identity, safe static declaration/source, model binding, skills and tools separately. Agent nodes use the same immutable agent bindings as execution; action nodes show exact operation/contract/provider with no model, prompt or fake agent identity. Case routes retain semantic outcome, distinct route ID and typed predicate. There is no actor-definition or node/edge index.
-It omits prompt text/path and candidate account identity and validates the complete strict response schema.
-It never receives `ResolvedConfigAuthority`, source YAML, prompt registries, CardService, event queries, or runtime-state readers.
-Consequently a successful restart-only configuration replacement cannot alter the current Graphs response; only creating a new server and binding a new startup artifact changes it.
+Files owns route selection/listing/preview lifetime separately; reconnect joins pending
+route resolution, then represented listing/preview, never default-root replacement.
+Listing age 30 s resets only accepted listing, not preview or callback time. Lexical and
+resolved privacy/card reservation precedes generic stat/content; exact ENOENT alone
+is absence and indeterminate classifier fails closed. Card aliases never fall through.
+Selected-config aliases use effective projection. Text reads check raw 1 MiB cap,
+whole-buffer UTF8/NUL/control ratio before one decode/redaction, preserving BOM/CRLF;
+images are separate fresh ordinary raster admission. Direct record URLs and virtual
+physical previews retain their own caps/metadata. No raw capture/config/attic bypass.
 
-Shared strict Zod operation contracts are the server response validator and the browser wire authority.
-Browser contracts and inferred types import that backend contract surface through `web/src/api/contracts.ts`; backend schema, route fallback, store/view, and fixtures cut over together.
-`CardDiffRowSchema` is the sole card-diff row owner: it validates required strict `{field,before,after}` recursive-JSON rows at backend final egress and in browser declared status-200 parsing and rejects `field:'pending_notifications'`.
-The browser has no local card-diff row overlay or card-diff client result cast. Public history catalogs retain exactly `entry_id`, `version`, `published_at`, `artifact_kind`, and required nullable `change`; selected outer responses retain `card_id`, `version`, `entry_id`, and `published_at`, with artifact exactly `{kind:'card-version',card,change}` or `{kind:'card-tombstone',final_card,change}`. Non-null change is the strict ordinary `{summary,changed_fields,actor}` projection; initial and queue-only versions use null, mixed lifecycle/queue versions expose only ordinary metadata, and durable change vocabulary/provenance, versioning, and time validation remain unchanged.
-Agent version catalogs retain those same five item fields, selected version responses retain their existing locator identity/time/kind/hash/section fields, and agent diffs retain their existing pivots, side entry/hash identities, observation, and sliced diff. The artifact hash input is exactly the queue-free REST artifact `{kind,card,change}` or `{kind,final_card,change}`, with no outer wrapper metadata. Files historical documents use `{format_version:1,kind,entry_id,card_id,version,published_at,card,change}`; tombstones substitute `final_card` and add `prior_card_version`. Current `card.json` instead uses `{kind:'card-current',head_id,card_id,version_seq,history_version,updated_at,card}`, without a format discriminator; a current retained tombstone uses its terminal historical wrapper. These are projections, not durable families. Listing/preview size is computed from those serialized public bytes by `canonical-card-files-read-model.ts`.
-The Debug error row type is indexed directly from `OperatorApiSuccess`; no response overlay or client assertion replaces it.
-DebugStore keeps those canonical REST rows, while the pure exhaustive web read-model projector creates separate error presentation items.
-This dependency is one-way: frontend display heuristics are defense in depth and never normalize durable/wire input or replace backend source-aware projection.
+### Browser presentation and build ownership
 
-For Cards specifically, CardStore owns disjoint `hierarchySlicesByParentId`, selected detail, an ordered map of selected-card record states keyed by exact configured name, mounted selected history, immutable selected history entry, and selected current-relative diff state.
-Combined record slots have independent current, catalog, selected-version and diff
-field owners. After request/card fencing, current settlement merges only current
-content, loading/error and freshness fields into the live slot; it never restores
-captured historical fields or changes a diff's observed target identity.
-A single compact `CardFlowHeader` owns shared selected-card orientation in cockpit
-facets and admitted card-session views. It keeps the plain-language observed workflow
-step primary and bounds exact workflow/publication mechanics inside its scrollable
-technical disclosure so the independently scrolling facet or transcript retains space.
-`CardOverviewFacet` owns the work-first composition only. It reacts to admitted selected
-detail and reuses CardStore's descriptor authority and those same ordered per-record
-slots for the custom bootstrap and all declared current records. It creates no aggregate
-overview authority, cache, endpoint, timer, transcript fan-out, semantic record-role
-model, completion projection, or wait-reason projection.
-A successful `cards.children(parentId)` atomically owns only `{ parent, children }` at that parent key; only the containing parent's ordered `children` rows render tree membership, titles, and sibling rank.
-A child's own returned `parent` never overwrites its row in another slice.
-Detail, each record, history, entry, and diff likewise replace only their exact authority, so completion order cannot merge or normalize state.
+Shared `JsonText`/json-tokens renders lossless lexical Vue text nodes, no HTML/value
+roundtrip; CodeBlock owns copy/layout and large inputs retain exact plain fallback.
+Shared MarkdownText transforms references outside code, synchronously parses GFM
+then DOMPurify-sanitizes HTML string; sanitizer does not bound parse cost.
+Conversation association uses session/source/call, retains both physical anchors and
+source order while rendering matched pair once at call position. Nonadjacent results
+show later-result provenance. Unknown/missing data stays inspectable/unavailable,
+never inferred success/liveness; disclosures stay in one transcript scroll surface,
+no invented virtualizer or persisted reading-position model. Same selection retains
+ephemeral state; departure resets. Request/Result safe originals are not raw secrets.
 
-Every refreshable scope carries accepted state, initial loading/error state, and independent `refreshing`, `stale`, stale reason, and refresh error.
-It has one exact current request-owner object containing an `AbortController` and promise.
-Same-parent initial hierarchy callers share the current owner; a newer exact refresh immediately aborts and replaces it.
-Every success, rejection, and finalizer compares owner object identity before mutating data, loading/error/freshness, or owner membership.
-Selected records additionally compare the exact selected card and record name.
-`getCardRecord(cardId,name,signal)` forwards each record owner's abort signal through the exact Card record request; selection change aborts and removes every old-card owner before new initial reads.
-Reset aborts/removes all owners before clearing state.
-A refresh marks only its accepted scope stale, success replaces it atomically, and failure retains an accepted value with `refresh-failed` and explicit exact Retry.
-A current-owner detail 404 instead aborts/removes every selected subordinate owner, clears detail/descriptors/records/history/entry/diff state, and retains only route ID plus typed absence.
-Retry performs one request and schedules nothing; other initial failures with no accepted value remain initial errors.
+Root/web manifests and locks own separate dependencies. Matched Vue core patches
+cover root SFC semantic analysis/docs SSR and web runtime/plugin compilation;
+language-tools/test-utils/devtools have independent compatibility. Static roots derive
+executing source/dist module layout, not cwd/ancestor names. Build/serving checks
+belong to [validation](../validation.md), including public /docs and unknown-route 404.
+No runtime OpenAPI generator, prompt editor, generic plugin registry or compatibility
+redirect surface exists.
 
-Record 404 classification requires the exact strict body and selected identities.
-A missing optional record head is represented as absent current, not missing authority.
-Current accepted content remains visible on failed refresh; a failed selected-version request is a selection-local error that preserves accepted state.
-Malformed or unreadable consumed record heads/accepted documents are restart-required and never normalized to optional absence.
+## Lifecycle exclusion and CLI delegation
 
-The displayed diff follows the [exact source-derived request identity and currentness contract](../spec/operator-ui-contracts.md#exact-displayed-current-diff-request-contract).
-Diff and detail remain independent authorities.
+Lock classification is exactly missing, verified live, positively dead,
+indeterminate and malformed; no outcome authorizes removal/takeover. Acquisition
+establishes canonical root/identity/process start, then .saivage/locks parents with
+ordinary defaults and exact EEXIST directory proof. Missing bound identity fails
+before layout. Lock creation is known empty namespace; record write/sync uncertainty
+is fatal. Ordinary failure releases exact owned handle without undoing prior
+config/identity/generated effects; uncertainty permits no release.
 
-Exact invalidation checks the target against accepted loaded/visible state: children refreshes only an accepted parent slice; other scopes refresh only when the target card is selected and that exact detail/record/mounted-history/visible-diff authority is accepted.
-Reconnect first synchronously snapshots all accepted hierarchy keys, selected accepted detail and record slots, mounted accepted history, and visible accepted diff, then refreshes each snapshot member once.
-It discovers or preloads nothing and skips scopes already `refresh-failed`, which wait for operator Retry.
-Terminal detail absence closes every selected-card admission predicate, while accepted hierarchy remains independently eligible for exact invalidation and reconnect.
+CLI status/pause/resume/stop/restart delegates only verified live published endpoint/
+auth. Null endpoint says only active lifecycle owner; runtime control unavailable.
+Missing/dead status is stopped, Stop already-stopped/not-contained, Pause/Resume fail;
+dead directs manual repair. Malformed/indeterminate fails closed. Client never
+rediscovers flags/YAML/env/defaults or falls back after REST/auth/schema failure.
+Disabled auth omits Authorization; bearer requires nonblank header token. Offline
+control never reads/mutates runtime state. [Runtime control](../runbook/runtime-control.md)
+owns operator next actions.
 
-`CardsView` derives the finite ancestor-parent chain from the one current stable route grammar; bootstrap, not the view, owns root loading.
-Reveal follows only edges represented by accepted non-stale slices, loading an idle required parent in order.
-A stale or failed ancestor stops traversal.
-After a successful hierarchy replacement, the view compares replaced parent keys with the current route's stable-ID ancestor-parent chain and invokes the existing reveal action once only when relevant.
-That fresh action-local token can traverse multiple newly represented levels, sharing in-flight owners and loading only next idle slices, bounded by the [exact card identity contract](../spec/system-specification.md#exact-card-identity-contract).
-Irrelevant replacements do nothing; a failed-stale slice waits for explicit Retry, whose successful replacement may trigger one later continuation.
-The action-local monotonic token is ephemeral async ownership only: after every await and before a later request, a superseded invocation stops.
-Root/current-invalid routes clear selected route ownership and supersede reveal without aborting shared hierarchy work.
-Current-valid terminal not-found retains route ownership but closes subordinate admission.
-Detail presentation binds success/loading/error exactly to route and detail identity, so a remount cannot paint a prior route.
-Recovery is explicit user `push` to Cards root with ordinary history; there is no compatibility resolver, redirect, probing, or normalization.
-The layout chain remains the bounded workspace stack → flex-column workspace content → optional non-growing auth banner → remaining-space route host → contained Cards route → independently scrolling tree and detail panes.
+## Source-derived reference
 
-The backend operator boundary mirrors those disjoint resources.
-Operator-card `allowedActions` are an operator-only read-model projection filtered in canonical action-schema order, not role mutation admission.
-The action vocabulary is exactly `card.start`, `card.create`, `card.cancel`, `card.delete`, and `card.reorder_child`; the projection never includes create or reorder, there is no `card.restart`, and blocked has no projected start action.
-One call-local active proof feeds each complete current-record operation; startup passes its already admitted card directly, and aggregate metadata performs one proof plus one record attempt per declaration.
-Active preorder and linked history remain distinct traversals.
-Card history list, exact entry, diff, exact card-scoped conversation admission and Files tombstone access prove the committed target path permitting only a tombstoned final target. History consumers follow predecessors only as required; conversation/current access consumes selected current authority.
-Exact sparse selection preserves card-not-found versus version-not-found; diffs retain historical source and either immutable target or tagged current projection.
-Inspection tools use explicit list, subtree, or section projections rather than recomposing reads.
-Initial publication performs semantic validation once in its publication owner.
-At depth `d`, current path proof reads `d + 1` heads/selected snapshots; hierarchy adds immediate membership children. History selection/catalogs additionally open reached predecessors, costing O(selected depth)/O(history length); records add their exact head/selected acceptance. Writes avoid history-sized copies, not all size-dependent work: pending heads scale with pointer count, drafts with current body, and immutable bytes accumulate forever.
-No operation enumerates siblings, reads unrelated streams, retains an index, or introduces a repository/cache lifecycle.
-
-The hand-authored shared Zod `operatorApiContracts` registry is the sole operator REST contract authority for the backend and web and admits exactly `GET | POST`.
-`public` and `operator-session` are its only authentication classes, and `ContractRuntime` implements exactly those two.
-Its exact public set is the liveness and readiness contracts; every registry path under `/api/*` is `operator-session`, reports authenticated inventory metadata, and maps status 401 to the strict shared `UnauthorizedErrorSchema`.
-Every operation has one required exact status-response map.
-That map alone authorizes server output and browser input: the browser indexes it by exact operation and HTTP status and parses both 200 and declared non-200 bodies before exposing them.
-A validated non-200 becomes one operation/status-typed browser error whose data is the corresponding shared response type; undeclared statuses, invalid JSON, and malformed declared bodies fail before application state or authentication signaling.
-Stores narrow that typed error by operation/status and use validated discriminants and request correlation, never local response schemas or open error records.
-Fixed producer-owned request, response, nested-row, and error objects are strict, while records and explicitly opaque leaves remain open.
-Operation-indexed handler and read-model types are compile-time projections of that same registry, including transformed request values, exact success bodies, declared non-200 bodies, and complete operation ownership; they are not a second contract.
-
-`ContractRuntime` owns each REST registry operation from authentication evaluation through request parsing/transforms, handler preparation/execution, exact status-map response validation, and fixed contract-violation publication.
-Params admission owns canonical card/session identity grammar. After complete params, query, and body admission, handler preparation copies only the metadata-declared scalar from parsed params into an allowlisted failure identity before invoking the handler; projection is not another validation phase and incomplete admission has no identity.
-It sends no body schema-less.
-One outer catch maps a throw in any of those pre-send phases to the strict shared unexpected-500 body and an allowlisted operation/phase/validated-identity log.
-Ordinary 400/401 decisions stay typed.
-Handlers receive a narrow reply capability limited to headers and the raw finish acknowledgement hook; they cannot select status or send.
-The runtime computes one descriptor, leaves the catch, and performs one final send.
-Fastify distinctly owns final-send, serializer, framework, socket, and later transport failures; `ContractRuntime` does not catch or recover from them, and there is no generic error service.
-At the Fastify/Pino boundary, the request serializer preserves Fastify's standard request metadata while projecting its logged URL to the path before the first `?`; it does not mutate the request URL or parsed query used by routing.
-This narrow serializer keeps WebSocket tickets and other query contents outside logs without introducing a generic redaction layer.
-Analyst control-action auditing remains in the separate audited mutation runner.
-
-Development-only `pino-pretty` uses default formatters with `colorize:true`: it strips U+0000–0008, U+000B–001F and U+007F–009F from the default top-level message, displayed outer property names and decoded error stacks, preserving TAB/LF there and formatter-generated colors. Nested error/object metadata is not recursively sanitized; stringified `err.message` can retain literal DEL/C1. Trusted custom formatters and unknown-line pass-through remain outside any universal sanitization claim. Other environments retain JSON output; credential protection remains source-owned, excessive-copy-depth failures are not recovered, and console formatting is separate from durable app-log ownership.
-
-Server composition creates one SyncHub and injects only narrow freshness-effect picks into owners.
-Event publication has no freshness callback.
-Contract-violation app-log publication executes before final send and is part of operation success.
-There is no EventBus, subscription wire-up, route-local publisher, or runtime subscribe API.
-Route composition likewise requires the application-owned `ProcessRunner`; an unavailable-runner HTTP branch is not a production state.
-Other required production dependencies include the runtime application and startup-selected configuration for chat handlers and the card service for file-record reads.
-
-Doctor is `debug.doctor` in the files/debug operator-contract family.
-`ContractRuntime` owns its authentication, strict exact two-variant response validation, outer failure handling, and final send exactly as for other registry operations; the browser uses the shared operation-indexed response parser.
-The files/debug handler owns the one cards-load check.
-Its bounded catch calls `throwIfPublicationOutcomeUnknown(error)` before logging or building the fixed `issues_found` projection, so ordinary card-read failure alone becomes a 200 diagnostic.
-Publication uncertainty escapes unchanged to `ContractRuntime`, whose fatal boundary invokes the application fatal port and produces no ordinary Doctor diagnostic or HTTP response.
-`/ws` retains its separate ticket-or-disabled admission, and static SPA/docs/assets remain outside the operator registry.
-Static roots derive from the executing module's current source `.ts` or compiled
-`dist/src` `.js` layout, independently of the project working directory and ancestor names.
-There is no content-supervision route, OpenAPI document, code generator, generated client/server source, declaration snapshot, or generation/staleness workflow.
-
-`CardService.listCardVersions()`, `readCardVersion()`, and `diffCardVersions()` are singular projections of one call-local committed artifact catalog; `card-version-provider.ts` owns the model tools and consumes the diff's carried selected artifacts without rereading.
-History means resulting stream rows, including terminal tombstone, never embedded prior snapshots.
-Inputs use the [exact backend card history and diff contract](../spec/system-specification.md#exact-backend-card-history-and-diff-contract).
-
-`src/contracts/historical-version-not-found.ts` is the singular schema authority for `historical_version_not_found`.
-Its card, authored-record, and conversation variants share one positive-safe-integer version grammar and correlate each resource with its exact owner grammar: card ID, `<card-id>/<record-name>`, or conversation session ID.
-Direct route contracts and the nested Files error compose those same variants; they do not widen owner IDs or redefine the wire body locally.
-
-Card history-entry and diff absence contracts use the [exact backend card history and diff contract](../spec/system-specification.md#exact-backend-card-history-and-diff-contract).
-Malformed reached exact data remains a server failure.
-The obsolete complete card-list route, `cardIndex` projection, Dashboard/Debug card aggregates, card-inventory Timeline route/components, and Debug event Timeline are absent; agent conversation timelines remain a distinct retained product.
-
-DebugAgentDetail and the primary Agents conversation/raw-exchange components are keyed presentation lifetimes over AgentStore, not data owners or a consumer registry.
-`useSelectedConversation` is the mounted selected-conversation composition boundary: it joins AgentStore's state/request ownership to SyncClient's acknowledged transport-subscription ownership without taking either responsibility.
-A mounted conversation claims one fresh opaque current-consumer token, disposes its live subscription before token-guarded clear, and invalidates its request when the key or route departs; subscribe precedes fetch so initial loading cannot miss an invalidation.
-Exchange selection uses an independent token and abort boundary.
-Token identity and request epochs reject stale callbacks, completion, `finally`, and delayed cleanup, including replacement by the same session ID.
-Analyst `GET /api/chat` identity resolution is a separate request owner from transcript acquisition.
-Its exact current session handoff is claimed by one opaque panel lease handle, and only SyncClient's acknowledgement callback for that consumer can synchronously consume the initial handoff and start the unchanged singular transcript REST/cursor/reconciliation owner.
-Direct refresh, send follow-up, and invalidation are inert before that acknowledgement.
-Release retains accepted and optimistic rows, cursor, and transcript errors and returns the identity to unclaimed handoff-pending; that pending state is cold loading only before any baseline, so a loaded remount keeps retained state visible while awaiting its fresh acknowledgement.
-AppShell withholds a valid Agent inspector while identity is pending or failed.
-A matching resolved route unmounts the panel and waits one Vue teardown tick before inspector mount; departure unmounts the inspector and waits one tick before panel remount.
-Its monotonic reconciliation token is presentation-only and stale continuations are inert.
-
-The Files read model has exactly two concerns.
-Concern A is a pre-generic admission/classification gate.
-For project paths it orders decoded traversal and lexical outside-root rejection, lexical blocked-source admission, lexical `.saivage/cards` reservation, then bounded component-by-component symlink classification for allowed lexical non-card sources; POSIX backslash remains an ordinary filename character rather than a card-path separator.
-For `work:///` it first preserves existing parse/query/fragment/canonical-round-trip validation and `.saivage/work` project-relative derivation, then applies the same outside-root, lexical blocked-source, reservation, and allowed-source symlink stages. The workspace formatter alone maps the admitted exact root's `.` containment result to the empty segment list, producing `work:///`; descendant URL grammar is unchanged.
-An explicit lexical block returns 403 and a blocked listed child is omitted before any classifier filesystem operation.
-Singular canonical project card paths dispatch to concern B; nonsingular allowed project spellings, allowed project/work aliases into cards, and allowed work-derived card paths are opaque as 404 or omitted and never fall through.
-The bounded classifier is request-local, returns no read path, and fails closed when indeterminate.
-A conclusive non-card result alone enters the generic resolver, where lexical and resolved in-project real-target blocked checks remain ahead of metadata.
-The generic read-model owner then performs one direct target stat and locally classifies exact `ENOENT` alone as absence; for listings it applies child admission, reservation, containment, and blocked checks before the child's direct stat, with exact `ENOENT` alone treated as a disappearance omission.
-Every other target or reached-child metadata error propagates unchanged to `ContractRuntime` and its ordinary opaque server-failure response, so no incomplete metadata snapshot succeeds.
-The required `ResolvedConfigAuthority` retains projection precedence after target admission and metadata: an admitted lexical selected-config path or admitted alias to its resolved real target loads and serializes schema-projected effective config directly.
-The config owner reconstructs every namespace, preserves structural identities, redacts provider/account API keys and every stdio MCP environment value, and applies no second text pass.
-Every other admitted work text receives scalar text defense and sensitive-redacted metadata.
-The generic resolver otherwise retains canonical `work:///` row spelling and existing content/card behavior.
-Files and VFS continue to share blocked-path predicate and policy omission semantics, but VFS does not share this local stat classifier, containment, or response read model.
-
-Configuration mutation uses one closed restart-only `reconfigure` union with four variants: `set_agent_model_route`, `set_model_failover`, and the host and port forms of `set_server_setting`.
-The authority privately reuses source/effective-schema decoding for current mutation preconditions without compiling current workflows, then edits the startup-selected YAML document and fully validates and structurally compiles the complete candidate before replacement. Schema-invalid current data still fails; compiler-only current errors do not independently veto a valid correcting candidate. It returns `requires_restart:true` and never installs the candidate into the running server.
-Runtime settings and MCP mutation actions do not exist.
-
-Concern B is one canonical-card virtual read model with `.saivage/cards`, linked namespaces, virtual `children`, semantic `card.json[?v=N]`, and configured record URLs.
-For direct `record:///` content, `WorkspaceFileReadModel` strictly selects current effective text or an exact accepted revision and applies `redactTextForOutbound` once at its own egress boundary, with sensitive-redacted policy flags. It neither mutates canonical content/hashes nor changes identity, revision, time, source-byte size, or the existing absence of a record-URL preview cap. The separate physical-spelling virtual record preview retains raw-source 1 MiB admission and projected response size; virtual card documents retain virtual-byte admission/size. Listing semantics are unchanged; no shared projection abstraction or VFS behavior change is introduced.
-A namespace derives rows from compiled definitions rather than physical listing.
-Exact path reachability follows `child_membership`; directory order follows filtered-live `active_child_order`; the current Files tombstone head is a narrow exception distinct from active resources.
-Physical indexes/version paths are hidden.
-There is no directory listing, scan, cache, repository, or fallback.
-
-Each virtual operation derives exact paths from the lexically resolved project root and committed card identity. One linked ancestor walk checks membership before child access, terminates at intermediate tombstones, and distinguishes active lookup from an exact terminal-tombstone selection; a root tombstone always fails. A missing linked descendant fails rather than becoming not-found. No physical ancestor or descriptor proofs and no sibling enumeration occur.
-Namespace listing consumes exact current card heads/selected snapshots for reachability, then projects present configured record head/accepted selections, retaining effective-source record byte sizes. Preview bytes, branch-specific size admission and metadata belong to selected semantic content, not physical heads/history/mailbox bytes. Card/record documents have no torn-suffix repair. External workspace/tool path admission and outbound confidentiality are unchanged; no hostile root-agent containment is claimed.
-The process API remains narrower than Files: stdout/stderr fields require a concrete card-owned or non-card process-log URL and reject the work root.
-
-The UI offers no direct project start/stop or pause/resume controls; those requests go through the Analyst conversation. Its sole direct runtime mutation is confirmed **Restart server**, shown only when required `restart_server_available` is true.
-It never optimistically writes a running card as cancelled.
-Agent conversation APIs never return raw canonical compaction JSON. They project strict safe segment context; rendered current and selected historical views omit accumulated-summary prose and separately show ordered retained instruction context with source coordinates and redacted declaration/content.
-
-### Plain browser request lifetime
-
-`createOwnedFetch()` owns only an instance-local current request, AbortController and pending ref. Replacement/cancellation invalidates the owner before abort; superseded success, failure and finally publish nothing. Acceptance faults propagate rather than becoming transport errors. Domain values, errors and last-good/reset semantics stay local. Its ten consumers are MCP tools; System configuration, providers and actions; Debug errors, processes and Doctor; file content; exact session route resolution; and current-card orientation. Disposal and departing route/selection cancel those reads. Cards, graph reads, directory listings, session inventory and conversation/lease freshness owners retain their separate contracts.
-
-Current-card orientation locally separates retained successful detail (its own `id`)
-from the current runtime-identity admission outcome: idle, loading, observed,
-not-found, failed or unauthorized. Each identity/admission transition cancels the
-departing read and resets its outcome; an admitted non-null identity starts one
-exact read, including return to a retained same-ID detail after another card or null.
-Unchanged identity/admission does not refresh. Runtime loaded/unauthorized state gates
-admission, without a separate auth owner. GlobalStrip qualifies retained problems as
-last-known unless detail matches runtime identity and succeeded for this admission;
-runtime/detail unauthorized suppresses retained text. Fixed notices distinguish
-loading, authoritative 404 and ordinary failure without displaying raw errors.
-This is independent observation, not atomic synchronization or continuous freshness;
-selected CardStore remains unrelated inspection authority. No new request coordinator,
-cache, poller, persistence or backend contract is introduced.
-
-## 12. Reset And Failure Model
-
-`readCanonicalLinkedCardHistoryTree()` follows committed membership and each reached ordinary predecessor chain, including retained tombstones, and stops below tombstones.
-Content policy consumes terminal refusal metadata from validated ordinary changes only, never pending/orphan documents, and chooses latest by `(changed_at,card_id,version)`.
-It uses no enumeration, cache, counter, or repository.
-
-The authenticated operator contract map owns `GET /api/runtime/content-policy`; server composition calls that direct read model and generated/shared web contracts parse the exact count/latest response.
-This endpoint remains an explicit read-derived API; application bootstrap, card invalidation and reconnect do not fetch it, and no UI policy store or Dashboard high-water banner exists. Refusal presentation derives from authoritative blocked results and Errors. Exact session entry links select only their named session and marker, without searching replacements; rendered marker text is synthetic and contains no provider response.
-
-Named incompatible adoption requires a separately consented destructive reset or explicitly requested external offline migration under [runbook gates](../runbook/index.md#external-migrations), never automatic deployment fallback. External source interpretation/transformation stays outside runtime/init/deploy and all packaged utilities; no architecture compatibility path is added.
-Directory-owned parent-local spreadsheet claims, current card/record heads and predecessor documents, card records without `position`, parent-owned membership/order, immutable card type, ordered summary groups, strict `applied_policy` and marker-first/no-preamble Analyst source are such cutovers. Earlier stream/`children` milestones are historical labels only.
-Successful candidate `mkdir` consumes its segment even if later work fails, and only the parent's committed cumulative `children` snapshot grants and orders membership.
-Old stream layouts, including `card-child-reservation` rows, are unsupported.
-Release format knowledge determines that a cutover applies; startup never samples, probes, classifies, or normalizes retained state to infer compatibility or exempt an affected deployment.
-Every ordinary version/tombstone retains lifelong type, so role/session projection cannot change; changed-type publication or consumed history fails strict validation.
-Old generated rows, changed-type histories and pre-marker/mixed Analyst history fail strict reads. Core has no migration/marker backfill/compatibility classifier/renderer or format repair; exact-target current-format repair is separate. No mixed-version operation.
-Ordinary same-format binary replacement instead stops the old service and strictly starts the new binary against retained current-format generated state, without reset.
-`resetOwnedGeneratedRoots()` in `src/persistence/layout.ts` is the singular reset ownership and initial-publication-presence contract: `.saivage/cards`, `.saivage/agents`, `.saivage/logs`, and `.saivage/work`.
-Target-project outputs and `.saivage-search-ignore` remain outside that ownership. The [project discovery-scope procedure](../runbook/index.md#project-discovery-scope) distinguishes search pruning from a separately authorized target-owned cleanup decision; reset neither discovers target outputs nor promises a semantic blank slate.
-Initial publication requires all four exact roots absent; retained partial state names its first blocker and requires stop, current-built reset, then retry.
-These generated roots are removed as whole trees without descendant inspection.
-Durable configuration and operator inputs under `.saivage`, including identity, credentials, prompt overrides, skills, and instructions, remain outside that ownership boundary, as do source and canonical documents.
-
-Content-policy retry/refusal rows, typed refusal BLOCKED results and required error-exchange terminal output extend that incompatible inventory.
-Generated-state test and E2E fixtures are reset to the singular current schemas; no omitted-field fixture, compatibility transport, legacy blocked/tool shape, migration, or normalization path remains.
-
-Within that inventory, complete parent-owned `children` names a historical milestone, not the current relationship model.
-Current card heads/messages use strict format1 and ordinary/tombstone documents format3; record heads and accepted documents use format3. Workflow input requires format2. Conversation12 and initializer input1 remain unchanged. Cards retain monotonic `child_membership` and complete same-set `active_child_order`, without `tags`, `related`, durable `children` or nine null-only placeholders. Current reads consume selected documents only; historical traversal validates each reached predecessor. Old artifacts fail strict consumption, including previous-head repair selections; adoption follows the independent reset/external decision. Reset loses history; external candidate fidelity is evidenced, never promised or categorically denied. Missing required provenance blocks; unavoidable loss needs confirmation before cutover. Neither option weakens validators or authorizes orphan handling.
-
-The `.saivage/locks` namespace is the exceptional lifecycle-exclusion boundary, not reset-owned generated persistence.
-Reset acquires the exact canonical `runtime.lock`, removes the four complete roots, publishes the new `project` root card while still holding the lock, and then uses exact-owner release.
-A pre-existing exact lock blocks deletion.
-Lock siblings and every other outside-boundary path are neither discovered nor cleaned.
-Mixed-version operation and binary-only downgrade against incompatible state are unsupported. Future rollback needs separately scoped matching-state/release authorization; uncertainty grants no inspection/retry/reconciliation/automatic continuation.
-
-Saivage file persistence does not guarantee no data loss.
-Interrupted external effects may repeat; notification context may duplicate; concurrent auth refresh may overwrite another change; incomplete card namespaces and publication temps may remain forever.
-Exact canonical corruption fails clearly for operator repair or reset rather than automatic recovery.
-
-## 13. Source-Derived Reference
-
-This appendix is maintained as source-derived reference data for documentation drift guards.
+These exact inventories remain at this canonical owner for source-parity guards.
+They are lookup data, not another runtime registry. Operational procedures are in
+the runbook; human configuration lookup belongs to the configuration documentation.
 
 ### Operator routes
 
 <!-- saivage:operator-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
-| `GET /api/agents` | Active compiled-workflow Agent session summaries. | `src/contracts/operator-api-agents.ts:382` |
-| `GET /api/agents/:id` | Exact historical Agent session summary. | `src/contracts/operator-api-agents.ts:394` |
-| `GET /api/cards/:id/agent-sessions` | One active card's Agent session summaries. | `src/contracts/operator-api-agents.ts:449` |
-| `GET /api/cards/:id/executions` | Strict exact-card chronological execution rows, bounded row cursor projection. | `src/contracts/operator-api-executions.ts:139` |
-| `GET /api/cards/:id/executions/:invocationId` | Bounded non-LLM invocation detail; missing completion is unknown, not live status. | `src/contracts/operator-api-executions.ts:163` |
-| `GET /api/cards/:id/executions/:invocationId/files/:fileKey` | Exact logged row/reference-selected bounded redacted text through Files privacy. | `src/contracts/operator-api-executions.ts:181` |
-| `GET /api/cards/:id/executions/:invocationId/files/:fileKey/download` | Same confidential bounded text as an attachment; no raw-byte bypass. | `src/contracts/operator-api-executions.ts:199` |
-| `GET /api/agents/:id/conversation` | Current indexed Agent conversation segment with segment-scoped cursor. | `src/contracts/operator-api-agents.ts:465` |
-| `GET /api/agents/:id/current-instructions` | Composed static instructions for every current loaded session binding. | `src/contracts/operator-api-agents.ts:364` |
-| `GET /api/agents/:id/conversation/versions` | Immutable conversation segment catalog metadata. | `src/contracts/operator-api-agents.ts:410` |
-| `GET /api/agents/:id/conversation/versions/:version` | One explicitly selected immutable conversation segment. | `src/contracts/operator-api-agents.ts:427` |
-| `GET /api/agents/:id/llm-exchange` | Exact latest Agent provider exchange. | `src/contracts/operator-api-agents.ts:484` |
-| `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:20` |
-| `GET /api/chat` | Configured global Analyst identity. | `src/contracts/operator-api-chats.ts:60` |
-| `POST /api/chat` | Configured global Analyst turn submission. | `src/contracts/operator-api-chats.ts:74` |
-| `GET /api/workflows/:cardType/presentation` | Presentation-only topology for one installed card type. | `src/contracts/operator-api-workflows.ts:23` |
-| `GET /api/config` | Operator-session redacted configuration. | `src/contracts/operator-api-config.ts:58` |
-| `GET /api/providers` | Operator-session provider routing projection. | `src/contracts/operator-api-config.ts:68` |
-| `GET /api/control-actions` | Operator-session control-action projection. | `src/contracts/operator-api-config.ts:78` |
-| `GET /api/external-tool-calls` | Operator-session body-free external settled receipts, distinct from conversation turns. | `src/contracts/operator-api-config.ts:108` |
-| `GET /api/events` | Authenticated operator event query. | `src/contracts/operator-api-events.ts:32` |
-| `GET /api/files` | Contained, blocked-path-filtered workspace listing. | `src/contracts/operator-api-files-debug.ts:152` |
-| `GET /api/files/content` | Contained, pre-read-admitted workspace content with outbound redaction where required. | `src/contracts/operator-api-files-debug.ts:163` |
-| `GET /api/files/image` | Freshly admitted/decoded ordinary static raster bytes; existing Files exclusions apply. | `src/contracts/operator-api-files-debug.ts:288` |
-| `GET /api/agents/:id/conversation/images` | Authenticated exact public result image occurrence, pinned to indexed segment UUID and descriptor. | `src/contracts/operator-api-agents.ts:408` |
-| `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:40` |
-| `POST /api/mcp/servers/:name/start` | Start/install/discover one configured server. | `src/contracts/operator-api-mcp.ts:50` |
-| `POST /api/mcp/servers/:name/stop` | Stop and join one retained server owner. | `src/contracts/operator-api-mcp.ts:51` |
-| `POST /api/mcp/servers/:name/restart` | Stop the retained owner, then fresh start/discovery (non-atomic). | `src/contracts/operator-api-mcp.ts:85` |
-| `GET /api/processes` | Operator-session process list. | `src/contracts/operator-api-processes.ts:74` |
-| `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:186` |
-| `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:197` |
-| `GET /api/state` | Operator runtime state without card inventory. | `src/contracts/operator-api-runtime-cards.ts:208` |
-| `GET /api/runtime/content-policy` | Read-derived content-policy refusal high-water and latest evidence locator. | `src/contracts/operator-api-runtime-cards.ts:218` |
-| `GET /api/cards/:id/children` | Immediate committed active-child hierarchy slice whose parent and child summaries include compiled `permitted_child_types`. | `src/contracts/operator-api-runtime-cards.ts:245` |
-| `GET /api/cards/:id` | Current card detail only. | `src/contracts/operator-api-runtime-cards.ts:240` |
-| `GET /api/cards/:id/records` | Compiled record descriptors for one active card. | `src/contracts/operator-api-runtime-cards.ts:252` |
-| `GET /api/cards/:id/records/:name` | One exact effective current compiled record. | `src/contracts/operator-api-runtime-cards.ts:264` |
-| `GET /api/cards/:id/records/:name/history` | Index-only authored-record version metadata. | `src/contracts/operator-api-runtime-cards.ts:293` |
-| `GET /api/cards/:id/records/:name/versions/:version` | One explicit immutable authored-record version. | `src/contracts/operator-api-runtime-cards.ts:299` |
-| `GET /api/cards/:id/records/:name/diff` | Markdown diff between explicit record versions or current. | `src/contracts/operator-api-runtime-cards.ts:305` |
-| `GET /api/cards/:id/history` | Embedded card-version history headers. | `src/contracts/operator-api-runtime-cards.ts:277` |
-| `GET /api/cards/:id/history/:version` | Immutable card-version artifact selected by resulting version. | `src/contracts/operator-api-runtime-cards.ts:289` |
-| `GET /api/cards/:id/diff` | Embedded card-version diff. | `src/contracts/operator-api-runtime-cards.ts:301` |
-| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:314` |
-| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:324` |
-| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:334` |
-| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:344` |
-| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:344` |
+| `GET /api/agents` | Active compiled-workflow session summaries. | `src/contracts/operator-api-agents.ts:502` |
+| `GET /api/agents/:id` | Exact known session summary. | `src/contracts/operator-api-agents.ts:514` |
+| `GET /api/cards/:id/agent-sessions` | One active card's session summaries. | `src/contracts/operator-api-agents.ts:569` |
+| `GET /api/cards/:id/executions` | Bounded chronological non-LLM execution rows. | `src/contracts/operator-api-executions.ts:139` |
+| `GET /api/cards/:id/executions/:invocationId` | Exact invocation evidence, not liveness. | `src/contracts/operator-api-executions.ts:163` |
+| `GET /api/cards/:id/executions/:invocationId/files/:fileKey` | Selected bounded redacted text. | `src/contracts/operator-api-executions.ts:181` |
+| `GET /api/cards/:id/executions/:invocationId/files/:fileKey/download` | Same confidential text as attachment. | `src/contracts/operator-api-executions.ts:199` |
+| `GET /api/agents/:id/conversation` | Current segment with exact segment cursor. | `src/contracts/operator-api-agents.ts:585` |
+| `GET /api/agents/:id/current-instructions` | All matching loaded static bindings. | `src/contracts/operator-api-agents.ts:484` |
+| `GET /api/agents/:id/conversation/versions` | Indexed segment catalog. | `src/contracts/operator-api-agents.ts:530` |
+| `GET /api/agents/:id/conversation/versions/:version` | Exact indexed segment. | `src/contracts/operator-api-agents.ts:547` |
+| `GET /api/agents/:id/llm-exchange` | Latest primary exchange. | `src/contracts/operator-api-agents.ts:604` |
+| `POST /api/auth/ws-ticket` | WebSocket ticket. | `src/contracts/operator-api-auth.ts:20` |
+| `GET /api/chat` | Configured global Analyst identity/availability. | `src/contracts/operator-api-chats.ts:105` |
+| `POST /api/chat` | Internal Analyst submission. | `src/contracts/operator-api-chats.ts:117` |
+| `GET /api/workflows/:cardType/presentation` | One installed type's presentation topology. | `src/contracts/operator-api-workflows.ts:106` |
+| `GET /api/config` | Redacted effective configuration. | `src/contracts/operator-api-config.ts:128` |
+| `GET /api/providers` | Process-local routing/capability observation. | `src/contracts/operator-api-config.ts:140` |
+| `GET /api/control-actions` | Bounded Analyst action evidence. | `src/contracts/operator-api-config.ts:152` |
+| `GET /api/external-tool-calls` | Body-free settled external receipts. | `src/contracts/operator-api-config.ts:116` |
+| `GET /api/events` | Authenticated retained-event query. | `src/contracts/operator-api-events.ts:46` |
+| `GET /api/files` | Privacy-admitted listing. | `src/contracts/operator-api-files-debug.ts:340` |
+| `GET /api/files/content` | Admitted projected text. | `src/contracts/operator-api-files-debug.ts:356` |
+| `GET /api/files/image` | Fresh ordinary static raster bytes. | `src/contracts/operator-api-files-debug.ts:321` |
+| `GET /api/agents/:id/conversation/images` | Exact descriptor-selected recorded occurrence. | `src/contracts/operator-api-agents.ts:456` |
+| `GET /api/mcp/tools` | Server/tool hierarchy. | `src/contracts/operator-api-mcp.ts:94` |
+| `POST /api/mcp/servers/:name/start` | Start/install/complete discovery. | `src/contracts/operator-api-mcp.ts:77` |
+| `POST /api/mcp/servers/:name/stop` | Stop/join retained owner. | `src/contracts/operator-api-mcp.ts:83` |
+| `POST /api/mcp/servers/:name/restart` | Nonatomic stop then fresh start. | `src/contracts/operator-api-mcp.ts:89` |
+| `GET /api/processes` | Process observations. | `src/contracts/operator-api-processes.ts:221` |
+| `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:559` |
+| `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:567` |
+| `GET /api/state` | Runtime/project without inventory. | `src/contracts/operator-api-runtime-cards.ts:575` |
+| `GET /api/runtime/content-policy` | Read-derived refusal count/latest locator. | `src/contracts/operator-api-runtime-cards.ts:587` |
+| `GET /api/cards/:id/children` | Immediate active hierarchy slice. | `src/contracts/operator-api-runtime-cards.ts:599` |
+| `GET /api/cards/:id` | Selected current detail. | `src/contracts/operator-api-runtime-cards.ts:615` |
+| `GET /api/cards/:id/records` | Compiled record descriptors. | `src/contracts/operator-api-runtime-cards.ts:631` |
+| `GET /api/cards/:id/records/:name` | Exact current effective record. | `src/contracts/operator-api-runtime-cards.ts:647` |
+| `GET /api/cards/:id/records/:name/history` | Accepted-record catalog. | `src/contracts/operator-api-runtime-cards.ts:667` |
+| `GET /api/cards/:id/records/:name/versions/:version` | Exact accepted document. | `src/contracts/operator-api-runtime-cards.ts:683` |
+| `GET /api/cards/:id/records/:name/diff` | Projected record comparison. | `src/contracts/operator-api-runtime-cards.ts:703` |
+| `GET /api/cards/:id/history` | Sparse ordinary history catalog. | `src/contracts/operator-api-runtime-cards.ts:725` |
+| `GET /api/cards/:id/history/:version` | Exact ordinary/tombstone artifact. | `src/contracts/operator-api-runtime-cards.ts:741` |
+| `GET /api/cards/:id/diff` | Projected card comparison. | `src/contracts/operator-api-runtime-cards.ts:757` |
+| `GET /api/runtime/status` | Supervisor runtime observation. | `src/contracts/operator-api-runtime-cards.ts:774` |
+| `POST /api/runtime/pause` | Bodyless cooperative Pause. | `src/contracts/operator-api-runtime-cards.ts:786` |
+| `POST /api/runtime/resume` | Bodyless same-Run Resume. | `src/contracts/operator-api-runtime-cards.ts:799` |
+| `POST /api/runtime/stop-project` | Bodyless project containment. | `src/contracts/operator-api-runtime-cards.ts:812` |
+| `POST /api/runtime/restart-server` | Exact-confirmation authenticated restart. | `src/contracts/operator-api-runtime-cards.ts:825` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes
@@ -2387,52 +1219,34 @@ This appendix is maintained as source-derived reference data for documentation d
 <!-- saivage:internal-debug-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
-| `GET /api/debug/doctor` | Authenticated registry-owned card diagnostic. | `src/contracts/operator-api-files-debug.ts:184` |
-| `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:174` |
-| `GET /api/debug/graphs` | Strict non-disclosing projection of immutable startup workflows. | `src/contracts/operator-api-files-debug.ts:184` |
+| `GET /api/debug/doctor` | Authenticated bounded card diagnostic. | `src/contracts/operator-api-files-debug.ts:406` |
+| `GET /api/debug/errors` | Explicit error projection. | `src/contracts/operator-api-files-debug.ts:382` |
+| `GET /api/debug/graphs` | Non-disclosing installed workflow projection. | `src/contracts/operator-api-files-debug.ts:394` |
 <!-- saivage:internal-debug-routes:end -->
 
 ### Agent tools
 
-The inventory lists each default named agent's exact alphabetically normalized operational-tool membership.
-The documentation verifier reads the immutable default agent catalog and sorts each row for deterministic membership comparison; it does not establish operational order.
-`src/config/system-templates/classic-shared.ts`, the shared `src/contracts/oversight-tool-policy.ts` tuple, and compiled-surface tests own the configured operational order preserved by runtime composition.
-`emit_result` is workflow-generated rather than part of an agent's configurable list.
-The Analyst `restart_server` entry remains installed and reports unavailable when no authenticated public-restart port is bound.
-
-The Analyst control registry is one ordered, context-bound catalog of executable `ToolDefinition` entries.
-It is distinct from the Planner control provider, the LLM wire-tool projection, and MCP discovery/wire contracts; those surfaces do not contribute metadata to the Analyst catalog.
-The exact exclusive-identity projection lists only names present on one of those two scoped control surfaces. `reopen_card` is intentionally absent from both exclusive lists because both scopes define it; this common presentation identity grants neither scope the other's binder, arguments, result, or authority.
-Analyst mutation composition creates one application service bundle for a turn.
-Each application operation performs its fresh admission/currentness reads and immediately invokes its card, runtime, configuration, notification, or record owner through that single call.
-
-The audited runner has one strict lifecycle-timing union.
-Unprepared intervention mutations perform cancellation then exactly one readiness assertion immediately before mutation.
-Prepared mutations without pre-admission prepare first, then perform cancellation/readiness immediately before mutation.
-Analyst record Webfetch alone performs cancellation/readiness, a discarded read-only record admission, the sole HTTP preparation, cancellation/second readiness, then a fresh full resolver/mutation; neither preflight nor prepared data is write authority.
-Malformed or historical targets return the content-independent invalid-target preflight result with audit outcome `error`, before HTTP preparation. Analyst write/edit use the same owner-local rejection and ordinary audit/result settlement; card write/edit use existing returned-rejection mapping and can continue in the same activation. Audit or conversation publication uncertainty is not an input failure.
-Runtime-cancellation operations perform no intervention-readiness assertion.
-Every path settles audit once and performs no post-mutation cancellation/readiness check.
-
-Non-record Analyst `write` and `edit` bind to that runtime-cancellation policy with actions `workspace.write`/`workspace.edit`, low safety, null target kind, and requested-path target identity. They remain admitted mid-run through existing permissions/path handling and workspace expected-error classification; record routing retains its separate readiness and record authority. Parameter summaries exclude write content and old/new edit text. This does not audit shell, patch, or non-record Webfetch effects, and audit failure never repeats a file effect. Shared named read/glob/grep observation binders compose explicitly with Analyst mutation binders in `read,write,edit,glob,grep` order and remain shared with Oversight.
-
-Analyst create/cancel/real-reorder owners expose one best-effort propagation report in the settled successful result: `{ok:true}` or `{ok:false,partial:true,error}`. The principal effect remains known and audit `ok`; a possible propagation prefix is not an ancestor receipt or delivery guarantee. No-op reorder has no report or propagation call, record reporting remains unchanged, and plain file editing has no propagation. Publication uncertainty escapes before result/audit/follow-up effects; there is no retry, rollback, or reconciliation mechanism.
-
-Chat, Codex, and Responses adapters project the admitted canonical conversation in order without independent tool-pair tracking, normalization, or silent exchange omission. Canonical source validation and composition own history/private-visible admission; the exact consuming session owner settles its permitted sole final unmatched prior call at actual use before imminent activation or admitted Analyst ingress, and ordinary round progression pairs new exchanges. Provider single-call admission remains unchanged. Responses retains private-row lookup/parsing and actual-use missing-private-row errors, projects native private output under the candidate-local encrypted-reasoning omission rule above, and emits one matching result without duplicating the private-marked visible call. Repeated provider call IDs on distinct source inputs remain distinct canonical exchanges.
+Rows compare alphabetically normalized default membership, not operational order.
+Classic shared factory, contracts Oversight policy and actual binding own order;
+`emit_result` is workflow-generated. Optional MCP tools remain explicitly selected,
+not default grants. Shared reopen spelling never aliases scoped contracts.
 
 <!-- saivage:agent-tools:start -->
 | Agent | Tools | Source |
 |---|---|---|
-| `planner` | `activate_card,cancel_card,create_card,diff_card_versions,edit,edit_card,get_card,get_card_version,get_tree,glob,grep,list_card_versions,list_cards,read,read_record_version,reopen_card,reorder_child,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:77` |
-| `executor` | `apply_patch,diff_card_versions,edit,get_card_version,glob,grep,kill_process,list_card_versions,mcp_server_control,mcp_tool_call,mcp_tools,read,read_record_version,run_command,skill,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:134` |
-| `reviewer` | `diff_card_versions,edit,get_card_version,glob,grep,list_card_versions,read,read_record_version,skill,view_image,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:109` |
-| `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card_versions,edit,get_card,get_card_version,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,mcp_server_control,mcp_tool_call,mcp_tools,navigate_back,navigate_workspace,pause_runtime,queue_notification,read,read_agent_session,read_control_actions,read_record_version,read_runtime_errors,read_runtime_events,reconfigure,reopen_card,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:16` |
+| `planner` | `activate_card,cancel_card,create_card,diff_card_versions,edit,edit_card,get_card,get_card_version,get_tree,glob,grep,list_card_versions,list_cards,read,read_record_version,reopen_card,reorder_child,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:196` |
+| `executor` | `apply_patch,diff_card_versions,edit,get_card_version,glob,grep,kill_process,list_card_versions,mcp_server_control,mcp_tool_call,mcp_tools,read,read_record_version,run_command,skill,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:249` |
+| `reviewer` | `diff_card_versions,edit,get_card_version,glob,grep,list_card_versions,read,read_record_version,skill,view_image,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:226` |
+| `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card_versions,edit,get_card,get_card_version,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,mcp_server_control,mcp_tool_call,mcp_tools,navigate_back,navigate_workspace,pause_runtime,queue_notification,read,read_agent_session,read_control_actions,read_record_version,read_runtime_errors,read_runtime_events,reconfigure,reopen_card,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:132` |
 | `oversight` | `diff_card_versions,get_card,get_card_version,get_status,get_tree,glob,grep,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,queue_notification,read,read_agent_session,read_record_version,read_runtime_errors,read_runtime_events` | `src/contracts/oversight-tool-policy.ts:2` |
 <!-- saivage:agent-tools:end -->
 
 ### Exact shipped tool identities
 
-Evidence for the shipped-role inventory is the exact registry, the classic-family template factory calls, paad-typed's immutable classic-typed config reuse, the typed shared factory, the contracts root's named policy reexport, and the Oversight tuple. The projector/presenter equality and exclusive-identity claims additionally consume the terminal-result identity, actual tool-invocation projector gates, and the web presenter registry. The verifier follows these declarations structurally without importing executable template code; sorted role inventories and ordered shipped tools remain distinct semantic checks.
+The verifier follows exact template factory/registry declarations, PAAD config reuse,
+Oversight tuple and actual invocation-projector/browser-presenter gates. Sorted
+membership, configured order, optional identities and scoped exclusivity are
+separate claims, not a second executable catalog.
 
 <!-- saivage:value-contract:tool-identities:start -->
 ```text
@@ -2442,119 +1256,58 @@ tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_ba
 ```
 <!-- saivage:value-contract:tool-identities:end -->
 
-Built-in conversation tool-chip presentation is owned by one immutable static descriptor record in the web application.
-`utils/tool-presenters/index.ts` publishes presentation functions and the component-consumed `InlinePart`/`SemanticSection` types; components import through this public entry while type definitions remain owner-local.
-Each descriptor supplies the action, read-only grouping classification when applicable, call formatting, and optional successful-result formatting; knownness is the presence of that same descriptor.
-`ToolPair` contains only the durable call and its nullable durable result.
-A null result maps to neutral **No result recorded**, not inferred liveness or success.
-`presentToolResult()` owns semantic public-envelope presentation with direct family descriptors:
-success requires `success:true` without `error`; failure requires `success:false` and a
-string error. Optional typed image metadata remains producer-neutral. Unexpected shapes
-are explicitly presentation unavailable, not normalized alternate contracts. Domain outcome,
-refusal and partial/uncertain effects remain visible independently of settlement success.
-`buildToolDisplay()` separates action, meaningful target and outcome; `ToolChip` combines
-the paired halves into Request then Result semantic sections with independent complete
-**Safe original request/result** disclosures. Exact code, identities, coordinates and time
-are secondary provenance. Unknown tools retain opaque safe argument/result inspection,
-not inferred effects; missing halves stay explicitly unavailable.
+Presentation uses one immutable descriptor record in
+`web/src/utils/tool-presenters/index.ts`: action/read-only group/target/outcome,
+then Request/Result semantic sections and complete safe originals. Null result is
+No result recorded; unknown shape is unavailable, not alternate normalized success.
+Domain refusal/partial effects remain distinct from envelope success. Image actions
+use typed occurrences even without optional workspace metadata. Presentation policy
+cannot replace bound tools/generated result authority.
 
-The combined **Inspect image** row reports snapshot recorded and sent dimensions, never
-model delivery/perception. `view_image` request/result paths remain plain text, not Files
-preview links; safe descriptor/metadata detail and copy perform no binary fetch/materialization.
-An independent producer-neutral typed-occurrence **Inspect image** button opens the
-shared exact-locator preview, without requiring those metadata disclosures to be open.
-Typed lower-envelope descriptors are not forced through workspace-specific metadata;
-arbitrary nested image-like/MCP data remains opaque, not an attachment.
-
-This record is presentation policy only.
-It does not replace the compiled named-agent contract, provider implementations, or workflow-generated terminal contract as executable authority.
-
-### Granular Agent resource architecture
-
-`AgentOperatorReadModelService` is a direct file reader over startup-compiled workflows.
-Inventory derives candidates only from active cards.
-Exact card-scoped admission reads one committed-target artifact catalog and derives active or retained-tombstone ownership from its head without enumerating tombstones; conversation operations then read canonical index metadata and validate the current segment.
-No summary cache, sidecar, app-log decoration, or runtime read model is retained.
-
-`agents.currentInstructions` (`GET /api/agents/:id/current-instructions`) is a strict
-operator-session read defined in `contracts/operator-api-agents.ts` and handled by
-`server/routes/operator-agent-handlers.ts`. The application read model resolves exact
-loaded global/card session scope once, using current card selection or tombstone final card
-for its compiled type, without reading a conversation catalog/body or provider evidence.
-It returns `{session_id,basis:'server_loaded_configuration',scope,bindings}`; global scope
-has one global binding, card scope includes all matching configured nodes in declaration
-order, each with node ID and full composed instructions. Strict schema refinement enforces
-scope/session and unique-binding shape; backend owns membership. Empty strict query excludes
-historical/node selectors. Standard 400/401/404/503/500 errors and session failure identity
-apply; renderer failures expose no prompt body, and publication uncertainty never falls back.
-
-Pure composition reuses `utils/prompt-api.ts` registry rendering over loaded workflows,
-`tools/prompt-api.ts::formatVocabularySnippet` for Analyst/Oversight and runtime facade's
-`describeNodeResultContract` for workflow outcome/record-gate substitution. It does not
-prepare an invocation or read edited disk templates. Each fully rendered string passes
-`redactTextForOutbound` before explicit DTO assembly. Dynamic card/tree/focus blocks, tool
-definitions, private replay/wire bodies, provider/auth/environment configuration, source
-paths and admission/hash artifacts are excluded; no unredacted variant or prompt logging.
-Loaded image guidance is preserved without calling image materialization or provider actors.
-
-`CurrentInstructions` is initially closed beside retained context in both existing readers.
-Open/reopen reads afresh; explicit Refresh replaces content, failure shows no-current-content;
-close/departure/session change aborts/discards via existing owner-local request fencing.
-Same-session transcript/segment updates neither refetch nor reset it. Held-open text is
-last fetched current configuration, not live tracking, an in-flight request or historical
-snapshot; historical selection and retained tombstones label this distinction explicitly.
-No polling/cache/socket topic, durable family, current/history DTO or actor behavior changes.
-
-The durable pairing reducer permits only a sole final unmatched call.
-Cursor and bounded selection happen after complete validation, so a selected result may have its call before the selected boundary.
-Historical result data is generic opaque JSON; current `emit_result` and the two changed Analyst producers alone have source-adjacent result schemas.
-`ToolDefinition` has no output schema.
-
-Freshness ownership follows canonical publication.
-Conversation append publishes the last row watermark and a first-publication membership scope.
-Card link/tombstone publish card scope.
-`InvocationService.projectProviderExchanges` publishes each row in the explicit canonical owner's evidence file; successful primary publication emits exact exchange freshness while summary publication emits none.
-The socket stores only connection-local leases for Agents, card Agent sessions, conversations, and exchanges.
-The browser stores accepted global/card partitions and mounted request generations as ordinary view state.
-Hints are lossy and never authorize writes or encode membership.
+`SkillCatalog` reads the exact optional index and one selected file on explicit use,
+validates complete current input and filters exact configured agent names/order.
+Only index ENOENT is empty; invalid selected files fail. `skills:true` plus selected
+skill tool is necessary. No role-name inference, auto-injection or compatibility
+payload: successful list/load retains the complete generic result envelope and
+failure uses the same generic error path.
 
 ### Config schema
 
-Each row is one reachable fixed-field object occurrence rooted at the source `saivageConfigSchema`.
-Record value occurrences use `.entry`; reused schemas appear at every occurrence path.
-Optional and nullable objects retain their occurrence paths and field coverage.
-The top-level inventory therefore includes the optional source fields, while effective/outbound configuration contains only required `card_types`.
+Each row is one reachable fixed-field object occurrence rooted at source
+`saivageConfigSchema`. Record values use `.entry`; reused/optional/nullable schemas
+retain every occurrence. Source optional `card_types` differs from required effective
+map. These are field inventories, not defaults or permission grants.
 
 <!-- saivage:config-schema:start -->
 | Section | Fields | Source |
 |---|---|---|
-| `top-level` | `agents,analyst_agent,card_types,compaction,mcpServers,models,oversight,providers,server` | `src/schemas/saivage-config.ts:254` |
-| `agents.entry` | `can_create_children,model_route,prompt,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:206` |
-| `agents.entry.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:134` |
-| `models` | `equivalents,failover,profiles,routes` | `src/schemas/saivage-config.ts:28` |
-| `models.routes.entry` | `candidates,max_tokens,profile,temperature` | `src/schemas/saivage-config.ts:20` |
+| `top-level` | `agents,analyst_agent,card_types,compaction,mcpServers,models,oversight,providers,server` | `src/schemas/saivage-config.ts:500` |
+| `agents.entry` | `can_create_children,model_route,prompt,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:443` |
+| `agents.entry.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:200` |
+| `models` | `equivalents,failover,profiles,routes` | `src/schemas/saivage-config.ts:42` |
+| `models.routes.entry` | `candidates,max_tokens,profile,temperature` | `src/schemas/saivage-config.ts:27` |
 | `models.profiles.entry` | `allowed,preferred` | `src/schemas/saivage-config.ts:9` |
-| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority` | `src/schemas/saivage-config.ts:57` |
-| `providers.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,imageInput,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:36` |
-| `providers.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:40` |
-| `providers.entry.modelCapabilities.entry` | `contextWindowTokens,exclusiveToolChoiceSupport,imageInput,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:36` |
-| `providers.entry.modelCapabilities.entry.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:40` |
-| `providers.entry.accounts.entry` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/schemas/saivage-config.ts:47` |
-| `providers.entry.accounts.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,imageInput,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:36` |
-| `providers.entry.accounts.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:40` |
-| `server` | `host,port` | `src/schemas/saivage-config.ts:69` |
-| `compaction` | `context_utilization_fraction,enabled,snap,summarizer_candidate,tail_fraction,trigger_fraction` | `src/schemas/saivage-config.ts:80` |
-| `compaction.summarizer_candidate` | `account,model,provider` | `src/schemas/saivage-config.ts:74` |
-| `oversight` | `agent,enabled,interval_seconds` | `src/schemas/saivage-config.ts:89` |
-| `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:398` |
-| `card_types.entry.records.entry` | `bootstrap,format,initialization,schema` | `src/schemas/saivage-config.ts:381` |
-| `card_types.entry.records.entry.initialization` | `format_version,template` | `src/schemas/saivage-config.ts:386` |
+| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority` | `src/schemas/saivage-config.ts:83` |
+| `providers.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,imageInput,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:52` |
+| `providers.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:61` |
+| `providers.entry.modelCapabilities.entry` | `contextWindowTokens,exclusiveToolChoiceSupport,imageInput,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:52` |
+| `providers.entry.modelCapabilities.entry.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:61` |
+| `providers.entry.accounts.entry` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/schemas/saivage-config.ts:71` |
+| `providers.entry.accounts.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,imageInput,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:52` |
+| `providers.entry.accounts.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:61` |
+| `server` | `host,port` | `src/schemas/saivage-config.ts:97` |
+| `compaction` | `context_utilization_fraction,enabled,snap,summarizer_candidate,tail_fraction,trigger_fraction` | `src/schemas/saivage-config.ts:112` |
+| `compaction.summarizer_candidate` | `account,model,provider` | `src/schemas/saivage-config.ts:104` |
+| `oversight` | `agent,enabled,interval_seconds` | `src/schemas/saivage-config.ts:126` |
+| `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:399` |
+| `card_types.entry.records.entry` | `bootstrap,format,initialization,schema` | `src/schemas/saivage-config.ts:382` |
+| `card_types.entry.records.entry.initialization` | `format_version,template` | `src/schemas/saivage-config.ts:388` |
 | `card_types.entry.workflow` | `after_activation_commit,entries,format_version,nodes,notification_recipient` | `src/schemas/saivage-config.ts:356` |
-| `card_types.entry.workflow.after_activation_commit` | `execution,statuses` | `src/schemas/saivage-config.ts:359` |
+| `card_types.entry.workflow.after_activation_commit` | `execution,statuses` | `src/schemas/saivage-config.ts:360` |
 | `card_types.entry.workflow.after_activation_commit.execution` | `action,config,contract_version,inputs,kind` | `src/schemas/saivage-config.ts:271` |
-| `card_types.entry.workflow.after_activation_commit.execution.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:251` |
+| `card_types.entry.workflow.after_activation_commit.execution.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:252` |
 | `card_types.entry.workflow.after_activation_commit.execution.inputs.entry.variant2` | `source` | `src/schemas/saivage-config.ts:256` |
-| `card_types.entry.workflow.entries` | `BACKLOG,BLOCKED,CHANGED,STOPPED` | `src/schemas/saivage-config.ts:369` |
+| `card_types.entry.workflow.entries` | `BACKLOG,BLOCKED,CHANGED,STOPPED` | `src/schemas/saivage-config.ts:371` |
 | `card_types.entry.workflow.entries.BACKLOG` | `node,prompt` | `src/schemas/saivage-config.ts:218` |
 | `card_types.entry.workflow.entries.BACKLOG.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.entries.CHANGED` | `node,prompt` | `src/schemas/saivage-config.ts:218` |
@@ -2568,64 +1321,44 @@ The top-level inventory therefore includes the optional source fields, while eff
 | `card_types.entry.workflow.nodes.entry.execution.variant1.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:200` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.correction_prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant1` | `enum,type` | `src/schemas/saivage-config.ts:260` |
-| `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant2` | `max,min,type` | `src/schemas/saivage-config.ts:263` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant2` | `max,min,type` | `src/schemas/saivage-config.ts:262` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant3` | `type` | `src/schemas/saivage-config.ts:268` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.data_inputs.entry.variant4` | `type` | `src/schemas/saivage-config.ts:269` |
-| `card_types.entry.workflow.nodes.entry.execution.variant1.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:251` |
+| `card_types.entry.workflow.nodes.entry.execution.variant1.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:252` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.inputs.entry.variant2` | `source` | `src/schemas/saivage-config.ts:256` |
 | `card_types.entry.workflow.nodes.entry.execution.variant2` | `action,config,contract_version,inputs,kind` | `src/schemas/saivage-config.ts:271` |
-| `card_types.entry.workflow.nodes.entry.execution.variant2.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:251` |
+| `card_types.entry.workflow.nodes.entry.execution.variant2.inputs.entry.variant1` | `literal` | `src/schemas/saivage-config.ts:252` |
 | `card_types.entry.workflow.nodes.entry.execution.variant2.inputs.entry.variant2` | `source` | `src/schemas/saivage-config.ts:256` |
-| `card_types.entry.workflow.nodes.entry.record_prompts.item` | `presence,prompt,record,selection` | `src/schemas/saivage-config.ts:330` |
+| `card_types.entry.workflow.nodes.entry.record_prompts.item` | `presence,prompt,record,selection` | `src/schemas/saivage-config.ts:332` |
 | `card_types.entry.workflow.nodes.entry.record_prompts.item.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.nodes.entry.records.entry` | `gate,mode` | `src/schemas/saivage-config.ts:344` |
-| `card_types.entry.workflow.nodes.entry.descendant_context` | `records,require_unchanged_until_accept` | `src/schemas/saivage-config.ts:349` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant1` | `inputs,pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:298` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant1` | `node` | `src/schemas/saivage-config.ts:232` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:236` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:228` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:245` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.descendant_context` | `records,require_unchanged_until_accept` | `src/schemas/saivage-config.ts:350` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1` | `inputs,pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:290` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant1` | `node` | `src/schemas/saivage-config.ts:235` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:237` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:232` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:244` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant1.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.variant1.inputs.entry` | `output` | `src/schemas/saivage-config.ts:258` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2` | `cases,otherwise` | `src/schemas/saivage-config.ts:308` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item` | `id,inputs,pending_notifications,prompt,target,when` | `src/schemas/saivage-config.ts:312` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant1` | `node` | `src/schemas/saivage-config.ts:232` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:236` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:228` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:245` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2` | `cases,otherwise` | `src/schemas/saivage-config.ts:301` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item` | `id,inputs,pending_notifications,prompt,target,when` | `src/schemas/saivage-config.ts:304` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant1` | `node` | `src/schemas/saivage-config.ts:235` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:237` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:232` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:244` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.inputs.entry` | `output` | `src/schemas/saivage-config.ts:258` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.when` | `field,op,value` | `src/schemas/saivage-config.ts:315` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise` | `inputs,pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:298` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant1` | `node` | `src/schemas/saivage-config.ts:232` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:236` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:228` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:245` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:202` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.cases.item.when` | `field,op,value` | `src/schemas/saivage-config.ts:307` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise` | `inputs,pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:290` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant1` | `node` | `src/schemas/saivage-config.ts:235` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:237` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:232` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:244` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.inputs.entry` | `output` | `src/schemas/saivage-config.ts:258` |
-| `mcpServers.entry.variant1` | `args,autostart,command,disabled,env,transport` | `src/schemas/saivage-config.ts:126` |
-| `mcpServers.entry.variant2` | `autostart,disabled,transport,url` | `src/schemas/saivage-config.ts:135` |
+| `mcpServers.entry.variant1` | `args,autostart,command,disabled,env,transport` | `src/schemas/saivage-config.ts:191` |
+| `mcpServers.entry.variant2` | `autostart,disabled,transport,url` | `src/schemas/saivage-config.ts:192` |
 <!-- saivage:config-schema:end -->
-## Universal publication fatal delivery
-
-`PublicationOutcomeUnknownError` is the dependency-neutral signal from direct file owners, and `ApplicationFatalPort` is injected from application composition.
-The port uses synchronous fd-2 output followed unconditionally by `process.exit(1)`.
-Catch guards rethrow the same instance until the earliest concrete owner can deliver it.
-`BaseActor` stays persistence-neutral: its no-op fatal-task hook covers start-entry and actor-main failures, not routine handled task rejection. Its sole production subclass, `CardProcessActor`, supplies that hook's fatal delivery and separately intercepts uncertainty inside raw node execution. Existing Conversation LLM provider/compaction and Analyst fatal owners remain authoritative at their earlier boundaries.
-`ConversationLLMActor` is a direct phase owner, while `AnalystSession` and `SupervisorRuntimeApi` remain plain coordinators.
-REST chat rejection reaches the consuming Fastify fatal boundary before it can send a replacement response. Read-owned truncation uncertainty likewise retains the identical signal through current/historical projections, card/record services, event/provider queries, tools, and HTTP/WebSocket catches to the existing fatal owner before any diagnostic, response, settlement, or further effect. Observation adds no publication coordinator or repair layer.
-
-Replacement uses exclusive same-directory temporary publication and becomes uncertain at rename.
-Every exact growing-file tail owner becomes uncertain at `ftruncate`, including ordinary runtime/API/tool reads.
-Lifecycle-lock first creation syncs its parent directory and treats the created empty namespace as known.
-JSONL append uses `missing` only for exact append-open `ENOENT`; process output requires its prepublished exact file and leaves every open error direct.
-One policy-free exact-write byte loop serves replacement temporary bodies, growing-file appends, immutable version files, lifecycle-lock records, and process-output chunks.
-Node/libuv handles interrupted writes below JavaScript; the loop does not retry a thrown write and completes positive short writes using only the unsent suffix. Acquisition, file admission, durability, close, and publication-uncertainty classification remain with those five owners.
-
-Process logs use no `WriteStream`, pipe, retained descriptor, or writer lifecycle.
-Each data callback performs one synchronous exact-file append.
-Presentation settlement joins managed-group absence with both captured readable drains, and all three ProcessRunner termination surfaces join only report `stopped` identities before returning.
-Reader-local projections remain disposable; recovery writes remain append-only and do not create indexes, body rewrites, or recovery coordination.

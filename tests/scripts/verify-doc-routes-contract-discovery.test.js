@@ -26,13 +26,19 @@ function withFixture(files, testFn) {
 }
 
 describe('verify-doc-routes operator contract discovery', () => {
-  it('scans exactly the five canonical operator authorities by default', () => {
+  it('scans the canonical operator references and all runbook procedure owners by default', () => {
     expect(activeOperatorDocPaths(process.cwd())).toEqual([
       'docs/spec/system-specification.md',
       'docs/spec/operator-ui-needs.md',
       'docs/spec/operator-ui-contracts.md',
       'docs/architecture/system-architecture.md',
       'docs/runbook/index.md',
+      'docs/runbook/deployment.md',
+      'docs/runbook/runtime-control.md',
+      'docs/runbook/diagnosis.md',
+      'docs/runbook/mcp.md',
+      'docs/runbook/evidence.md',
+      'docs/runbook/state-adoption.md',
     ]);
   });
 

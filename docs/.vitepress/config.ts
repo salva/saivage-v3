@@ -19,17 +19,19 @@ export default defineConfig({
   srcExclude: ['working/**'],
   themeConfig: {
     nav: [
-      { text: 'Overview', link: '/overview' },
-      { text: 'Get started', link: '/guides/getting-started' },
-      { text: 'Specifications', link: '/spec/' },
-      { text: 'Architecture', link: '/architecture/' },
-      { text: 'Runbook', link: '/runbook/' },
+      { text: 'Learn', link: '/guides/getting-started' },
+      { text: 'Operate', link: '/runbook/' },
+      { text: 'Develop', link: '/guides/development' },
+      { text: 'Reference', link: '/reference/' },
     ],
     outline: 'deep',
     sidebar: [
       {
         text: 'Overview',
-        items: [{ text: 'What is Saivage', link: '/overview' }],
+        items: [
+          { text: 'Choose a path', link: '/' },
+          { text: 'What is Saivage', link: '/overview' },
+        ],
       },
       {
         text: 'Guides',
@@ -37,11 +39,37 @@ export default defineConfig({
           { text: 'Getting started', link: '/guides/getting-started' },
           { text: 'Configuration', link: '/guides/configuration' },
           { text: 'Operating a project', link: '/guides/operating' },
+          { text: 'Developing Saivage', link: '/guides/development' },
+        ],
+      },
+      {
+        text: 'Operations',
+        collapsed: false,
+        items: [
+          { text: 'Choose the safe next task', link: '/runbook/' },
+          { text: 'Deployment and startup', link: '/runbook/deployment' },
+          { text: 'Runtime control', link: '/runbook/runtime-control' },
+          { text: 'Diagnosis', link: '/runbook/diagnosis' },
+          { text: 'Inbound and outbound MCP', link: '/runbook/mcp' },
+          { text: 'Evidence and provenance', link: '/runbook/evidence' },
+          { text: 'State adoption, repair and reset', link: '/runbook/state-adoption' },
+        ],
+      },
+      {
+        text: 'Exact lookup',
+        collapsed: false,
+        items: [
+          { text: 'Reference map', link: '/reference/' },
+          { text: 'Configuration fields', link: '/reference/configuration' },
+          { text: 'Agent navigation', link: '/reference/agent-navigation' },
+          { text: 'Validation and CI', link: '/validation' },
         ],
       },
       {
         text: 'Specifications',
+        collapsed: true,
         items: [
+          { text: 'Specification map', link: '/spec/' },
           { text: 'System specification', link: '/spec/system-specification' },
           { text: 'Operator UI needs', link: '/spec/operator-ui-needs' },
           { text: 'Operator UI contracts', link: '/spec/operator-ui-contracts' },
@@ -49,17 +77,12 @@ export default defineConfig({
       },
       {
         text: 'Architecture',
+        collapsed: true,
         items: [
+          { text: 'Find the owner', link: '/architecture/' },
           { text: 'System architecture', link: '/architecture/system-architecture' },
           { text: 'Durable format changes', link: '/architecture/durable-format-changes' },
           { text: 'Prompt handling', link: '/architecture/prompts' },
-        ],
-      },
-      {
-        text: 'Operations',
-        items: [
-          { text: 'Operator runbook', link: '/runbook/' },
-          { text: 'Validation internals', link: '/validation' },
         ],
       },
     ],

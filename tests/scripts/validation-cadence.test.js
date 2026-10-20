@@ -223,6 +223,7 @@ function validFiles(overrides = {}) {
   return {
     'package.json': PACKAGE_JSON,
     'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run test:terminal-child\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_PLAYWRIGHT_DOCS,
+    'docs/validation.md': '```bash\nnpm run test:terminal-child\n```\n',
     'web/package.json': WEB_PACKAGE_JSON,
     'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nCanonical commands include `npm run web:test:analyst-ui` and `npm run web:test:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\n```\n' + VALID_PROFILE_DOCS,
     '.github/workflows/validation.yml': VALID_WORKFLOW,
@@ -240,6 +241,22 @@ function validFiles(overrides = {}) {
 }
 
 describe('validation cadence guard', () => {
+  it('accepts detailed cadence at its validation-reference owner without README duplication', () => {
+    const files = validFiles();
+    files['docs/validation.md'] = files['README.md'] + files['docs/architecture/system-architecture.md'];
+    files['README.md'] = '# Saivage\nSee the validation reference.\n';
+    files['docs/architecture/system-architecture.md'] = '# Architecture\n';
+    withFixture(files, (root) => {
+      expect(verifyValidationCadence({ root }).failures).toEqual([]);
+    });
+  });
+
+  it('requires terminal-child documentation at the reference owner even if README mentions it', () => {
+    withFixture(validFiles({ 'docs/validation.md': '# Validation\n' }), (root) => {
+      expect(verifyValidationCadence({ root }).failures).toContain('docs/validation.md must document npm run test:terminal-child');
+    });
+  });
+
   describe('single parsed workflow authority', () => {
     const routineRun = '        run: npm run validate:routine';
     const representations = [
@@ -792,6 +809,18 @@ describe('validation cadence guard', () => {
       withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts }) }), (root) => {
         const result = verifyValidationCadence({ root });
         expect(result.failures).toContainEqual(expect.stringContaining('must exclude the external live GetRich v2 suite'));
+      });
+    });
+
+    it('does not exempt a newly reintroduced retired live spec from positive ownership', () => {
+      withFixture(validFiles({ 'tests/playwright/live-getrich-v2/unowned.spec.ts': 'test();\n' }), (root) => {
+        expect(verifyValidationCadence({ root }).failures).toContain('Playwright spec tests/playwright/live-getrich-v2/unowned.spec.ts has no positive suite owner');
+      });
+    });
+
+    it('checks Playwright paths in the validation reference', () => {
+      withFixture(validFiles({ 'docs/validation.md': 'npm run test:terminal-child\n`tests/playwright/deleted.spec.ts`\n' }), (root) => {
+        expect(verifyValidationCadence({ root }).failures).toContain('docs/validation.md references nonexistent Playwright path tests/playwright/deleted.spec.ts');
       });
     });
 

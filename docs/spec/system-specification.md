@@ -1,6 +1,57 @@
 # Saivage v3 System Specification
 
-## Caller-neutral Analyst operations and external attribution
+This is the normative functional reference. It specifies current behavior, not
+release news, installation compatibility or an operations recipe. The
+[architecture](../architecture/system-architecture.md) explains owners;
+the [runbook](../runbook/) owns procedures; the
+[UI needs](operator-ui-needs.md) and [presentation contracts](operator-ui-contracts.md)
+own the operator experience. Historical source applicability belongs to the
+[durable format reference](../architecture/durable-format-changes.md).
+
+## Product and trust boundary
+
+Saivage plans and executes software work represented by cards in one target project.
+The runtime is the sole dispatcher. Its server provides Analyst interaction,
+card/session/file/evidence inspection and process-local controls. A notification
+queue is private delivery state, not an ordinary card-query surface.
+
+Deployment must provide external isolation, normally an LXC container; Saivage
+neither creates nor verifies it. In-container agents are trusted and can run as
+root. Workflow/tool admission preserves ordinary correctness, prevents likely
+accidents and maintains explicit API boundaries; it is not malicious-root
+containment. External authentication and outbound secret non-disclosure remain
+mandatory boundaries. Persistence is loss-tolerant, including authoritative state;
+no UI, log, backup or readiness observation promises losslessness or complete effects.
+
+Default roles are configured responsibilities, not a hard-coded privilege system:
+
+| Default agent | Card tools and scope | Record writes | Child ceiling |
+| --- | --- | --- | --- |
+| Analyst | `create_card`, `reorder_child`, `reopen_card`, `cancel_card`, `delete_card`; root `start_project`; no `activate_card`/`edit_card` | `write`, `edit`; `brief.md` | true |
+| Planner | `create_card`, `edit_card`, `cancel_card`, `activate_card`, `reopen_card`, `reorder_child`; no delete | `write`, `edit`; `brief.md`, `status.md` | true |
+| Reviewer | No card lifecycle/structure tools | `write`, `edit`; `review.md`, `review-*.md` | false |
+| Executor | No card lifecycle/structure tools | `write`, `edit`; `status.md` | false |
+
+`can_create_children` intersects `create_card` and the parent's permitted types;
+it grants neither reopening nor activation. Reviewer/Executor settle configured
+outcomes rather than dispatching children. Configured names remain identities.
+
+### Find the owning contract
+
+| Subject | Contract |
+| --- | --- |
+| Analyst callers and permissions | [Analyst operations](#analyst-operations-and-external-clients), [caller-aware admission](#caller-aware-operation-admission) |
+| Cards, records and selections | [Card identity and lifecycle](#card-identity-and-lifecycle), [authored records](#authored-records-and-current-selections), [card history](#card-history-membership-and-publication) |
+| Graphs, actions and acceptance | [Workflow engine](#workflow-engine), [configuration and shipped policies](#workflow-configuration-and-shipped-policies) |
+| Sessions and retained context | [Conversations and instruction evidence](#conversations-and-instruction-evidence) |
+| Lifecycle and containment | [Startup and Run recovery](#startup-and-run-recovery), [notifications](#notifications-and-reviewer-arbitration), [activation](#activation-admission-outcomes-and-cancellation), [runtime controls](#runtime-controls-and-application-containment) |
+| Commands, files and images | [Command and workspace tools](#command-and-workspace-tools), [image observations](#explicit-image-observations) |
+| Model context and transport | [Provider context and preparation](#provider-context-and-preparation), [compaction and exact admission](#compaction-construction-and-exact-provider-admission), [outbound MCP](#outbound-mcp-connections-and-tools) |
+| Durable state and adoption | [Direct file persistence](#direct-file-persistence), [repair/reset/adoption](#repair-reset-and-adoption), [fatal publication](#publication-outcome-unknown-fatal-boundary) |
+| CLI and public projection | [Lifecycle exclusion and CLI](#lifecycle-exclusion-and-cli), [operator API admission](#operator-api-admission-and-response-contracts), [safe projections](#api-and-safe-operator-projection) |
+| Independent observation | [Project Oversight](#project-oversight) |
+
+## Analyst operations and external clients
 
 Analyst tool composition separates the configured policy identity and effective
 selected tools from actual authorship. External credential holders are attributed
@@ -19,20 +70,15 @@ session, source input, child reservation or model wait barrier. Image production
 returns normalized call-local bytes; only LLM settlement publishes conversation
 PNG descriptors. External bytes must not enter the durable ToolResult union.
 
-Current immutable ordinary/tombstone card artifacts and accepted-record artifacts
-use **format4**. Initial child bootstrap acceptance records its actual creator;
-root bootstrap and explicit repair remain runtime-authored. Card heads/mailbox1,
-record heads3 and conversation12 are unchanged. App log and provider evidence use
-the **shared `version:2,type:rows` envelope**, not separate envelope numbering.
-App log's additional `external_tool_call` row records exactly invocation UUID,
+Initial child bootstrap acceptance records its actual creator; root bootstrap
+and explicit repair remain runtime-authored. App log's `external_tool_call` row records exactly invocation UUID,
 principal, project identity digest, canonical tool name (or `<unsupported>`),
 settlement time, execution classification and ok/denied/error outcome. It contains
 no arguments, result body, exception, credentials or client-supplied model identity.
 Receipts publish only after known ordinary settlement; they are neither complete
 execution history nor delivery/no-effect evidence. Publication uncertainty permits
-no subsequent receipt, response, cleanup or retry. Prior cutover descriptions below
-retain their historical source boundaries; the current format reference owns this
-new adoption record.
+no subsequent receipt, response, cleanup or retry. Current durable identities and
+historical source changes are separately listed in the format reference.
 
 ### Direct external Analyst service
 
@@ -49,7 +95,12 @@ The same application owns a dedicated `127.0.0.1` listener at
 recovery and outbound MCP installation. SDK1.32.1 serves stateless JSON Streamable
 HTTP, revision2025-11-25, with no sessions, batch execution, GET stream or replay.
 Every method requires its separate bearer; exact Host/path, no query or Origin,
-and a protocol header after initialize are mandatory. GET/DELETE return405 after
+both `application/json` and `text/event-stream` Accept values, and a matching
+`MCP-Protocol-Version: 2025-11-25` header after initialize are mandatory.
+Initialize must request that exact revision (and any supplied protocol header
+must match); subsequent initialized notification, context/tool discovery and calls
+retain those headers. Requests are single JSON-RPC messages, bounded to 1 MiB,
+without `Mcp-Session-Id` or task extension. GET/DELETE return405 after
 authentication. Initialization returns safe binding metadata/instructions; the
 read-only `saivage://analyst/context` resource supplies mode, principal, digest,
 card types and runtime status. No internal prompt or conversation is fabricated.
@@ -71,7 +122,13 @@ No receipt, retry, response or disposal follows publication uncertainty. Navigat
 results remain client intents; restart_server only requests separately authenticated
 operator confirmation and cannot restart via MCP alone.
 
-## Stateless action nodes
+## Workflow actions and execution evidence
+
+Actions are non-LLM graph nodes; hooks are postcommit advice. Neither is an agent
+conversation or an alternative acceptance authority. They share the configured
+engine's routing and terminal gates, with the narrowly bound stdout publication below.
+
+### Action contract and cancellation
 
 Workflow input format2 selects `execution.kind:agent` or `action` per node.
 Actions name an exact `namespace.operation` and contract version; only explicitly
@@ -113,7 +170,7 @@ nonbootstrap own-card record required by that node as `continue/updated`. Agent
 nodes, other actions and hooks cannot select it. No wildcard, foreign record,
 initializer, clean mode, stderr source or transform is supported. This binding
 alone grants exact action write authority; agent tools, writer globs and later
-assessment permissions are unchanged. See the [configuration example](../guides/configuration.md#action-execution-and-typed-handoff).
+assessment permissions are unchanged. See the [configuration example](../guides/configuration.md#add-an-action-before-acceptance).
 
 Node entry rejects any open destination draft before launch and captures the
 ordinary head identity/revision baseline. After actual completion, known group
@@ -128,7 +185,7 @@ Unicode, whitespace, trailing newline and valid terminal escape bytes are retain
 literally; normal safe outbound text/markdown projection still applies.
 
 Inspecting the physical capture through execution preview/download uses the shared
-[Files bounded UTF-8 rules](operator-ui-contracts.md#8-files-processes-and-evidence),
+[Files bounded UTF-8 rules](operator-ui-contracts.md#files-processes-and-evidence),
 including control-density refusal and outbound redaction. That inspection is
 independent of stdout record acceptance and retention: an accepted report does not
 guarantee an available or previewable capture, and a missing capture is not
@@ -149,8 +206,8 @@ Normal updated-head, export, descendant and promotion gates still run. A later
 gate failure leaves the factual report available but does not grant DONE. Action
 acceptance returns ordinary immutable record links, never closes a fake draft.
 
-Accepted `author` is strictly agent (`agent`), runtime (`purpose:bootstrap|repair`)
-or shell-stdout. Shell provenance contains `shell.run`/contract1, actual activation,
+Accepted `author` is agent (`agent`), external-agent (`principal`), runtime
+(`purpose:bootstrap|repair`) or shell-stdout. Shell provenance contains `shell.run`/contract1, actual activation,
 invocation, node, ordinal and process identities, stdout stream, outcome and
 nullable observed leader exit facts. It is not agent authorship or a verdict.
 Current/history API and ordinary record read data expose this author; draft and
@@ -160,6 +217,8 @@ shell publication creates no synthetic conversation/tool observation. Retained
 opaque old observations are not normalized. See the [accepted2→3/workflow1→2
 cutover](../architecture/durable-format-changes.md#shell-stdout-record-authorship-2026-10-19)
 for source applicability, unchanged conversation12 and separate adoption consent.
+
+### Typed operation inputs and routing
 
 The compiler requires exact qualified IDs, versions, providers and supported
 bindings from explicit trusted module declarations; it never discovers plugins.
@@ -178,6 +237,8 @@ Node/hook input suppliers are explicit literals or card facts; only hooks admit
 committed status. Selected predecessor outputs bind destination fields, checked
 on every incoming route and again before effects. There is no prior-log replay,
 implicit merge/default, arbitrary JSON/expression or dynamic target.
+
+### Postcommit hooks and entry context
 
 One optional `workflow.after_activation_commit` action may filter natural
 `done|blocked|failed` settlements. Supervisor invokes it only after known outcome
@@ -202,6 +263,8 @@ or list element, preserving display shape without changing internal typed inputs
 or routing. Covered text survives only as ordinary summary material, not guaranteed
 verbatim memory; a fresh entry resolves and delivers fresh inputs again.
 
+### Retained execution evidence
+
 `records/executions.jsonl` is a lazy card-owned strict version1 `card-execution`
 family, not an authored record or workflow state. Each append is one nonempty
 newline-terminated envelope. Whole-log consumers validate identity/associations
@@ -219,6 +282,8 @@ Public named inputs and retained values use their original names for secret-name
 neutralization while preserving declared types and list cardinality. Raw operation
 values and retained evidence remain unchanged. Private configuration and environment
 are omitted from execution detail, not published as placeholders.
+
+### Parent direction and public notifications
 
 Parent `activate_card` requires strict `{card_id,instructions}` with non-whitespace
 direction preserved byte-for-byte. Trusted parent card/session/input/call provenance
@@ -246,156 +311,14 @@ not the exact model request: prepared/static additions, tool definitions, protoc
 and private replay differ. A separate optional current-instructions read composes loaded
 static configuration, not historical or exact-request snapshots. Activation boundaries
 separately record historical prepared instruction evidence as described below.
-See [conversation presentation](operator-ui-contracts.md#6-conversation-readers).
+See [conversation presentation](operator-ui-contracts.md#conversation-readers).
 
-## Conditional current-record context
+## Caller-aware operation admission
 
-Each card logical primary operation supplies its current accepted bootstrap from
-one owning read, separately from stable node instructions and frozen admitted
-retry bytes. Optional ordered node `record_prompts` declarations name exact
-configured own-card records, accepted/effective view, required/optional presence
-and durable prompt policy. One distinct owning read per record supplies the union
-with bootstrap. Unknown or semantic selection change against pre-existing actual
-conversation card/record/view knowledge fires a prompt; node changes do not force
-first prompts. Metadata/slice B knowledge suppresses false changes from old A, and
-historical A never regresses B. Required missing content fails at use; optional
-absence is null, not an invented version zero.
-
-The closed compiler allows exactly one selection descriptor and optional
-JSON-quoted body data without retokenization. At/below 32768 raw UTF-8 bytes this
-is ordinary source JSON; larger bodies become a marked JSON-quoted preview of
-complete supplier-encoded/redacted display text, retaining at most 8192 display
-bytes at each end. Redaction-shrunken displays of at most 16384 bytes appear once
-without further middle elision. Final quoting/notice/host add bytes beyond that
-display allocation. A versionless pointer reads latest effective content through
-ordinary bounded reads, not historical omitted text. All oversized transformations
-carry excerpt exposure, never full-body or contiguous-slice claims. Separate full
-accepted bootstrap, stored record/history bytes, accepted authority, permissions,
-and exhaustive completion gates remain unchanged; omissions do not waive requirements.
-Actual rendered prompt bytes/provenance
-and needed preparation descriptors publish in one ordered envelope before provider
-work, with no later record currentness read. Latest descriptor-only source/exposure
-facts reach primary and summary independently of retained prompt text; they imply
-neither body recall, delivery, acceptance nor write authority. Existing requirement
-and Reviewer gates remain unchanged. See [prompt handling](../architecture/prompts.md).
-
-Public `record_prompt` reads preserve existing text-redaction coverage through the
-supplier's one JSON-string encoding layer. Current, exact-history and retained-protected
-instructions share this server projection; safe quoting and opaque template-looking
-data remain text. The oversized supplier prepass records its actual transformed
-text for primary, summary and protected context; source hashes retain source
-identity, not display byte equality. Shared inline masking now consumes complete
-escaped-double-quoted secret values without widening non-secret scan advancement.
-This can strengthen existing public projections; it is pattern-based filtering,
-not arbitrary-encoding secret detection or a new secret category.
-
-## Historical instruction evidence
-
-Conversation index, ordinary/compacted genesis and segment envelopes use strict
-format 12, a fresh 11→12 baseline/draft-document and historical-selection cutover retaining excerpt/display and historical
-instruction contract. Every `activation_open` requires strict `instructions`:
-`prepared` contains the exact rendered role text and nullable `{node_id,text}`;
-card nodes record their full frozen node block, globals have null node. Explicit
-`unavailable/not_recorded` records historical absence, never a template fallback;
-global confirmation-only ingress uses `not_applicable/non_model_ingress`.
-New model-backed ingresses use prepared evidence once per real activation, not
-per continuation, correction, retry or compaction. Preparation/publication,
-admission and `llm_turn_started` never prove delivery or interpretation.
-
-The snapshot selects only authored role and owned node strings, not arbitrary
-dynamic context, focus, tools, prefix containers, routing/auth, replay or diagnostic
-bodies. Structural evidence remains excluded from primary/summarizer context,
-accounting, protected prompts and required facts. Frozen prefix and provider bytes
-remain unchanged. Compaction leaves snapshots in exact indexed source history;
-current genesis does not carry a duplicate active instruction block.
-
-Lifecycle-entry, configured edge/pending-notification and correction prompt owners
-positively mark existing card user `text`/`model_repair` rows only with
-`instruction_origin:'workflow_prompt'`. Unknown values or other roles/kinds/sessions
-fail. This provenance survives protected copies and public projection without
-changing content, IDs/order, append counts, delivery or compaction policy. Unmarked
-context is not inferred to be human-authored; summaries never inherit invented
-provenance. No category parsing or current-template matching is permitted.
-
-Current/incremental/tail and exact-history APIs share positive public projection
-and independent outbound filtering of role/node text. The UI labels privacy-filtered
-recorded instructions, distinguishes unavailable from outside-segment history and
-non-model ingress, and retains the separate current-configuration inspector.
-Old/mixed state blocks; source completion authorizes no adoption. See the
-[format reference](../architecture/durable-format-changes.md) and
-[external adoption boundary](../runbook/index.md#external-migrations).
-
-## Explicit repair and coarse loss
-
-Backup and report paths are absolute and outside exact generated/lifecycle roots (`.saivage/cards`, `agents`, `logs`, `work`, `repair-attic`, `locks`), lexically and after alias resolution; ordinary project source-side paths are allowed. Report is fresh/absent and also outside the declared backup. “External report” means outside generated state and backup, not necessarily outside the project.
-
-The ladder is ordinary validated torn-tail truncation; unchanged owner-specific semantic closings; stopped/excluded/backed-up/consented exact-target `saivage repair`; then separately destructive eligible card discard. No preservation or availability guarantee. Strict startup never reads prev, manufactures required empty history, or launches work to cure corruption. Current linked-card admission excludes unconsumed old predecessors; history access still validates reached documents. Required indexes/current sessions/evidence/records/app-log retain strict consumption; valid empty indexes and genuinely absent lazy Oversight remain legitimate.
-
-Repair requires strict identity/config/workflows and bound exclusive lifecycle ownership across prompts; every existing lock blocks it. Before inspection acknowledge the successful complete fresh preserved stopped-project backup after stop/absence verification. Existence is not verification or a loss bound. External provisional report precedes exact action consent; inspected bytes/absence are rechecked after the pause. No unattended/all-target mode, scan, head regeneration, replay, automatic restart or compatibility. See the [operator procedure](../runbook/index.md#exact-target-offline-repair).
-
-Card/record restoration fresh-publishes the complete strict previous selection with new `head_id`, never renames prev or invents historical revision. Latest queue/membership/lifecycle/acceptance/draft changes may be lost, prior state resurrected and descendants unlinked. Queue-only prev can select the same broken artifact; one unusable candidate fails without older history search. Record-only damage never permits healthy-card discard.
-
-Conversation decisions share pure retained-prefix/schema/identity/source-metadata/semantic validators with ordinary consumers but never mutate before consent. Current valid prefix plus torn suffix proposes tail-only truncation. Previous-index restoration with a torn selected candidate publishes the index **then** truncates the reported now-current segment. Strict-valid index rollback removes exactly its missing/complete-malformed newest selection only when its immediate indexed predecessor validates wholly; historical tails are never truncated to qualify. First missing segment, complete malformed prefix (with or without torn suffix), corrupt predecessor or unusable prev fails, never empty synthesis/genesis scan. Reports identify segment identities/versions, known coverage/time/counts and unknown potentially days-long interactions since compaction. Healthy retained prefixes stay unchanged; external effects are not undone. Ordinary automatic tails and later semantic appends remain unchanged.
-
-Only a strict ancestor-reached card with independently unusable current **and** previous selections qualifies for `--discard-card` and separate destructive target consent. Root type is configured `project`; non-root `--card-type` is explicit operational input checked against compiled parent permissions and depth-twelve leaf rule, not recovered evidence. Move six exact own roots wholesale without inventory: current/prev heads, history, mailbox, records, conversations. Never move namespace/children, parent link, siblings, globals/evidence, source/work, identity/config/credentials or logs. Original own data and **entire former descendant reachability** are lost with unknown count/content; project discard unlinks every former project descendant. Physical unlinked children stay ignored forever. Unrelated dependencies remain untouched and may block restart.
-
-Synthetic state is narrowly `runtime:repair` initial v1, no predecessor, fresh artifact/head identities, title `Recovered card <ID> — data discarded`, FAILED runtime-failure summary/error/completion, empty membership/order/dependencies/pending, normal priority/urgency and no assignment/metrics/metadata. Ordinary initial creation remains backlog. Publish accepted fixed loss `status.md` with configured or generic definition, all required bootstrap placeholders with lost-requirements guidance/new-card provenance, and empty configured card sessions. No old verdict/completion is retained. Repair/startup launch no work; direct FAILED activation rejects. FAILED is **not an operator-only hold**: after later explicit healthy-ancestor Run its active Planner can metadata-reopen the child to CHANGED and execute unchanged placeholders. Replacing requirements first is recommended, not enforced.
-
-Only exact corrupt canonical paths and eligible own roots move into fresh `.saivage/repair-attic/<UUID>`; no attic/orphan inspection or adoption. Files omits/refuses attic and resolved aliases before content/list/preview reads; similar ordinary names are unaffected. Reset does not own attic. Effects are nontransactional: report completion only after known success, stop at first failure without retry/compensation. Move/publication/truncation uncertainty is fatal before further reads/writes/logging/report update or descriptor/lock/prompt cleanup. Another independent error may block separate restart. Incompatible adoption separately chooses consented reset or explicit external migration, never selective old-format repair.
-
-This is the canonical functional specification.
-Saivage core and packaged utilities contain no migration, compatibility reading, format probing or normalization in runtime/startup/init/reset/repair/ordinary deployment. Mixed-version operation and binary-only downgrade against incompatible state are unsupported.
-Incompatible adoption chooses separately consented destructive reset or explicitly owner-requested external offline migration under [runbook gates](../runbook/index.md#external-migrations), outside every product path. Deployment/plan approval and backup alone imply neither permission nor loss consent.
-Same-format deployment stops the old service and strictly starts the matching new binary against retained valid state; release contracts, not speculative startup or equal envelope versions, determine compatibility.
-
-Prospective durable shape/semantic changes follow
-[AGENTS Storage Policy](https://github.com/salva/saivage-v3/blob/HEAD/AGENTS.md#durable-format-versioning).
-The [durable format reference](../architecture/durable-format-changes.md) records
-the source baseline and evidenced cutovers, including historical equal-number
-incompatibilities; it is not runtime metadata or installation certification.
-
-
-## Contents
-
-- [1. Product Boundary](#1-product-boundary)
-- [2. Cards](#2-cards)
-- [3. Configured Card Processes And Sessions](#3-configured-card-processes-and-sessions)
-- [4. Full-Chain Stopped Recovery](#4-full-chain-stopped-recovery)
-- [5. Notifications And Reviewer Arbitration](#5-notifications-and-reviewer-arbitration)
-- [6. Activation Outcomes And Cancellation](#6-activation-outcomes-and-cancellation)
-- [7. Run, Pause, Resume, Stop, And Restart](#7-run-pause-resume-stop-and-restart)
-- [8. Lifecycle Lock And CLI](#8-lifecycle-lock-and-cli)
-- [9. Direct File Persistence](#9-direct-file-persistence)
-- [10. Prepared Invocation, Exact Admission, And Compaction](#10-prepared-invocation-exact-admission-and-compaction)
-- [11. API And Operator Projection](#11-api-and-operator-projection)
-- [12. Reset And Failure Consequences](#12-reset-and-failure-consequences)
-- [Publication outcome-unknown fatal boundary](#publication-outcome-unknown-fatal-boundary)
-- [Appendix: cutovers and recent contract changes](#appendix-cutovers-and-recent-contract-changes)
-
-Read this document top-down for the product model, or jump to the numbered
-section that owns the behavior in question. Sections state contracts
-normatively; the appendix collects recent cutover-level contract changes.
-
-## 1. Product Boundary
-
-Saivage autonomously plans and executes software work represented by cards.
-It exposes an operator server, Analyst conversation, card/agent/file/debug read models, and process-local runtime controls. Pending notifications are a private delivery queue: `queue_notification` is the only public agent-facing notification operation, and no ordinary card read exposes that queue.
-The runtime is the only dispatcher.
-
-Default agent allocation is deliberate workflow/API discipline for trusted in-container agents, not a hard-coded privilege system.
-Configured agent names remain identities, and the executable source remains the authority.
-
-| Default agent | Card structure/lifecycle tools | Record mutation | Child-creation ceiling |
-| --- | --- | --- | --- |
-| Analyst | `create_card`, `reorder_child`, `reopen_card`, `cancel_card`, `delete_card`; root control through `start_project`; no `activate_card` or `edit_card` | `write`, `edit`; `record_writes: [brief.md]` | `true` |
-| Planner | `create_card`, `edit_card`, `cancel_card`, `activate_card`, `reopen_card`, `reorder_child`; no `delete_card` | `write`, `edit`; `record_writes: [brief.md, status.md]` | `true` |
-| Reviewer | no card structure/lifecycle tool | `write`, `edit`; `record_writes: [review.md, review-*.md]` | `false` |
-| Executor | no card structure/lifecycle tool | `write`, `edit`; `record_writes: [status.md]` | `false` |
-
-`can_create_children` is only a creation ceiling intersected with `create_card` and the selected parent type's permitted child types; it grants neither reopening nor activation.
-Reviewer and Executor settle configured workflow outcomes rather than decomposing or dispatching child work.
-
-Operation admission is caller-aware; similar lifecycle sets do not imply shared authority:
+Creation is not dispatch, deletion is not cancellation, and reopening is not
+activation. Similar lifecycle sets do not confer another caller's authority.
+The following matrix is the operation-specific admission contract, not an
+aggregate permission implied by a role name.
 
 | Operation and caller | Scope/readiness and lifecycle admission | Additional admission | Durable effect |
 | --- | --- | --- | --- |
@@ -429,7 +352,7 @@ draft is not acceptance, and queue success is not notification delivery. Request
 intent and separately anchored recorded result stay in physical transcript order.
 Semantic inspection exposes existing safe evidence and coverage, never inferred
 completion, replay permission or fresh enrichment. See the
-[conversation UI contract](operator-ui-contracts.md#6-conversation-readers).
+[conversation UI contract](operator-ui-contracts.md#conversation-readers).
 
 Record tool possession plus a matching `record_writes` glob is necessary but not complete admission.
 The current URL must resolve to an active linked card, card-scoped authority cannot cross cards, all operation-required tools must be present, Analyst lifecycle admission must be supported, and an Analyst mutation must find no open workflow draft.
@@ -437,7 +360,18 @@ Content-specific checks then reject absent edit content, missing or multiple old
 
 Deletion is not cancellation, reopening is not activation, and creation authority is not dispatch authority.
 
-## 2. Cards
+## Card identity and lifecycle
+
+Card heads/mailbox use format1 and ordinary/tombstone documents format4. Only
+heads supply current `version_seq`, `updated_at` and pending notifications;
+ordinary history supplies its own immutable revision/time and no historical queue.
+Durable payloads exclude `subtype`, `assigned_to`, `metrics`, `estimate`,
+`started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report`
+and `metadata`, even null. There are no tags, generic related-card list, top-level
+status, stored parent/depth or durable allowedActions. Retained status text/time,
+lifecycle provenance, immutable type and membership/order remain strict.
+Hierarchy/detail are separate public projections. These current contracts do not
+authorize adoption or infer compatibility with former stream layouts.
 
 Card IDs use the source-derived grammar and depth ceiling in the exact block below.
 Root depth is zero; non-root depth is the hierarchical segment count.
@@ -525,6 +459,8 @@ It remains cancellable and subject to deletion's separate operation rules.
 `cancelled` is a terminal cancellation state reached only through the cancellation authority.
 It is notification-empty, not itself cancellable, and carries null result, error, and completion.
 It rejects Analyst record mutation and Planner metadata edits and admits no activation or reopening; deletion retains its separate operation rules.
+
+## Card read models and freshness
 
 In the Cards operator view, the opaque ID in `/cards/:id` is the sole selected-card authority.
 CardStore owns disjoint immediate-child slices, route-selected displayed-only detail, separately loaded compiled record descriptors, exact effective current record content, selected version metadata, selected artifact, and current-relative diff.
@@ -646,18 +582,34 @@ Root/current-invalid routes clear route ownership and supersede reveal without c
 Route-required reveal takes precedence over collapse intent only along represented edges.
 Desktop uses independently scrolling tree and detail panes with no combined Cards scroll, while mobile presents the tree or selected detail as one pane with Back returning to the tree.
 
+## Authored records and current selections
+
+Record document number, mutable record revision and selecting head UUID are
+different identities. Current baseline/draft state is not accepted history. Each
+mutation freshly admits its exact linked card and consumes its exact owner head;
+earlier reads or displayed permissions grant no later write authority.
+
+### Notification selection and lifecycle
+
 Every durable card requires ordered `pending_notifications`.
 Backlog, changed, running, blocked, and stopped lifecycle state permits enqueue, while done, failed, and cancelled require an empty list and reject enqueue with `terminal_card`. For a currently owned activation, lifecycle permission is necessary but not sufficient: after its result or cancellation winner is synchronously claimed, enqueue rejects with `activation_closed` before a card append even while durable status can still be running.
 Unrelated mutations preserve the list. Cancellation and done or failed publication clear it; BLOCKED activation settlement also clears it before publishing blocked.
 Reopening supported statuses to changed uses only the supported `setStatus('changed')` transition; no actor callback or lifecycle-repair authority exists.
 No `next_role`, retry count, reviewer phase, recovery cursor, or autonomous-round counter exists.
 
+### Record URLs and mutation admission
+
 Authored records have exact owner heads named injectively from safe record names and immutable accepted predecessor documents.
 Card-type declarations provide ordered metadata hints and exactly one bootstrap; an undeclared valid name resolves deterministically to Markdown with schema `authored-record.v1`.
 Each record owns `records/record-<stem>.json`. Opening, editing, closing, and discarding advance its mutable revision on actual mutation. The head contains the sole current draft and latest accepted reference; accepted bodies live only in immutable `records/accepted/<UUID>.json` documents. Public `v=N` selects exactly an accepted document version, never a draft transition or mutable head revision. Accepted document versions are consecutive from 1, independently of mutable revision; absent selectors are not found, not rounded to a nearby acceptance.
 Discard clears the draft while preserving the accepted selection. There is no retained open/edit/discard or draft history.
 The schema string is opaque identity/guidance and never executable validation.
-Card creation publishes the bootstrap record's accepted version 1 with writer `runtime:bootstrap`, then its selecting head. Optional heads are absent until mutation; a present empty head after discard is distinct from absence. Startup validates configured records at their existing consuming scope and never creates missing authority.
+Card creation first publishes the bootstrap's accepted document1, then its selecting
+head. Child acceptance records the actual creating agent or external credential
+holder; project bootstrap is runtime/bootstrap and synthetic discard is runtime/
+repair. Optional heads remain absent until mutation; empty-after-discard is distinct
+from absence. Startup validates records at their owning consumption scope and
+creates no missing authority.
 
 The reusable current URL is exactly `record:///<name>?card=<card-id>` for read, write, and edit; ordered `&v=N` is explicit read-only history.
 Extra parameters, historical mutation targets, fragments, noncanonical versions, and old head-token forms are rejected inputs.
@@ -670,7 +622,9 @@ Card-agent mutations resolve or open the current cycle and leave a draft; an adm
 Analyst mutations reject an existing workflow draft and directly publish one accepted document, then one head selecting it and clearing draft, advancing revision once. Successful acceptance invokes existing record-specific changed propagation. Successive corrections while CHANGED remain admitted without activation; each success can produce fresh target/ancestor notices, without repeated changed transitions or cross-edit deduplication. Webfetch retains read-only pre-network preflight and fresh final admission.
 Invalid-target, denial, absent-content, open-conflict, unchanged, old-string missing/multiple, empty-result, and current-state-unavailable outcomes are strict structured failures; there is no recoverable stale result. Existing non-publication card/classification read failures return `current_state_unavailable` with restart required, not invalid-target. Unexpected mutation errors and publication uncertainty retain their escaping boundaries; no failed result is fabricated after an uncertain effect.
 
-Every node requirement is `{mode:'clean'|'continue',gate:'exists'|'updated'}` and must match the node agent's record-write glob so framework close has valid attribution.
+### Record entry preparation and acceptance gates
+
+Every agent-node requirement is `{mode:'clean'|'continue',gate:'exists'|'updated'}` and must match the node agent's record-write glob so framework close has valid attribution. The exact action stdout binding has its separate declared authority.
 `clean + exists`, `clean + updated`, and `continue + updated` require the direct `write` tool; `continue + exists` may omit it unless the node selects initialization.
 Neither `edit` nor `webfetch` substitutes for `write`, and a record-targeted Webfetch additionally requires both `webfetch` and `write`.
 ::: v-pre
@@ -710,9 +664,11 @@ A save rejection is the one top-level failed tool outcome.
 Audited Analyst record Webfetch runs cancellation/readiness, read-only mutation preflight, exactly one HTTP fetch, cancellation/second readiness, then fresh full mutation admission.
 An invalid-target error, tool/glob/lifecycle denial, open conflict, or unavailable canonical parent at Analyst preflight performs no HTTP request; invalid-target audits `error`. Readiness or admission loss after fetch discards fetched bytes and performs no mutation. Card Webfetch retains its scoped write authorization before shared mutation admission; its malformed or historical save targets likewise reject before network, under its existing error boundary.
 
+## Card history, membership and publication
+
 Card state uses `card-head.json`, selecting one immutable `card-history/<UUID>.json` ordinary snapshot or final non-root tombstone and ordered pending UUIDs in `mailbox/<UUID>.json`. Its `version_seq` and `updated_at` are current mutation facts, advancing on every successful queue mutation as well as ordinary publication. Ordinary payloads omit pending messages and current revision/time; immutable metadata supplies historical revision/time. `history_version` derives from the selected ordinary reference. History 1 → enqueue/current 2 → removal/current 3 → ordinary 4 retains only [1,4], with predecessor 1; historical 2/3 are not found. Catalog totals count entries, not revision maxima.
 
-#### Previous selector publication and exact head identity
+### Previous selector publication and exact head identity
 
 Every card/record head has required UUID `head_id`, newly generated for each publication, not derived from revision or immutable artifact identity. Current card detail, current record metadata/content, current-side diffs, Files current `card.json`, tool observation stamps and record mutation success expose that identity alongside revision. Historical accepted projections have no current head identity; their immutable entry/version provenance is unchanged. Ordinary mutations still freshly consume current state, without a carried write token or new CAS admission gate.
 
@@ -720,7 +676,11 @@ Every card head, record head and conversation index publication maintains exactl
 
 Normal readers and publishers never read previous content, automatically restore it, or discover history to regenerate a head. The slot is reserved for stopped/excluded/backed-up/consented exact-target `saivage repair`. Unlink/link failures stop directly; slot directory-durability errors and ordinary publication uncertainty are fatal before follow-up, retries or cleanup. Hardlinks on the supported Linux filesystem are required, with no copy alternative. The sequence is nontransactional: interruption can leave no prev, prev equal to current, or old current; no usable prior selection is guaranteed. Shared-inode damage and a previous queue-only head selecting the same damaged artifact limit its usefulness. Strict startup remains strict.
 
-Required `head_id` is independently incompatible adoption: its pre-policy introduction retained head outer version 1, a historical exception rather than permission for future reuse. Missing identity fails strict consumption; no core migration/probing/normalization/compatibility reader or automatic adoption, and no binary-only downgrade. The [reset/external-migration decision](../runbook/index.md#external-migrations) is separate; source completion authorizes neither deployment nor adoption.
+Required head UUID was independently incompatible adoption; its pre-policy outer
+version1 retention is a historical exception, not permission for reuse. Missing
+identity fails strictly. No migration/probing/normalization/compatibility path or
+binary-only downgrade exists. The [reset/external-migration decision](../runbook/state-adoption.md#choose-the-operation)
+is separate; source completion authorizes neither deployment nor adoption.
 
 Current reads strictly validate exact heads and selected ordinary/accepted documents, not their entire predecessor chains. Pending bodies are read only when consumed. Historical selection follows committed exact UUID references with strictly decreasing source revisions until the exact selector or established absence; full catalogs traverse to initial card version 1/null or accepted null and reverse to ascending order. Every reached identity, document, link and hash remains strict: missing/malformed referenced data fails, never skips or promotes a predecessor. Live mutations enforce exact current +1 admission from the fresh head, not history length. No persistent index, filename guessing, directory scan, retained admission registry, check-once trust, or startup certification of unconsumed history exists.
 
@@ -776,7 +736,15 @@ Done has null error and completion equal to that timestamp; failed has error equ
 Ordered changed fields are lifecycle, then each actually changed status companion, then notification clear when needed; `change_summary` is exactly those names joined in order plus ` updated`.
 Every family rejects relabelling, wrong provenance/reason, wrong or reordered deltas, and piggyback fields.
 
-## 3. Configured Card Processes And Sessions
+## Workflow engine
+
+The engine executes the compiled graph one node at a time. This chapter owns
+actor failure, graph transitions, corrective admission and record acceptance;
+[configuration and profiles](#workflow-configuration-and-shipped-policies) own
+source selection and shipped responsibility. Graph position is live state, never
+a durable resume cursor.
+
+### Failure ownership
 
 Reading BaseActor state before start throws `InternalActorError`. An ordinary task rejection delivers its failure callback once without fatal-hook notification; start-entry and actor-main failures retain that notification.
 CardProcess catches publication uncertainty inside raw node work around the captured successor guard and the entire awaited execution, including preparation and finalization. It reaches the nonreturning fatal port before any ordinary failure callback, projection, transition, cleanup, or later read, even if cancellation already settled the tracker wrapper before the raw rejection. Existing earlier provider, compaction, and Analyst fatal boundaries remain unchanged.
@@ -786,6 +754,8 @@ BaseActor latches the exact value once, rejects every current and future lifecyc
 A throwing hook is logged separately and cannot replace the primary latch.
 CardProcess owns one guarded first-winner activation boundary across normal terminal result, runtime interruption, cancellation/disposal, publication fatality, and actor-main failure.
 A callback failure rejects an unsettled activation exactly; if cancellation, Stop, or application close already settled it, that later settlement loses harmlessly while the required exact-owner Supervisor notification still runs.
+
+### Compiled graph and named participants
 
 Configuration requires global `agents`, `analyst_agent`, and named `models.routes`, plus the card-type source form: a complete `card_types` map or omission for the bundled `classic` definitions.
 
@@ -804,7 +774,10 @@ Template definitions contain complete card types, workflows, and record declarat
 Source resolution produces exactly one complete effective `card_types` map before compilation, and only that map reaches runtime consumers and outbound effective-config projections.
 An agent owns its prompt, ordered tools, duplicate-free `record_writes` patterns, model route, skill capability, `global | card` session scope, and child-creation ceiling.
 Each effective card type owns permitted child types, declared record metadata with exactly one bootstrap record, and a graph whose four entries are `BACKLOG | CHANGED | BLOCKED | STOPPED`.
-Each workflow declares one designated notification recipient that exists in that workflow and is card-scoped. Nodes reference one card-scoped named agent, node/correction prompts, strict `{mode,gate}` requirements, optional descendant context, and strict outcome edges.
+Each workflow designates one existing card-scoped notification recipient. Agent
+nodes select one card-scoped named agent, node/correction prompts, `{mode,gate}`
+requirements, optional descendant context and strict outcome edges. Action nodes
+instead select an exact compiled operation contract; they create no agent session.
 Every prompt reference is a strict declaration object. Static `agents.<name>.prompt` and node `prompt` use `{reference,compactable?}`; omitted `compactable` resolves to true, explicit true/false is preserved, and `compaction_key` is forbidden. Durable lifecycle-entry, `correction_prompt`, nonterminal edge, and pending-notification prompt sites additionally allow `compaction_key`. At those sites omitted/true forbids a key, false without a key protects every occurrence, and false with a nonempty exact key protects only the latest occurrence of that key. Keys are exact and are never trimmed, normalized, interpolated, or synthesized. A consuming site owns this policy independently of the shared referenced prompt text. Static and current-node flags never change their exact prepared delivery or create durable model-context occurrences; once-recorded structural activation evidence is distinct.
 Every descendant-context record must be declared by every transitively reachable permitted descendant type, though schemas may differ; arbitrary dynamic record names cannot enter descendant context.
 Terminal edges select `DONE | FAILED | BLOCKED`, ordered exports required by that source node, and `current` or reachable `latest_node` promotion. Every DONE edge from a nonrecipient node declares one `pending_notifications` alternative to an existing node run by the recipient, with its own process prompt; recipient DONE edges and all other edges forbid that declaration.
@@ -871,6 +844,8 @@ One node task permits at most 16 corrective re-arms counted jointly across plain
 
 Configured correction text and runtime diagnostics are separate durable rows. The configured text is the sole `model_repair` row and carries its declaration's compactability; validation errors and remaining-attempt diagnostics are ordinary compactable user context. A rejected tool call's original failed result, selected notification or refreshed reviewer context, and correction rows are built before publication and appended together in one known continuation batch under the fresh continuation input identity, while the result keeps the original call/input identity. Plain-text repair likewise appends configured repair, diagnostics, and ordinary continuation context in one batch. Call rows remain in their earlier envelope because execution lies between call and result. Callbacks and notification/reviewer updates run only after known batch success; publication uncertainty preserves its exact cause and permits no reread, retry, cleanup, or callback.
 
+### Explicit skill selection
+
 The optional on-demand skill catalog is the exact `.saivage/skills/index.json` JSON array.
 Each entry is one strict three-field object:
 
@@ -897,7 +872,9 @@ A missing exact index is an optional-capability case: listing succeeds with `{su
 A present malformed index, old-schema entry, duplicate name, invalid path, missing selected skill file, or other read failure returns that same generic failed ToolResult shape with its actionable error; there is no fallback, normalization, or skill-specific failure projection.
 A name absent from the caller's filtered catalog and a name targeted only to another role are both unavailable.
 
-At node entry the owner appends the activation marker, designated-recipient notification context or reviewer context when present, and immediate lifecycle/edge transition context when present. Nonrecipient nodes never receive or remove notification context at entry or continuation. It does not append the current node prompt: before any record, notification, or ingress effect, the actual compiled process/node selects that prompt's unaltered full text for the activation-local prepared node block.
+### Node entry and acceptance
+
+At agent-node entry the owner appends the activation marker, designated-recipient notification context or reviewer context when present, and immediate lifecycle/edge transition context when present. Nonrecipient nodes never receive or remove notification context at entry or continuation. It does not append the current node prompt: before any record, notification, or ingress effect, the actual compiled process/node selects that prompt's unaltered full text for the activation-local prepared node block.
 Nodes referencing the same agent on one card reuse its stable session; a transition to another agent selects that agent's card session.
 Immediate edge context contains only source node, accepted outcome and summary, accepted record URLs, and its optional edge prompt.
 That handoff is delivered once rather than repeated as prepared context, but accepted facts, record evidence, and still-applicable instructions remain applicable after delivery. A later node prepares its own node text and generated outcome/tool contract; neither old rows nor summary prose select graph position.
@@ -912,11 +889,93 @@ Intermediate edges retain the same close/settle/node-local cleanup ordering.
 Reviewer stale rejection discards the stale open review, captures one new exact descendant context and semantic snapshot pair, appends that exact refreshed context, replaces the comparison snapshot, and continues the same node.
 A later semantic change may reject again; unchanged refreshed context may succeed.
 
+## Conversations and instruction evidence
+
+Sessions are stable configured identities; activations and provider source-input
+UUIDs are separate. Retained rows are request-assembly inputs, not exact provider
+requests or proof of perception. This chapter separates historical preparation,
+fresh record context, current loaded instructions and strict segment/settlement rules.
+
+### Conditional current-record context
+
+Each card logical primary operation supplies its full current accepted bootstrap
+from one owning read, separately from stable node instructions and frozen admitted
+retry bytes. Ordered optional `record_prompts` select exact configured own-card
+records, accepted/effective view, required/optional presence and durable prompt
+policy. One read per distinct record supplies the union with bootstrap. Unknown
+or semantically changed selection against actual prior card/record/view knowledge
+fires a prompt; changing nodes does not force one. Metadata/slice B knowledge
+suppresses false changes from old A; historical A never regresses B. Required
+missing content fails at use; optional absence is null, not invented version zero.
+
+The closed host allows exactly one selection descriptor and optional JSON-quoted
+body without retokenization. At/below 32768 raw UTF-8 bytes it is ordinary source
+JSON. Larger bodies become marked JSON-quoted previews of complete supplier-encoded/
+redacted display text, at most 8192 display bytes at each end. A redaction-shrunken
+display of at most 16384 bytes appears once without middle elision. Final quoting,
+notice and host add bytes outside that allocation. Versionless links read latest
+effective content through bounded reads, never omitted history. Oversized exposure
+is excerpt, not full body or contiguous source slice. Full accepted bootstrap,
+stored records/history, accepted authority, permissions, exhaustive requirements
+and Reviewer gates are unchanged; omitted context never waives them.
+
+Rendered prompt bytes/provenance and needed preparation descriptors publish in one
+ordered envelope before provider work, without a later record-currentness read.
+Latest descriptor-only source/exposure facts reach primary and summary independently
+of retained text; they establish neither recall, delivery, acceptance nor write
+authority. Public current/history/protected `record_prompt` uses one shared server
+projection through the supplier's JSON-string encoding. Quoted/template-looking
+data stays text. The oversized prepass records actual transformed text for primary,
+summary and protection; source hashes identify source, not display-byte equality.
+Inline masking consumes complete escaped-double-quoted secret values without wider
+non-secret advancement. This is pattern-based defense, not arbitrary-encoding secret
+detection. See [prompt handling](../architecture/prompts.md).
+
+### Historical instruction evidence
+
+Format-12 `activation_open.instructions` is strict. Prepared evidence contains
+`role_text`, nullable `node:{node_id,text}`, `activation_id`, `caller`, `card` and
+`parent_direction`. Card ingress records full frozen node text, actual activation
+and `{cardId,cardType,title}`; global preparation has null card/node/activation/
+parent and caller global. Root caller has no parent direction. Parent caller
+records exact parent card/session/source-input/call/`activate_card` provenance
+plus nonblank rendered direction; identity/parent associations are validated.
+`unavailable/not_recorded` states absence, never a current-template fallback;
+global confirmation-only ingress is `not_applicable/non_model_ingress`.
+
+New model-backed ingress records this once per real activation, not continuation,
+correction, retry or compaction. Preparation/publication, admission and turn-start
+prove neither delivery nor interpretation. Besides those explicit orientation/
+caller fields, the snapshot contains authored role/node strings, not arbitrary
+dynamic records/focus, tools, prefix containers, routing/auth, private replay or
+diagnostic bodies. Structural evidence stays excluded from primary/summarizer
+context, accounting, protected prompts and required facts. Compaction retains it
+in exact indexed source history, not a duplicate active block in genesis.
+
+Lifecycle-entry, configured edge/pending and correction owners positively mark
+existing card user `text`/`model_repair` only with
+`instruction_origin:'workflow_prompt'`. Unknown values and other roles/kinds/scopes
+fail. Provenance survives protection/public projection without changing row content,
+identity/order, append counts, delivery or policy. Unmarked context is not inferred
+human-authored; summaries gain no invented provenance. No category parsing or
+template matching is permitted.
+
+Current/incremental/tail/exact-history share positive public projection and separate
+role/node text filtering. UI distinguishes privacy-filtered recorded instructions,
+unavailable recording, start outside segment and non-model ingress; current loaded
+configuration remains a different inspector. Old/mixed contracts block; source
+completion authorizes no [state adoption](../runbook/state-adoption.md).
+
+### Stable session layout
+
 Stable session IDs use the source-derived grammar in the exact block below for global-scoped and card-scoped configured agents.
 One parser owns this grammar across messages, persistence, Agent APIs, chat, live sync, and web contracts.
 Each deterministic configured session owns `conversations/<agent-name>/index.json` and immutable `versions/<version>-<uuid>.jsonl` segments; the global Analyst uses the corresponding `.saivage/agents/conversations/<agent-name>/` namespace.
 First publication establishes an index and its directories even while the catalog is empty for every distinct card-scoped node agent in the published card's compiled workflow; see [Established conversation and card-owner directories](#established-conversation-and-card-owner-directories). Successful initial runtime publication also establishes the selected global Analyst conversation after publishing the project card. Later startup strictly consumes those exact indexes for reached active cards and the selected Analyst without enumerating session/version directories or creating replacements. An interrupted initial runtime publication can therefore leave strict incomplete state requiring the authorized reset remedy. Oversight is different: its selected global conversation is established lazily only when an actual check first uses it. Direct known tombstoned-card sessions remain readable.
-Conversation formats and the distinct card/record JSON and growing JSONL representations are specified in [§9](#9-direct-file-persistence). Segment-version numbers remain sequential conversation generations, not format numbers. Earlier formats and mixed shapes are rejected.
+Conversation formats and the distinct card/record JSON and growing JSONL
+representations are specified under [direct file persistence](#direct-file-persistence).
+Segment ordinals are sequential generations, not format numbers. Earlier formats
+and mixed shapes are rejected.
 
 ### Exact conversation-session identity contract
 
@@ -930,7 +989,8 @@ The Analyst runtime owns at most one lazily created actor and accepts no caller-
 `GET /api/chat` returns the configured global Analyst `session_id` with startup `mode`, `internal_enabled` and `external_enabled`; it is the sole REST chat identity/availability response and includes no transcript or transport secrets.
 `POST /api/chat` accepts exactly a strict object with required non-empty `content` and optional strict workspace context; success returns only tool-invocation and restart results, with no session identity field. REST `content` is additionally capped by schema at `1_048_576` UTF-16 code units (JavaScript `string.length`).
 REST `chats.send` (`POST /api/chat`) is the sole internal Analyst conversation submission transport, available only in internal/both mode. Direct MCP operations do not enter that conversation. The first synchronous `AnalystSession.submit()` admission wins.
-An overlap is rejected immediately, never queued: REST maps the typed busy error to HTTP 409; the exact shared variant is documented in [Section 11](#exact-shared-operator-error-contracts).
+Overlap rejects immediately, never queues: REST maps the typed busy error to409
+under the [exact shared error contract](#exact-shared-operator-error-contracts).
 Failed, disposed, closed-admission, canonical-state, provider, persistence, invariant, and publication-uncertain failures are not busy.
 WebSocket is observation-only: inbound frames are strict live-sync subscribe/unsubscribe objects. Unsupported frames (including Analyst messages) and malformed JSON close with code 1008 and fixed reason `Invalid live-sync frame`, before any subscription effect or acknowledgement. Connected status contains exactly `{event:'connected',timestamp,clientCount}`; chat identity comes only from REST `chats.get`. No Analyst activity, busy/error, or turn-acknowledgement envelope is sent over WS.
 Generic Agent detail, conversation, current-instructions, and LLM-exchange parameters use the full shared session grammar.
@@ -1021,7 +1081,9 @@ Append admission, `readConversation`, complete Agent transcripts, bounded `read_
 `GET /api/agents/:id/conversation` returns exactly `{session_id,segment_id,segment_version,segment_context,entries,cursor:{segment_id,segment_version,message_id}}` only after complete exact validation. `segment_id` is the selected immutable segment's `entry_id` UUID, not a generated read token. Selected conversation history returns exactly `{session_id,version,entry_id,published_at,segment_context,entries}`. Its ordinal selects from the present catalog; it is not an immutable identity handle. An ordinary format-12 segment has `segment_context:null`; each compacted version has exactly `{kind,source_version,covered_through_message_id,summary_text,protected_prompts,required_model_facts,continuation}` as strict separately projected context, also shared by `read_agent_session`. No checksum-only lineage, group counts, disposition accounting, or coverage objects are exposed. Segment identity, cursors, and navigation are unchanged.
 Incremental reads require `segment_id`, `segment_version`, and opaque equality token `since` together; omission of all three selects a complete current read. Identity or version mismatch returns `409 conversation_segment_changed` with requested/current IDs and versions before any cursor lookup, even if both incarnations retain that row. A missing token within the matching segment is `400 conversation_cursor_not_found`, carrying the segment ID/version. Later outward rows are selected only after complete validation, and the cursor advances over filtered provider-private rows. An empty established catalog still has no current segment or segment identity; no placeholder UUID is invented.
 A sole final unmatched call has no active, waiting, pending, or snapshot meaning. When a later ordinary card workflow selects that exact configured session for imminent activation, or a later explicit submission is newly admitted to the configured global Analyst session in an already-running server, the consuming owner may pair it with one permanent synthetic failed result stating exactly `Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.` The result preserves the old source input, call, tool, and persisted result-policy template bytes/hash, carries exactly `{outcome_unknown:true}` and evidence `none`, and is appended immediately before the fresh activation marker. It neither continues nor replays the old invocation and appends no recovery notice.
-Fresh server startup also uses this same permanent uncertainty-only failed result for the configured global Analyst and established configured global Oversight, before readiness as specified in §4. That occurrence creates no activation marker, ingress, submission, check, or recovery notice.
+Fresh [startup recovery](#startup-and-run-recovery) uses the same permanent
+uncertainty-only mate for configured Analyst and established Oversight before
+readiness. It creates no marker, ingress, submission, check or recovery notice.
 
 Successful `GET /api/agents/:id/llm-exchange` returns exactly `{session_id,exchange}`.
 `session_id` is the selected Agent-session identity, and `exchange` is the strict provider-exchange projection.
@@ -1108,7 +1170,7 @@ Conversation invalidations carry exact current `segment_id` and displayed `segme
 Message IDs have no ordering authority.
 Reconnect creates fresh lease generations and authoritative REST reloads.
 
-## 4. Full-Chain Stopped Recovery
+## Startup and Run recovery
 
 After successful strict startup recovery from a dirty shutdown—a process error, kill, crash, or host failure—the stopped card chain is structurally consistent for a later explicit Run; recovery neither executes work nor guarantees semantic completeness.
 Malformed canonical input or failed publication may prevent server availability, and file persistence offers no guarantee against data loss.
@@ -1121,7 +1183,12 @@ It validates active dependency existence/cycles and checks each non-root active 
 It then strictly reads the exact selected global Analyst conversation index and every distinct node-agent index derived from each admitted card's compiled workflow. Valid empty indexes are sufficient; startup creates none of these required indexes. Only after all required indexes are admitted does startup consume the event/control app log, then each required session's optional provider-exchange stream in deterministic Analyst/card-session order. It reads the selected global Oversight catalog once: if present, it strictly validates that catalog and consumes its optional evidence stream even when scheduling is disabled; if absent, it does not read Oversight evidence. Only after these reads does startup consume each required session's current conversation segment, require each declared bootstrap record head/selected acceptance, and consume each present configured record head/selected acceptance. Optional heads are validated only when present, never created. Remaining exact growing-file owners share the unchanged validated torn-suffix rule; heads/documents do not. No repair sweep, eager predecessor certification or smaller startup certificate is introduced.
 The selected global Analyst index is required even before its first segment or operator message. The selected Oversight index is not required or initialized at startup; actual check use retains its owner-local lazy initialization. The common generated-state gate above remains unchanged for server startup and CLI init, including all admitted card-session current bodies and evidence, even on stopped cards. It completes before Fastify transport services, Supervisor startup settlement, MCP reconciliation, or listening. Server composition additionally strictly consumes the established selected Oversight current conversation, even when scheduling is disabled. Evidence admission covers attempts across all compaction segments of the currently selected required sessions and established selected Oversight, not every historical provider writer: retained tombstoned cards, descendants below tombstones, removed card-agent assignments, and formerly selected global sessions are excluded. Exact retained-tombstone routes still validate their exact head and selected document when admitted. Startup neither discovers those excluded streams nor certifies cross-file logical-ID uniqueness.
 Valid settled, final-assistant-text, and other text-ended history remains byte-identical; no text position proves interruption.
-After lifecycle exclusion, required configuration/canonical admission and bound-workflow construction, server composition strictly consumes the configured Analyst current conversation first, then the configured Oversight current conversation only if its exact index exists. Each sole strict-valid final unmatched call receives the existing permanent uncertainty-only failed result described in §3. Required missing Analyst state, a missing indexed Oversight segment, and malformed catalogs fail; only the exact optional Oversight index read's absence permits a no-op. An absent Oversight index stays absent.
+After lifecycle exclusion, required config/canonical admission and workflow binding,
+composition strictly consumes configured Analyst current history, then configured
+Oversight current history only if its exact index exists. Each sole valid final
+unmatched call receives the [permanent uncertainty-only mate](#retained-conversation-contracts).
+Missing required Analyst state, missing indexed Oversight segment and malformed
+catalogs fail. Only exact optional Oversight-index absence permits a no-op; it stays absent.
 Complete malformed or invalid history also fails unchanged.
 The exact current-conversation owner may truncate an unterminated final physical suffix only after full retained-prefix validation against index, genesis, session, source metadata, and conversation semantics, at startup or ordinary use, including consumed stopped-card streams. Bounded global startup settlement appends no recovery notice, new ingress, provider evidence, or follow-up work; it neither replays nor asserts prior effects. CLI init retains its existing reads and gains no global corrective settlement.
 After these bounded global operations, Supervisor startup strictly selects the canonical linked running chain and settles it before usable stopped runtime, MCP reconciliation, listener/readiness, or operator admission. Startup creates no activation owner, structural wait, provider request, tool replay, or Run. Empty running-chain selection does not skip the preceding global operations. This ordering is not all-or-nothing validation: a permitted tail truncation or global mate may commit before a later topology failure. The first failure stops progression; publication uncertainty reaches the fatal boundary before any next subject or cleanup.
@@ -1157,7 +1224,7 @@ Descendants remain stopped until their exact live parent delegates ordinary acti
 Generic mutation cannot perform running-to-stopped or stopped-to-running.
 There is no transaction, recovery generation, graph cursor, old-node inference, or atomicity guarantee.
 
-## 5. Notifications And Reviewer Arbitration
+## Notifications and reviewer arbitration
 
 The durable notification target is one `card_id`, and `queue_notification` is the only public agent-facing notification tool. It requires `card_id`, `kind`, `body`, and exact lowercase `urgency:'normal'|'urgent'`; roles and session IDs are not targets and urgency is not stored in `CardNotification`. The card type's configured designated recipient receives context through its card-scoped session regardless of which agent runs the current node.
 
@@ -1177,11 +1244,11 @@ Ordinary card query surfaces provide no explicit queue collection, count, member
 
 Pause does not interrupt these synchronous terminal sections; continuation parks only if it later reaches the single provider-admission frontier.
 
-## 6. Activation Outcomes And Cancellation
+## Explicit image observations
 
-Controlled interruption recognizes only the supplied aborted signal's exact reason, including cancellation of owned internal-summary work. Actual settled attempts remain evidence even when cancellation arrives between attempts or during retry wait; cancellation creates no synthetic attempt and causes no further retry or recovery handoff. Summary evidence must publish successfully before exact cancellation reaches actor settlement and join. A distinct concurrent failure is not relabeled as cancellation, and recorder/projection failure retains precedence. Publication uncertainty reaches the fatal boundary before cleanup or stopped publication; abort alone never establishes a successful join.
-
-### Explicit image observations
+Image metadata, a selected recorded PNG and a fresh source file are different
+evidence. Only the positive typed result occurrence selects recorded pixels;
+recording never proves provider delivery or perception.
 
 `view_image({path,max_dimension?})` inspects one explicit PNG/JPEG in an ordinary
 project-relative path, `project:///`, `work:///`, or the caller's own-card
@@ -1295,6 +1362,56 @@ Text/JSON/Markdown redaction/copy remain unchanged. Bearer headers, bounded JSON
 failures, abort/late-response handling and viewer-local revoked object URLs apply;
 no token URL, cache, persisted derivative or durable-format change is introduced.
 
+## Activation admission, outcomes and cancellation
+
+### Activation owner model
+
+`SupervisorRuntimeApi` owns one private `activationOwners` map and one status
+field. It alone coordinates structure, current card, run identity/status,
+status-derived intervention readiness, Pause, terminal winners and halt. Status
+is internal uninitialized until startup succeeds; there is no second readiness flag.
+Each plain `CardActivationOwner` has phase
+`prepared_root|child_admission|active|settling` and winner `open|result|cancel`.
+One nullable halt freezes exact owners, one shared `RuntimeStoppedInterruption`
+and promise. CardProcess remains a micro-actor; direct Conversation LLM is a
+provider/tool state machine without BaseActor/event queue/lifecycle settlement.
+Concrete CardService remains the singular card reader and strict schema owner.
+
+Live LLM calls carry the complete frozen `toolInvocationContext`: exact session/
+source/call/tool identity, external/process waits and mandatory child reservation.
+`invokeToolForLlm` requires it before the optional signal; lower-level non-LLM
+`invokeTool` may omit it. Analyst parses arguments first and carries the same
+context but has neither activate capability nor Planner child-control port.
+
+Planner activation/cancel/reopen use a port bound to the exact parent owner.
+The provider does schema/immediate-child checks; Supervisor checks owner before
+target I/O. Fresh child admission installs owner, relationship and lease before
+running publication; currentness stays parent until success. Exact same-parent/
+same-lease active or settling joins require no I/O. Natural result claims before
+publication, joins work, removes structure/restores currentness/releases lease,
+invalidates, then delivers. Publication uncertainty exits before all of these
+follow-ups, not an ordinary halt or operational failure.
+
+Run preparation installs prepared root/run/current root/one-shot launch token and
+starting status before recovery or running publication. Launch consumes that
+authority and opens execution. Application admission closes permanently only at
+application shutdown. Natural release from running/pausing/paused completes the
+gate while clearing owner/run/currentness and publishing stopped. Stop, App close
+and ordinary actor-main failure share the one halt: success stopped admits
+intervention; failure error rejects it. No publication-unknown path enters halt.
+
+### Controlled interruption
+
+Controlled interruption recognizes only the supplied aborted signal's exact reason,
+including owned internal-summary cancellation. Settled attempts remain evidence
+even between attempts or during retry wait; cancellation creates no attempt and no
+retry/recovery handoff. Summary evidence must publish before cancellation reaches
+settlement/join. Distinct concurrent failure is not relabeled; recorder/projection
+failure retains precedence. Publication uncertainty is fatal before cleanup/stopped
+publication. Aborting alone never establishes successful join.
+
+### Dependency and owner admission
+
 Planner `activate_card` admission reads the target's current declared `depends_on` list and requires every dependency's current durable card status to be exactly `done`; every other status rejects in declared dependency order.
 It then admits status before child actor lookup: `running` may join its retained activation, and a non-running status is activatable only when `cardProcessEntryForStatus` selects its lifecycle entry.
 A missing target retains the ordinary not-found result, while malformed canonical state or an impossible missing declared dependency fails strictly.
@@ -1316,6 +1433,8 @@ If terminal publication becomes outcome-unknown at its direct primitive, a later
 The failing process does not retry, reread, reconcile, write again, report the terminal result, naturally release ownership, or freeze/halt the graph.
 It emits the fixed stderr diagnostic and exits.
 After dead-owner verification and manual lock repair, a genuinely new server startup accepts either valid durable prefix through ordinary full-chain settlement before availability; a later explicit Run begins execution.
+
+### Cancellation and reopening authority
 
 The installed runtime's exact live-card map is the only resolver for running cancellation.
 If a target or cancellable descendant is live, the request routes to those exact actors.
@@ -1343,7 +1462,14 @@ After complete admission, the Supervisor uses that parent owner as the sole auth
 Expected admission denials are ordinary tool failures and do not initiate a runtime halt. Publication outcome unknown follows the existing immediate fatal boundary and is never converted to an operational result. Any other publication failure begins the existing `publication_failure` halt and the Planner receives the retained stopped interruption rather than success or a recoverable tool failure; a halt raised during publication behaves the same. No path rereads the outcome, retries, compensates, cleans up, or fabricates history.
 Immediate-child Planner `edit_card` is independent: an effective backlog/changed/stopped delta edits in place; an effective blocked/failed delta publishes changed then metadata; running/done/cancelled reject; and an empty effective patch publishes nothing and never reopens.
 
-## 7. Run, Pause, Resume, Stop, And Restart
+## Runtime controls and application containment
+
+Run owns project execution; Pause gates future autonomous provider admission;
+Resume continues that same Run. Project Stop contains execution without disposing
+the server or MCP listeners. Application close/restart closes all application
+admissions and joins registered cleanup. None replays prior tools.
+
+### Run and cooperative Pause
 
 Runtime lifecycle is process-local and is held in one Supervisor status field.
 It begins at internal `uninitialized`; successful Supervisor startup establishes the initial empty ownership/gate state, strictly selects the linked running chain, settles configured card sessions and stopped lifecycles leaf-to-root, and only then publishes `stopped`.
@@ -1383,6 +1509,8 @@ Startup correction starts no work. Every subsequent Run starts only project thro
 It installs no descendant owners or old ancestor waits.
 Any later legitimate activation constructs a fresh plain `CardActivationOwner` and ready `CardProcessActor` rather than reusing settled process-local ownership.
 
+### Project Stop and the singular halt
+
 `stop_project` is a non-domain, restartable project-runtime halt.
 Starting/running/pausing/paused synchronously installs the single intervention-rejecting `closing` status, closes the gate, revokes prepared launch and parent admission, freezes the exact owner map, and creates one shared `RuntimeStoppedInterruption`.
 Stop never initiates domain cancellation and never itself writes a card, root result, child ToolResult, provider round, or Stop-caused durable event.
@@ -1401,11 +1529,15 @@ With no live run or halt Stop returns `{status:'stopped',contained:false}`.
 A later Run after successful halt resets any canonical running chain and activates project through STOPPED.
 Outcome-unknown publication remains the distinct policy specified above.
 
+### Application close and component process ownership
+
 The App terminal coordinator is separate and deliberately best effort.
 `App.stop()`, SIGINT/SIGTERM, startup failure, and acknowledged authenticated `restart_server` converge on the sole coordinator in `src/boot/app.ts`; no entry or cleanup leaf calls `stopProject` or cancellation.
 Its runtime admission closer permanently closes application admission and synchronously starts or joins the same supervisor halt before the coordinator's first await; the runtime cleanup leaf awaits that exact operation.
 It individually catches every closer, then attempts cleanup leaves sequentially in reverse registration order, continuing after rejection or timeout.
-Exactly one `runtime`, one `analyst`, and one `mcp` component leaf coexist with independent LiveSync, Fastify, subscription, and lifecycle-lock leaves.
+Registered runtime, Analyst, external Analyst, Oversight, MCP, process and transport
+owners coexist with LiveSync, Fastify, subscription and lifecycle-lock cleanup.
+The coordinator bounds each registered leaf, not just a fixed three-component list.
 
 Server composition creates the one shared process registry, allocates exact disjoint runtime, Analyst, and MCP root scopes beneath its registry root, and creates the one shared runner before composing component mechanics.
 The registry alone owns group/scope truth and exact scope/category authorization.
@@ -1447,6 +1579,11 @@ Its synchronous prefix rejects every later manager invocation before runtime or 
 MCP cleanup reuses those same runtime-owned settlements, starts exact MCP-root containment only after obtaining them, and joins all retained runtime stops (including admitted inner operations), root containment, and current reconciliation.
 A rejected root containment is rethrown unchanged; otherwise a failed root report or any rejected direct/reconciliation settlement fails MCP cleanup.
 The runtime collection clears only after complete success.
+
+## Command and workspace tools
+
+Commands, workspace reads/writes and Webfetch have distinct admission and evidence
+contracts. Shell capability does not broaden supported Files, record or image APIs.
 
 ### Command environment
 
@@ -1521,7 +1658,11 @@ ownership change or automatic retry follows unavailable settlement.
 Run, Pause, Resume, and Stop produce no lifecycle-control audit entries.
 Unrelated audits remain.
 
-## 8. Lifecycle Lock And CLI
+## Lifecycle exclusion and CLI
+
+The lock is process exclusion, not application persistence coordination. A control
+client delegates only through a positively verified live record, never through
+guessed configuration or offline runtime-state mutation.
 
 Lock observation outcomes are missing, verified live, positively verified dead, indeterminate, and malformed.
 Indeterminate includes permission denial, unavailable process-start identity, and observation races.
@@ -1553,7 +1694,12 @@ Publication uncertainty is fatal, may retain its target and lock, and authorizes
 `init --force` does not exist.
 
 The CLI performs exactly one strict token-producing option parse using command-specific definitions.
-`init` accepts only `--profile`; `start` accepts only `--host`, `--port`, `--config`, `--project-root`, `--create-runtime`, and `--failed-provider-diagnostics <UUID>`; controls, reset, and help accept none.
+`init` accepts only `--profile`. `start` accepts `--host`, `--port`, `--config`,
+`--project-root`, `--create-runtime`, `--failed-provider-diagnostics <UUID>`,
+`--analyst-mode`, `--analyst-mcp-port`, `--analyst-mcp-principal` and
+`--analyst-mcp-tools`. `repair` requires `--target`, `--backup`, `--report`, with
+optional `--discard-card` and `--card-type`; discard/type require a card target,
+and type requires discard. Controls, reset and help accept no options.
 Unknown, inapplicable, positional, missing-value, and repeated singleton inputs fail before lock or write effects, including equal repetitions and mixed separated/equals spellings.
 Server startup receives typed parsed inputs rather than argv.
 Those same inputs select both the canonical pre-lock project root and `--create-runtime` intent and the complete environment inside terminal cleanup.
@@ -1591,6 +1737,8 @@ Published disabled auth omits Authorization.
 Published bearer requires a non-blank `SAIVAGE_API_TOKEN` and sends it only as a header; the client rejects empty and whitespace-only values before making a request.
 CLI `stop` delegates to REST operation `stop_project`; there is no `stop_project` CLI alias.
 
+## Operator API admission and response contracts
+
 The exact public registry-owned operator REST contracts are `GET /health` and `GET /health/ready`, and the complete registry uses only `GET | POST`.
 The public built web SPA, documentation site, and their static assets are HTTP resources outside that registry and its operator-session admission.
 These builds belong to the Saivage package, not the managed project's working directory.
@@ -1627,7 +1775,8 @@ On server output, an undeclared status or malformed declared body follows the fi
 Fixed params, query, body, success, nested-row, and error objects are strict; records and explicitly opaque leaves alone remain open.
 Runtime validation errors require `{error:'ValidationError',message,issues}` with strict issue rows, unauthorized responses require numeric `statusCode`, and handler-owned variants remain exact status-local schemas rather than a generic API error.
 Agent detail/conversation absence is exactly `{error:'Agent session not found'}`, absent LLM exchange is exactly `{error:'llm_exchange_not_found'}`, and the conversation cursor failure is its own exact one-issue 400 variant.
-Process-list status is exactly `running | exited | failed | killed`.
+Process observations use `running | exited | failed | killed | unavailable`;
+unavailable is evidence/authority loss, not a successful terminal process result.
 
 Each request computes one response descriptor inside one complete pre-send `ContractRuntime` boundary.
 The ordered phases are authentication evaluation, request-schema execution and transformation, handler preparation/execution, exact declared response-schema execution, and contract-violation publication.
@@ -1650,6 +1799,12 @@ Its strict 200 union has exactly one cards check: `ok` contains the passing `car
 `issues_found` is reserved for an ordinary card-read failure.
 The bounded handler catch first rethrows `PublicationOutcomeUnknownError`; `ContractRuntime` delivers that identical value to the application fatal port before an ordinary diagnostic or response, so publication uncertainty produces no Doctor response.
 Content supervision, its scanner configuration, routes, storage lane, and UI are absent.
+
+## Provider observations and diagnostics
+
+Availability, transport observations, canonical exchange metadata and private
+request captures have different scopes. None is a complete execution ledger or
+provider-delivery receipt.
 
 ### Outbound HTTP lifecycle observations
 
@@ -1694,7 +1849,7 @@ reconstruction. Ordinary sink failure does not change transport results or retry
 policy and has no fallback sink. Publication uncertainty remains fatal before any
 further observation or cleanup. CLI control HTTP to Saivage, browser API clients,
 stdio/subprocess/package traffic and remote peers' own requests are excluded.
-See the [operational interpretation](../runbook/index.md#outbound-http-lifecycle).
+See the [operational interpretation](../runbook/diagnosis.md#network-exchange-observations).
 
 ### Private failed-provider request diagnostics
 
@@ -1730,13 +1885,11 @@ attempt uses the actor's actual preceding-attempt count, not pass-local zero. Ac
 HTTP status is null until a response is observed; any embedded status is separate.
 Structured provider codes are ephemeral, not inferred from error prose.
 
-The private format-3 family (`privacy_policy: failed-provider-request-privacy-2`)
-adds strict `failure_kind:server_overloaded` against diagnostic format 2 at source
-parent `2c9ed2ab7d0f2354f4281d2e65dd25925b0c0108`, with unchanged privacy projection.
-Retained diagnostics have no runtime reader/index and remain untouched/unconsumed;
-this isolated adoption requires no reset or migration. It changes neither conversation
-8 nor the shared app-log/provider-evidence envelope 1 and implies no deployment.
-The document
+The private diagnostic family is format3 with
+`privacy_policy:failed-provider-request-privacy-2` and strict overload failure kind.
+It has no runtime reader/index; retained captures remain unconsumed. Its historical
+source change is recorded in the format reference, not a current conversation or
+shared-envelope version claim. Each document
 discloses raw/stored UTF-8 byte counts and SHA-256 hashes,
 `exact|redacted|omitted` body fidelity, reencoding and counted omissions. The stored
 hash covers the decoded `stored_body` string, not JSON escaping or the whole file.
@@ -1775,10 +1928,19 @@ Files omits/refuses the diagnostic namespace and aliases before directory/conten
 image inspection. There is no inspector/export/replay, retention scan or cleanup;
 explicit activations accumulate and diagnostics remain outside reset's four roots.
 
-## 9. Direct File Persistence
+## Direct file persistence
+
+Durable authority is the exact selected file graph, not a directory inventory.
+Current operations validate what they consume; historical traversal validates each
+reached predecessor. Required publication/layout and strict consumption scopes
+are separate from backup, repair or adoption procedures.
 
 Saivage durable state uses direct synchronous named file functions.
-Card heads select immutable ordinary/tombstone predecessor documents and current-only mailbox pointers. Record heads select immutable accepted predecessors and current draft. Exact owner paths and publication ordering are described in §2; head selection alone grants current authority. Current consumption does not certify historical predecessors not consumed by that operation.
+Card heads select immutable ordinary/tombstone predecessor documents and current-only
+mailbox pointers; record heads select accepted predecessors and the current draft.
+[Card history and publication](#card-history-membership-and-publication) owns exact
+paths/order. Only head selection grants current authority. Current consumption
+certifies no unconsumed historical predecessor.
 Conversation indexes and indexed segments remain their separate durable authority. Conversation append strictly consumes current history and admits incoming row schemas, session identity, and batch IDs, without a second current-plus-candidate full semantic fold. Record mutations likewise retain current consumption and explicit operation admission, not a second prospective history fold. Full semantics are enforced at consumption.
 Every exact consuming owner of app-log, provider-evidence and current-conversation JSONL validates the complete retained prefix before discarding an identifiable unterminated final physical suffix. A present empty file or a file without a complete prefix fails unchanged. The suffix may include interrupted UTF-8 or parseable JSON without its terminating newline; every complete malformed envelope, blank line, unsupported format, invalid row, identity/transition/duplicate-ID error, or independent row-policy hash mismatch prevents truncation and remains present. The owner truncates the exact file to the validated byte offset, fsyncs, closes once, and returns that already validated projection without rereading. Open failure is ordinary; failure from truncation onward is publication-unknown and fatal before any follow-up effect. This applies at ordinary API/tool use as well as existing selected startup consumption, not through a sweep or repair command. Card/record heads and immutable JSON documents gain no truncation permission.
 The shared conversation loader applies this rule to the indexed current version even when selected through a historical route. Older indexed segments are immutable strict reads: an unterminated historical segment is unavailable without mutation. Indexes, identity, configuration, process text logs, unlinked namespaces, and temporary files gain no truncation permission.
@@ -1788,12 +1950,16 @@ Canonical JSON still recursively orders object keys by JavaScript string/code-un
 Complete malformed or invalid canonical data remains unchanged and fails.
 There are no repositories, caches, queues, registries, transactions, scans, orphan adoption, or compatibility readers. Only explicit exact-canonical-path repair/wholesale own-root attic moves described above are permitted; normal orphan handling remains forbidden.
 
-The application log `.saivage/logs/app.jsonl` contains only event and control-action rows and uses the [exact app-log vocabularies](#exact-app-log-vocabularies).
+The application log `.saivage/logs/app.jsonl` contains event, control-action and
+body-free external-tool-call rows under the [exact app-log vocabularies](#exact-app-log-vocabularies).
 Identity and time exist only in each lane payload. Error membership is explicitly `runtime_diagnostic`, `runtime_actionable_error`, and failed `mcp_tool_invocation`; informational `operator_runtime_control` rows, including rejections, are not Errors.
 The writer's sole boundary accepts the project root, lane, and synchronous preparation closure.
 It first performs identity/time construction, centralized outbound redaction or audit projection, authoritative validation, and serialization.
 It then reads exact bytes for tail admission: on a clean newline-terminated stream only the final envelope is validated, without a whole-history uniqueness preflight. A torn tail instead requires the owner's full retained-prefix semantic validation and permitted truncation before append; present empty or no-prefix files fail unchanged. A missing target is admissible.
-Explicit reads use the call-local semantic validator over the complete event/control sequence before optional lane filtering; duplicate logical IDs across these two lanes fail complete reads and startup admission, but append does not perform a full duplicate preflight. No cross-file/global logical-ID certification exists.
+Explicit reads validate the complete app-log sequence, including external receipts,
+before optional lane filtering. Duplicate logical IDs across all row types fail
+complete reads/startup; append has no full duplicate preflight. There is no cross-file
+or global logical-ID certification.
 Missing app-log state yields empty results. A present empty/no-prefix file or invalid complete consumed data fails the whole explicit read (HTTP 500 on the operator HTTP surface), returns no salvaged valid prefix, and leaves bytes unchanged. The validated torn-tail exception described above applies: only an identifiable unterminated final physical suffix after a fully validated complete retained prefix is truncated, and the read returns that already validated projection without rereading.
 After admission the JSONL owner directly opens the exact target with ordinary `O_WRONLY | O_APPEND`, without descriptor or physical-ancestor proofs. Append-open `ENOENT` alone selects one first-publication attempt. App-log-local mkdir establishes `.saivage` and `logs`, tolerating only `EEXIST`; subsequent exact use decides usability without a post-EEXIST directory proof. Provider evidence requires an established session directory. Lazy Oversight conversation establishment retains owner-local mkdir with the same EEXIST rule. First publication refuses every existing exact target, rather than overwriting it. All other errors propagate; previously consumed current-segment append targets must still exist.
 
@@ -1831,16 +1997,19 @@ After the first canonical write begins, any write, zero-progress, fsync, or clos
 Preparation, validation, serialization, tail admission, and directory failures remain ordinary.
 Once the shared signal exists, no catch may convert it into a failed tool/model/card result or perform a read, retry, append, fallback, later provider attempt, diagnostic, settlement, or hint.
 
-The current terminal propagation path is direct Conversation LLM to plain `AnalystSession` or `CardProcessActor`, then centralized Supervisor ownership.
-Inner catches rethrow the identical object before local classification.
-The Supervisor `activateProcessor()` rejection callback synchronously begins the one runtime halt and preserves the identical publication error on the owning activation settlement.
-Structural child waits receive the shared `RuntimeStoppedInterruption`, become terminal and consumable before joins, and cannot turn the stop into an ordinary failed planner tool result.
-The halt performs no publication follow-up I/O and cleanup failure cannot replace publication-error identity at that owning boundary.
-The other consuming root remains the global Fastify handler; it publishes no replacement evidence and exposes no cause through HTTP responses, while delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr. Observation-only sockets invoke no durable owner.
+Inner catches preserve the identical publication-unknown object before local
+classification. The first CardProcess, Analyst, server or boot boundary delivers it
+to the nonreturning fatal port before Supervisor halt, status mutation, child
+settlement or cleanup. Fastify emits no replacement evidence or HTTP cause. The
+fatal stderr line may include the captured direct-syscall cause as specified below.
+Ordinary non-publication failures retain their separate Supervisor halt and exact
+structural-child interruption/join policy. Observation-only sockets invoke no durable owner.
 
 Successful owners call narrow SyncHub effects directly.
 Conversation publication emits `conversationChanged({session_id,segment_id,segment_version,visible_message_id})` only after confirmed append/index commit. Browser tails append only within the same session and exact segment ID/version; a different identity replaces/refetches the baseline, including when the visible cursor did not change. Existing request/connection epochs still fence superseded completions.
-Same-version arrivals keep the later committed tip; higher versions supersede lower pending hints, and lower versions are ignored.
+Pending conversation hints coalesce in accepted arrival order; numeric versions
+are not monotonic freshness. Lower versions and new UUIDs at reused ordinals still
+replace/refetch the exact baseline.
 Every known-successful first card conversation also emits a membership reconciliation hint; first global publication emits a global-session hint.
 Failed or publication-unknown writes emit no hint.
 Runtime, card, membership, conversation, and exchange effects remain lossy, non-throwing, debounced, and socket-only.
@@ -1881,7 +2050,10 @@ These global events contain no synthetic card/session association, request body,
 
 Publication is one post-effect append attempt immediately before returning the existing response, not a transaction. Its timestamp is observation/publication time, not command duration. A returned `pausing` is not paused; `contained:false` is not newly contained. Known append failure propagates without another event, reread, retry, rollback, or undo: the principal effect may already have occurred. Publication uncertainty reaches the fatal boundary unchanged before any follow-up. Missing evidence or HTTP failure never authorizes repeating a command. Restart ordering is schedule, event append, finish-acknowledgement installation, then response; failed append installs no acknowledgement. **Restart scheduled** proves neither acknowledged shutdown, exit 75, replacement startup, nor readiness.
 
-Adding this durable event discriminator requires [incompatible adoption](../runbook/index.md#direct-runtime-control-event-adoption), not a core converter, mixed versions or binary-only rollback over new rows. No envelope-version bump is implied; source implementation authorizes no deployment, reset or external migration.
+The event discriminator has its historical incompatible-adoption record in the
+format reference. Runtime remains strict: no converter, mixed versions or
+binary-only rollback. Source implementation authorizes no instance deployment,
+reset or external migration.
 
 Authenticated `GET /api/workflows/:cardType/presentation` (`workflows.presentation`) supplies compact structural facts for one installed card type from the immutable startup artifact, with no file reads or all-types projection. Its strict response is `{card_type,nodes:[{node_id,execution,initialize_records,stdout_record}],entries:[{entry,node_id}],edges:[{source_node_id,outcome,route_id,test,condition,target}],terminals:[{terminal}],records:[{name,bootstrap,initialization}]}`. Execution is `{kind:'agent',agent_name}` or `{kind:'action',action,contract_version,provider:{kind,name}}`; `stdout_record` is the exact bound name or null, tests are nullable typed route tests, initializer declarations nullable format1/template objects. Entry, condition, terminal enums and targets match Debug Graphs, including runtime-owned edges. Unknown installed type returns HTTP 404 `{error:'workflow_type_not_found',card_type}`. Prompt declarations/bodies/paths, globals, agent model/provider bindings, tools, capabilities, secrets and runtime position are absent. Action provenance identifies the compiled operation, not an agent route. This is presentation evidence, not another workflow authority; System retains richer Debug Graphs.
 
@@ -1936,7 +2108,12 @@ An exhausted invocation record is excluded from the final candidate-availability
 An available untried admitted alternative is selected before waiting for a standard-cooling retry. Without pending overload, existing ready/rate-limit priorities and standard waits remain; overload eligibility follows the candidate-local selector below. Route membership, mandatory context-failed retry and finite failure/deadline policies remain unchanged. Cooling remains process-local advice for other or future invocations.
 Concurrent refresh is last-completed-write-wins with accepted credential-loss risk and no revision, CAS, lock, or merge. A failed 429 refresh writes nothing, but an independently successful concurrent refresh may still replace the auth file.
 
-## 10. Prepared Invocation, Exact Admission, And Compaction
+## Provider context and preparation
+
+Preparation freezes one invocation's instruction/tool/context authority before
+provider dispatch. Exact local admission, provider-reported context recovery and
+content-policy handling are separate decisions. Compaction may lose narrative but
+cannot waive requirements or replay already settled effects.
 
 Ordinary and corrective replacement-summary instructions share one historical-scope
 direction: status, grants and restrictions describe only inherited history and the
@@ -1972,7 +2149,12 @@ Every invocation carries a transient `providerSessionId`: SHA-256 hex of `JSON.s
 
 Codex includes this label as body `prompt_cache_key` before canonical serialization, hashing, measurement and admission; its `session-id` header comes from that admitted body's nonempty string key. The exact measured/admitted body bytes are sent unchanged, including for summary probing and final dispatch. Chat and public Responses emit neither affinity field nor header. Instructions, tool/input order, context selection, compaction and private replay semantics are unchanged; affinity is not permission to retain obsolete context or enlarge budgets.
 
-The digest is an opaque routing label, not encryption or a secret; raw paths, prompts, credentials, account IDs and tool content are not emitted in it. No durable field, registry, filesystem discovery or realpath/alias resolution is introduced. Moving the project root changes affinity; equal root/session names across installations are not globally unique. Reuse remains provider-dependent: a stable label does not guarantee cache hits, retention, cost or quota savings, and source tests do not prove live efficacy. See [bounded cache commissioning](../runbook/index.md#codex-cache-affinity-and-bounded-commissioning).
+The digest is an opaque routing label, not encryption or a secret; it emits no
+raw path/prompt/credential/account/tool content and adds no durable field, registry,
+discovery or realpath resolution. Moving the root changes affinity; equal root/
+session names are not globally unique. Stable labels guarantee neither cache hits,
+retention nor cost/quota savings; source tests prove no live efficacy. See
+[commissioning limits](../runbook/diagnosis.md#provider-commissioning-limits).
 
 Specialized process prompts remain startup-compiled **dynamic process context** and never enter `instructionText`. Current-node text is prepared request context with separate structural activation evidence; lifecycle-entry, edge, correction, and recovery text remains ordinary durable context delivered at its existing producer position.
 Each Analyst submission and Oversight check prepares its selected compiled global role with generated status, reopenable/target status, configured card-type, and urgency vocabulary alongside its selected tool contracts. This vocabulary supplies names, not additional tool authority. Recorded role text remains historical evidence, not regenerated current instructions.
@@ -1997,9 +2179,18 @@ Each new Responses private row records the successful candidate's required `prod
 
 Before canonical request serialization, hash, measurement and admission, each Responses candidate compares every private row's producer independently. Equal identity replays all original native items unchanged. Different identity omits only a whole `reasoning` object with its own `encrypted_content` property, including that item's summary; nonencrypted reasoning and all other native items remain unchanged and ordered. Native assistant text coexisting with a function call, function name/arguments/call ID, and the later matching result survive exactly once. Generic and synthetic history remain unchanged. Normal routing/failover remains available; successful alternate output records the alternate's identity. Requests and retries do not mutate durable rows or reuse another candidate's projection.
 
-Retained compaction-tail private rows carry their exact content and producer unchanged, including mixed producers. Covered bundles follow ordinary summary or declared-omission semantics; private bytes and producer metadata do not enter summary source or prose. The producer field/identifier is not public transcript/context/tool output, request metadata/headers, exchange evidence or application log data. Canonical segment consumption rejects absent, non-string or invalid producer identity even in otherwise current format-12 data, before public hiding. This required payload is an independent [incompatible cutover](../runbook/index.md#external-migrations); no runtime inference/backfill/compatibility reader. External conversion must establish required provenance or block.
+Retained private tail rows preserve exact content/producer, including mixed producers.
+Covered bundles follow ordinary summary/declared omission; private bytes/producer
+metadata enter no summary source/prose. The identifier is absent from public
+transcript/context/tools, request metadata/headers, exchange evidence and app logs.
+Before public hiding, strict consumption rejects absent/non-string/invalid producer
+identity even in otherwise format12 data. This independent incompatible payload
+needs the [external-adoption decision](../runbook/state-adoption.md#explicit-external-offline-migration),
+never runtime inference/backfill. External conversion must establish provenance or block.
 
 An equal-account HTTP 400 `invalid_encrypted_content` without higher-priority failure evidence remains terminal `provider_protocol_error`. It does not trigger stripping, resending, alternate attempts, compatibility learning or history edits; alias equality cannot guarantee remote decryption success.
+
+### Tool-result policy and byte-bounded pages
 
 Tool settlement derives one settled bundle policy from the exact composite call/result identity pair.
 Mutable current discovery surfaces—`list_cards`, `get_tree`, current-section `get_card`, every general `read` branch, `glob`, `grep`, `list_card_versions`, and `diff_card_versions`—are fixed `observational_query` surfaces whose observational SHA-256 equals the hash of the exact canonical settled result bytes persisted for the provider.
@@ -2008,6 +2199,12 @@ Domain failures, unsupported calls, malformed/schema rejection, recovery settlem
 Unsupported and synthetic settlement construct their policy template directly and never fabricate locator or observational evidence.
 
 The explicitly cut-over discovery/read/version surfaces pack every provider-visible `ToolResult` inside the default byte envelope in the [exact context and compaction limits](#exact-context-and-compaction-limits). Collection-bearing surfaces and sections use shared deterministic stateless collection positions and UTF-8-safe `TextSlice`/`JsonSlice` continuation; bounded scalar `get_card` sections do not accept collection positions. Immutable `get_card_version` summary is likewise scalar: omit position, since every supplied position, including all-zero, is rejected; after that error remove position rather than retrying it. Its dependencies and children are collections: omit position initially and copy a non-null `next` unchanged for the same section over stable input. There are no unbounded arrays, no line-based paging, no duplicate collections, no inline unbounded record previews, and no count-only limits; a page observes fresh state and is never a stable snapshot cursor. Plaintext `TextSlice` is `{content,utf8_bytes,offset_bytes,next_offset_bytes}`. Collection-only `JsonSlice` is `{content_hex,utf8_bytes,offset_bytes,next_offset_bytes,total_bytes}`: `content_hex` is lowercase hexadecimal for a decoded-byte interval of the complete outbound-projected canonical JSON item. Consumers hex-decode, concatenate decoded bytes in item/offset order, UTF-8 decode, and JSON-parse the complete item; offsets and lengths count decoded bytes, while the hex payload itself costs two wire characters per decoded byte. Final sizing measures the complete settled success envelope after ordinary outbound projection, and failure to fit one positive UTF-8 progress unit is a bounded tool failure rather than an empty nonterminal success.
+
+## Outbound MCP connections and tools
+
+This is Saivage calling configured servers, not an external client calling Analyst.
+Connection definitions, retained runtime bindings, discovered catalogs and role
+grants are distinct. Registering or discovering a server grants no tool authority.
 
 `mcp_tool_call` validates the complete live native CallToolResult envelope at protocol ingress, then carries that schema-inferred result through its internal invocation port to conversion without a second envelope parse. Conversion retains its projection, image, size and publication checks. Successful native text and images retain their original positions in ordered `content`; non-text/non-image protocol blocks are projected JSON serialized as text at their positions, never fetched or promoted into pixels. Envelope extensions, `structuredContent` and `_meta` remain ordinary `data.result`; indexed native metadata and captures are `data.native_content` and `data.images`. Native errors retain safe diagnostics but select no images. Malformed/unknown native blocks fail explicitly. JSON-looking text and image-like structured data stay ordinary data.
 
@@ -2022,6 +2219,8 @@ settlement or model delivery. Later failures do not revise it or replay the call
 Native static PNG/JPEG/WebP require canonical base64 and declared MIME matching decoded format. Each source is at most 32 MiB/40 million pixels; aggregate source images are at most 32 MiB. Orientation and aspect-preserving reduction precede sRGB PNG selection, at most 16 MiB per image. Local optional `max_dimension` uses the same 1..16384 or `original` schema as `view_image`, default 1600, and is not forwarded to the server. Captures preserve actual source/oriented/sent dimensions, applied orientation, resize/scale and requested bound at their content index; no source path is invented. Workspace `view_image` independently remains PNG/JPEG-only with its actual path.
 
 Stdio JSON frames and HTTP JSON/SSE assembly are bounded at 48 MiB UTF-8 wire bytes. Complete projected non-image text/JSON is bounded at 1 MiB, never truncated or paged. Effects may have occurred before oversize failure. All asynchronous conversion and validation finish before the exact invoking signal's immediate fence ahead of synchronous exact-session image publication. Cancellation during normalization publishes no image and propagates the identical reason, including recognized conversion failures; unrelated errors/publication uncertainty propagate unchanged without later effects. Ordinary projected transport/input error fields remain at most 512 UTF-8 bytes. MCP remains outside response paging and participates normally in compaction/admission, through the shared single originating-call Responses/Codex output and distinct atomic multimodal summary/refine user path.
+
+### Deadlines and cancellation
 
 MCP tool execution defaults to 900,000 ms (15 minutes) from dispatch through
 response consumption. Stdio queue wait and the total agent turn are not part of
@@ -2043,6 +2242,8 @@ TIMEOUT failures, while the exact caller reason reaches shared synthetic
 `execution_failed` settlement. Failed containment and unclassified errors propagate
 unchanged; no replay or denial of possible remote effects is implied. HTTP call
 cancellation remains request-local and does not prove remote execution stopped.
+
+### Discovery and retained connection lifecycle
 
 MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'|'restart'})`
 and read-only `mcp_tools({serverName,toolName?})`, strict nonempty names and no extra
@@ -2103,6 +2304,8 @@ lifecycle auth/error boundaries. No new permission or default role grant is adde
 
 Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No enable/disable tools or card-tree lifetime rules are added.
 
+### Dynamic definitions and catalog identity
+
 Independently selectable `mcp_server_replace({serverName,connection})` wholly replaces
 an existing exclusively agent-owned definition, including a transport switch. Omitted
 args/env disappear; dynamic values remain literal, without YAML interpolation or auth-profile
@@ -2160,6 +2363,8 @@ text-only. No persistent profile, CDP/extension attachment, unrestricted file ac
 or experimental WebMCP. Browse only non-secret pages, never credentials/provider
 configs/authenticated operator pages; pixels have no automatic secret-removal promise.
 
+### Discovered schema dialect
+
 MCP argument validation uses the complete unchanged discovered JSON Schema object
 at actual invocation, with root `type:'object'`. Absent `$schema` means 2020-12;
 `https://json-schema.org/draft/2020-12/schema` explicitly selects that dialect.
@@ -2180,6 +2385,10 @@ ordinary MCP data stays opaque, never normalized into native content. Configured
 runtime lifecycle/discovery uses the same retained owners; the pinned browser recipe
 is in the runbook. Neither native production nor recorded descriptors prove model perception.
 
+## Workspace discovery and provider-facing tool evidence
+
+### Process results at actual primary use
+
 At the direct canonical branch of primary provider conversion, successful current process rows are strictly parsed and pass through `validateProcessToolResult()` before copying. For a done process (`status !== 'running'`), each URL is omitted independently only when its corresponding stream is complete; running and partial streams retain their references. Every successful process copy is canonically serialized even when neither URL is omitted, and only that copy's `result_content_sha256` is recomputed before `agentMessageSchema` acceptance. Failed results and other tools pass unchanged. Durable history, live/operator activity, and summarizer source retain both URLs and the original exact row bytes; prepared blocks, retained instructions, and protected-prompt order are untouched. Chat, Responses, and Codex build and measure their actual candidate requests only after this copy. Structurally current hash-consistent retained data can therefore fail at actual primary use for invalid identity, URL, head stability, or canonical-envelope size, but formatting differences alone do not fail and no startup audit or durable normalization occurs.
 
 Agent `read`, `glob.directory` and `grep.path` accept native absolute filesystem paths, including ordinary process-accessible files outside the project. Native relative paths default to the project root and still reject parent segments; explicitly named ordinary symlinks may resolve outside it. Native filenames retain colon, percent, question-mark and hash punctuation; scoped URLs retain their strict existing grammar. Native and `system:///` spellings apply identical secret/private-source admission to lexical and resolved identities before content access. Known credential sources and generic `.saivage` namespaces remain refused; explicit contained `project:///`, owning `tmp:///`, read-only `work:///` and logical `record:///` retain their resource contracts. Physical paths never manufacture record observations. Mutation, Webfetch-save, image selection and operator Files admission are unchanged.
@@ -2194,6 +2403,10 @@ For normalized project-relative directory path `p`, entry `e` excludes `p` exact
 `read_record_version(card_id, record_name, version)` follows committed accepted predecessors to exactly the accepted document version from the immutable record URL's `v=N`. Accepted document versions are consecutive from 1, independent of mutable head/draft revisions; absent accepted selectors are not found. It returns the selected acceptance's immutable identity/content/hash and `<version_url>#entry=<entry_id>` locator unchanged across pages. Current mutation results instead expose `revision`, reusable `current_url`, and nullable `accepted_version_url`, never an immutable draft URL or `head_entry_id`.
 Diagnostic, control-action, and agent-session tool result bodies remain arbitrary and are bounded only when exact compaction materialization and request admission admit a subsequent provider request. Process results instead use the strict bounded contract and primary-only copy above.
 
+## Compaction construction and exact provider admission
+
+### Capacity arithmetic and frozen preparation
+
 For a candidate declaring context window `C`, output limit `M`, and exact positive configured output request `O <= M`, the shared arithmetic is `I = floor(U * C) - O`. Binding excludes missing limits, unsupported output requests, and nonpositive `I`, then freezes the maximum eligible `I` for each participating route. Preparation validates positive static capacity and derives `floor(T * I) - S` as the message trigger, `I - S` as the message hard ceiling, and `floor(F * I)` as the tail budget for static estimate `S`. Requested output is exact and is never clamped.
 Prepared stable card context contains canonical `{cardId,cardType,title}` orientation, the complete selected current-node text and actual parent direction where present. It contains no node-entry bootstrap body. Each newly armed initial/tool/corrective logical operation consumes current accepted bootstrap and declared records once per distinct name, after exact deferred invocation admission. Its immutable record blocks then remain fixed through preventive/local/authoritative compaction, admission and pinned/transport retries. A subsequent logical operation may select B in place of A without changing the role/tools/node/parent. Globals retain bounded ordinary preparation without automatic card-record feeding; confirmed restart is model-free. Tool effects, canonical results and broadcasts remain outside retry seams.
 Current-node text creates no new durable row. Previously written node-looking text remains unchanged, unrecognized ordinary history and can still appear in suffix or accumulated summary; exact textual duplication does not make it current. The complete prepared node block participates in ordinary request measurement, so an oversized node fails admission rather than being truncated or compacted away.
@@ -2202,6 +2415,8 @@ Application composition retains candidate identity only in the summarizer's fixe
 The singular `ConversationLLMActor` requires prepared input for every persisted named-agent provider turn and rejects an unprepared call before transition or persistence.
 
 Structural workflow compilation remains provider-independent. Startup binding derives the distinct participant set—the configured global Analyst plus every named node agent in every selected graph—and requires each to have at least one capability-compatible configured candidate with positive usable input. Missing limits and output-ineligible candidates do not inflate the maximum. Configured agents unused by selected graphs are exempt. Binding uses the same immutable Registry snapshot as candidate admission and performs no credential, availability, auth, or network probe.
+
+### Self-contained successor and protected context
 
 Compaction replaces one validated current conversation projection with a strictly smaller known-published successor and never rewrites an append-only body.
 The successor segment's compacted genesis is self-contained. Its accumulated history is exactly nonempty `summaryText`, ordered `protectedPrompts` with original exact message and first-extraction `{segmentVersion,rowIndex}` coordinates, and `requiredModelFacts` with two nullable bounded recovery/refusal slots plus required descriptor-only `latestRecordObservations`. Observations retain original source coordinates/time, not body/template copies or new occurrences. Their size grows with actually observed record/view keys; no eviction or fixed-memory guarantee exists. Genesis retains identity/session/version/time, `source:{version,filename,covered_through_message_id}`, and explicit continuation: `between_rounds` or `inherited_open_round` carrying only the validated marker ID, canonical input UUID, and active initial/repair segment kind. The index compacted entry retains exactly `kind`, `source_version`, `source_filename`, and `covered_through_message_id`; exact index/genesis agreement and predecessor-catalog checks remain strict. Physical suffix rows and continuation, not original-tail metadata, govern current messages and round continuation. The protected list size is variable and may grow without a configured bound.
@@ -2215,6 +2430,8 @@ A structural-only increment advances exact call-local coverage without provider 
 Recovery/refusal slots are derived newest-only from inherited slots plus newly covered rows. Ordinary refine folds a superseded slot's historical meaning into the accumulated summary before replacement; local declared omission does not preserve that superseded narration. Unchanged slots are carried without re-summarization, and each recovery/refusal slot is bounded so neither code-owned text nor marker list grows across generations. Separately, record observations fold inherited and actual current observations by source order per card/record/view, with original coordinates/time and no body/template text. Their retention is independent of prompt protection and can grow with observed records.
 The exact code-owned recovery notice text and refusal replanning text each occur at most once in any materialized request; a covered refusal locator remains resolvable to the synthetic compacted fact only while it is the latest covered one, and a superseded older marker is no longer a current-transcript locator.
 Removed raw provider-response bytes are unavailable and never reconstructed.
+
+### Source endpoints and candidate selection
 
 Successful compaction over a validated atomic source prefix is the sole omission authority; no durable coverage attestation is required.
 A `summarizer_only` or `evidence_only` bundle below the trigger remains primary-visible even after its round closes—closure alone changes only eligibility—and a closed round stays fully visible until a later successful compaction covers it.
@@ -2230,6 +2447,8 @@ The actual-use packer labels each immutable projected component with identity/ki
 Every probe includes actual wrappers, escaping, range-label digits, prepared orientation, genuine accumulator, and requested output through the real serializer. The fixed summarizer independently uses `I_s = floor(U * C_s) - 2000`; the primary route ceiling never constrains it. The successful packed admission carries that same configured U with its serialization/hash through normal, split, and corrective folds, production composition, and service admission. Send checks the one candidate's retained request hash against that admission and uses unchanged bytes, without another margin or repacking. Prepared orientation and inherited summary are never split, trimmed, or hypothetically reserved. A representative production-composition test covers the 1,050,000-token Astra preparation and 120,000-token Sol summarizer case at `U=.80`, including full-window source, both endpoints, correction, strict coverage, and the unchanged 16-call ceiling; this is mechanical feasibility evidence, not a universal compactability, provider-token, quality, or latency guarantee.
 
 The [retained offline fact/action evaluation](https://github.com/salva/saivage-v3/blob/HEAD/tests/fixtures/compaction-semantic-quality.md) separately reviews one frozen summary against bounded independent source evidence. Its observed judgments, authored C01 continuation controls and mechanical regression evidence are distinct; none establishes newly generated or changed-model summary fidelity or strengthens runtime quality guarantees.
+
+### Summary cancellation, refusal and declared omission
 
 Cancellation is observed with its exact reason before `compact()` reads or prepares source, before each accumulator advance and send, at component-range construction boundaries, and before and after each whole/fine serializer probe. These synchronous fences do not make serialization interruptible by event-loop cancellation or promise a responsiveness deadline. One `compact()` permits at most 16 logical refine invocations across normal folds, both endpoints, and the single optional corrective regeneration. Immediately before each invocation it checks abort, admission, and the ceiling, increments, then sends; a needed seventeenth call is not made. Ordinary Invocation Service transient attempts remain internal to one logical invocation.
 Every strictly increasing advance computes its next summary, inherited-fact fold markers, and cutoff transactionally and commits that call-local state only after the entire advance succeeds. The accumulator retains only the latest genuine fold's pre-fold inherited summary and exact source ranges so one correction can regenerate that fold with a fresh UUID, stronger 6,000-byte concision target, and fresh exact admission; it never summarizes rejected output or drops source. A corrected inherited fold retries a blocked next-minimum-range probe from the same unconsumed cursor. After each successfully validated fold is recorded complete, cancellation is observed again before packing resumes.
@@ -2258,7 +2477,17 @@ constant.compaction-refine-max-invocations = {"unit":"logical invocations","valu
 ```
 <!-- saivage:value-contract:context-limits:end -->
 
-Compaction configuration, endpoint choice, estimates, prepared static values and call-local refusal metadata are not persisted in compacted genesis. Conversation index/genesis/envelope freshly advance 11→12 for baseline0, explicit draft document/target and historical-selection facts, including nested results and compaction. Record heads advance 2→3 and immutable accepted artifacts 1→2; initialization input now explicitly declares format1/template and node selection. Source parent is `10463cd83369b1eda687525c6522492836f133c0`, not evidence of any installation. Strict transport metadata in provider-exchange publication/retained/public consumers is unchanged under shared provider/app-log envelope1; composed record facts instead belong to conversation12. Other families and raw selected PNG bytes are unchanged. Old/mixed state blocks strictly. Adoption needs separately consented reset or explicitly requested identified-project external offline migration to a pinned final release, stopped exclusion, successful complete preserved backup, independent complete candidate and strict linked/indexed-history validation. Never infer origin from equal text or manufacture authorship, acceptance or observations. No core converter, probing, dual reader, backfill, normalization or implicit reset exists; binary-only downgrade is unsupported. See the [format record](../architecture/durable-format-changes.md#record-document-0-and-selected-node-templates-2026-10-18). Creation-time support remains GitHub #4's open residual; source completion authorizes no live action.
+Compaction configuration, endpoint choice, estimates, prepared static context and
+call-local refusal metadata are not persisted in genesis. Composed record facts
+belong to conversation12, not the provider-evidence envelope. Their historical
+introducing contracts/source parent are in the
+[record document0 format entry](../architecture/durable-format-changes.md#record-document-0-and-selected-node-templates-2026-10-18).
+The current format reference, not those historical introducing numbers, determines
+today's baseline. Old/mixed data blocks. Adoption requires the separately authorized
+complete reset or external offline workflow; equal text proves neither origin nor
+authorship, acceptance or observation. No converter/backfill or binary-only downgrade
+is supported. Creation-time scaffolds remain deferred (GitHub #4); source completion
+authorizes no live action.
 
 Preventive actor compaction assigns each visible row weight `max(1, ceil(UTF8-byte-length(projected visible content plus the existing aggregate structural text) / 4))`; `provider_private` rows have exactly zero actor weight, their marked visible projection carries the conversational weight, and protected bundles remain indivisible.
 This row-derived weighting drives only the preventive threshold: it is neither complete-wire accounting nor fit proof.
@@ -2285,6 +2514,8 @@ For owner cancellation, a direct Invocation Service caller performs no retry or 
 Once an ordinary or pinned attempt returns known success, racing abort does not erase that completion, private context, or indexed attempts. No late availability success update occurs after abort. A retained graceful owner persists known output and publishes evidence through its normal path, matching cancelled tool calls without executing or continuing them; there is no alternate publication path or completeness guarantee.
 In contained production, normal actor output persistence and per-attempt redacted owner-session evidence publication execute inside the admitted raw lifecycle callback before wrapper settlement and consumer delivery.
 Immediate wrapper abort may abandon unresolved work; later runner settlement and Invocation Service aggregation remain possible internally, but currentness fences every late outcome from actor persistence, provider-exchange publication, read-model hints, actor-level retry/reconciliation, and delivery.
+
+### Provider failure classification and transport completion
 
 Provider input-context evidence is strict and structured.
 `input_context_exhausted` requires the supported transport's exact direct code/type/param shape: an eligible parsed non-OK HTTP error object only when the actual response status is exactly 400, a failed public Responses terminal object, or a Codex error/failed event after a response opened.
@@ -2327,6 +2558,8 @@ Physical EOF or `[DONE]` before that valid completion is typed truncation even w
 A pre-completion `error` or `response.failed` supersedes every candidate.
 After valid completion the parser returns finalized tools before the latest message and stops immediately without awaiting physical closure or consuming later framed or physical events.
 
+### Local request admission and authoritative recovery
+
 Ordinary primary execution uses one exact local admission state machine.
 `InvocationService.preparePrimaryRequestAdmission()` walks one ordinary route pass once: for every candidate in configured chain order it resolves effective capabilities, calls the pure `supportsCapabilityRequest()` exactly once against the one immutable known `CapabilityRequest`, and builds/canonical-serializes exactly one immutable request plan per projection; each candidate then receives exactly one verdict after capability, declared-limit, positive usable-input, and exact-size classification are all known.
 `admitted` requires conjunctively capability support, declared context/output limits, candidate output capacity, positive usable input, and exact estimated input no greater than that candidate's `floor(U*C)-O` ceiling. Explicit prepared or unprepared U is authoritative; only absence uses .80, irrespective of request purpose.
@@ -2351,6 +2584,8 @@ Only afterward does the existing scheduler resume over the retained records—an
 Originally rejected or exhausted identities are never rebuilt even if compaction would make them fit; there is no route widening, state reset, or limit weakening.
 A pinned failure never satisfies this predicate and never produces the suspension.
 
+### Content-policy pin and confirmed overload
+
 The terminal content-policy pin is one logical authorization, not a one-member ordinary route.
 `preflightPinnedContentPolicyRequest()` performs one pure configuration/capability/declared-limit/usable-input/exact-size classification and one canonical request build for the single refusing candidate only, with no availability read/write, transport or auth resolution, provider-exchange publication, wait, retry, route enumeration, or compactor call.
 Both `candidate_ineligible` and `projection_too_large` terminate pinned execution immediately with bounded diagnostics, the unchanged original refusal attempts, no compaction or substitution, and no provider I/O for the pin.
@@ -2372,6 +2607,8 @@ If summary recovery exhausts with ordinary `ProviderTurnFailure` after summary a
 Publication failure or uncertainty remains authoritative and creates no marker.
 Only after successful triggering-attempt publication does the actor throw fieldless `LastChanceSummaryProviderUnavailableError`, whose safe generic message and exact summary `ProviderTurnFailure` cause prevent generic rejection from reidentifying or republishing summary attempts or fabricating a planner `model_issue`. Provider exhaustion gains no construction reason/count diagnostic.
 The marker has no provider exchanges, failure phase, route pass, candidate, or classification and makes no recovery decision; it is solely an actor-operation publication-ownership signal.
+
+### Primary refusal settlement and global ingress
 
 Every persisted `ConversationLLMActor` has required immutable purpose.
 `{kind:'autonomous-card',cardId}` must exactly match a card-scoped session; `{kind:'global-agent'}` must match a global session.
@@ -2436,7 +2673,12 @@ Unknown transport members and invalid endpoints fail rather than entering generi
 Logged events and control actions likewise pass through their discriminated projectors before app-log append and again on public read: event/action/target/actor/surface and contract-state identities remain exact, event/control prose redacts, `contract_response_violation` directly preserves operation/status/failure-code, and `invalid_enum_value` preserves field while projecting only its rejected value as opaque.
 This publication projection does not mutate in-process attempts or effects, and generic app-log persistence selects no redaction behavior.
 
-## 11. API And Operator Projection
+## API and safe operator projection
+
+Public resources are exact independently admitted observations. Safe projection
+does not grant a write token, reconstruct private request context or make separate
+resource samples atomic. This chapter owns card/history/Files projection and
+confidentiality; presentation details live in the UI contracts.
 
 Dedicated operator JSON data presentation follows the
 [shared JSON data-display contract](operator-ui-contracts.md#shared-json-data-display).
@@ -2454,7 +2696,7 @@ shared owning-card cockpit, preserving card/tree/facet context while keeping
 `/agents/:id?entry=…` as the sole exact-session address. Exact scope resolves
 before card context, global scope fabricates none, and transcript availability is
 independent of owning-card admission. The complete presentation and navigation
-rules are owned by the [Operator UI contracts](operator-ui-contracts.md#3-identity-routes-and-navigation).
+rules are owned by the [Operator UI contracts](operator-ui-contracts.md#identity-routes-and-navigation).
 
 ### Exact shared operator error contracts
 
@@ -2466,7 +2708,8 @@ error.unexpected-internal = {"strict":true,"variants":[{"fields":{"error":{"kind
 ```
 <!-- saivage:value-contract:operator-error-contracts:end -->
 
-Bootstrap additionally owns the focused content-policy-store read.
+### Historical refusal inspection
+
 Authenticated `GET /api/runtime/content-policy` directly invokes persistence-owned linked history traversal.
 Starting at exact `project`, it consumes reached current heads/selected snapshots and their ordinary predecessor chains, follows only committed child IDs after parent/namespace proof, includes reached tombstones but never descends through them, and neither enumerates nor calls ancestor-rereading public readers.
 Request-local artifacts are actual immutable ordinary/tombstone versions with validated change metadata, never fictional prior queue snapshots.
@@ -2474,7 +2717,11 @@ Request-local artifacts are actual immutable ordinary/tombstone versions with va
 `blocked_at` is terminal `history.changed_at`, not null `completed_at`; latest is the final ascending `(changed_at,card_id,version)` item.
 Malformed canonical data fails the request.
 No counter, cache, registry, timer, watcher, polling, or persisted projection exists.
-Initial load, every accepted card invalidation, reconnect, and auth reset/refetch refresh this store through epoch/AbortController single-flight ownership.
+This is a read-derived endpoint, not an application-bootstrap UI store or a
+complete internal-summary refusal census. The browser bootstrap reads runtime/root;
+ordinary card result and conversation evidence retain their own inspection paths.
+
+### Queue-free cards, history and diffs
 
 The operator card representation is current strict card state plus operator actions and the pure card-only summary; it contains no backend `logical_path`, authored content, or pending-notification field. Analyst create/reopen CardView results and ordinary immutable card artifacts use the same strict queue-free card projection. Planner reopening instead returns only its queue-free `{card_id,status:'changed'}` success data.
 Its typed projection treats `title`, every lifecycle result `summary`, blocked `resume_reason`, lifecycle `error`, `operator_summary.error`, and `status_text` as prose.
@@ -2500,10 +2747,16 @@ Missing members, additional row properties, undefined values, non-JSON values, a
 The one shared row schema validates the backend's final projected response and the browser's declared status-200 response before CardStore admission.
 Malformed valid JSON at declared status 200 is therefore a contract/protocol failure, not validated API error data or an `OperatorApiError`.
 
-Operator egress projects granular Card resources source-adjacently and uses a small source-tagged owner dispatcher for provider exchanges, logged events, control actions, card diffs, effective config, process views, tool invocations, Agent conversations, strict server-egress WebSocket envelopes, and MCP tools. Card history artifacts use their direct outbound-card projector rather than a generic history redaction branch.
-Webfetch argument projection belongs to the singular tool-invocation owner, and webfetch results use that owner's generic opaque-result projection; neither has an independent dispatcher branch.
-A separately selected `dynamic` branch is available only for owner-classified opaque leaves.
-Complete known owners never enter recursive credential guessing: identities, discriminants, topology, counts, timestamps, booleans, nulls, and owner-established canonical locators are copied by their owner, while classified prose, free-form locations, secret containers, URLs, and opaque payloads are transformed.
+### Source-owned outbound projection
+
+Card, provider-exchange, event/control, diff, config, process, invocation, conversation,
+WebSocket and MCP owners project their own contracts source-adjacently; there is
+no generic source-tag dispatcher. Card history uses the direct card-artifact
+projector. Webfetch arguments use invocation projection; results use its ordinary
+opaque-result projection. Only owner-classified opaque leaves use dynamic recursive
+defense. Known owners preserve exact identity/discriminant/topology/count/time/
+boolean/null/canonical-locator fields while transforming classified prose, locations,
+secret containers, URLs and opaque values. Confidentiality is unchanged.
 
 The invocation owner recognizes the identities and relations in the architecture's [exact shipped tool identities](../architecture/system-architecture.md#exact-shipped-tool-identities).
 Each retains direct valid-argument classification for complete live invocations and canonical call rows.
@@ -2520,7 +2773,11 @@ an arbitrary-secret detection guarantee.
 Call rows never gain a result and result rows never gain arguments.
 A structurally valid failed call remains readable when its identity is unsupported, its argument string is malformed JSON, or a known tool's parsed arguments fail its schema: unsupported/schema-rejected values project only that opaque value, malformed raw arguments receive text defense, and exact invocation identities remain unchanged.
 
-Durable tool results have one strict generic envelope: `{success:true,data?:unknown}` or `{success:false,error:string,data?:unknown}`.
+Durable tool results have one strict generic union:
+`{success:true,data?:unknown,content?:[text|image,...]}` or
+`{success:false,error:string,data?:unknown}`. Optional content is the nonempty
+ordered typed block array specified under image observations, never arbitrary data
+promoted to pixels. Failure error is nonempty and failure has no content field.
 The optional data is opaque persisted JSON and historical projection never validates it against the current named tool implementation.
 Known and unsupported result rows use the same shape-independent recursive outbound redaction for data and error; there is no result-side tool-name switch.
 Historical Analyst list arrays, bounded session wrappers, earlier raw glob/grep match arrays, plaintext collection JsonSlice bodies, and earlier `emit_result` data therefore remain valid because they satisfy the current `unknown` field, not because of a compatibility reader or legacy-shape branch. They are not rewritten, decoded, retroactively bounded, or granted the current hex reconstruction guarantee.
@@ -2623,7 +2880,13 @@ Card-namespace listing consumes heads/selected snapshots required for linked rea
 A missing optional record head omits that non-bootstrap record; missing bootstrap authority and every malformed or unreadable consumed document fail listing.
 
 Explicit content is selector-bound and strict.
-`card.json` returns `{kind:'card-current',head_id,card_id,version_seq,history_version,updated_at,card}`, with exact current selection identity/revision/time and queue-free outbound ordinary fields. `card.json?v=N` selects exactly immutable ordinary revision N. Its document is `{format_version:1,kind,entry_id,card_id,version,published_at,card,change}`; a tombstone substitutes `final_card` and retains `prior_card_version`. Historical wrappers retain publication identity/time and ordinary nullable change, never pending fields. A current retained tombstone returns its terminal historical wrapper.
+`card.json` returns `{kind:'card-current',head_id,card_id,version_seq,history_version,updated_at,card}`,
+with exact current selection identity/revision/time and queue-free fields.
+`card.json?v=N` selects exact immutable ordinary revision N. Its wrapper is
+`{format_version:4,kind,entry_id,card_id,version,published_at,card,change}`;
+tombstones substitute `final_card` and retain `prior_card_version`. Historical
+wrappers retain publication identity/time and ordinary nullable change, never
+pending fields. Current retained tombstones return their terminal historical wrapper.
 Record URLs use mutable current or exact accepted document `v=N` selection; accepted document versions are consecutive from 1, independent of mutable revision, and drafts have no immutable locators.
 For either current or historical `record:///` content, an absent owning card returns HTTP 404 with exactly `{error:'workspace_card_not_found',path,card_id}`. Files classifies the existing record-read result before record/content or historical-selection absence, without a second card lookup. Existing-card record/content misses and exact accepted-document version misses retain their own 404 forms; consumed corruption remains a server error, never card-not-found.
 Files applies backend outbound text redaction to the complete selected record-URL content, preferring the current draft when open and selecting only an exact accepted document version for `v=N`. It reports `redacted:true` and `sensitivity:'sensitive-redacted'` even when prose is unchanged. Canonical authored content and hashes remain unchanged; absent accepted document versions remain exact not-found.
@@ -2639,21 +2902,128 @@ No UI action optimistically writes a running card cancelled.
 Public conversation reads project compacted genesis separately from entries rather than returning durable compaction JSON verbatim. The checksum-free context shape specified above retains explicit protected-message projection and outbound redaction. Projected protected extraction coordinates use `segment_version` and `row_index`; required-model-fact members retain their declared camelCase keys, and inherited-continuation activation uses its declared snake_case keys. Projection is explicit at this owner boundary; no recursive key conversion occurs.
 Files authorization remains unchanged; canonical card traversal is the virtual behavior above rather than generic physical browsing. The typed missing-card record-preview response is presented as **Card not found**.
 
-## 12. Reset And Failure Consequences
+## Repair, reset and adoption
 
-Incompatible hierarchical layout, card/record heads and immutable predecessor documents, deterministic child claims, terminal tombstones, complete parent-owned membership/order and indexed conversation segments are named incompatible durable-format cutovers. Current card heads/mailbox remain format1; ordinary/tombstone bodies require format4 with discriminated executor results and external creator/history attribution, following format2's removal of nine null-only members. Execution envelope1, workflow input2 and operation contracts are distinct. Accepted documents4 require discriminated author including external principals; record heads3, conversation12 and initializer input1 remain unchanged, retaining record document0/macros and strict compaction-summary BLOCKED results. Adoption follows [consented reset or explicit external migration](../runbook/index.md#external-migrations); core accepts only current contracts.
+Normal runtime accepts only its exact current contract. Core and packaged utilities
+have no migrations, old-format readers, probing, normalization, bridges or dual
+paths in startup/init/reset/repair/ordinary deployment. Equal envelope numbers or
+successful readiness do not prove compatibility. Binary-only downgrade over
+incompatible state is unsupported. The [format reference](../architecture/durable-format-changes.md)
+records source contracts, not installation certification; prospective changes follow
+[AGENTS Storage Policy](https://github.com/salva/saivage-v3/blob/HEAD/AGENTS.md#durable-format-versioning).
+
+### Exact current-format repair and coarse loss
+
+The repair ladder is ordinary validated torn-tail truncation, unchanged owning
+semantic closings, stopped/excluded/backed-up/consented exact-target repair, and
+separately destructive eligible card discard. It promises neither preservation
+nor availability. Startup reads no previous selector, synthesizes no required
+empty history and launches no work to cure damage. Current linked-card admission
+excludes unconsumed predecessors; history validates each reached document. Required
+indexes, current sessions/evidence, records and app log retain strict owning scopes;
+valid empty indexes and genuinely lazy absent Oversight remain valid.
+
+Repair requires strict identity/config/workflows and a bound exclusive lifecycle
+lock across interactive prompts; every pre-existing lock blocks it. Before inspection,
+acknowledge a successful complete fresh preserved stopped-project backup after
+service stop and positive absence verification. Backup existence is neither successful
+completion nor a loss bound. Backup/report paths must be absolute and outside exact
+generated/lifecycle roots (`cards`, `agents`, `logs`, `work`, `repair-attic`, `locks`
+under `.saivage`), lexically and after alias resolution. The fresh absent report is
+also outside the backup; an ordinary source-side project path is allowed.
+
+Publish the external provisional report before exact action consent; recheck inspected
+bytes/absence afterward. No unattended/all-target mode, head regeneration, scanning,
+replay, automatic restart or compatibility is permitted. The
+[runbook](../runbook/state-adoption.md#current-format-repair) owns the complete procedure.
+
+Card/record restoration fresh-publishes the complete strict previous selection with
+new head UUID; it never renames prev or invents a historical revision. It can lose
+latest queue/membership/lifecycle/acceptance/draft changes, resurrect prior state
+and unlink descendants. Queue-only prev may select the same broken artifact. An
+unusable candidate fails without older-history search. Record-only damage never
+permits discarding a healthy card.
+
+Conversation inspection shares pure prefix/schema/identity/source-metadata/semantic
+validation with ordinary consumers; no mutation precedes consent. Valid current
+prefix plus torn suffix proposes tail-only truncation. Restoring a previous index
+whose selected candidate has a torn tail publishes the index first, then truncates
+that reported now-current tail. Rollback from a strict-valid index removes exactly
+its missing/complete-malformed newest selection only when the immediate indexed
+predecessor validates wholly. Historical tails are never truncated to qualify.
+First missing segment, malformed complete prefix (even with a torn suffix), broken
+predecessor or unusable prev fails without empty synthesis or genesis discovery.
+Reports name segment UUIDs/versions, known coverage/time/counts and unknown potentially
+days-long loss since compaction. Healthy retained prefixes remain unchanged and
+external effects are not undone. Ordinary automatic tails/later semantic appends
+retain their separate authority.
+
+### Separately confirmed synthetic card discard
+
+Only a strict ancestor-reached card with independently unusable current **and**
+previous selections qualifies for `--discard-card` and separate destructive target
+consent. Root type is configured project. Non-root `--card-type` is explicit operator
+input checked against compiled parent permission and depth-twelve leaf rule, never
+recovered evidence. Move six exact own roots wholesale without inventory: current
+and previous heads, history, mailbox, records and conversations. Never move the
+namespace/children, parent link, siblings, globals/evidence, source/work, identity,
+config, credentials or logs. All original own data and **entire former descendant
+reachability** are lost with unknown count/content; root discard unlinks every
+former descendant. Physical unlinked children remain ignored forever. Other
+dependencies remain untouched and may block restart.
+
+Synthetic state is only runtime/repair initial v1, no predecessor, fresh artifact/
+head UUIDs, title `Recovered card <ID> — data discarded`, FAILED runtime-failure
+summary/error/completion, empty membership/order/dependencies/pending, normal
+priority/urgency and no assignment/metrics/metadata. Ordinary initial creation
+remains backlog. Publish fixed accepted loss `status.md` with configured or generic
+definition, all required bootstrap placeholders with lost-requirements guidance
+and new-card provenance, and empty configured sessions. Retain no old verdict or
+completion. Repair/startup launch no work. FAILED rejects direct activation only
+while FAILED: later explicitly authorized healthy-ancestor Run may let its Planner
+reopen the child to CHANGED and execute unchanged placeholders. Replacing lost
+requirements first is recommended, not an enforced operator-only hold.
+
+Only exact corrupt canonical paths/eligible own roots move into fresh
+`.saivage/repair-attic/<UUID>`. No attic/orphan inspection or adoption is permitted.
+Files omits/refuses attic and resolved aliases before list/content/preview inspection;
+similar ordinary names are unaffected. Reset does not own attic. Effects are
+nontransactional: report completion only after known success; first failure stops
+without retry or compensation. Move/publication/truncation uncertainty is fatal
+before reads, writes, logging, report updates, descriptor/lock/prompt cleanup.
+Independent errors may still block a separately authorized restart.
+
+### Incompatible adoption and destructive reset
+
+Same-format deployment stops the service and starts the matching build against
+retained valid state. Incompatible adoption instead chooses separately consented
+destructive reset or explicitly owner-requested external offline migration under
+the [complete gates](../runbook/state-adoption.md#explicit-external-offline-migration),
+outside every product path. Deployment approval, source completion, a plan or a
+backup alone grants neither migration authority nor concrete loss consent.
+
+Current card heads/mailbox are format1; ordinary/tombstone bodies4 include exact
+executor results and external creator/history attribution. Accepted records4 carry
+discriminated authors; heads3 support current document0/drafts. Conversations12,
+shared app/provider envelope2, execution1, workflow input2 and initializer input1
+are distinct owning contracts. None is a global release-compatibility discriminator.
 Notification query-surface removal and current-activation enqueue admission change no durable format. They require no reset, migration, prompt rematerialization, or special deployment operation; existing materialized prompts remain instance-owned.
 The current widening of the unchanged card-ID field grammar from the former bound of five to the maximum in the [exact card identity contract](#exact-card-identity-contract) is instead a same-format forward deployment: every previously valid ID remains valid, so deployment requires no reset.
 Once a deeper card is created, an old binary cannot read that state and must not be used against it.
 Old or mixed structural formats are rejected and never converted or accepted as current by Saivage.
 Incompatible adoption remains stopped until the separately authorized reset or external-migration workflow produces matching state/release. Same-format retained state must already satisfy exact current contracts. Participating card-agent, selected-Analyst and existing workflow-state identity cutovers are likewise incompatible after generated work exists, despite no schema change; lazy Oversight qualification remains unchanged.
 
-Content-policy retry/refusal conversation kinds, typed refusal BLOCKED lifecycle result and required error-exchange `terminal_conversation_output_id` are named incompatible changes.
-Conversation-context compaction—typed context blocks/immutable activation prefix/compiled invocation tools, append-order call/result policy and per-surface evidence, bounded Analyst orientation/discovery/read/version surfaces, accumulated summary/protected prompts/required-model-fact slots/open-round inheritance—is another named incompatible cutover.
-Checksum-closure removal was the earlier conversation 3→4 cutover and initial image results the 4→5 cutover. Ordered content introduced strict format 6 via a fresh 5→6 bump with unknown format-5 deployment applicability. Loss-tolerant maintenance advanced index/genesis/envelope 6→7; historical instruction evidence now freshly advances 7→8, with unrelated formats unchanged. Earlier formats are historical provenance, not supported representations. Adoption covers all four roots via the separately authorized decision, never conversation-only replacement. Source completion grants no instance action, including JSQLite2; binary-only rollback is unsupported.
-Metadata-only to strict inline-head/completeness process-result payload is independently incompatible. Matching outer versions alone does not establish compatibility; no old-shape reader/converter/normalizer or retained-row rewrite in core.
-The **provider-usage payload cutover** to five fields is independently incompatible with envelope 1 unchanged. Optionality means provider omission/unknown, not compatibility. No core probing/backfill/conversion or selective evidence reset; no mixed versions/binary-only downgrade. Source completion grants no deployment/adoption.
-Per-session evidence replacing aggregate app-log provider rows with owner-local `provider-exchange.jsonl`, and the two-lane app log, is independently incompatible despite envelope 1. No core old-log fallback/splitting/dual path or log-only reset.
+Historical incompatibilities include refusal/result/evidence payloads, context and
+compaction interpretation, checksum removal, image selections and ordered content,
+loss-tolerant maintenance, recorded instructions, process completeness/inline heads,
+five-field provider usage and per-session provider evidence. Their exact old→new
+numbers, source parents, equal-number exceptions and unknown deployment applicability
+remain in the [format reference](../architecture/durable-format-changes.md), not
+present-tense cutover instructions here. Optional payload fields mean unknown or
+omitted provider facts, not compatibility. Adoption covers the complete selected
+boundary, never conversation-only/log-only/evidence-only reset; there is no old-log
+splitter, fallback, retained-row normalization or binary-only downgrade. Source
+completion grants no installation action, including on previously named projects.
 When destructive reset is explicitly selected/consented, keep the exact service stopped and positively verify no owner/process; confirm concrete loss of generated cards/records/conversations/logs/work; finish a full preserved stopped backup; preserve config/credentials/identity/operator inputs/prompts/skills/instructions/source/docs; run the identified matching build's reset over all four roots, then separately authorized start/verification. Reset loses history and proves neither missing-index cause nor absence of prior effects. Explicit external migration instead uses an independent complete candidate, strict full validation and evidence-based factual/history fidelity. Structural conversion is not automatically loss; unavoidable concrete loss needs confirmation, unresolved required provenance blocks. Neither branch grants automatic start/Run, retries or rollback after uncertainty. Plan/deployment approval, backup existence or startup rejection is not migration or loss consent.
 Test and E2E generated-state fixtures use only this singular current format; omitted old fields, old blocked/tool shapes, mixed streams, compatibility readers, migrations, normalization, and backfill are unsupported.
 
@@ -2693,10 +3063,14 @@ This fatal exit occurs before Supervisor halt or runtime-status mutation.
 Ordinary Stop, application close, actor-main failure, and containment failure retain the existing `closing -> stopped | error` contract.
 A genuinely new process performs strict canonical startup full-chain settlement before availability; a later explicit Run launches only project. Conversation stabilization and append-only `stopped` correction remain best-effort and lossy, complete malformed rows fail, and another publication-unknown failure exits again without retry.
 
-## Appendix: cutovers and recent contract changes
+## Workflow configuration and shipped policies
 
+This chapter specifies source selection, compiled identities, shipped graphs and
+role/node responsibility. These are current contracts, not an upgrade checklist.
+Input/adoption procedures belong to [state adoption](../runbook/state-adoption.md);
+source-version chronology belongs only to the durable format reference.
 
-## Named-Agent Workflow Cutover
+### Configuration selection and prompt closure
 
 The selected strict YAML chooses card-type definitions through exactly one source form: a complete `card_types` map, or omission of `card_types`, which selects the bundled `classic` definitions.
 The deleted `card_type_set` selector key fails strict source validation as an unknown key; it never defaults, falls back, or merges with an explicit map.
@@ -2777,6 +3151,8 @@ Shipped typed-test diagnose/verify guidance conditionally permits useful trustwo
 All classic-typed and paad-typed non-planning entries begin at the first node shown; STOPPED adds `stopped-recovery`.
 Node IDs use the exact lowercase hyphenated form, notably `assess-completion`, goal `handle-notifications`, `add-coverage`, `component-review`, and `system-review`; underscore-bearing outcome IDs remain exact outcomes rather than node IDs.
 
+### Planning, assessment and current status
+
 Classic-typed planning reuses existing immediate children rather than duplicating them.
 Planner may activate BACKLOG, CHANGED, BLOCKED, or STOPPED children through their matching entries with explicit `instructions`; only configured globals produce public notifications.
 `edit_card` is only for a genuine immediate-child metadata change to `title`, `priority`, or `urgency`; it cannot edit a brief, dependency, parent, type, or lifecycle and is not a generic reopen.
@@ -2806,11 +3182,15 @@ Delivered notifications and peer context are queued evidence with provenance, no
 
 The shared Reviewer independently inspects relevant implementation, tests, records, and artifacts; traces load-bearing claims rather than accepting author status; and, for family criteria, assesses representative members and boundary cases without waiving expressly exhaustive criteria. It judges only criteria assigned to the current node. Specialized planning review applies that method to the brief and subtree, treating descendant status as evidence pointers rather than acceptance by itself. Reviewer has no command-execution authority and this prompt policy adds none.
 
+### Review and architecture handoff
+
 Architecture uses the shared Reviewer prompt and one declared `review.md`.
 Both `component-review` and `system-review` start a clean updated cycle of that record.
 Accepted transition context carries immutable `record:///review.md?card=<id>&v=N` evidence with its optional edge prompt; the destination node prompt is supplied separately as the next activation's prepared compiled-node block. Component evidence therefore remains readable after system review opens a newer clean version and revision returns to `draft`.
 A revised draft synthesizes current proposal progress and outstanding review obligations in `status.md`, retaining immutable accepted-review citations rather than cumulative revision accounts.
 Final system approval promotes the latest accepted `draft` result while exporting the current system `review.md`.
+
+### Participating identities and installed inputs
 
 Card-type wire schemas validate only that identifier syntax.
 Startup resolves every reached active canonical card against the selected compiled map and fails if its type is absent; parent/type admission follows from the reached active parent's compiled workflow. A reached retained tombstone is strictly consumed and terminates traversal before workflow, record, or session admission for that card or any descendant behind it.
@@ -2827,10 +3207,18 @@ Changing templates/maps/types or matching prompt/config inputs requires stopped 
 After initialization, renaming/removing/replacing/changing scope of participating card agents, selected Analyst changes, rebinding reached-card nodes to other named agents, or renaming/removing/replacing workflow node/state identities is incompatible adoption. Choose separately consented complete reset or explicitly requested external migration before use. This applies to reached active cards including non-tombstoned DONE/FAILED, not just running actors. New types/unused declarations/changes not altering existing participating identities remain outside that predicate.
 Startup strictly admits retained generated state against the newly resolved effective map. It requires the exact current selected-Analyst index and every distinct node-agent index derived from each reached active card's compiled workflow. Missing expected indexes reject rather than being created; this catches some identity changes and incomplete or lost first publication, but it is not a comparison with prior configuration and does not certify that every identity was retained. In particular it cannot generally detect same-agent node-ID changes or changes whose newly expected indexes already exist.
 Removing the former project `handle-notifications` identity to adopt shipped assessment therefore requires separately consented complete reset or explicitly owner-requested external offline migration when the retained project is reached and non-tombstoned, including DONE/FAILED. No evidence that the handler ran is required. Stopping and reconciling YAML/prompts alone is insufficient; unchanged family formats, successful compilation/startup/readiness and preserved custom guidance do not certify adoption. A reached tombstone terminates admission as above; unused declarations remain outside the participating-identity predicate. This source change authorizes no live adoption or historical DONE correction.
-If a reached active card type is absent, a retained active parent/child relationship is no longer admitted, or a required current session index is absent, startup fails before subsequent shared-admission app-log/provider/current-conversation/record consumption. Linked-card consumption may already have truncated a fully validated torn suffix before required-index admission. Lifecycle-lock publication, configuration/template materialization, project-identity work, and any already completed first publication also precede this gate and are not rolled back.
+If a reached active type is absent, parent/child policy no longer admits the linked
+relationship, or a required session index is absent, startup fails before subsequent
+app-log/provider/current-conversation/record consumption. Card JSON has no torn-tail
+permission. Prior lifecycle-lock publication, configuration/template materialization,
+identity work and any completed initial publication are not rolled back. Later
+owning growing-file admission can truncate a fully validated torn tail before a
+still later failure; successful earlier consumption is not a transaction.
 The operator may restore compatible inputs, or choose separately consented reset or explicit external migration for incompatible adoption. Saivage itself has no migration/probing/fallback/aliasing/compatibility/normalization/merge path; current-format exact-target repair remains separate, not identity conversion.
 
 Selected Oversight remains lazy, outside startup required-index admission. Changing a never-used unpublished Oversight identity needs no reset solely because unrelated card/Analyst history exists. Replacing known published Oversight history is operator-assessed incompatible identity adoption with the same reset/external-migration choice. No scan/inventory/prior-identity detector or startup certification is added.
+
+### Prompt packaging closure
 
 Bundled prompts live in per-template trees under `src/config/system-templates/<name>/prompts/`.
 Packaging compiles each registered template standalone against its own source prompts root, observes the bundled agent, process, and direct-fragment artifacts actually selected, and requires that template's physical tree to equal its sorted compiled closure exactly.
@@ -2842,6 +3230,8 @@ Therefore a configured card type literally named `global` receives ordinary card
 A workflow with nonempty `permitted_child_types` is the existing capability used for Analyst record-edit ancestor notifications.
 Analyst creation always uses its required explicit parent card ID.
 Planner creation remains separate: its current parent is inferred from the active Planner session and cannot be supplied.
+
+### Record and edge acceptance
 
 Records are arbitrary configured safe Markdown names, not three code-owned slots.
 Each record owns a strict format-3 `record-head` and immutable format-4 `accepted-record` predecessor documents with exact card/name/format/schema identity and discriminated author. Current-only baseline0 cannot coexist with draft/acceptance. Drafts have explicit document/target versions; draft0 and empty drafts cannot be accepted. Bootstrap first-publishes factual accepted1 then head. Open/edit/close/discard advance mutation revision independently of consecutive accepted document versions; already-open open is a strict-read no-op. Baseline/draft history is not retained. Historical accepted projections have null head/revision, never an inferred mutation number. Each mutation freshly reads exact current authority; no carried write token exists.
@@ -2861,51 +3251,13 @@ Every successful replacement reports `applied:true, requires_restart:true`; cand
 Role routing, runtime timeout/continuous-improvement mutation, and MCP add/edit/remove actions do not exist.
 Old YAML needs deliberate stopped current-input reconciliation; incompatible role sessions, record rows and lifecycle results need the separately authorized reset/external-migration decision before a matching-release start. No runtime translation.
 
-## Current Activation Ownership Contract
-
-`SupervisorRuntimeApi` owns one private `activationOwners` map and one status field and is the sole coordinator of owner structure, current card, run identity/status, status-derived Analyst intervention admission, Pause state, terminal winners, and runtime halt.
-That status field is internal `uninitialized` until startup succeeds, then contains exactly one public runtime status; there is no separately stored readiness or initialization flag.
-Each map value is a plain `CardActivationOwner`, not an actor, with phase exactly `prepared_root | child_admission | active | settling` and terminal winner `open | result | cancel`.
-The supervisor's one nullable halt record freezes an exact owner snapshot and carries one shared `RuntimeStoppedInterruption` and promise.
-`CardProcessActor` remains a micro-actor; `ConversationLLMActor` is the direct provider/tool phase state machine.
-
-The direct Conversation LLM owner has no `BaseActor`, event queue, or actor lifecycle settlement.
-Concrete `CardService` remains the one card/root reader and the one strict `cardRecordSchema` remains unchanged.
-
-Every live LLM tool call passes the complete frozen context from `ConversationLLMActor.toolInvocationContext(outcome)` to `invokeToolForLlm`.
-It contains exact session/source/call/tool identity, external/process waits, and one mandatory child reservation.
-`invokeToolForLlm` requires that context before its optional abort signal; only lower-level non-LLM `invokeTool` may omit it.
-Analyst parses protocol arguments before passing the parsed object and the same complete context, but has neither `activate_card` nor a planner child-control port.
-
-Planner activation, cancellation, and direct-child reopening delegate through a port bound to the exact parent owner.
-The provider performs only schema and immediate-child ID checks.
-Supervisor ownership is consulted before target I/O.
-Fresh child admission installs owner, relationship, and admitted lease before the one running publication; currentness remains at the parent until publication succeeds.
-Exact same-parent/same-lease active or settling calls join without I/O.
-Normal terminal work claims its winner before publication, joins local work, atomically removes structure/restores currentness/releases the lease, invalidates, and only then delivers the outcome.
-
-A lifecycle publication failure is outcome-unknown only when the direct primitive has attempted canonical mutation.
-No reread, retry, rollback, replay, compensation, inferred outcome, owner settlement, process termination, or Supervisor halt is permitted; immediate fatal delivery exits and leaves the lifecycle lock abandoned.
-Ordinary Stop, application close, and actor-main containment retain the singular halt: successful containment publishes `stopped`, which admits intervention, while failed containment publishes `error`, which rejects it.
-
-The supervisor directly implements runtime control.
-Its accepted Run preparation installs a `prepared_root` owner, run identity, current root, opaque launch token, and the single `starting` status before recovery or root-running publication; `starting` rejects Analyst intervention.
-Launch consumes that exact authority, opens the gate, and activates execution.
-Global application admission closes permanently only for application shutdown.
-Natural root release is valid from running, pausing, or paused and calls `RuntimeGate.completeRun()` in the same transition that clears owners/run/currentness and publishes the single intervention-admitting `stopped` status.
-Stop, application close, and ordinary actor-main failure start or join the same halt.
-Publication uncertainty exits before that halt or a status transition.
-
-Current card heads and mailbox messages use strict format1; ordinary/tombstone documents use strict format4. Former stream layouts and mixed representations are unsupported. Ordinary payload excludes `version_seq`, `updated_at` and `pending_notifications`; current projection derives those from the head, historical projection derives revision/time from immutable metadata and contains no historical queue. Identity, membership/order, immutable type and lifecycle grammar remain strict. The current card model has no `subtype`, `assigned_to`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text_author_session_id`, `latest_self_report` or `metadata`, even with null values; strict readers reject these keys. Retained `status_text` and `status_text_updated_at` and lifecycle provenance remain unchanged. There are no tags, generic related-card list, top-level status, persisted parent/depth, or allowedActions in durable ordinary payload.
-Operator hierarchy and detail are separate strict projections.
-
-Applying the card/record head-and-predecessor cutover follows the [reset/external-migration decision](../runbook/index.md#external-migrations), preserving outside inputs. No core migration/conversion/probing or mixed-version rollback; exact-target repair is current-format only. Source completion grants no deployment/adoption/loss consent. Later same-format deployment retains only exact current head/document contracts.
-
 ## Project Oversight
 
-**Status: implemented.** Oversight is an independently scheduled selected global participant. Its shared designated-recipient notification prerequisite in §6 is also current behavior.
+Oversight is an independently scheduled selected global participant. It observes
+and advises through the shared designated-recipient notification contract; it is
+neither an alternative dispatcher nor a project mutation/review authority.
 
-### 1. Identity, authority, and configuration
+### Identity, authority, and configuration
 
 Each project has one independently configured global Oversight agent with its own identity, prompt, conversation, model route, check lifecycle, tools, output limits, and model-aware context budget.
 It is distinct from the operator-driven Analyst and the sole-dispatcher Supervisor; its checks may coexist with both, subject to ordinary provider capacity.
@@ -2914,7 +3266,7 @@ Oversight uses the ordinary named-agent catalog, explicit route and configured f
 The required strict configuration is `oversight:{enabled,agent,interval_seconds}` even when disabled. New-project defaults select global `oversight`, enable it, and use `7200` seconds. The selected agent must differ from Analyst, be global, disable skills and child creation, declare no record writes, use a resolvable route, and select only the observation inventory below. Invalid references, intervals, prompt closure, tools, or capabilities fail startup rather than falling back or silently disabling checks.
 Existing projects adopt or disable it only through deliberate complete configuration and prompt work; configuration is epoch-frozen, with no automatic discovery, upgrade, compatibility default, missing-field normalization, or live toggle. Deployment applicability must still be established for every other retained durable-format cutover.
 
-### 2. Schedule and lifecycle
+### Schedule and lifecycle
 
 A check is eligible only while Oversight is enabled and authoritative project runtime status is exactly `running`; a live server or any other status is insufficient.
 The first check waits one full continuous eligible interval, and losing eligibility discards that wait. Each later check waits another full interval after the previous check, including continuations, compaction, and settlement, safely settles.
@@ -2923,7 +3275,7 @@ A check may run alongside normal card work and Analyst activity, but ordinary pr
 Leaving `running`, including pausing, completion, shutdown, or effective disablement, disarms the wait and requests cancellation.
 Resume or a new Run begins a fresh full interval only after prior ownership settles, with no missed or pending check accumulated.
 
-### 3. Cancellation and truthful settlement
+### Cancellation and truthful settlement
 
 Cancellation admits no new investigation read, model call or continuation, notification submission, or urgent interruption request, but bounded truthful settlement of obligations already owned by the check remains required.
 
@@ -2936,9 +3288,10 @@ Cancellation admits no new investigation read, model call or continuation, notif
 When outcomes are known and every required publication succeeds, ordinary cancellation or safely settled provider, refusal, context, or investigation failure releases check admission with continuable history.
 It requires no final model report or immediate retry and does not fail cards or disrupt Analyst; a later check waits the next full interval.
 An unknown effect or failed/outcome-unknown required result, evidence, or terminal publication retains the exact fatal owner policy: no follow-up effect, read, inspection, retry, repair, invented settlement, or admission release.
-Strict history remains strict, and startup reconstructs no check or known outcome. Its bounded configured-global final-unmatched mate (§4) states uncertainty only and creates no new check.
+Strict history remains strict; startup reconstructs no check/known outcome. Its
+bounded configured-global final-unmatched mate states uncertainty only, not a check.
 
-### 4. Read-only intervention boundary
+### Read-only intervention boundary
 
 Oversight is read-only with respect to project work. Its exact default/maximum inventory is `get_status`, `list_cards`, `get_card`, `get_tree`, `list_card_versions`, `get_card_version`, `diff_card_versions`, `read_record_version`, `read`, `glob`, `grep`, `read_runtime_events`, `read_runtime_errors`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, and `queue_notification`; custom selected Oversight agents may use subsets. Agent, process, runtime-event, runtime-error, card, record, search, and file collections use the ordinary stateless byte-bounded response packing contracts. Its sole project-affecting operation is a shared notification contract bound to the Oversight-specific effect port: compiled capability, exact active-check cancellation signal, current running admission, and planning eligibility are checked by that owner rather than inferred from agent-name spelling or borrowed Analyst/runtime authority. Analyst uses its distinct audited notification authority without paused/stopped intervention readiness; no card agent has the public notification tool. Analyst non-record write/edit and cancel likewise require no intervention readiness; create, reorder, reopen, delete, reconfigure, and record mutation retain their operation-specific readiness admission. Oversight gains no file-mutation or cancellation authority.
 It cannot edit source, records, briefs, configuration, prompts, or policy; mutate, activate, reopen, cancel, delete, or reorder cards; run shell, build, test, process-kill, or effectful MCP operations; control project or model lifecycle; approve work; or obtain those effects through a broad tool.
@@ -2946,7 +3299,7 @@ Ordinary publication of its own conversation, provider evidence, and notificatio
 It normally selects the nearest responsible planning scope, uses root for strategic or cross-scope concerns, and never broadcasts.
 This is workflow role discipline that simplifies ordinary work and preserves role separation, not containment of a malicious root-capable agent.
 
-### 5. Proportionate observation
+### Proportionate observation
 
 Each check performs bounded, proportionate observation of objectives, linked work, records, conversations, process evidence, and source, distinguishing facts, interpretations, uncertainty, and current evidence from historical evidence. Sustained non-progress may be evidenced across checks or from bounded history inspected during one check; another check is not a prerequisite.
 Relevant evidence includes a running card accumulating retry or repair executions over a sustained window without substantive accepted artifacts, milestones, or relevant implementation commits, or repeated unresolved findings directed at a terminal implementation owner that cannot consume or act on them. Mere status versions, repeated old revision citations, and repeated defect restatement do not establish convergence, but an ordinary review mentioning a terminal card does not establish futility either.
@@ -2954,10 +3307,13 @@ Reads are non-atomic observations and never authorize a later write; partial or 
 On newly actionable evidence of sustained non-progress or futile terminal-owner feedback, Oversight submits concise, qualified `normal` advice to the nearest responsible nonterminal card whose workflow reports `planning_target: true`, identifying the observed window, looping card, retry or repair evidence, unchanged acceptance gap, and any terminal owner. It asks that Planner to reconsider the approach or decomposition or coordinate repair at the actual owning card; it does not notify the terminal card, broadcast, prescribe automatic reopening, or claim strategy failure as fact.
 Project guidance supplies context but cannot waive owner scope or acceptance. Planners retain discretion and may reasonably disagree. A short no-intervention response is successful when there is no new actionable concern, but does not certify the whole project.
 Oversight uses ordinary conversation and compacted history, repeats equivalent advice only when new evidence or a stated material reason adds value, and corrects disproved advice. Previously queued advice with no observed handling is neither evidence of delivery or failure nor, by itself, new value warranting repetition or escalation.
-This advisory criterion does not interrupt active descendant work and may await the designated recipient's existing handling opportunity under §6. Enqueue proves neither receipt, consideration, action, eventual delivery, nor immediate containment. The criterion does not itself satisfy or broaden the separate exceptional urgent predicate in §7 and requires no mechanical normal-plus-urgent pair.
+This advice does not interrupt active descendants and may await the designated
+recipient's existing handling opportunity. Enqueue proves neither receipt,
+consideration, action, eventual delivery nor containment. It does not broaden the
+separate urgent predicate below and requires no mechanical normal-plus-urgent pair.
 Oversight records unavailable recipients and owner-decision needs in its inspectable conversation without promising an operator alert; no runtime detector, delivery SLA, intervention ledger, deduplication registry, or guaranteed-attention channel is introduced.
 
-### 6. Shared designated-recipient workflow
+### Shared designated-recipient workflow
 
 Generic designated-recipient notification routing is current behavior and a prerequisite for Oversight. Every card type designates a workflow participant and provides defined opportunities for that participant to handle queued context.
 Oversight targets additionally require that at least one node of the declared recipient has nonempty compiled child-creation and child-activation types. `get_card` exposes this bounded `workflow` policy projection as `planning_target`, together with recipient, permitted child types, and the current process position when available; it exposes no queue state.
@@ -2967,7 +3323,7 @@ Current routing reconciles pending context with BLOCKED or failure settlement, c
 It preserves exceptional terminal clearing, notification-empty terminal states, and append-before-remove duplication/loss limits.
 It promises neither eventual nor exactly-once delivery and adds no second queue, receipt service, transaction, replay, or recovery protocol.
 
-### 7. Urgent notification ordering (implemented shared contract)
+### Urgent notification ordering
 
 An ancestor notice's immediate-child status is an observation captured when queued, not a claim about status at delivery or consideration. Later ordinary child activation remains discretionary; reopening is appropriate only if the child is DONE or FAILED when considered and ordinary admission permits it. The workflow may decline.
 
@@ -2977,7 +3333,7 @@ With an eligible active boundary, after known appends the Supervisor synchronous
 
 With no eligible real running ancestor, even if inactive ancestors can accept notices, urgency only queues selected notes through project and creates no owner or automatic Run. An ineligible project receives no note. Explicit Run permits later execution but cannot by itself reopen terminal ancestors or guarantee delivery. Pause already owning admission suppresses interruption but preserves confirmed enqueues; Pause after claim gates the new recipient or replacement until explicit Resume. Stop/close takeover prevents further urgent publication or launch. Retained historical pending receipts confirm only the original recorded enqueue, never completed interruption or delivery. External completion returns `interrupted` with exact completed stopped IDs (possibly empty), or `suppressed` with reason and completed prefix; normal is `not_requested`, queue-only urgent is `not_applicable`. All confirmed forms include card/notification identity. Enqueue and interruption do not prove delivery, action, effect rollback, or guaranteed eventual attention. Publication uncertainty is fatal with no follow-up.
 
-### 8. Privacy and failure containment
+### Privacy and failure containment
 
 Pending queue state stays private. Authenticated/redacted sender body/result evidence and context actually appended to the recipient conversation remain normal inspectable transcript facts; they prove neither queue membership, receipt, model consideration, nor action.
 There is no queue browser, count/body projection, delivery inference, or separate report store. Existing file, history, redaction, and fatal-publication policies remain unchanged.

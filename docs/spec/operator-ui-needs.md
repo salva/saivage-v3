@@ -1,143 +1,22 @@
 # Operator UI: Functional Needs Specification
 
-Format-10 historical preparation must distinguish actual activation identity and
-root/parent/global caller, stable card orientation and exact recorded parent direction
-from current configured instructions. Parent text is advisory and privacy-filtered,
-not acceptance, wire delivery or evidence of model recall. Globals have no synthetic
-card/parent context; non-model ingress is not applicable, unrecorded text unavailable.
-No current-template or current-record reconstruction fills missing historical bytes.
+This register defines the operator capabilities required of one project's web UI.
+The [contracts register](operator-ui-contracts.md) owns their exact presentation;
+the [system specification](system-specification.md) owns backend behavior. These
+are current requirements, not an implementation plan or evidence of conformance.
 
-Operators need actual conditional record instructions in source order and separate
-descriptors for metadata, slice, full-body preparation, reference-only and excerpt exposure.
-Oversized instructions disclose encoded/redacted display previews and display-byte
-omissions, not exact source bodies or source offsets. Their versionless pointers
-select latest effective content, possibly a newer draft, without changing ordinary
-bounded record/history access. Operators must not infer absent requirements,
-complete-body exposure or accepted authority from a preview. The separate accepted
-bootstrap remains full; no new UI workflow is required.
-Accepted selections, effective drafts and accepted backing evidence stay distinct.
-Operators need to distinguish agent-authored records from runtime bootstrap/repair
-and shell stdout reports. A report's node, shell operation and actual disposition
-must remain visible without implying an agent verdict, successful program work or
-workflow acceptance. Normal accepted versions/history/diffs retain their own author
-even for equal-content invocations; capture inspection remains separate. Drafts
-and baselines must never borrow accepted backing's attribution. Confidentiality
-applies equally to report text, metadata, previews and downloads.
-
-Operators must distinguish absent records, established empty heads, baseline0,
-draft0/target1, authored drafts for vN and accepted work. **Baseline v0 — not authored
-or accepted** makes no progress or completeness claim; positive drafts remain
-unaccepted. Accepted document version is distinct from current mutation revision;
-historical mutation revision is unavailable, not guessed from document version.
-Independently accepted backing remains inspectable without satisfying an ineligible
-effective draft's workflow gate. The same distinction survives recorded
-observations and compaction, without reconstructing history from current templates.
-Raw safe record inspection remains available. Editing stays through existing
-authority: before entry the Analyst may accept content; an actual open workflow
-draft, including an interrupted scaffold, still conflicts with Analyst mutation.
-There is no operator draft-takeover control or creation-time scaffold preview.
-Latest compacted descriptors show their original coordinates/time, not new occurrences
-or body recall. Inspecting an immutable selection is **record evidence**, never a
-reconstructed prepared request. Safe full copy applies independently to recorded
-instruction text and positively projected/redacted metadata; internal hashes are not public.
-
-Safe current/history/retained-protected instruction copy must also filter recognized
-secrets in JSON-quoted record text using the shared server projection. Operators see
-privacy-filtered encoded text, not decoded or raw original bodies; safe quotation and
-source evidence remain useful without rewriting stored history.
-
-## Historical instructions at their recorded boundaries
-
-Operators need historical rendered role/node instructions in actual node chronology,
-even when one named-agent session moves between nodes. **Prepared instructions**
-means preparation, not model delivery or interpretation. Distinct labeled disclosures
-show privacy-filtered role and node text with full safe copy at the activation row.
-Owned workflow prompts stay at their existing rows as **Recorded workflow instruction**;
-repair and retained-protected details preserve that positive provenance. Ordinary
-unmarked context is not classified by resemblance or current configuration.
-
-**Historical instructions unavailable — not recorded** is explicit absence;
-**No model invocation for this ingress** is legitimate non-model ingress. An activation
-start outside the displayed segment/tail is neither of these. Earlier compacted
-activation instructions live in indexed source history, reachable through explicit
-source selection, not automatic history stitching. **Currently configured instructions**
-remains separate and current-only. Card and global readers share rendering and preserve
-tool/image inspection, anchors, activation jumps, technical/exchange details and follow.
-
-## Recorded images are not delivery receipts
-
-Operators need to distinguish **image snapshot recorded** (safe source, sent
-dimensions and resize metadata) from successful model delivery or interpretation.
-Continuation may fail admission after recording. Safe-original rows and copy stay
-descriptor-only; authenticated inspection shows exact selected pixels, with no
-claim that visible secrets were removed. Every admitted image-bearing tool uses
-the same accessible Fit/1:1 dialog; producer metadata is optional label enrichment.
-Closing returns focus and preserves the caller's selected history, expansion,
-scroll and follow policy without cross-visit tracking. Files shares the viewer
-but labels freshly decoded eligible raster bytes **Current source**.
-
-Both card and Analyst readers need every typed image descriptor and text block
-shown in recorded content order inside the paired Result half, with content
-positions retained. Generic descriptor inspection must not require workspace
-source metadata, infer attachments from ordinary JSON, or label an unknown tool
-an image producer. `view_image` supplies one snapshot with its workspace metadata;
-native MCP supplies ordered images with indexed capture metadata and no invented
-workspace path. Native text/descriptors appear once through the generic owner;
-capture metadata is separate JSON, not pixels or delivery evidence. Keep both exact exchange anchors,
-safe-original copy, compact uncertainty/outcome summaries and the single reading
-scroll surface unchanged.
-
-Recorded configured-MCP lifecycle and discovery exchanges need concise ready/stopped
-outcomes with context-loss caution and complete inspectable input schemas. These
-tools and authenticated start/stop/restart APIs add no browser controls to the UI.
-Recorded restart requests must remain inspectable as restart, with only their
-reported outcome: ready means discovery complete at completion, not present
-readiness, remote restart or target continuity. Stop-first restart is non-atomic;
-context can be lost, failed containment retains ownership and interrupted effects
-can be unknown. A failed or missing outcome must not acquire a success claim or
-imply replay. Authenticated `POST /api/mcp/servers/:name/restart` accepts `{}` and
-uses the existing lifecycle authority, without changing default grants. Loaded
-current instructions expose the actual composed browser guidance, not dynamic tool
-discovery, pixels or historical provider wire.
-
-MCP observations must distinguish **starting** from discovery-complete **running**,
-show operator/agent definition origin (or no definition for a retained blocker),
-containment failure, inspectable binding and safe current process association.
-Association is not wait/kill authority or protocol output capture. HTTP has none.
-Registration/removal exchanges show their own recorded facts, not an inferred
-later lifetime. No topology editor, tree visibility or lifetime timeline is added.
-
-## Explicit loss visibility
-
-Operators need truthful coarse loss, not a guarantee of preservation or repaired availability. Strict startup errors direct a stopped, no-owner, fresh-complete-backup, exact-report/consent repair and separate restart flow; no degraded control room or automatic repair. See the [runbook](../runbook/index.md#exact-target-offline-repair). Files hides/refuses attic and resolved aliases before content inspection and offers no attic browser/repair control. Missing owning cards display **Card not found** separately from record/version misses.
-
-Synthetic `runtime:repair` FAILED cards expose loss status and all required bootstrap placeholders through ordinary Files; no old approval/completion survives. Unlinked former children remain ignored. Repair/startup launch no work; FAILED blocks direct activation only while FAILED. A later explicit healthy-ancestor Run can let its active Planner reopen to CHANGED and execute unchanged placeholder requirements. Replacing lost requirements first is recommended, not a new enforced operator-only hold.
-
-Current selection identity plus revision, not numeric revision alone or retained reviewer prose, determines freshness. Conversation exact segment identity/version determines cursor/sync baseline even when rollback lowers an ordinal or recompaction reuses it; stale baselines refetch/replace rather than mix messages.
-
-Status: canonical operator-UI needs register, promoted at the Card Cockpit
-cutover (owner decision Q1, 2026-09-20; promoted 2026-09-24). It is paired
-with the exact contracts register in
-[operator-ui-contracts.md](operator-ui-contracts.md); together they replace
-the retired `docs/spec/operator-ui.md`. Scope: one project's operator web UI.
-
-## 1. Purpose and use
+## Purpose and acceptance
 
 The UI's prime directive is to let the operator **see and understand what is going on**
 and **take action through the Analyst**—directing, questioning, and requesting mutations—
 without taking over autonomous engineering work.
 This document defines observable operator capabilities, not pages or visual composition.
 
-Provenance: this register was authored as a phase-1 working specification,
-used as the phase-2 audit rubric, and drove the phase-3 Card Cockpit redesign.
-The phase-3 cutover replaced `docs/spec/operator-ui.md` with this register plus
-the exact contracts register; everything else in the retired document was
-discarded and re-derived by the redesign. The requirements below are stable
-operator needs and remain the acceptance rubric for future UI work.
-
-Grounding: `README.md`, `docs/spec/system-specification.md`, and
-`docs/architecture/system-architecture.md`; the coordinating `brief.md` supplied
-owner intent and the 1,500+ card scale scenario.
+The requirements cover situational supervision at 1,500+ active cards, evidence
+inspection and deliberate steering. They do not make the operator a dispatcher
+or promise autonomous correctness. The owner-selected product acceptance target
+is 1920×1080 desktop; preserve the possibility of a later phone-friendly display.
+Existing narrow-layout behavior is not a new mobile acceptance guarantee.
 
 ### Reading and auditing requirements
 
@@ -156,11 +35,18 @@ See the [shared presentation contract](operator-ui-contracts.md#shared-json-data
   A capability gap is not a pass merely because the current backend lacks support.
 - Use retained, backend-permitted evidence, not invented data. “Unknown” is a valid
   answer when evidence is genuinely absent, not a substitute for hiding available facts.
-- Notes N1–N3 identify needs whose breadth is not established by current contracts.
-  Phase 3 must choose a compliant bounded answer or obtain an owner-approved scope
-  decision; these notes authorize no new persistence or stronger completeness guarantee.
+- Notes N1–N3 bound permitted evidence and discovery; they authorize neither new
+  persistence nor stronger completeness guarantees. A missing implementation is
+  an audit gap, not permission to weaken a requirement.
+- There are 48 active requirements: 33 Must, 14 Should and 1 Could. Keep every
+  stable F identifier and priority when assessing or extending the UI. F39 and
+  F50 remain retired for the reasons below.
+- Assess healthy running work, settled pause/stop, failed/blocked work, compaction,
+  missing history, failed refresh, unauthorized access, abrupt disconnect and deep/
+  wide projects. The ten-second F1 check is an acceptance target, not a measured
+  claim. Accessibility requires the F46 core journeys; no formal WCAG level is claimed.
 
-## 2. The operator and their goals
+## Operator tasks
 
 The operator observes autonomous engineering work lasting hours or days
 and steers it by asking the Analyst. They may
@@ -185,7 +71,7 @@ Ranked questions, derived from urgency and consequence rather than current navig
 Accessibility, consistent vocabulary, and progressive disclosure apply to every question
 (F46–F48). Priority is not a promise of project completion, throughput, or autonomous correctness.
 
-## 3. Functional requirements by operator need
+## Requirement register
 
 ### A. Establish the situation without investigation
 
@@ -272,6 +158,41 @@ Current selection freshness pairs the exact published head UUID with displayed r
 Conversation freshness likewise pairs the immutable segment UUID with its displayed ordinal. Lower ordinals must still invalidate, and rollback/recompaction must never mix old and new transcripts even when they share a cursor. Historical ordinal navigation selects the present catalog; immutable identity remains visible in catalog/content contracts, not inferred from a number.
 
 ### C. Understand activity in its work context
+
+#### Instructions and record context
+
+Historical preparation distinguishes actual activation identity, root/parent/global
+caller, stable card orientation and exact recorded parent direction from current
+configured instructions. Parent text is privacy-filtered advisory direction, not
+acceptance, wire delivery or model recall. Globals have no synthetic card/parent
+context. Non-model ingress is not applicable; unrecorded text is unavailable, and
+no current template or record fills missing historical bytes.
+
+Show rendered role/node text in actual node chronology, even when a named-agent
+session spans several nodes. At the activation row, **Prepared instructions** has
+distinct role/node disclosures and full safe copy. Owned workflow prompts remain
+**Recorded workflow instruction** at their original rows; repair/protected details
+retain positive provenance. Do not classify unmarked prose by resemblance.
+
+Distinguish **Historical instructions unavailable — not recorded**, **No model
+invocation for this ingress**, and an activation start outside the displayed
+segment/tail. Earlier instructions remain in explicitly selected indexed source
+history, never automatic stitching. **Currently configured instructions** stays
+separate and current-only. Shared card/global readers retain tool/image inspection,
+anchors, activation jumps, provider details and follow behavior.
+
+Conditional record instructions appear in source order. Separate metadata, slice,
+full-body preparation, reference-only and excerpt exposure. Oversized instructions
+disclose encoded/redacted display previews and display-byte omissions, not source
+offsets or complete bodies. Versionless links read latest effective content, possibly
+a newer draft; they do not reconstruct omitted history or waive requirements. The
+accepted bootstrap remains full. Latest compacted descriptors retain original
+coordinates/time, not new occurrences or recall. Immutable links inspect **record
+evidence**, not prepared requests. Internal hashes are not public. Shared server
+filtering covers JSON-quoted record text for current/history/protected disclosures
+and full copy; preserve safe encoded spelling, not decoded/raw original bodies.
+
+#### Non-LLM executions
 
 Non-LLM action nodes and postcommit advisory hooks need their own **Executions**
 facet alongside real agent Conversations. Operators can inspect chronological
@@ -383,6 +304,45 @@ agents-first destination is neither required nor sufficient to satisfy F3 and F1
 
 ### D. Explain outcomes without inventing certainty
 
+#### Image evidence
+
+**Image snapshot recorded** identifies a retained selection, safe source and sent/
+resize dimensions, not model delivery or interpretation; continuation may still
+fail admission. Safe-original rows/copy remain descriptor-only. Authenticated
+inspection shows exact selected pixels without claiming pixel secrets were removed.
+All admitted producers share an accessible Fit/1:1 dialog. Closing returns focus
+and retains mounted history, expansion, scroll and follow policy, not visit state.
+Files uses the same viewer for freshly decoded **Current source** bytes.
+
+Card and Analyst Result halves preserve every typed text/image occurrence in
+recorded content order. Generic image inspection requires no workspace metadata
+and promotes no ordinary JSON attachment. `view_image` supplies workspace metadata;
+native MCP supplies indexed capture facts, never an invented path. Native text/
+descriptors appear once, with capture metadata separately inspectable as JSON.
+Exact exchange anchors, safe-original copy, uncertainty and one reading surface remain.
+
+#### Loss and selection identity
+
+Loss must be visible without promising preservation or repaired availability.
+Strict startup failure leads to [offline repair](../runbook/state-adoption.md#current-format-repair):
+stopped service, positively absent owner, fresh complete preserved backup, exact
+report/consent and separately authorized restart. There is no degraded control
+room, automatic repair, attic browser or repair control. Files refuses attic and
+aliases before inspection. Missing owning cards say **Card not found**, separately
+from record/version misses.
+
+Synthetic `runtime:repair` FAILED cards show loss status and required bootstrap
+placeholders through ordinary Files, not an old approval or completion. Former
+unlinked children remain ignored. Repair/startup start no work. FAILED rejects
+direct activation only while FAILED: later explicit healthy-ancestor Run may let
+its Planner reopen the child to CHANGED and execute unchanged placeholders. Replacing
+lost requirements first is recommended, not an enforced operator-only hold.
+
+Head UUID plus revision determines current card/record freshness, not revision
+alone or retained review prose. Exact segment UUID plus ordinal determines a
+conversation baseline, including lower/reused ordinals; replace/refetch stale
+baselines rather than mixing messages.
+
 **F17 — Must — Outcome evidence.** From failed, blocked, stopped, cancelled, or done work,
 reach the recorded outcome and relevant available record/conversation/history evidence.
 Check each status, including missing explanation: state “reason not recorded/available”
@@ -416,6 +376,27 @@ no raw refused response, paraphrase, inferred bypass advice, or ordinary provide
 is substituted for the backend's reported outcome.
 
 ### E. Inspect what the work produced
+
+#### Record state and authorship
+
+Distinguish absence, established empty heads, baseline0, draft0/target1, positive
+authored drafts and acceptance. **Baseline v0 — not authored or accepted** makes
+no progress claim; positive drafts remain unaccepted. Accepted document numbers
+are independent of mutable revisions. Historical mutation revision is unavailable,
+not derived from document number. Accepted backing remains separately inspectable
+without satisfying the effective draft's gates. These distinctions survive recorded
+observations and compaction without reconstruction from current templates.
+
+Safe record content remains inspectable. The Analyst may accept content under its
+ordinary admission before entry, but an open workflow draft, including an interrupted
+scaffold, conflicts. No UI draft takeover or creation-time scaffold preview exists.
+
+Show agent, external credential-holder, runtime bootstrap/repair and shell-stdout
+authorship distinctly. Shell reports retain node, operation and actual disposition,
+not an agent verdict, completed program work or workflow approval. Accepted versions,
+history and diffs retain their own author even for equal-content invocations; capture
+inspection is separate. Drafts/baselines never borrow backing attribution. Apply
+confidentiality to content, metadata, previews and downloads equally.
 
 **F21 — Must — Declared card records.** Inspect every record declared by a card's compiled
 type, its available current content, metadata, versions, and current-relative differences.
@@ -493,9 +474,26 @@ Navigation can be combined with mutation in one turn. Check “open card card-g�
 and navigation combined with mutation: Back traverses logical workspace history rather
 than oscillating between two views; only strictly validated successful navigation results
 take effect; failed or malformed navigation results are inert and change nothing.
-Grounding: operator-ui.md §6, as recorded in the salvage map.
+This is logical workspace navigation, not retained operator-visit state.
 
 ### G. Diagnose runtime and integration problems
+
+#### Configured MCP observations
+
+Recorded lifecycle/discovery exchanges show concise ready/stopped outcomes,
+context-loss caution and complete inspectable input schemas, not browser controls.
+Restart remains visibly restart: a reported ready outcome means discovery completed
+then, not present readiness, remote restart or target continuity. Stop-first restart
+is non-atomic; context may be lost, failed containment retains ownership and effects
+can remain unknown. Failed/missing results never imply success or replay permission.
+The authenticated restart API accepts `{}` under existing authority/default grants.
+Current instructions show composed browser guidance, not discovery, pixels or wire.
+
+Distinguish starting from discovery-complete running; show operator/agent definition
+origin or its absence for a retained blocker, containment failure, binding and safe
+current process association. Association grants no wait/kill authority or captured
+protocol output; HTTP has no process association. Registration/removal show recorded
+facts, not inferred later lifetime. No topology editor or lifetime timeline is added.
 
 **F31 — Must — Recorded errors.** Reach available recorded runtime and failed-tool/MCP
 error evidence, retaining supplied time, identity, and safe diagnostic text. Check an
@@ -630,20 +628,20 @@ isolation with auth-disabled deployments. Future user authentication is separate
 backend bearer-auth capability and outbound secret non-disclosure remain unchanged.
 All other F-numbers remain unchanged.
 
-### Capability boundaries needing phase-3 resolution
+## Evidence and discovery boundaries
 
 - **N1 — Current-work synthesis (F2–F3):** runtime ownership, current-card identity,
   committed hierarchy, and backend-decorated session liveness exist. Runtime status also
   supplies a per-owned-card process-state projection of observed entry/node/terminal
   position; the per-type compiled-workflow presentation supplies configured entries,
   nodes, outcome edges, and terminals. Their integrated presentation in current-work
-  orientation (chain, workflow, and session together) is not established today. Current
-  policy permits these process-state and compiled-workflow presentation projections as
+   orientation must preserve their distinct authorities. Current
+   policy permits these process-state and compiled-workflow presentation projections as
   evidence for card workflow position. Agent liveness/activity comes only from
   backend-decorated session summaries; the browser performs no runtime join and derives
   no agent/session liveness or ownership from card process-state, actor state, graph
   mappings, or any combination of them. Current policy prohibits bootstrap global inventory
-  fan-out. A new presentation must use permitted evidence, not add a shadow ownership
+   fan-out. Presentation must use permitted evidence, not add a shadow ownership
   model or infer history or planned destinations beyond available evidence.
 - **N2 — Catch-up (F37–F38):** card/record history, conversation segments, retained app
   events/errors, and control-action rows provide bounded evidence. There is no complete
@@ -654,15 +652,13 @@ All other F-numbers remain unchanged.
    operator-supplied horizons; no operator-visit state tracking viewing/reading over time or dedicated UI catch-up surface
   is built. A new ledger, guaranteed digest, or alert service is not authorized.
 - **N3 — Broad discovery (F41):** no global card index or complete browser inventory is
-  guaranteed. Project-wide title/state discovery support has not been established here.
-  Phase 3 must evaluate existing canonical discovery/Analyst paths or request a scope
-  decision; it must not silently crawl all namespaces or build a persistence index.
-  The broad-discovery scope decision is resolved: Analyst-mediated discovery is the
-  accepted end state; phase 3 commissions no search projection. The cockpit has no card
+   guaranteed. Analyst-mediated discovery through canonical tools is the accepted
+   end state; no search projection is commissioned. Do not crawl all namespaces
+   or build a persistence index. The cockpit has no card
   search or filter, including loaded-only filtering; exact navigation and manual browsing
   remain available.
 
-## 4. Constraints any UI must respect
+## Shared constraints
 
 Private opt-in failed-provider diagnostics are outside the UI's evidence scope.
 Files must omit/refuse `.saivage/diagnostics`, including project/work aliases and
@@ -670,7 +666,7 @@ resolved symlinks, before directory, content or image inspection. There is no
 diagnostic inspector/export or enablement control. Project/prompt text remains
 sensitive after projection; neither redaction nor hashes certify secret-free,
 complete, replayable or provider-received input. Canonical request metadata and
-content-policy dashboard counts do not establish completeness of internal-summary
+historical refusal counts do not establish completeness of internal-summary
 refusal observation. Accumulated summary may show a code-owned notice declaring active
 memory omission rather than completed semantic summarization. Its full safe text and
 existing source/continuation remain inspectable without a new field/screen/counter.
@@ -679,8 +675,8 @@ counts validated LLM calls only; local omission adds zero. Successful maintenanc
 returns ordinary primary admission; failed no-candidate refusal retains existing safe
 card/global outcomes.
 
-Apply `AGENTS.md` and the current authorities, especially the contracts register,
-Publication-fatal operator behavior, and system-specification Sections 7–12.
+Apply `AGENTS.md`, the contracts register, and the system specification's control,
+API, persistence and publication-fatal contracts.
 
 - Projection-oriented inspection and Analyst-mediated mutation remain the product model.
   Confirmed, capability-gated Restart server is the sole direct runtime exception;
@@ -710,7 +706,7 @@ Publication-fatal operator behavior, and system-specification Sections 7–12.
   unavailable, without fabricated context or replacement search.
 - Tombstones remain absent from active discovery. Exact known retained evidence exceptions
   do not authorize a deleted-card inventory, forensic browser, restoration, or orphan scan.
-- Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations), outside the UI. This spec adds no migration/reset/recovery UI.
+- Incompatible adoption follows the [runbook adoption decision](../runbook/state-adoption.md#choose-the-operation), outside the UI. This spec adds no migration/reset/recovery UI.
   It adds no compatibility reader, automatic lock repair, publication retry or recovery protocol.
 - Notification queues remain private. Known enqueue/interruption facts prove neither
   delivery nor action; chronology cannot manufacture queue membership or receipts.
@@ -722,184 +718,31 @@ Publication-fatal operator behavior, and system-specification Sections 7–12.
   receipt-update timeline exists.
 - The UI keeps no operator-visit state (no tracked viewing times, last-looked markers, unread/read state, recorded reading positions retained across views or visits for later resumption, or return-to-reading points); no viewing-derived state may frame catch-up or derive “what's new”; horizons are operator-supplied in conversation. Ephemeral session-local navigation history (including Back and Analyst-driven Back) is navigation mechanics, not operator-visit state; ephemeral in-view stability of the currently mounted presentation (scroll/content stability during loads, refreshes, and live updates, including follow/pause-follow) is presentation behavior, not operator-visit state.
 
-## 5. Explicit non-goals
+## Product non-goals
 
 - Designing routes, panel proportions, component libraries, graph layout, or visual style.
-- Deciding to remove the current Agents destination or choosing a merged conversation view.
+- A separate agents-first work model or merged canonical cross-session transcript.
 - Making the operator micromanage agents, edit workflows, or operate a configuration console.
 - A complete historical ledger, guaranteed catch-up digest, completed-process archive,
   hidden-reasoning inspector, cost estimator, progress predictor, or stuck detector.
-- Mobile-first design and mobile support remain out of scope for this redesign; acceptance
-  targets 1920×1080 desktop, while a future mobile-phone-friendly display is a phase-3
-  forward-compatibility design input: avoid decisions that structurally foreclose a later
+- Mobile-first design and mobile acceptance remain outside the owner-selected desktop
+  target. A future mobile-phone-friendly display is a design input: avoid decisions
+  that structurally foreclose a later
   mobile-friendly presentation. Multi-project fleet management and individual operator accounts
   are not introduced into the shared project/Analyst model.
 - Deployment actions, state inspection on live installations, persistence repair, or reset.
 
-## 6. Open questions for the owner
+## Resolved owner decisions
 
-### Owner decisions
+These decisions remain binding; no specification-level owner question is open.
+The old phase tasks are complete, not ongoing instructions.
 
-**Q1 — Answered: canonical end state.** At the phase-3 cutover, replace
-`docs/spec/operator-ui.md` with this needs specification promoted to `docs/spec/`
-and a new low-level contracts document (working name `operator-ui-contracts.md`)
-seeded from the salvage map. Discard and re-derive the remainder through the redesign;
-operator-ui.md remains the behavior authority during phases 1–2.
-
-**Q2 — Answered: Analyst-mediated catch-up.** The Analyst analyzes what has been happening
-and answers the operator's questions. When the operator wants a look-back horizon, they
-supply it in the request (a time or known version/entry). The UI keeps no operator-visit
-state tracking viewing/reading over time—no tracked viewing times, last-looked markers,
-unread/read state, recorded reading positions retained across views or visits for later resumption,
-or return-to-reading points—and
-builds no dedicated catch-up surface. N2's prohibitions on a new ledger, guaranteed digest,
-or alert service remain unchanged.
-Clarification confirmed by the owner on 2026-09-20: the prohibition covers viewing/reading
-tracking only, including recorded reading positions retained across views or visits for later
-resumption; no viewing-derived state may frame catch-up or derive “what's new”. Ephemeral
-in-view stability of the currently mounted presentation (F45)—scroll/content stability during
-loads, refreshes, and live updates, including follow/pause-follow—is presentation behavior,
-not operator-visit state, and remains permitted. Ephemeral session-local navigation history
-(F49/F40), including Back and Analyst-driven Back, is navigation mechanics, not operator-visit
-state, and remains permitted.
-
-**Q3 — Answered: situational supervision with trajectory.** The dominant operator task
-is understanding what the system is doing right now, where that activity came from,
-and where it can go next, always in context. The card is the operator's primary
-granularity. An agent conversation is intelligible primarily within its card's flow—
-its chain position and workflow position—not as an isolated inventory entry. Phase 3
-designs the card view around activity embedded in that flow context. This decision
-weights phase-2 gap severity highest for situational-awareness and activity-in-context
-requirements, including F2 and F11; it does not change requirement priorities or authorize
-inferred history or destinations.
-
-**Q4 — Withdrawn as an owner question: phase-3 design evaluation.** The presentation
-of multiple agents' conversations within the card view is a design-level decision,
-not a functional requirement. Q3's card-centric frame remains decided. Phase 3 must
-evaluate candidate presentations, including but not limited to the interleaved
-cross-agent chronology and parallel contextualized tracks discussed with the owner,
-plus any other presentations phase 3 devises. Score each candidate against three criteria:
-
-- **Fit with this specification:** in particular F2, F11, F12–F14, and the constraints
-  of no invented cross-session order, no merging of canonical segments, backend-decorated
-  liveness authority, and honest unavailability.
-- **Practicality for the operator's dominant tasks:** situational supervision with
-  trajectory and activity in card-flow context, as decided in Q3.
-- **Implementability:** backend modifications are permitted, but their cost and risk
-  must be weighed; candidates must not assume a full backend rewrite is acceptable.
-
-**Q5 — Answered: desktop target and accessibility acceptance.** Design and acceptance
-target 1920×1080 desktop. A mobile-phone-friendly display is desired in the future;
-phase 3 must treat that goal as a forward-compatibility design input and avoid decisions
-that structurally foreclose it. Mobile support is not an acceptance requirement of this
-redesign and remains out of scope.
-Accessibility acceptance formalizes exactly F46's core-journey bar: keyboard-only
-operation, accessible names, visible focus, and non-color status meaning for orientation,
-card/session inspection, Analyst submission, and permitted controls. No formal WCAG
-level is claimed; accessibility beyond these core journeys is best-effort.
-
-**Q6 — Answered: discovery scope (2026-09-20).** “Only option A. The Analyst handles
-that kind of things.” F41 is satisfied through the Analyst conversation: server-side
-card discovery via the Analyst's canonical card tools plus F49 navigation. No backend
-search projection is commissioned; browser namespace crawling and persistent search
-indexes remain prohibited. F41 stays a Should satisfied through that path. Owner
-clarification (2026-09-28): the cockpit's loaded-only card filter is also removed;
-operators retain exact references and manual tree browsing.
-
-**Q7 — Answered: no authentication/bootstrap UI (2026-09-20).** Owner decision:
-
-> "I think we can really drop the token thing. In the future we could add some form of user authentication. Currently, saivage is expected to be used from the host machine where the LXC where saivage lives is contained, so we can relax the security model."
-
-The redesign ships no token entry, sign-out UI, or provider-secret entry. Deployments
-are expected to use the backend's existing auth-disabled mode behind deployment-owned
-isolation (trusted host-local/LXC access). Backend bearer-auth capability remains unchanged
-for deployments that want it; F44 retains the honest unauthorized degraded state without
-an in-browser token remedy. Outbound secret non-disclosure and redaction constraints are
-unchanged, not relaxed. Proper user authentication is a future separately designed product
-possibility, not current scope.
-
-### Remaining questions
-
-None remain at specification level. Phases 2 and 3 may surface new owner questions,
-but no spec-level owner question is open.
-
-## 7. Provenance: phase-1 documentation plan and review obligations
-
-This section records the phase-1 authoring process for provenance only; the
-register itself in sections 1–6 is the canonical content.
-
-### Problem, evidence, and root-cause hypothesis
-
-The owner gives equal priority to seeing and understanding current activity and acting
-through the Analyst, and questions the usefulness of isolated agent navigation and
-small/unintuitive card graphs. Those are reported concerns, not established audit findings.
-The working hypothesis is that view-led evaluation misses operator questions crossing
-work, activity, outcome, evidence, and intervention/action boundaries. Establishing those
-questions first addresses the decision-making root cause without prematurely prescribing
-a UI implementation fix.
-
-### Scope and alternatives
-
-The minimal coherent deliverable is this self-contained rubric. No runtime, API, UI,
-test, or tracked documentation contract changes. The audit and redesign are separate.
-
-- **Spec by current view:** easy to map to code, but entrenches the navigation being
-  questioned and cannot assess whether cross-resource operator questions are answered.
-- **Spec by operator need (chosen):** separates outcome requirements from presentation
-  and permits current implementations or a later overhaul to be assessed consistently.
-- **Immediate comprehensive redesign:** may address the root information architecture,
-  but lacks audit evidence now and exceeds the owner's explicit phase ordering.
-
-### Ordered main work tasks
-
-1. Read the brief, policy authorities, and current UI structure; establish evidence limits.
-2. Author this file with ranked questions, independently checkable requirements and priorities.
-3. Submit the complete revision to the coordinator's reviewer; triage factual findings
-   separately from proposed remedies and revise only confirmed material defects.
-4. Repeat review as required; the fixer owns periodic and final design-value reassessment.
-   Hand the reviewed rubric to phase 2 without claiming implementation or audit completion.
-
-### Cleanup tasks
-
-No obsolete code, tests, fixtures, scripts, or main documentation are removed. Keep only
-this deliverable edit within the assigned scope; do not clean unrelated working artifacts.
-Non-essential robustness, automated cross-source correlation,
-and rare corrupted-evidence UX enhancements remain later work, not new core mechanisms.
-
-### Main documentation-update tasks
-
-None in phase 1, by explicit task scope. `docs/spec/operator-ui.md` remains unchanged;
-the phase-3 replacement changeset will replace it with the needs + contracts pair:
-promote this specification to `docs/spec/` and create `docs/spec/operator-ui-contracts.md`
-(working name) from the salvage map's SEED entries, including NEEDS+SEED entries.
-Update `AGENTS.md` (Current Authority) and `README.md` pointers to the pair, and assess
-corresponding changes to `docs/spec/system-specification.md` (product/API contracts)
-and `docs/architecture/system-architecture.md` (ownership).
-No related stale main-document claim has been established by this limited investigation;
-phase 2 must record any discovered drift rather than silently adopting it as policy.
-
-### Validation and acceptance
-
-Acceptance targets 1920×1080 desktop design and exactly the F46 core-journey accessibility bar; no formal WCAG level is claimed.
-
-Review all 48 active requirements for unique numbering, honest priority, observable checks,
-absence of layout prescriptions, and coverage of the ranked questions. Counts: **33 Must,
-14 Should, 1 Could**. Check every control, status, historical claim, and evidence source against
-the authorities; specifically challenge N1–N3 rather than treating them as implemented.
-
-Use scenario walkthroughs for healthy running work, settled pause/stop, failed/blocked
-work, compaction, missing history, refresh failure, unauthorized access, abrupt disconnect,
-and a deep/wide 1,500+ card project. Phase 2 records observed UI evidence, not prose matches;
-state both usability gaps and backend/policy dependencies. This phase needs document
-inspection and adversarial review only, not builds, generated docs, or runtime validation.
-No command/test success or reviewer approval is claimed by authoring this document.
-
-### Risks and rollback
-
-Risks are premature layout commitments, unbounded completeness expectations, unsupported
-causal attribution, and prioritizing diagnostics over immediate orientation. Requirements
-and N1–N3 constrain these; an unsupported proposed mechanism should be removed or narrowed,
-not sustained with extra machinery. Owner policy tradeoffs require a decision, not a workaround.
-The ten-second check is a proposed comprehension target, not a measured current performance
-claim. Rejection or revision affects only this ignored working file; there is no deployment,
-format cutover, data rollback, commit, or tracked-document change to undo.
+| Decision | Current rule and owning section |
+| --- | --- |
+| **Q1 — Canonical authority** (2026-09-20, promoted 2026-09-24) | This needs register and the contracts register replace the retired `operator-ui.md`. Requirements remain an acceptance rubric, not proof of implementation. |
+| **Q2 — Catch-up** (clarified 2026-09-20) | H and N2: Analyst-mediated answers use an operator-supplied time/version/entry horizon. No dedicated catch-up surface, visit/read tracking, saved return position, guaranteed digest, ledger or alert service. Mounted scroll/follow stability (F45) and ephemeral logical Back (F40/F49) remain permitted mechanics, never viewing-derived “what's new”. |
+| **Q3 — Situational supervision** | The card is the primary granularity; activity must be intelligible within its represented chain and workflow trajectory. F2/F11 carry particular situational importance without a priority change or permission to infer history/destinations. |
+| **Q4 — Presentation is a design decision** | Withdrawn as an owner question. Multiple-agent presentation is evaluated against F2/F11/F12–F14, no invented cross-session order/segment merging, backend liveness, honest unavailability, practical situational supervision and implementability/cost/risk. No particular interleaved or parallel design, or wholesale backend rewrite, is mandated. |
+| **Q5 — Desktop and accessibility** | Purpose and F46: 1920×1080 desktop acceptance, future phone-friendly design not structurally foreclosed. Core journeys require keyboard-only operation, names, visible focus and non-color meaning. No formal WCAG claim; accessibility outside those journeys is best-effort. |
+| **Q6 — Discovery** (2026-09-20; clarified 2026-09-28) | F41 remains Should through canonical Analyst discovery plus F49 navigation. No backend search projection, browser namespace crawl, persistent index or cockpit filter, including loaded-only filtering. Exact references/manual browsing remain. |
+| **Q7 — No authentication UI** (2026-09-20) | Shared constraints: no token entry/sign-out/provider-secret entry. Expected browser use is trusted host-local/LXC access with auth disabled behind deployment-owned isolation. Backend bearer support and honest unauthorized F44 remain; outbound confidentiality is not relaxed. Future user authentication needs separate design. |

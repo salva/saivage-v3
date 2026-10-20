@@ -53,7 +53,7 @@ The design/plan must include:
 - An ordered implementation plan with three explicit sections:
   - Main work tasks.
   - Cleanup tasks for obsolete code, tests, fixtures, docs, and scripts.
-  - Documentation-update tasks naming each main document to update and how. Documentation is implementation work, not a later phase. Consider `docs/spec/system-specification.md`, `docs/spec/operator-ui.md`, `docs/architecture/system-architecture.md`, and `README.md`; do not count the working plan itself.
+  - Documentation-update tasks naming each main document to update and how. Documentation is implementation work, not a later phase. Consider `docs/spec/system-specification.md`, `docs/spec/operator-ui-needs.md`, `docs/spec/operator-ui-contracts.md`, `docs/architecture/system-architecture.md`, and `README.md`; do not count the working plan itself.
 - Related stale main documentation and scoped tasks to correct it.
 - Focused and broader validation appropriate to risk. Target affected semantic owners and useful behavior, broadening only for demonstrated cross-cutting risk. Do not use prose-regex assertions, repository-wide spelling bans, or unrelated test matrices as substitutes for semantic evidence.
 - Risks, rollback considerations, and unresolved questions.

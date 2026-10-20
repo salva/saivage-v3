@@ -6,6 +6,7 @@ import { LineCounter, parseDocument } from 'yaml';
 
 const DEFAULT_DOCUMENTED_COMMAND_FILES = [
   'README.md',
+  'docs/validation.md',
   'docs/architecture/system-architecture.md',
 ];
 
@@ -32,7 +33,6 @@ const EXPORT_CONSUMER_SCRIPT = 'node scripts/check-export-consumers.js';
 const IMPORT_BOUNDARY_COMMAND = 'npm run test:import-boundaries';
 const IMPORT_BOUNDARY_SCRIPT = 'node scripts/check-import-boundaries.cjs';
 const IMPORT_BOUNDARY_TEST_COMMAND = `${IMPORT_BOUNDARY_SCRIPT} --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && ${IMPORT_BOUNDARY_SCRIPT}`;
-const ARCHIVED_PLAYWRIGHT_DIRECTORY = 'tests/playwright/live-getrich-v2/';
 const PLAYWRIGHT_SUITE_OWNERS = [
   ['preview smoke', 'tests/playwright/smoke', 'tests/playwright/smoke/playwright.config.ts', 'web:test:e2e:preview-smoke', String.raw`testMatch: /.*\.spec\.ts/`],
   ['browser-client smoke', 'tests/playwright/browser-client', 'tests/playwright/browser-client/chat-api-client-browser.config.ts', 'web:test:e2e:browser-client-smoke', String.raw`testMatch: /(^|\/)chat-api-client-browser\.spec\.ts$/`],
@@ -759,7 +759,7 @@ function validateValidationWorkflowContract({ file, content, workflow, locate, r
 function validatePlaywrightOwnership({ root, scripts }) {
   const failures = [];
   const checked = [];
-  const allSpecs = listFilesRecursively(root, 'tests/playwright').filter((file) => file.endsWith('.spec.ts') && !file.startsWith(ARCHIVED_PLAYWRIGHT_DIRECTORY));
+  const allSpecs = listFilesRecursively(root, 'tests/playwright').filter((file) => file.endsWith('.spec.ts'));
   const owned = new Set();
   for (const [name, directory, config, script, testMatch] of PLAYWRIGHT_SUITE_OWNERS) {
     const specs = allSpecs.filter((file) => file.startsWith(`${directory}/`));
@@ -789,7 +789,7 @@ function validatePlaywrightDocumentation({ root }) {
   const failures = [];
   const checked = [];
   const literalPattern = /tests\/playwright\/[A-Za-z0-9_./-]+\.(?:spec|config)\.ts/g;
-  for (const file of ['README.md']) {
+  for (const file of ['README.md', 'docs/validation.md']) {
     const fullPath = path.join(root, file);
     if (!existsSync(fullPath)) {
       failures.push(`${file} does not exist; cannot verify Playwright documentation`);
@@ -977,9 +977,9 @@ function validateTerminalChildJestContract({ root, pkg, scripts }) {
     failures.push('package.json validate:release must invoke npm run test:e2e exactly once');
   }
 
-  const readme = existsSync(path.join(root, 'README.md')) ? readFileSync(path.join(root, 'README.md'), 'utf8') : '';
-  if (!readme.includes('npm run test:terminal-child')) {
-    failures.push('README.md must document npm run test:terminal-child');
+  const validation = existsSync(path.join(root, 'docs/validation.md')) ? readFileSync(path.join(root, 'docs/validation.md'), 'utf8') : '';
+  if (!validation.includes('npm run test:terminal-child')) {
+    failures.push('docs/validation.md must document npm run test:terminal-child');
   }
 
   return { checked, failures };
@@ -1003,7 +1003,7 @@ function validateRequiredValidationScripts({ scripts, documentedCommands }) {
     }
     const documented = documentedCommands.some((location) => location.includes(`npm run ${required.name}`));
     if (!documented && !required.documentationOptional) {
-      failures.push(`required validation script "${required.name}" is not documented in README.md or docs/architecture/system-architecture.md validation cadence`);
+      failures.push(`required validation script "${required.name}" is not documented in README.md, docs/validation.md or docs/architecture/system-architecture.md validation cadence`);
     }
   }
 
@@ -1033,7 +1033,7 @@ function validateValidationProfiles({ scripts, documentedCommands }) {
     }
     const documented = documentedCommands.some((location) => location.includes(`npm run ${profile.name}`));
     if (!documented) {
-      failures.push(`validation profile "${profile.name}" is not documented in README.md or docs/architecture/system-architecture.md validation cadence`);
+      failures.push(`validation profile "${profile.name}" is not documented in README.md, docs/validation.md or docs/architecture/system-architecture.md validation cadence`);
     }
   }
 

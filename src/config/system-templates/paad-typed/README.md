@@ -1,9 +1,15 @@
-# `paad-typed`
+# paad-typed: typed workflows with PAAD-derived guidance
 
-Opt in on a config-absent project with `saivage init --profile paad-typed`.
-`classic` remains the default. This profile reuses classic-typed's deeply frozen
-configuration unchanged and owns a complete independent physical prompt tree.
-It adds guidance, not deterministic gates or a model-quality guarantee.
+Choose this optional profile when you want the existing typed workflows with
+additional pushback, scope-alignment and architecture-review guidance. On a
+config-absent target, select `saivage init --profile paad-typed`; `classic` is
+still the default. See [profile selection](../../../../docs/guides/configuration.md#choose-a-fresh-profile)
+and [prompt composition](../../../../docs/architecture/prompts.md#optional-paad-typed-guidance).
+
+The [template](./template.ts) reuses classic-typed's deeply frozen configuration
+unchanged while selecting its own complete physical prompt tree. It adds prose,
+not new workflow gates, tool authority, a review scheduler or a measured
+model-quality guarantee.
 
 ## Deliberate PAAD adaptation
 
@@ -17,7 +23,9 @@ and [MIT license](https://github.com/Ovid/paad/blob/0d97d5f0da8b7982ecb86a3ee66f
 The local anti-degradation emphasis adapts Discipline; “Degradation” is not the
 official expansion. No upstream endorsement is implied.
 
-Only five prompt paths differ from classic-typed:
+## What changes—and what does not
+
+Only five prompt paths deliberately differ from classic-typed:
 
 - `agents/_shared/planner.md`: evidence-grounded brief pushback and bidirectional
   scope alignment before delegation, within existing requirement authority.
@@ -37,13 +45,21 @@ fragments are unchanged. Upstream mandatory TDD rewriting, specialist fan-out,
 human choices at every critique, reports/counters and branch procedures are not
 adopted. There is no new review scheduler, validator pass or BLOCKED reason.
 
+## License notice travels with the prompt
+
 The **full upstream MIT copyright, permission and warranty notice** is carried in
 the clearly delimited non-procedural attribution section of
 [`prompts/agents/_shared/planner.md`](./prompts/agents/_shared/planner.md), so the
 ordinary source/package/init prompt closure retains it. That notice covers the
 upstream material; it does not relicense Saivage or replace its GPL license.
 
+## Existing installations
+
 Existing-config init preserves YAML, prompt tree and marker; it never switches or
-upgrades a profile. Later adoption requires separately authorized stopped
-reconciliation preserving custom guidance and independently resolving retained
-identity/format compatibility. This source addition authorizes no live action.
+upgrades a profile. Follow [loaded instruction adoption](../../../../docs/architecture/prompts.md#loaded-configuration-and-installed-adoption)
+and [state-adoption decisions](../../../../docs/runbook/state-adoption.md#selected-configuration-and-prompts)
+for separately authorized stopped reconciliation, preserving custom guidance and
+independently resolving retained identity/format compatibility. Editing this
+README changes neither installed prompts nor runtime feeding and authorizes no
+live action. The [prompt-authoring workflow](../../../../.github/skills/saivage-prompt-authoring/SKILL.md)
+applies to changes in the actual prompt tree.

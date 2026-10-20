@@ -9,7 +9,7 @@ deployment inventory, runtime registry, compatibility checker, converter or
 operational consent. Current contracts remain owned by the
 [specification](../spec/system-specification.md) and
 [architecture](./system-architecture.md); procedures remain owned by the
-[runbook](../runbook/index.md#external-migrations).
+[state-adoption runbook](../runbook/state-adoption.md).
 
 The summary-maintenance entry records source parent
 `9dce1e8eef3e43d04a7711f3c4225fcfc30ae5c4` (conversation 6) and its format-7
@@ -22,6 +22,64 @@ do not certify whole-project or historical compatibility. Maintain affected
 baseline/change entries with implementation, recording evidence and honest unknowns.
 
 ## Current source baseline
+
+This table describes the current owning source contracts, not an installed-state
+inventory. Paths/owners are relative to `src/` unless they start with `.saivage`.
+The [historical entries](#historical-source-contract-entries) retain their own
+source-era values; they must not be read as today's accepted-version list.
+
+| Durable family | Exact path/owner | Discriminator and selected meaning |
+| --- | --- | --- |
+| Card current head / previous slot | Card namespace `card-head.json`, `card-head.prev.json`; `persistence/canonical-card-artifacts.ts`, `card-files.ts` | `format_version:1`, `kind:card-head`; fresh head UUID, ordinary selection and ordered current-only mailbox UUIDs. Previous slot shares this selector contract, not separate numbering. |
+| Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:4`, `card-version` / `card-tombstone`; minimal ordinary/final payload, agent/action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
+| Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected by current head, not a queue log. |
+| Record head / previous slot | `records/record-<stem>.json` and injective `.prev.json` sibling; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; fresh UUID/mutation revision, current-only baseline0, explicit draft version/target and latest accepted reference. Baseline/draft0/empty is ineligible. |
+| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:4`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated agent/external/runtime/shell author and ordinary card provenance. Historical projection has null current head/revision. |
+| Record initialization input | Card-type YAML; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; no old content/trigger input reader. |
+| Workflow input | Card-type YAML `workflow`; same owners | `format_version:2`; agent/action execution, optional shell stdout record binding, typed fields/cases/inputs and advisory natural-postcommit attachment. |
+| Operation selection | Explicit compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; retained in action results/execution observations, not package/shared-envelope version. |
+| Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, `runtime/actors/operation-execution.ts` | `version:1`, `type:card-execution`; strict entry/spawn/finish/file association. Incomplete is valid, not resumable state; declared artifacts select mutable source. |
+| Conversation index / previous index and ordinary/compacted genesis | Session `index.json`, `index.prev.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/source/cutoff/continuation, baseline/draft/current/historical record facts, protected prompts, excerpts and declared structural omission. |
+| Conversation segment envelope / selected PNGs | Same versions and `images/<UUID>.png`; above owners plus `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; strict message/private-context/activation and ordered result-content selection. Raw PNGs use this identified owning descriptor contract, not an independent image envelope/catalog version. |
+| App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use **shared** `version:2`, `type:rows`, with distinct strict row owners. App log includes event/control/external-receipt rows; provider grammar is unchanged by the attribution bump. Not independently numbered envelopes. |
+| Dynamic MCP definitions | `.saivage/config/mcp-servers.json`; `mcp/server-definitions.ts` | `format_version:1`, `type:mcp-server-definitions`; strict literal connection map, absent means empty, preserved by reset, never autostart/shadow YAML. |
+| Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; exceptional lifecycle exclusion, outside generated-root replacement. |
+| Private failed-provider diagnostics | `.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`; `agents/failed-provider-request-diagnostics.ts` | `format_version:3`, `kind:failed-provider-request-diagnostic`, `privacy_policy:failed-provider-request-privacy-2`; opt-in finite private observation, no retained runtime reader/index. |
+
+`project-identity.ts` consumes `projectConfigSchema` without a dedicated format
+discriminator. YAML/other operator inputs, raw work/process bytes and required
+directories are not assigned invented versions or certified by this table. Files
+current/history wrappers are projections, not durable families. Existing unversioned
+inputs are not retrofitted. Compare the actual selected source/target release's
+schemas **and semantic consumers**, including nested payload/provenance/layout.
+
+The [external-attribution entry](#external-analyst-operation-attribution-2026-10-20)
+records the latest card4/accepted4/shared2 source boundary; conversation12 and
+heads1/3 remain unchanged. Deployment applicability remains unknown. Editorial
+reorganization changes no contract/discriminator and creates no new cutover or
+adoption obligation. Version equality, startup and this table are not whole-project
+compatibility proofs or operation permission.
+
+## Find historical source evidence
+
+| Question / family | Entries |
+| --- | --- |
+| Current card/record creators and actors | [External attribution](#external-analyst-operation-attribution-2026-10-20); [shell stdout](#shell-stdout-record-authorship-2026-10-19); [action executor](#stateless-node-operations-2026-10-19); [minimal card](#minimal-card-bodies-ev01-2026-10-19). |
+| Document numbering, templates and prompt observations | [Document0/templates](#record-document-0-and-selected-node-templates-2026-10-18); [scaffolds](#node-entry-record-scaffolds-2026-10-16); [excerpts](#record-prompt-excerpts-2026-10-16); [activation/records](#explicit-activation-and-record-context-2026-10-13); [instruction evidence](#historical-instruction-evidence-2026-10-11). |
+| Graph identity without a new family format | [Project assessment](#main-planner-completion-no-family-format-bump-incompatible-reached-node-identity-adoption-2026-10-20); [typed test policy](#typed-test-work-ownership-no-durable-impact-2026-10-16). |
+| Compaction semantics versus transient construction | [Summary maintenance6→7](#loss-tolerant-summary-maintenance-2026-10-10); [C01 framing](#c01-historical-prefix-framing-no-durable-impact-2026-10-15); [C02 condensation](#c02-decision-relevant-condensation-no-durable-impact-2026-10-15); [C05 packing](#c05-whole-component-packing-no-durable-impact-2026-10-15); [B01 deletion](#b01-prepared-context-attestation-deletion-no-durable-impact-2026-10-14); [dead invocation context](#dead-invocation-context-deletion-no-durable-impact-2026-10-14). |
+| Image selections and transient image boundaries | [Image4→5](#conversation-image-results-2026-10-07-conversation-format-45); [ordered5→6 / known incompatibilities](#known-incompatible-changes); [operator inspection](#durable-preserving-operator-image-inspection-2026-10-08); [AR03 facts](#ar-03-producer-neutral-image-normalization-facts-no-durable-impact-2026-10-15); [AR08 eligibility](#ar-08-shared-image-eligibility-facts-no-durable-impact-2026-10-15). |
+| Outbound MCP persistence versus live lifecycle | [Definitions](#minimal-dynamic-mcp-definitions-2026-10-10); [restart](#explicit-selected-mcp-restart-no-durable-impact-2026-10-18); [lifecycle baseline](#durable-preserving-mcp-cancellation-native-results-and-lifecycle-source-baseline-422b315f); [AR05 counter](#ar-05-redundant-mcp-closure-counter-removal-no-durable-impact-2026-10-15); [AR06 result typing](#ar-06-native-mcp-result-typing-no-durable-impact-2026-10-15); [F05 telemetry](#durable-preserving-native-mcp-invocation-telemetry-f-05-2026-10-09); [F07 discovery](#durable-preserving-mcp-discovery-settlement-f-07-2026-10-09); [schema language](#durable-preserving-mcp-schema-language-fix); [F10 deletion](#f10-dead-mcp-health-and-aggregate-api-deletion-no-durable-impact-2026-10-14). |
+| Provider diagnostics and operational observation | [Introduction](#historical-introduction-private-failed-provider-diagnostic-family-2026-10-09); [F01 privacy](#protocol-owned-failed-provider-diagnostic-privacy-f-01-2026-10-09); [overload](#provider-overload-diagnostics-2026-10-12); [HTTP lifecycle](#outbound-http-lifecycle-no-durable-impact-2026-10-14); [summary cancellation](#urgent-internal-summary-cancellation-no-durable-impact-2026-10-16). |
+| Durable-preserving reads and display | [Absolute reads](#ordinary-absolute-agent-reads-no-durable-impact-2026-10-16); [native cwd](#native-absolute-command-cwd-no-durable-impact-2026-10-14); [unavailable processes](#durable-preserving-unavailable-process-observations-2-2026-10-09); [record UI](#current-record-ui-settlement-ownership-no-durable-impact-2026-10-14); [conversation UI](#durable-preserving-conversation-apiui-change); [Markdown refresh](#durable-preserving-markdown-dependency-refresh-2026-10-08); [card ID admission](#durable-preserving-card-inspection-id-admission); [timeline](#durable-preserving-timeline-local-presentation); [F06 YAML tooling](#f06-workflow-yaml-structural-authority-no-durable-impact-2026-10-15). |
+| Pre-policy equal-number incompatibilities and unknown boundaries | [Known incompatible changes](#known-incompatible-changes), including heads1→1, shared envelope1→1 and unestablished producer/inline-output source boundaries. |
+
+## Historical source-contract entries
+
+Everything below describes its named source boundary. “Unchanged” compares that
+entry's source/target, not that historical value to today's baseline. Original
+source parents, reported applicability, evidence limits and adoption consequences
+are retained; no historical version is retrospectively repaired.
 
 ### External Analyst operation attribution (2026-10-20)
 
@@ -113,7 +171,7 @@ removal can leave all those indexes present. There is no
 detector, alias, compatibility route, converter or historical verdict rewrite.
 Any future external migration must resolve the exact source/target identities,
 preserve evidenced historical facts and validate the complete candidate under the
-[offline gates](../runbook/index.md#external-migrations); this entry specifies no
+[offline gates](../runbook/state-adoption.md#explicit-external-offline-migration); this entry specifies no
 transformation and authorizes no operation. Source revert alone does not revert
 materialized inputs or reopen historical DONE. Binary-only rollback is not
 certified against this identity change or independent format cutovers.
@@ -1063,7 +1121,7 @@ Older Files lacks the exclusion: rollback must remove the opt-in argument and
 separately avoid exposing retained diagnostics through old releases, or remain on
 patched source. Deployment, reset and explicit external migration consent remain
 separate; no converter or old-format reader is introduced. See the
-[runbook](../runbook/index.md#private-failed-provider-request-diagnostics).
+[runbook](../runbook/diagnosis.md#private-failed-request-captures).
 
 ### Durable-preserving Markdown dependency refresh (2026-10-08)
 
@@ -1099,35 +1157,10 @@ new image family or accumulated incompatible cutover is claimed. Adoption is
 matching API/UI source over already-valid current state, not migration/reset
 permission; old/mixed state remains unsupported.
 
-Owner paths below are relative to repository `src/`. The
-[original observed source tree](https://github.com/salva/saivage-v3/tree/fb0152e99e423f5e5e2db5e28d7e38bb3166b759/src)
-contains the original schemas and direct publication/consumption owners; the current
-discriminators below incorporate the later evidenced cutovers above, not retroactive
-changes to that historical tree.
-
-| Durable family | Exact path/owner | Actual discriminator and essential semantics |
-| --- | --- | --- |
-| Card current head | Card namespace `card-head.json`; `persistence/canonical-card-artifacts.ts`, `card-files.ts` | `format_version:1`, `kind:card-head`; required `head_id`, ordinary selection and ordered current-only pending mailbox UUIDs. |
-| Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:3`, `card-version` / `card-tombstone`; minimal ordinary/final payload with agent/action executor results, predecessor-linked sparse ordinary revisions, no historical queue. |
-| Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
-| Record head | `records/record-<stem>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; current head UUID/mutation revision, nullable current-only baseline0, draft document/target versions and latest accepted reference. Baseline0/draft0 and empty drafts are ineligible. Previous slot shares head3. |
-| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:3`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated author and ordinary card provenance, exact predecessor. Historical projection has null head/revision. |
-| Record initialization input | Owning card-type YAML declaration; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; replaces formerly unversioned content/triggers, without old-input reader. |
-| Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, invocation owner `runtime/actors/operation-execution.ts` | `version:1`, `type:card-execution`; strict entry/spawn/finish associations and exact file selections. Incomplete evidence is valid, not resumable workflow state; generated artifacts select mutable current source. |
-| Workflow input | Owning card-type YAML `workflow`; `schemas/saivage-config.ts`, workflow compiler | `format_version:2`; singular agent/action execution, optional exact shell-node stdout record binding, bounded fields/cases/input bindings and optional advisory natural-postcommit attachment. |
-| Operation selection | Exact explicitly compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; preserved in action results and execution observations. Not a package or shared envelope version. |
-| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/current selection, source/cutoff/continuation and latest current record facts with baseline0 and draft version/target/backing; historical selections carry no current head. Existing protected prompts, excerpts and structural omission retained. |
-| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; baseline/draft/current/historical observation meanings, nested tool results and strict activation/message/private-context semantics. Ordered text/image successful-result blocks select raw PNGs under this owning conversation contract, with no independent image envelope/catalog version. |
-| App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use the **shared** `version:1`, `type:rows` envelope, with distinct strict row schemas and owners; these are not independently numbered envelopes. |
-| Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; separate lifecycle-exclusion boundary, not generated-root migration state. |
-
-Boundary notes: `persistence/project-identity.ts` strictly consumes
-`projectConfigSchema` without a dedicated format discriminator. Configuration and
-operator inputs, raw work/process artifacts and layout/directory requirements are
-not certified compatible or assigned invented versions by this table. Files
-`card-current` and historical response wrappers are projections, not durable
-families. `.prev.json` slots retain their selector contract's bytes, not a separate
-family. Existing unversioned inputs are documented, not retrofitted here.
+The [original observed source tree](https://github.com/salva/saivage-v3/tree/fb0152e99e423f5e5e2db5e28d7e38bb3166b759/src)
+preserves original schemas/direct owners, not today's baseline. Later source values
+are indexed in [Current source baseline](#current-source-baseline); they do not
+retroactively update that historical tree or the unchanged values in this entry.
 
 For the ordered-tool-content change, provider evidence retains its existing
 shape and interpretation. Evidence: `agents/provider-exchange-recorder.ts`,
@@ -1138,7 +1171,7 @@ output identities. Native request `input`/pixels are not stored in those
 parameters. App-log owners likewise retain their existing rows; the changed
 provider wire serialization alone does not bump their shared envelope `1`.
 
-## Durable-preserving MCP cancellation, native results and lifecycle (source baseline `422b315f`)
+### Durable-preserving MCP cancellation, native results and lifecycle (source baseline `422b315f`)
 
 The combined implementation changes live invocation cancellation and transport
 deadlines/admission, native CallToolResult validation and ordered text/image
@@ -1168,7 +1201,7 @@ remains separate: adopting earlier-format retained state requires separately
 consented reset or explicitly requested external offline migration to a matching
 release. No deployment, reset or migration is authorized by this source work.
 
-## Durable-preserving conversation API/UI change
+### Durable-preserving conversation API/UI change
 
 The shared UI timeline now matches tool exchanges using the existing canonical
 session/source-input/call identity rather than provider call ID alone. This is an
@@ -1199,7 +1232,7 @@ remain separate from those display labels. This changes no canonical JSON, neste
 selection/provenance, persistence layout or discriminator, including the unchanged format-5
 image contract above; it establishes no deployment or retained-state compatibility claim.
 
-## Durable-preserving MCP schema-language fix
+### Durable-preserving MCP schema-language fix
 
 Against `fb0152e99e423f5e5e2db5e28d7e38bb3166b759`,
 `src/mcp/mcp-argument-validator.ts` dispatches current external discovery schemas
@@ -1214,7 +1247,7 @@ This unit adds no native MCP producer or lifecycle surface and certifies no brow
 containment or installed-state compatibility. Existing format-6 adoption warnings
 remain; no deployment, reset or migration is authorized.
 
-## Durable-preserving card-inspection ID admission
+### Durable-preserving card-inspection ID admission
 
 Against source baseline `cadf0f2144e9ae8fe56a2b3027e16e59d449e44e`,
 `src/contracts/builtin-tool-inputs.ts` adopts the existing `cardIdSchema` for
@@ -1236,7 +1269,7 @@ needs no migration/reset, but unrelated release differences still require full
 source-contract comparison; it neither certifies adoption of current HEAD by
 that older installation nor authorizes deployment or any instance action.
 
-## Durable-preserving timeline-local presentation
+### Durable-preserving timeline-local presentation
 
 Against exact implementation parent `8cb426230de451de3091c7a068a61f7eb14e5237`,
 `web/src/components/conversation/ConversationTimeline.vue` derives tool display and
@@ -1251,7 +1284,7 @@ exception, retained-state adoption, reset or migration requirement for this chan
 nor certification of whole-release compatibility or authorization for deployment.
 Any external migration remains separately owner-requested under the offline policy.
 
-## Known incompatible changes
+### Known incompatible changes
 
 These source boundaries are directly evidenced, not an exhaustive timeline.
 Historical unchanged discriminators are **pre-policy incompatibilities**, not
@@ -1264,19 +1297,20 @@ offline migration under the runbook gates, never automatic conversion/deployment
 | --- | --- | --- |
 | Conversation index/genesis/envelope `5→6` | Ordered tool-content implementation against `d3cb2f4a2112ce08fe4f61f09d9904726d005cae`; `canonical-conversation-artifacts.ts`, `conversation-file.ts`, `contracts/{tool-result,conversation-validation,provider-conversation}.ts` and image/context/provider consumers | Replaces singular successful `image` with strict ordered nonempty optional `content` text/image blocks. All selected image occurrences retain exact source-session attribution and order, including retained rows and private-context conversation consumption. PNG bodies remain raw under the owning conversation descriptor contract. Format-5 deployment applicability is unknown, so this is a fresh bump, not reuse of the earlier cutover. Old/mixed state fails; adoption needs a separately consented complete reset or explicitly requested external offline migration to a matching release. Neither is authorized by source implementation; binary-only rollback over format 6 is unsupported. |
 | Card/record representation replacement: card stream artifact `format_version:4` → owner heads/history/mailbox initial `1`; record stream `1` → replacement representation `1` | [`7405fa217df739bea481e93a99e1194a3df7ce1e`](https://github.com/salva/saivage-v3/commit/7405fa217df739bea481e93a99e1194a3df7ce1e), parent `8874026fbc765fe56828c87bee9a809943a7fef3`; diffs in `canonical-card-artifacts.ts`, `canonical-record-artifacts.ts`, `layout.ts` and direct file owners | Replaced `card.jsonl` and `authored-record-version` streams with `card-head` / predecessor-linked `card-version` / `card-tombstone` / `card-message` and `record-head` / `accepted-record` documents. Sparse ordinary/accepted history, current-only queues/drafts and ordinary card provenance replace full mutation streams. Old/mixed layouts fail; this historical representation replacement is **not** a prospective precedent for resetting an existing counter. |
-| Card/record heads `format_version:1→1` — historical unchanged discriminator | [`71ad32847325a29c348799235fb95d81b22b652e`](https://github.com/salva/saivage-v3/commit/71ad32847325a29c348799235fb95d81b22b652e); head schemas and `publish-head.ts` | Required fresh `head_id` and exact previous-selector hardlinks; missing identities fail. Previous slots do not guarantee a usable recovery selection. No invented 1→2; [head adoption](../runbook/index.md#previous-selectors-and-head-identity-adoption) remains separately authorized. |
+| Card/record heads `format_version:1→1` — historical unchanged discriminator | [`71ad32847325a29c348799235fb95d81b22b652e`](https://github.com/salva/saivage-v3/commit/71ad32847325a29c348799235fb95d81b22b652e); head schemas and `publish-head.ts` | Required fresh `head_id` and exact previous-selector hardlinks; missing identities fail. Previous slots do not guarantee a usable recovery selection. No invented 1→2; [head adoption](../runbook/state-adoption.md#current-selections-previous-slots-and-orphans) remains separately authorized. |
 | Conversation index/genesis/envelope `3→4` | [`2f70b3db51529905ea96e2828957f27b1c1efabc`](https://github.com/salva/saivage-v3/commit/2f70b3db51529905ea96e2828957f27b1c1efabc); `canonical-conversation-artifacts.ts`, `conversation-validation.ts` and compaction owners | Removed compaction checksums, retained-row metadata and accumulated accounting while keeping source/cutoff/continuation semantics strict. Older schemas are rejected; unrelated families did not advance. Later 4→5 applies below. |
 | App log / provider evidence shared envelope `version:1→1` — historical unchanged discriminator | [`251c93badf43f747dd93c2f99e6f2382fa0716e7`](https://github.com/salva/saivage-v3/commit/251c93badf43f747dd93c2f99e6f2382fa0716e7), parent `93ed39fff82a196ff1252d46547128e125202503`; `contracts/app-log.ts`, `provider-exchange-log.ts`, persistence owner/layout and unchanged `growing-file.ts` | Provider rows moved from app log to session-owned evidence, including owner-specific internal-summary identities. New app log rejects old provider rows; split ownership is not a same-format upgrade. Complete adoption covers all four generated roots, not selective logs. |
-| Provider-usage payload, shared envelope `version:1→1` — historical unchanged discriminator | [`a45a1a6323b17bbc98ae1adb90395b66ea931351`](https://github.com/salva/saivage-v3/commit/a45a1a6323b17bbc98ae1adb90395b66ea931351); `contracts/llm-usage.ts`, `provider-exchange.ts` | Added optional cached-input/reasoning-output counters to strict usage. Old readers reject populated new keys; absence does not prove every old file incompatible, certify compatibility or authorize backfill. Preserve omission as unknown; no invented usage. See [payload adoption](../runbook/index.md#provider-usage-payload-adoption). |
-| Responses private producer identity and inline process-result payload — earlier source/discriminator boundaries unestablished here | [Runbook storage/adoption warnings](../runbook/index.md#storage-and-interruption); current `contracts/responses-conversation.ts`, `conversation-validation.ts`, `operator-api-processes.ts` and `tools/process-tool-result.ts` | Independent cumulative incompatibilities: required private `producer_account_id` and strict bounded inline stdout/stderr heads/completeness/counts/fallback URLs. Current enclosing conversation version is 6, **not evidence of the earlier enclosing versions or a historical 4→4/5→5 change**. External migration must evidence producer/stream facts, not fabricate them. |
+| Provider-usage payload, shared envelope `version:1→1` — historical unchanged discriminator | [`a45a1a6323b17bbc98ae1adb90395b66ea931351`](https://github.com/salva/saivage-v3/commit/a45a1a6323b17bbc98ae1adb90395b66ea931351); `contracts/llm-usage.ts`, `provider-exchange.ts` | Added optional cached-input/reasoning-output counters to strict usage. Old readers reject populated new keys; absence does not prove every old file incompatible, certify compatibility or authorize backfill. Preserve omission as unknown; no invented usage. See [payload adoption](../runbook/state-adoption.md#storage-and-interruption). |
+| Responses private producer identity and inline process-result payload — earlier source/discriminator boundaries unestablished here | [Runbook storage/adoption warnings](../runbook/state-adoption.md#storage-and-interruption); source owners `contracts/responses-conversation.ts`, `conversation-validation.ts`, `operator-api-processes.ts` and `tools/process-tool-result.ts` | Independent cumulative incompatibilities: required private `producer_account_id` and strict bounded inline stdout/stderr heads/completeness/counts/fallback URLs. The enclosing conversation version recorded at this entry's source boundary is 6, **not evidence of the earlier enclosing versions or a historical 4→4/5→5 change**. External migration must evidence producer/stream facts, not fabricate them. |
 
-Earlier workflow/configuration/card-order milestones remain bounded runbook
-provenance, not a fabricated release timeline. The text-only transient recovery
+Earlier workflow/configuration/card-order milestones remain bounded source-history
+provenance, not a fabricated release timeline. Current adoption decisions belong
+to the [state-adoption runbook](../runbook/state-adoption.md). The text-only transient recovery
 reason rename introduced no supported format and is not another cutover. Multiple
 changes in one complete operational adoption do not grant permission to reuse a
 deployed discriminator.
 
-## Conversation image results — 2026-10-07, conversation format 4→5
+### Conversation image results — 2026-10-07, conversation format 4→5
 
 Introducing source commit:
 `c527da662ef3d2c6db616983643bfbe7aeab1055` (`feat(agents): support immutable image inspection`).
@@ -1315,7 +1349,7 @@ explicitly implemented producer could supply its own data without pretending to 
 `view_image`. This installs no MCP image ingress; arbitrary nested `data.image`,
 `image_url` or base64 objects remain ordinary data, never attachments.
 
-### Adoption and limits
+#### Adoption and limits
 
 Earlier-format and mixed state is rejected by strict current consumers. Equal
 outer versions alone do not prove release compatibility. Adoption requires a

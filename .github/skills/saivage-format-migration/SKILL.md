@@ -100,7 +100,7 @@ sessions, conversation segments/context/tool-result contracts, provider/app-log
 evidence and exact referenced work. Validate configuration, workflow/prompt closure
 and required established directories. Never scan/certify noncanonical orphans.
 Startup/readiness alone is insufficient: it does not consume every historical
-predecessor or empty publication directory. See [Storage and interruption](../../../docs/runbook/index.md#storage-and-interruption).
+predecessor or empty publication directory. See [Storage and interruption](../../../docs/runbook/state-adoption.md#storage-and-interruption).
 
 Offline validation must call no providers/tools and mutate neither original nor
 backup; do not assume init/startup is pure validation. Failure blocks cutover.
@@ -134,6 +134,6 @@ required generic ledger/schema or synthetic canonical migration event.
 
 ## Related authority
 
-- [Runbook](../../../docs/runbook/index.md#external-migrations): operator choices and gates.
+- [Runbook](../../../docs/runbook/state-adoption.md#explicit-external-offline-migration): operator choices and gates.
 - `saivage-project-reset`: separately consented destructive reset, not migration.
 - `saivage-lxc-operations`: lifecycle procedures, not authorization.

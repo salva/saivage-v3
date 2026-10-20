@@ -13,7 +13,7 @@ const AGENT_TOOL_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`
 const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\|\s*$/;
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
-const DEFAULT_OPERATOR_DOCS = new Set(['docs/spec/system-specification.md', 'docs/spec/operator-ui-needs.md', 'docs/spec/operator-ui-contracts.md', 'docs/architecture/system-architecture.md', 'docs/runbook/index.md']);
+const DEFAULT_OPERATOR_DOCS = new Set(['docs/spec/system-specification.md', 'docs/spec/operator-ui-needs.md', 'docs/spec/operator-ui-contracts.md', 'docs/architecture/system-architecture.md', 'docs/runbook/index.md', 'docs/runbook/deployment.md', 'docs/runbook/runtime-control.md', 'docs/runbook/diagnosis.md', 'docs/runbook/mcp.md', 'docs/runbook/evidence.md', 'docs/runbook/state-adoption.md']);
 const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/schemas/saivage-config.ts'];
 const OPERATION_DOC = 'docs/architecture/system-architecture.md';
 const AGENTS_DOC = 'docs/architecture/system-architecture.md';

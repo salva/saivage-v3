@@ -1,216 +1,181 @@
-# Set Up Saivage as an AI Agent
+# AI-assisted LXC setup task
 
-This is a subordinate setup procedure, not product, architecture, UI, persistence,
-or operational authority. Follow the current owners in the
-[documentation map](README.md#current-documentation) whenever this procedure
-links to them.
+Use this task only when the owner has authorized setting up an identified Saivage
+deployment. Your outcome is an isolated, verified installation and a usable
+handoff—not an automatically started project. Reading this file, passing a build
+or approving source changes grants no live-operation permission.
 
-Saivage turns a software goal into a visible tree of cards. Planners decompose
-work, executors perform terminal cards, reviewers assess results, and the
-runtime alone dispatches them. The Analyst is the ordinary operator and
-mutation surface. All of this runs inside an externally isolated container;
-the deployment supplies that boundary, not Saivage. For conceptual grounding,
-read the [documentation overview](docs/overview.md) once before Stage 1; the
-[configuration guide](docs/guides/configuration.md) and
-[operating guide](docs/guides/operating.md) are the practical companions to
-Stages 4 and 6.
+Explain each stage before effects; adapt commands to observed facts; report actual
+changes, checks, limits and the next decision afterward. Stop at a consequential
+conflict instead of silently replacing existing work. This is a subordinate task
+guide: [AGENTS.md](AGENTS.md) governs repository work, the [runbook](docs/runbook/index.md)
+owns procedures, and [agent navigation](docs/reference/agent-navigation.md) locates
+exact contracts. Read the [overview](docs/overview.md) for the work model.
 
-Guide the user through seven short stages: inspect, build, create and provision,
-initialize and configure, confine and start, verify and learn, then hand off.
-Before each stage, explain the objective and why it matters. Inspect the actual
-host, choose capable host-specific commands, and preserve the constraints below
-rather than treating this guide as a portable script. After each stage, report
-actual changes, checks, blockers, and what comes next. Ask consequential
-questions only when they become necessary.
+## Scope and credentials
 
-The baseline is one new privileged Ubuntu 24.04 classic-LXC guest with dynamic
-addressing, port `8080`, no guest SSH, and one service named exactly
-`saivage.service`. Operator access is tokenless but confined to the deployment
-host. Broader networking and customization are later choices.
+The baseline is **one new privileged Ubuntu 24.04 classic-LXC guest**, dynamic
+addressing, port 8080, no guest SSH and exactly `saivage.service`. Its tokenless
+operator access is confined to the deployment host. Saivage neither creates nor
+verifies external isolation. Trusted guest agents may execute as root; guest sudo
+and bind mounts are capabilities, not containment controls.
 
-Use only these path and container placeholders, fixed once after discovery:
+Keep three roles distinct: host deployment administrator, host target owner, and
+guest root used for provisioning. The target owner's actual username/UID and
+primary group/GID determine the non-root guest service identity, not automatically
+the administrator's identity.
 
-- `<CONTAINER_NAME>` and discovered `<CONTAINER_IP>`
-- `<SAIVAGE_HOST_PATH>` ↔ `<SAIVAGE_GUEST_PATH>`
-- `<TARGET_HOST_PATH>` ↔ `<TARGET_GUEST_PATH>`
+**Host credentials are outside this task's trust boundary.** Never request or read
+host passwords, SSH credentials or private keys; the user authenticates directly in
+their own host terminal. The user may authorize you to install container-local
+provider credentials and Saivage configuration, or enter them privately themselves.
+Neither choice requires disclosing values in reports, argv, tracing, URLs,
+repositories or host-wide configuration. Use a container-local secret source.
+An enabled bearer goes only in `Authorization`, never a URL.
 
-## Credential boundary
+Fix these values once from discovery; substitute placeholders, not guessed paths:
 
-Host passwords, host SSH credentials and private keys, and other host-side
-credentials are outside your trust boundary: never request or read them. When
-needed, the user authenticates directly in their own host terminal. Secrets
-whose scope and use are confined to the isolated Saivage container, including
-provider credentials and container-local Saivage configuration, may be given to
-and installed by you when the user chooses; secure local entry is an equal
-alternative, not mandatory ceremony. In either case, never repeat secrets in
-reports, expose them in command arguments, tracing, or output, write them to a
-repository, place them in a host URL, or install them in broader host
-configuration. Provider configuration should refer to a container-local secret
-source rather than contain repository values. Send an enabled Saivage bearer
-token only in the Authorization header, never in a URL.
+| Identity | Mapping |
+| --- | --- |
+| Container | `<CONTAINER_NAME>`; rediscovered `<CONTAINER_IP>` |
+| Saivage release | `<SAIVAGE_HOST_PATH>` ↔ `<SAIVAGE_GUEST_PATH>` |
+| Managed target | `<TARGET_HOST_PATH>` ↔ `<TARGET_GUEST_PATH>` |
 
-## Stage 1 — Explain and inspect
+The command/configuration blocks below are **installation examples**, not a script
+to run against an arbitrary host. Provisioning, service start, guest restart and
+provider interaction must be within the owner's actual authorization. No deployment
+was performed by this documentation change.
 
-**Objective.** Establish the real host, project, identities, network, and
-conflicts without changing anything.
+## Stage 1 — Identify the target and permission
 
-**Rationale.** Host assumptions make setup brittle. In particular, three roles
-must remain distinct:
+Inspect without mutation: classic LXC availability, host architecture/network,
+supported Node/npm, absolute release/target paths, Git dirt, container-name use,
+existing target inputs/state and the target's actual owner identity. Read workspace
+handoff/memory where applicable; historical IPs and unit names are not current facts.
+Use exact deployment/ownership observations rather than enumerating generated
+descendants. Establish any existing lifecycle owner through the
+[five-way classification](docs/runbook/runtime-control.md#five-ownership-outcomes).
 
-1. the host deployment administrator, who operates classic LXC;
-2. the host target owner, whose username, UID, primary group, and GID define the
-   non-root guest runtime identity; and
-3. guest root, used only to provision the externally isolated container.
+Ask only for missing paths, unavailable administrator access, authorization not
+already given or resolution of a concrete conflict. Do not reopen baseline choices
+about distribution, SSH, port, unit name or customization unnecessarily. Never
+overwrite a used container, config, unit, project authority or unrelated Git work.
 
-**Constraints and actions.** Read the current repository authorities and inspect
-classic LXC availability, host architecture/network facts, Node and npm
-versions, both absolute paths, source and target Git dirt, existing containers,
-existing target `.saivage` state, and the target directory's actual owner
-identity. Verify that `<CONTAINER_NAME>` is unused. Saivage requires Node
-`>=24 <25` and npm `>=10 <12`.
+**Checkpoint:** report the selected identities, mappings, authorization and
+conflicts. If this is not a fresh setup, route its retained state through
+[state adoption](docs/runbook/state-adoption.md#choose-the-operation); do not turn
+this fresh-install task into an upgrade/reset/migration by inference.
 
-Do not ask baseline questions about SSH, remote access, port, service name,
-distribution, model catalog, or workflow customization. Ask only for a missing
-path or unavailable administrator access, or for approval to resolve a concrete
-conflict. Never clean unrelated work or overwrite a container, state, config,
-unit, or project authority.
+## Stage 2 — Build the release and fix mounts
 
-**Outcome.** Report the selected non-secret facts, all three roles, any
-conflicts, and the next action. Make no mutation during this stage.
-
-## Stage 2 — Build and establish the mount model
-
-**Objective.** Build the current checkout and fix one unambiguous source/target
-mount layout.
-
-**Rationale.** Building on the host avoids a second source checkout. Saivage
-source is normally read-only in the guest; the target must be read-write because
-agents edit it and keep project-local state at `<TARGET_GUEST_PATH>/.saivage`.
-Never use `~/.saivage`.
-
-**Constraints and actions.** Preserve unrelated source changes. With supported
-Node/npm, use the repository build contract:
+Select a coherent, identified release. Preserve unrelated source changes; do not
+silently deploy an evolving shared development checkout. From its host build root:
 
 ```bash
 cd "<SAIVAGE_HOST_PATH>"
 npm ci
-(cd web && npm ci)
+npm --prefix web ci
 npm run build
 ```
 
-Fix both host paths and both absolute guest destinations once. Plan exactly one
-read-only source bind and one read-write target bind. If Saivage itself is the
-target, use one non-overlapping read-write mapping instead. In classic LXC
-configuration, derive each relative destination by removing the leading slash
-from the corresponding `<SAIVAGE_GUEST_PATH>` or `<TARGET_GUEST_PATH>`; do not
-substitute unrelated literal destinations.
+Require Node `>=24 <25` and npm `>=10 <12`; prefer the latest supported Node 24 LTS
+patch. Preserve native optional dependencies, packaged prompts, compiled modules,
+web assets and built docs. See [build/install and native image prerequisites](docs/runbook/deployment.md#build-and-install).
 
-**Outcome.** The build succeeds, the four path values and mount modes are
-reported, and no overlap or contradictory mount entry remains.
+Plan one read-only release bind and one read-write target bind. The target holds
+source and project-local `.saivage`, never `~/.saivage`. If Saivage itself is the
+managed target, explicitly use one non-overlapping read-write mapping instead of
+contradictory binds. Classic LXC relative mount destinations are the verified guest
+paths without their leading slash.
 
-## Stage 3 — Create and provision the guest
+**Checkpoint:** successful build, exact source/release identity, four absolute
+paths and mount modes. A copy/read-only release mount does not isolate target
+commands from the host; external isolation still must be established.
 
-**Objective.** Create the simple guest, install the runtime prerequisites, and
-prove the matched runtime identity can use both mounts.
+## Stage 3 — Provision the isolated guest
 
-**Rationale.** A privileged Ubuntu 24.04 guest keeps direct bind-mount ownership
-understandable. Matching the target owner lets host and guest attribute project
-files to one identity. Trusted agents receive passwordless sudo only inside the
-external isolation boundary.
+After proving the name unused, create the authorized Ubuntu 24.04 classic-LXC
+guest. Adapt image/package sources to actual architecture and host facts. Keep
+dynamic addressing and no SSH server. Provision Node 24/npm in range, nftables,
+sudo, Git, CA certificates and required runtime/native libraries, then install
+the Stage 2 binds.
 
-**Constraints and actions.** Only after proving `<CONTAINER_NAME>` unused,
-create one Ubuntu 24.04 classic-LXC guest. Adapt architecture, image source,
-package source, and package commands to inspected host/guest facts. Keep dynamic
-addressing, no SSH server, Node 24, npm `>=10 <12`, nftables, sudo, Git, CA
-certificates, and necessary runtime tools as the baseline. Install the two bind
-mounts using only the Stage 2 mappings and modes.
+Before creating/reusing a service user, check username, UID, group and GID conflicts.
+Match the target owner's username/UID and primary group/GID where practical; stop
+for explicit resolution of unrelated collisions. Grant passwordless sudo only in
+the isolated guest. Do not change host ownership or make the target world-writable.
 
-Before creating or reusing the guest runtime user, check username, UID, group,
-and GID conflicts. Match the host target owner's username and UID, and its
-primary group/GID where practical; this identity is not automatically the host
-administrator. Grant it passwordless sudo inside the guest. On any unrelated
-name or numeric-ID collision, stop for an explicit resolution. Do not change
-host ownership or make the target world-writable.
+As the **runtime user**, verify the built entrypoint is readable and perform one
+harmless create/remove probe in `<TARGET_GUEST_PATH>`. Guest-root `test -w` is not
+evidence of runtime-user access.
 
-Verify the built Saivage entry point is readable. As the runtime user—not guest
-root—perform one harmless create and remove operation in
-`<TARGET_GUEST_PATH>`. A root `test -w` is not evidence.
+**Checkpoint:** report versions, actual dynamic address, the three-role identity
+mapping, guest sudo, exact mounts/modes and runtime-user probe result.
 
-**Outcome.** Report guest and Node/npm versions, dynamic address, the three-role
-identity mapping, passwordless guest sudo, exact mounts and modes, source
-readability, and the successful runtime-user write/remove probe.
+## Stage 4 — Initialize and configure without state loss
 
-## Stage 4 — Initialize and configure
+Only a fresh target follows this initialization path. From `<TARGET_GUEST_PATH>`,
+as runtime user, run the selected built entrypoint:
 
-**Objective.** Initialize current durable identity/state, then configure a real
-provider without destroying existing configuration or secrets.
+```bash
+node "<SAIVAGE_GUEST_PATH>/bin/saivage.js" init
+```
 
-**Rationale.** Initialization and provider setup are separate. The
-[functional persistence and initialization contract](docs/spec/system-specification.md#9-direct-file-persistence)
-and the runbook's [storage and interruption procedure](docs/runbook/index.md#storage-and-interruption)
-own the durable behavior; this stage only applies them.
+Select optional `--profile classic-typed` or `--profile paad-typed` only before
+configuration exists. Existing-config init preserves YAML, prompts and marker;
+it does not switch profiles. Preserve configuration, identity, credentials and
+generated state. Report pre-existing versus newly published configuration,
+identity and generated state, pre-acquisition identity/lock observation and
+post-validation result separately. See [initialization](docs/runbook/deployment.md#initialize-only-a-fresh-target)
+and [direct persistence](docs/spec/system-specification.md#direct-file-persistence).
+See [storage and interruption](docs/runbook/state-adoption.md#storage-and-interruption)
+for exact consumption and loss boundaries.
 
-**Constraints and actions.** From `<TARGET_GUEST_PATH>`, run the current built
-`saivage init` as the runtime user. Preserve existing configuration, identity,
-credentials, and generated state. Report whether configuration and identity were
-pre-existing or newly published, and report the selected lifecycle-lock kind.
-If initialization reports old, mixed, malformed, or partially published state,
-stop: do not inspect generated descendants, retry an uncertain publication,
-repair individual files, or improvise a reset. Follow the linked runbook owner
-only after the separate Stage 7 decision gate; explicit migration requests use the
-runbook's external workflow, not an added setup step.
+An old/mixed/malformed/partial-state rejection stops setup. Do not inspect generated
+descendants, selectively edit files, retry uncertain publication or improvise reset.
+Before any separately authorized repair/reset/migration: stop the exact service,
+prevent automatic restarts, positively establish **no live owner or relevant
+process**, and successfully complete a **fresh full stopped target-project backup**,
+preserved unchanged. A malformed/indeterminate/live owner blocks; abandoned-lock
+handling needs separate proof/authorization. Use the complete
+[exclusion/backup procedure](docs/runbook/deployment.md#offline-exclusion-and-complete-backups)
+and [adoption decision](docs/runbook/state-adoption.md#choose-the-operation), not a
+setup shortcut. A backup's existence is not proof that it completed successfully.
 
-Preserve the complete generated topology. Ask now about authorized provider and
-cost constraints, choose a strong current tool-capable model by default, and
-change only what that provider requires. Configure every required named route
-and the exact enabled-compaction `summarizer_candidate`; the candidate must name
-one configured provider, nullable account, and model. The
-[configuration guide](docs/guides/configuration.md) shows the current key
-shapes, including `${ENV_VAR}` interpolation for the container-local secret
-source.
+Ask now for authorized provider/model and spending constraints. Keep the complete
+generated topology; configure every required named route and one exact enabled
+compaction `summarizer_candidate` (provider, nullable account, model). Choose a
+strong tool-capable model with the actual selected transport/image capabilities,
+not an invented capability declaration. Follow the
+[configuration tasks](docs/guides/configuration.md#wire-provider-routes-and-summary)
+and [field reference](docs/reference/configuration.md).
 
-Apply the credential boundary above. For a container-local environment file,
-first determine whether it exists. Create it only on exact absence. If present,
-merge the intended entry while preserving every unrelated variable; never use a
-truncate-first operation. Let the user enter values locally or install them when
-authorized, without exposing them. Keep `SAIVAGE_API_TOKEN` absent for this
-host-only baseline.
+For a container-local environment file, establish exact absence before creating it.
+If present, merge only intended entries and preserve unrelated variables; never
+truncate first or print its contents. Keep `SAIVAGE_API_TOKEN` absent for this
+host-only tokenless baseline. Structural config validity is not credential or
+provider commissioning evidence.
 
-**Outcome.** Report the pre-acquisition identity observation and selected lock
-record kind separately from the post-validation result. Distinguish pre-existing
-from newly published config, identity, and generated state. Report structurally
-valid routes/compaction and required credential names—not values—and confirm no
-secret entered repository or host-wide configuration.
+**Checkpoint:** valid routes/summary, preserved inputs/topology, credential names
+and private location only; no secrets in repository or host-wide configuration.
 
-## Stage 5 — Confine access, install, and start
+## Stage 5 — Confine access before installing the listener
 
-**Objective.** Establish host-only access before the first listener, then install
-one correctly ordered systemd service.
+No first listener until initialization/current-format admission and network
+confinement succeed. Headerless operator APIs are admitted when the API token is
+unset. `0.0.0.0:8080` is not access control, and the UI has no token-entry screen.
+See [authentication](docs/runbook/deployment.md#authentication-and-public-docs).
 
-**Rationale.** Without `SAIVAGE_API_TOKEN`, operator routes accept headerless
-requests. Binding `0.0.0.0:8080` is not access control. A persisted firewall
-loader must succeed before the enabled listener can start after reboot.
+The following complete firewall example applies **only** to an inspected clean
+Ubuntu guest with no operator/custom nftables policy. Positively establish the
+source address by which the deployment host reaches the guest. Existing/custom
+policy or an unknown host address stops this baseline; obtain a deliberate network
+design, never merge/flush/normalize existing policy as a convenience.
 
-**Constraints and actions.** This baseline applies only after inspection proves
-a clean Ubuntu guest with no operator or custom nftables policy and positively
-identifies the source address by which the deployment host reaches the guest.
-Before the first `systemctl enable --now`, require either a successfully
-initialized project or an already admitted current-format installation. The
-[startup contract](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
-and runbook [startup inputs](docs/runbook/index.md#startup-command-inputs) own
-admission and input precedence. On an interrupted existing project, successful
-startup settles linked running cards before listener/readiness but does not launch
-project work; explicit Run remains necessary. A startup failure authorizes neither selective
-generated-state edits nor a compatibility start; use the Stage 7 decision gate.
-Never guess that address. If firewall state is existing or custom, stop this
-baseline and use the deliberate network-design option in Stage 7; do not merge,
-replace, or normalize it.
-
-As guest root, install the following as the canonical
-`/etc/nftables.conf`, substituting only the verified deployment-host source
-address. Include the IPv6 accept line only when the host's IPv6 path to the guest
-is positively verified; otherwise the final reject denies non-loopback IPv6.
-`flush ruleset` is allowed only under the clean-baseline precondition.
+As guest root, install `/etc/nftables.conf`, substituting the verified host IPv4.
+Include the IPv6 accept line only for a positively verified host IPv6 path;
+otherwise the final reject denies non-loopback IPv6. `flush ruleset` is permitted
+only by the clean-baseline precondition:
 
 ```nft
 #!/usr/sbin/nft -f
@@ -227,9 +192,7 @@ table inet saivage {
 }
 ```
 
-After installing the guest `nftables` package, run every check below before
-Saivage may start. Inspect the listed table. Any failure stops setup; do not
-improvise another baseline firewall.
+After installing nftables, all these checks must succeed **before Saivage starts**:
 
 ```bash
 nft -c -f /etc/nftables.conf
@@ -240,11 +203,10 @@ systemctl is-active --quiet nftables.service
 nft list table inet saivage
 ```
 
-Now install this complete unit at exactly
-`/etc/systemd/system/saivage.service`—do not merely display it. Substitute the
-verified runtime user/group and absolute paths. Keep `EnvironmentFile` when the
-provider uses that container-local source; omit it only when no environment
-source is needed.
+Install this complete unit at `/etc/systemd/system/saivage.service`. Substitute
+verified runtime user/group, Node executable and absolute paths. Retain
+`EnvironmentFile` for the container-local secret source; omit only if none is
+needed. Any pre-existing unit needs inspection and approval before replacement.
 
 ```ini
 [Unit]
@@ -267,10 +229,9 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-Inspect an existing Saivage unit and obtain approval before replacement. Before
-starting, verify the file exists and inspect systemd's effective view for the
-user, group, working directory, environment source, command, `Requires`, and
-`After`. Only then reload, enable, and start exactly `saivage.service`:
+Verify the installed file and systemd's effective user/group, cwd, environment
+**source**, command, `Requires` and `After`, without exposing secret values. Reload
+and start only after those checks:
 
 ```bash
 systemctl daemon-reload
@@ -280,122 +241,94 @@ systemctl is-active --quiet saivage.service
 nft list table inet saivage
 ```
 
-Use bounded, secret-safe `systemctl`/`journalctl` output to diagnose failure;
-never dump the environment or provider configuration.
+Use bounded, secret-safe unit/journal observations on failure. Do not dump effective
+environment or provider config. Startup may settle an interrupted current-format
+chain but leaves execution stopped; readiness never authorizes Run. Failed startup
+permits no compatibility start, automatic reset or repeated uncertain operation.
 
-**Outcome.** Before start, the canonical rule parses and is loaded and the
-installed unit's effective dependencies and identity are correct. After start,
-both units are successful, the exact table remains loaded, and bounded state,
-logs, and health show a healthy process.
+**Checkpoint:** loaded canonical confinement before first listener, correct unit
+dependency/identity and exact-process health. Continue to durable restart testing;
+initial reachability is not completion.
 
-## Stage 6 — Verify and teach first use
+## Stage 6 — Verify restart confinement and teach first use
 
-**Objective.** Prove durable host-only operation and teach the user the normal
-Saivage workflow.
+Verify guest-loopback and deployment-host `/health`, `/health/ready`, UI and a
+headerless operator API request; inspect the loaded firewall. Use naturally
+available non-host IPv4/IPv6 paths to check rejection. Never weaken confinement
+to manufacture a probe; an unavailable negative probe is **unavailable**, not passed.
 
-**Rationale.** Initial startup does not prove reboot confinement or provider
-credentials. A user should also understand the system before autonomous work
-mutates the project.
-
-**Constraints and actions.** Verify health and readiness from guest loopback and
-the deployment host, open the UI at `http://<CONTAINER_IP>:8080/`, and verify a
-headerless operator API request from the host. Inspect the loaded rules. Test
-rejection from a naturally available non-host IPv4/IPv6 path; do not weaken the
-boundary to manufacture a probe, and report an unavailable negative probe as
-unavailable rather than passed.
-
-An enabled tokenless deployment is not complete yet. From the deployment host,
-restart the actual guest through the classic-LXC administrator path, then
-rediscover `<CONTAINER_IP>`:
+The enabled tokenless baseline requires an **actual guest restart**, through the
+authorized classic-LXC administrator path, then rediscovery of its dynamic IP:
 
 ```bash
 sudo lxc-stop -n "<CONTAINER_NAME>"
 sudo lxc-start -n "<CONTAINER_NAME>"
 ```
 
-After that actual restart, prove all of the following again:
+After restart, reverify nftables success/exact table, active Saivage with its required
+unit satisfied, loopback/host health/readiness/UI/API, available negative probes,
+root/current records and configured session readability, and absence of a current
+restart-required error. If restart cannot be performed, or a mandatory rule,
+dependency or positive reachability check fails, use classic `lxc-attach` to
+**stop and disable `saivage.service`**. Report incomplete; do not leave or describe
+an enabled tokenless installation as durably confined.
 
-- `nftables.service` succeeded and the exact `inet saivage` table is loaded;
-- `saivage.service` is active with its required unit satisfied;
-- guest-loopback and deployment-host health/readiness/UI/API probes succeed;
-- any naturally available non-host probe is still rejected.
-- root current card and configured records are available through supported
-  operator views; configured sessions are readable; and no current-state
-  restart-required error exists.
+With actual provider-call authorization, require one benign real Analyst interaction
+to distinguish working credentials from offline validation. Teach
+[Cockpit, Files, System and the five card facets](docs/guides/operating.md), exact
+records/conversations/evidence and `/docs/`. Explain that bundled Oversight is
+read-only apart from notifications and waits a full configured interval after Run;
+its absence before a first check is not a failed provider probe.
 
-If the restart cannot be performed, or any mandatory rule, dependency, or
-positive reachability check fails, use classic `lxc-attach` to stop and disable
-`saivage.service`. Report setup incomplete; never leave or describe an enabled
-tokenless service as durable.
+Inspect existing project authority; ask unresolved objective/constraint/acceptance
+questions only. Have the Analyst align the root brief and obtain objective approval.
+**Do not start autonomous work as a side effect of setup or the provider check.**
 
-Require one real provider-backed Analyst interaction. Use the
-[operating guide](docs/guides/operating.md) to walk the user through the
-**Cockpit**, **Files**, and **System** surfaces, the card tree and its facets,
-and the persistent Analyst panel, deferring to the
-[operator UI needs](docs/spec/operator-ui-needs.md), [contracts](docs/spec/operator-ui-contracts.md), and the
-[functional specification](docs/spec/system-specification.md) for exact
-record and conversation behavior; do not restate those contracts here. The
-built documentation is served by the running instance at
-`http://<CONTAINER_IP>:8080/docs/`. New projects enable a two-hour
-[Project Oversight](docs/spec/system-specification.md#project-oversight)
-check by default, so its conversation appears under **System → Participants**
-as an ordinary global participant after its first check; its only project
-effect is an evidenced notification. The
-Analyst is the ordinary mutation surface. Inspect existing project authority
-and ask only the unresolved goal, constraint, and acceptance questions. Have
-the Analyst align the root brief to that accepted authority and obtain user
-approval before autonomous work begins.
+**Checkpoint:** distinguish reboot/network observations, unavailable probes, actual
+provider result and approved objective. Ask for a later explicit Run decision; if
+Run was already specifically authorized, perform it only as that separate action
+and report its actual result, never infer it from service readiness.
 
-**Outcome.** Host-only tokenless reachability and successful firewall dependency
-are established before and after the guest restart; inspected semantics and
-available probes reject unintended access; one provider call succeeds; and the
-user can identify the main UI concepts and approve the project objective.
+## Stage 7 — Hand off and separate later operations
 
-## Stage 7 — Hand off and present later options
+Leave a secret-free handoff: URL/access boundary, exact container/unit/release,
+runtime user, both mappings, provider/model names, credential location, health/log/
+rebuild commands, verification evidence, unresolved items and whether execution is
+stopped or separately authorized Run actually occurred. Link the installed `/docs/`
+and [runbook](docs/runbook/index.md), not a copied policy wall.
 
-**Objective.** Leave concise, secret-free operations guidance and separate the
-working baseline from deliberate customization.
+Teach the three lifecycle layers: `saivage stop` contains **project** work; systemd
+controls the **server**; classic LXC controls the **guest**. Tokenless mode has no
+authenticated public `restart_server` capability; use the authorized unit operation.
+Project Stop does not close Analyst or inbound MCP listeners. See
+[runtime control](docs/runbook/runtime-control.md).
 
-**Rationale.** Routine maintenance needs no guest SSH, and project, service, and
-container lifecycle are different authorities.
+Later state operations remain distinct, never automatic setup fallback:
 
-**Constraints and actions.** Report the URL and access boundary, container and
-`saivage.service`, both host/guest mappings, provider/model names, credential
-location but not values, health/log/rebuild operations, and unresolved items.
-Point the user to the instance-served documentation at `/docs/` — its
-[runbook](docs/runbook/index.md) and [guides](docs/guides/getting-started.md)
-are the standing operations reference. Use host classic `lxc-attach` with
-guest `systemctl` and `journalctl` for routine maintenance. `saivage stop`
-stops the project runtime; systemd controls the server process; classic LXC
-controls the guest. In tokenless mode, confirmed application-level
-`restart_server` is unavailable, so restart the server through
-`saivage.service`.
+* [Current-format repair](docs/runbook/state-adoption.md#current-format-repair)
+  needs its exact offline target/report/consent gates; previous slots are not normal
+  fallback or old-format converters.
+* [Destructive reset](docs/runbook/state-adoption.md#destructive-reset) requires
+  explicit loss consent after exclusion and successful complete preserved backup.
+  Current built `saivage reset` replaces `.saivage/cards`, `.saivage/agents`,
+  `.saivage/logs` and `.saivage/work` wholesale;
+  **cards, records, conversations and history are permanently lost**. Configuration,
+  credentials, identity, operator inputs, source and docs remain outside those roots.
+* [External offline migration](docs/runbook/state-adoption.md#explicit-external-offline-migration)
+  requires an explicit identified-project request, stopped exclusion, successful
+  complete preserved backup, independent complete candidate, actual strict complete
+  validation, confirmed concrete loss and authorized complete-boundary cutover.
 
-For incompatible adoption, choose separately consented destructive reset or an
-explicit owner-requested [external migration](docs/runbook/index.md#external-migrations),
-not automatic setup/deployment fallback. For a selected and consented reset, follow the runbook's
-[storage and interruption](docs/runbook/index.md#storage-and-interruption)
-procedure. First stop the service and positively establish that no live lifecycle owner
-remains. Obtain explicit destructive authorization, then run the
-current built `saivage reset` to replace the complete four generated roots wholesale
-while preserving configuration, credentials, operator inputs, source,
-and documentation; start only the current binary and repeat Stage 6
-verification. Reset permanently destroys generated cards, records, conversations, and history.
-The current card/record representation uses exact owner heads selecting immutable ordinary/accepted predecessors and current-only mailbox pointers/drafts. Older streams are unsupported by core; source approval is not adoption permission. Choose the relevant explicit adoption authorization, never a compatibility start. Unreferenced files remain ignored forever; do not inspect/adopt/clean them. Startup does not certify every historical document or implement check-once trust.
-Same-format corruption may use only the existing separately backed-up/consented
-[exact-target repair](docs/runbook/index.md#exact-target-offline-repair), not ad hoc
-history edits. Core has no migration/reconstruction path or mixed-version rollback;
-explicit external migration follows its own stopped complete-candidate workflow.
+Do not inspect/adopt/clean unreferenced files. Startup is not all-history
+certification or remembered write authority. Publication uncertainty stops effects
+without follow-up inspection, retry, cleanup or rollback. Restart verification and
+Run remain separate actual authorizations after any state operation.
 
-Only now offer compact, deliberate alternatives: bearer authentication and
-remote access; custom firewall, bridge, proxy, or TLS design; guest SSH using
-approved public keys; unprivileged UID mapping; alternate providers/models; and
-workflow, prompt, MCP, or skill customization. Broader reachability requires
-bearer authentication and a separately reviewed network design.
+Only after baseline handoff offer deliberate alternatives: bearer/remote access,
+custom firewall/bridge/proxy/TLS, guest SSH using approved public keys, unprivileged
+UID mapping, other providers and workflow/prompt/MCP/skill customization. Broader
+reachability requires bearer authentication and a separately reviewed network design.
 
-**Outcome.** The user receives a complete non-secret handoff, understands the
-three lifecycle layers, and can choose later options without confusing them with
-the verified baseline.
-
-This guide defines setup outcomes; it does not claim that this documentation
-change performed live LXC, nftables, systemd, or guest-restart validation.
+**Completion:** report verified versus unexecuted steps honestly. No setup prose,
+static review or health result establishes provider perception, future containment,
+complete historical fidelity or automatic permission for the next operation.

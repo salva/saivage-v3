@@ -1,255 +1,203 @@
 # Operating a project
 
-Status: non-authoritative guide. Exact UI behavior is owned by the
-[Operator UI needs](../spec/operator-ui-needs.md) and
-[contracts](../spec/operator-ui-contracts.md) registers; runtime behavior by the
-[System specification](../spec/system-specification.md); procedures by the
-[Operator runbook](../runbook/index.md).
+Use this guide to orient, supply context, inspect evidence and decide how to steer
+work. Exact UI behavior is in the [UI contracts](../spec/operator-ui-contracts.md);
+the [runbook](../runbook/index.md) owns consequential operating procedures.
+If the server never reaches readiness, go to [startup diagnosis](../runbook/diagnosis.md#startup-does-not-reach-readiness)
+instead of looking for a repair UI.
 
-Saivage works autonomously for long stretches. Your job as operator is to
-launch it, stay oriented, answer the rare question, and accept results. This
-guide shows where everything lives and the small set of interactions you
-actually use. For card, brief, session, and epoch terminology, see the
-[glossary](../overview.md#glossary).
+## Orient in the cockpit
 
-## The control room
+The application has three destinations: **Cockpit**, **Files** and **System**, with
+the Analyst panel alongside. Cockpit places the tree left and selected card in the
+center. The global strip distinguishes project identity, runtime state, current
+work, REST observation and socket connection. Selecting a different card does not
+make it current work. **Go to current work** returns to the observed runtime target.
 
-If strict startup fails there is no degraded repair UI. Stop/disable restarts,
-positively verify no owner, preserve a complete fresh stopped-project backup, then
-use the [offline exact-target repair procedure](../runbook/index.md#exact-target-offline-repair)
-with report and typed consent; restart separately. Do not edit generated files,
-rename previous slots or scan history. Files hides/refuses the retained repair attic.
-Repair may lose queue/draft or potentially days of conversation work; eligible
-separately confirmed card discard loses all own data and descendant reachability.
-Synthetic FAILED cards show loss records and placeholder requirements. Replace
-requirements before running an ancestor as a recommendation, not a product gate:
-its active Planner may reopen FAILED to CHANGED and execute those placeholders.
+![Disposable checklist fixture: stopped project, selected root Overview, objective and accepted records, child tree and Analyst panel.](/screenshots/cockpit-overview.png)
 
-Open `http://<host>:<port>/`. The whole application is the **control room**;
-its **card cockpit** is the **Cockpit** destination's layout: a global strip
-across the top, the card tree on the left, the card workspace in the center,
-and the Analyst conversation on the right. Primary navigation is
-**Cockpit | Files | System**; the Analyst panel stays beside every
-destination.
+*Overview of a fictional checklist in a disposable local fixture. Stopped/No current
+work describes that settled sample, not a live deployment or a correctness verdict.*
 
-The five views below come from an **illustrative, disposable local fixture**:
-an auth-disabled loopback instance with a synthetic provider and a fictional
-release checklist. The Analyst created a child, the configured card agents
-completed it, and the project settled. **Stopped** and **No current work** in
-these pictures are real observations of that completed run, not simulated live
-activity. Open an image at full size to read its smaller labels.
+The screenshots on this page are retained **synthetic/disposable fixture** examples,
+not current product qualification. Some show an earlier four-facet layout or older
+conversation controls; current navigation also includes **Executions**, and the
+instructions below describe current contracts. Open an image full-size for small labels.
 
-There is no sign-in screen and no token entry. Deployments are expected to
-run auth-disabled behind deployment-owned isolation; a bearer-configured
-deployment shows an honest unauthorized state instead.
+Expand tree branches to discover children in committed sibling order. There is no
+tree title/state search/filter; ask the Analyst to locate work by known information
+or expand manually. The card header gives exact lifecycle text and **Observed
+workflow step**; a workflow position is not evidence an agent is currently running.
+Open **Workflow & technical details** for configured mechanics rather than treating
+them as the work product.
 
-### The global strip
+## Choose a facet for the question
 
-The strip answers orientation in one place: project identity, runtime
-lifecycle, the current work link, the independent REST and socket
-observation conditions, and the Oversight epoch status. Its only direct
-runtime control is capability-gated, confirmed **Restart server**; it does
-not start project work. Ask the Analyst to start or stop project work, or
-to pause or resume it.
-The **Updates** disclosure explains what refreshes from WebSocket hints
-(cards, conversations, records) versus what needs explicit Refresh (Files,
-Processes, Events).
+| Question | Facet and useful observation |
+| --- | --- |
+| What is this work and what happened? | **Overview**: objective, activity/participants, recorded result, declared records, relationships; unknown waiting reasons stay unknown |
+| What did an agent say or call? | **Conversations**: choose the exact named-agent session and retained segment |
+| What did a finite action do? | **Executions**: retained non-LLM invocation/outcome and selected output files |
+| What is draft versus accepted, or what changed? | **Records & History**: current record state, accepted versions, card snapshots and diffs |
+| Which exact source supports a claim? | **Evidence**: source-labeled catalogs and bounded card-scoped events |
 
-### Cockpit
+`done` means accepted as done by the configured workflow, not independently verified
+correctness. An ordinary successful tool envelope may describe a process that exited
+1; read the disposition. A blank/unavailable result is not an inferred success.
 
-![A settled project card in the cockpit: global status strip, expanded child in the tree, objective and records in Overview, and persistent Analyst conversation.](/screenshots/cockpit-overview.png)
+## Read a conversation without losing your place
 
-*Cockpit Overview — a completed fictional checklist, with its source-backed objective, recorded result, card tree and Analyst panel still visible.*
+Choose a participant, then use **Segment history** for an exact retained segment.
+It does not stitch all segments into one transcript. **Activation entries** links
+to markers retained in that segment; absence of a marker or completion is not a
+liveness signal. Direct session/entry links retain the same contextual cockpit.
+An admitted global session instead shows its global purpose, not invented card context.
+If card context is unavailable, an admitted exact transcript can remain readable.
 
-Home opens the Overview of the current card (or says **No current work**
-when the project is settled). The card workspace is the heart of the UI: a
-persistent compact card-flow header gives the represented chain and one
-plain-language **Observed workflow step**. Open **Workflow & technical details**
-for exact position, publication facts, and configured outcomes/workflow; those
-mechanics are bounded and scrollable so the selected facet or transcript keeps
-usable space. The workspace has four facets:
+![Synthetic conversation fixture showing participant sessions, retained segment and activation coverage, command requests and later failed process results.](/screenshots/cockpit-conversations.png)
 
-- **Overview** — the source-backed objective first, then activity and
-  participants, the neutral recorded result and independently loaded declared
-  records, problems/waiting, and parent/related work. Record excerpts identify
-  Draft or Accepted effective content and disclose the complete content here;
-  arbitrary record names are not interpreted as progress. A missing wait reason
-  stays unknown, and `done` means accepted as done rather than independently
-  verified correctness.
-- **Conversations** — a participant rail of the card's exact named-agent
-  sessions; choosing one opens the single exact reader while the selected tree,
-  four tabs, card header, and rail stay in view. Direct links to an admitted
-  card session open that same contextual cockpit.
+*A synthetic smoke fixture illustrates distinct request/result positions and a
+failed process observation. Its older expand/pause controls are not the current
+inspector contract; a recorded call does not prove present execution.*
 
-  Each conversation has one reading scroll surface; context and expanded details grow
-  within it, while the tree and Analyst retain their independent panes. Open **Compacted
-  context · from segment N**, then its independent **Accumulated summary**, **Retained
-  instructions**, **Required model facts** and **Source and continuation** sections.
-  They start closed, as does **Recorded system context** at its source position;
-  important statuses remain visible. Summary is context, not execution/acceptance proof.
-  **Segment history** selects exact retained segments, never stitches them. Open
-  **Activation entries · N** for segment-local marker links and coverage; **Technical
-  details** lazily reads the session's latest recorded provider exchange, not historical
-  request metadata.
+Current inspectors have one reading scroll surface. Scroll away to stop following
+arrivals; **Jump to latest** resumes following the current tail. Analyst auto-scroll
+Pause is a separate reader control, not runtime Pause. Matched exchanges are grouped
+at the request position; **Result recorded later** preserves the fact that other
+entries intervened. Expand safe original request/result for full public projected
+values and exact anchors, not private provider wire data.
 
-  Open **Currently configured instructions** for composed static text from configuration
-  loaded by the server: the global participant or every matching current workflow node.
-  Refresh explicitly while open; closing discards it and reopening reads afresh.
-  Unactivated disk edits are not loaded configuration, and historical selection does
-  not make this text a historical snapshot. Errors remain inside the disclosure without
-  replacing retained history. This is not dynamic context or an exact model request.
+For instruction questions:
 
-  Scroll away to read without following arrivals; inspector **Jump to latest** resumes
-  current following. The inspector has no global expand/collapse/pause controls. Analyst
-  retains those controls: its Jump moves once and clears unseen count without unchecking
-  explicit Pause; later arrivals follow only when pinned and Pause is off.
+- **Currently configured instructions** lazily composes the server's loaded static
+  declarations. It is not edited-on-disk text or a historical request. Refresh
+  explicitly while open; closing discards the disclosure.
+- **Recorded system context** shows retained preparation at its source position.
+  Prepared text is not proof of delivery/perception.
+- **Compacted context** separates accumulated summary, retained instructions,
+  required model facts and source/continuation. A summary is context, not acceptance
+  evidence or an assurance every old narrative fact survived.
+- **Technical details** reads latest primary provider metadata for the session;
+  selecting historical conversation does not make it historical request metadata.
 
-  Matched exchanges appear once at their request position. **Result recorded later**
-  marks intervening entries; expansion shows **Request** then **Result**, both exact
-  anchors, original source coordinates/times and intervening-entry count. Other messages
-  keep their relative source order; grouping does not backdate knowledge or rewrite evidence.
-  An unmatched call says **No result recorded**, not inferred execution; an unmatched
-  result stays at its original position with requested context unavailable. Friendly
-  action/target/outcome summaries expose salient errors and uncertainty without debug badges.
-  Successful settlement may still report process exit 1, and a draft can retain an older
-  accepted version. Stdout/stderr heads open independently; **Safe original request/result**
-  provide complete public values and copy, not private wire data. **Inspect image** shows
-   safe metadata/descriptors only, not pixels, delivery or model perception. Ordered
-   result content displays every returned text block and typed descriptor with its
-   recorded content position inside Result, without extra exchange rows or another
-   scroll surface. JSON-looking returned text stays text; descriptors are JSON.
-   An image-looking value in ordinary data is not an attachment. `view_image` is
-   a workspace snapshot producer; configured MCP native results also select images.
-   MCP capture metadata retains content positions and source/sent dimensions without
-   inventing a workspace source path. Retained older ordinary MCP data stays opaque;
-   new native results fail oversize rather than truncating. Selected control/discovery
-   tools start/stop configured servers and inspect exact schemas independently from
-   invocation; recorded ready/stopped outcomes do not prove browser effects undone.
-   See the [shared disposable browser workflow](../runbook/index.md#configured-browser-lifecycle).
-   No browser-control UI or dynamic current-instructions catalog is added. A repair
-  instruction does not prove repair; interrupted activation notices keep effects uncertainty
-  visible, with full detail opened by exact targeting. Coverage, partial propagation and
-  restart confirmation are not completion promises. Details do not fetch missing content.
-  See the
-  [conversation contracts](../spec/operator-ui-contracts.md#6-conversation-readers).
-- **Records & History** — every declared record in declaration order plus
-  card versions, snapshots, and diffs.
+See [exact activation and instruction evidence](../runbook/evidence.md#exact-activation-and-instruction-evidence).
 
-  ![Records and History facet showing the fictional review record and a selected prior card version with its diff.](/screenshots/cockpit-records-history.png)
+## Inspect records and action results
 
-  *Records & History — an accepted review record above the selected first card version and its comparison with current state.*
-- **Evidence** — source-labeled catalogs (card versions, record revisions,
-  session segments) with exact links, plus a bounded card-scoped events
-  tail. Use it to open the exact version, revision or segment behind an
-  observation; the event tail is scoped to this card rather than a global
-  execution narrative.
+![Disposable checklist Records and History: accepted review text, prior card snapshot and comparison with current membership.](/screenshots/cockpit-records-history.png)
 
-The tree is the structural spine: lazy discovery, committed order, and
-color-only lifecycle markers. Select a row for exact lifecycle text and card
-detail. There is **no tree title/state search or filter**: expand branches
-manually, or ask the Analyst to find work by known information or state.
+*The fictional review and card-version diff are retained fixture evidence, not a
+review of a real deployment. Record document numbers and card/head revisions are
+different coordinates.*
 
-### Files
+A **Baseline0** starter is not authored approval. A **Draft** may be newer than the
+last **Accepted** document. Record history shows accepted documents; current head
+revision plus UUID identifies the mutable selection. Select an exact historical
+document/snapshot before comparing; never infer currentness from a number alone.
+Authorship labels identify agent, runtime, shell-stdout or external principal;
+none automatically supplies an independent review verdict.
 
-![Files view browsing the virtual project card directory and previewing its fictional brief.md record.](/screenshots/files.png)
+Use **Executions** for an action or postcommit hook, not a missing agent transcript.
+Refresh its retained rows explicitly, open one invocation and inspect selected files.
+Missing completion does not mean still running; a selected workspace artifact may
+be its current content, not a historical snapshot. A shell stdout accepted record
+is the completed captured report with factual provenance, not semantic acceptance
+of the software. Advisory hook failure does not reverse the card's prior acceptance.
+See [action execution and stdout](../runbook/evidence.md#action-execution-and-stdout).
 
-*Files — the canonical virtual tree and a selected synthetic brief; the preview is server-redacted even though the example has no credentials.*
+For image results, metadata is not pixels. **Inspect image** explicitly fetches the
+exact recorded selected PNG into a dialog; current **Files** image inspection
+reads a fresh current source. Neither proves what a provider perceived. Ordinary
+JSON-looking image data is not an attachment. For missing process output use
+[process state and missing output](../runbook/evidence.md#process-state-and-missing-output),
+not an assumption of running/completed work or a retry of the old command.
 
-Files exposes the canonical generated state as a readable virtual file tree
-— card documents and their versioned records. Physical stream paths are
-never shown; this is the evidence browser behind the cockpit.
+## Supply context and steer while running
 
-### System
+Use the Analyst panel for ordinary project changes. A concrete request separates
+observation, proposed action and execution intent:
 
-![System Provider availability view showing four locally configured fixture models as healthy routing candidates.](/screenshots/system-provider-availability.png)
+> Inspect card-a's current result and accepted review. Explain the remaining defect
+> with exact evidence links. Do not start another Run or change the brief yet.
 
-*System → Provider availability — process-local routing diagnostics for the fixture provider, not a claim about a commercial service or a durable health guarantee.*
+Or, when actually authorizing a change:
 
-System consolidates the diagnostics — runtime state, operator observation,
-cross-card Participants, Errors, Events, Processes, MCP, Provider
-availability, saved Configuration, Installed workflows, settled Actions,
-and the manual Doctor. Sections read on selection; opening System fetches
-nothing. **System > Installed workflows** is the place to verify what a
-configuration change actually compiled into.
+> Send card-a this normal context: the accepted output must also support empty input.
+> Preserve current work; report whether the notification queued or caused re-entry.
 
-## Talking to the Analyst
+Normal context can queue during work. Urgent intervention is for justified
+interruption, not a synonym for importance. Queueing, partial propagation or a
+prose acknowledgment is not delivery or a guarantee of model action. Some mutations
+are legal mid-run while record edits have stricter admission: let the supported
+operation report its actual refusal rather than bypassing it with file writes.
+For cancellation/reopening use [steering and cancellation](../runbook/runtime-control.md#steering-and-cancellation).
 
-The right-hand conversation is the ordinary surface for changing project work.
-Ask the Analyst in plain language:
+If startup selected **external-only Analyst**, internal history remains inspectable
+but internal submission is disabled before ingress/provider work. Use the external
+client, not a hidden composer. **Both** exposes concurrent operations, not a shared
+chat or single-client lease. External body-free receipts do not supply an external
+transcript. Setup and disconnect/process/image consequences belong to the
+[inbound MCP procedure](../runbook/mcp.md#external-client-to-analyst).
 
-- **Start work**: describe the objective (or point at a spec file), settle
-  the root brief (the root card's `brief.md` objective record), then ask it
-  to start the project. The Analyst calls `start_project` and the runtime
-  takes over.
-- **Pause, resume, or stop work**: ask the Analyst in the conversation. A
-  project Stop halts work without shutting down the server.
-- **Steer**: ask for a new card, a reorder, a reopen of finished work, a
-  cancellation, or an edit to a brief. The Analyst applies it with the
-  proper audit trail.
-- **Ask**: the Analyst has read tools — it can report state, read sessions,
-  and summarize progress on request.
+## Pause, resume, stop and catch up
 
-Runtime control is split by surface: request project Run (start), Pause,
-Resume, or Stop in conversation with the Analyst. The global strip offers
-only the capability-gated, confirmed **Restart server** action, which shuts
-down the server rather than starting project work. The CLI (`saivage status`,
-`pause`, `resume`, `stop`, `restart_server`) drives the same operations through
-the lifecycle lock.
+| Intent | Ask for / use | What not to infer |
+| --- | --- | --- |
+| Temporarily gate provider work | Pause, then Resume the same Run | Not all actions/commands have stopped |
+| End project execution | Project Stop | Server, Analyst and external listener are still available |
+| Launch stopped project work | Explicit Run | Startup/readiness is not Run |
+| Shut down the application | Exact foreground/service shutdown | A Stop acknowledgment is not whole-application containment |
+| Replace the server process | Capability-gated confirmed Restart server | Confirmation/scheduling is not evidence a replacement booted |
 
-## The rhythm of a long run
+The global strip's only direct runtime mutation is confirmed **Restart server**
+when its authenticated capability is available; project controls normally go through
+the Analyst. CLI controls delegate through the verified lifecycle owner. See the
+[full control procedure](../runbook/runtime-control.md#choose-the-control).
 
-1. **Launch**: brief settled, project started. The Planner may decompose the
-   objective and activate children; the tree does not necessarily grow on
-   every turn.
-2. **Watch — or don't**: sessions show work; records accumulate evidence.
-   A reply may take seconds to minutes and meaningful project work can take
-   hours or longer. If nothing seems to progress, inspect the selected card's
-   **Conversations** and **Records & History**, then **System → Errors** and
-   **System → Provider availability**; ask the Analyst for an observation.
-   Saivage keeps working between your visits while the project is running.
-3. **Answer when asked**: a card settles `blocked` when a genuine decision,
-   resource, or input is missing; its blocked result records what is needed.
-   Nothing is pushed at you — you see the blocked status in the tree (and
-   Oversight may flag it). Provide the decision or input through the Analyst
-   conversation and ask for the blocked work to be reopened. See
-   [activation outcomes](../spec/system-specification.md#6-activation-outcomes-and-cancellation).
-4. **Oversight checks in**: with the default two-hour cadence, the Oversight
-   agent periodically reviews state read-only and, when warranted, sends an
-   evidenced notification to a planning card — visible as new activity and
-   possible notification-driven re-entry in the tree. Normal context can queue
-   while running; justified urgent context may stop exact active work and enter
-   recipient-first recovery. A paused run needs Resume; a queue-only result
-   needs explicit Run for later execution, without guaranteeing model action.
-   It never mutates anything
-   itself. See [Project Oversight](../spec/system-specification.md#project-oversight).
-5. **Accept**: completed planning work passes independent review against its
-   brief. The root turns `done` when the whole objective is accepted.
+For a long run, ask for a bounded catch-up with a supplied horizon:
 
-After a crash or server restart, successful new-server startup settles the
-interrupted linked running cards to stopped before the control room is available,
-without launching work. After same-process project Stop, durable cards can remain
-running until the next explicit Run. Ask the Analyst to start the project again
-to launch only the root through STOPPED; descendants resume only through ordinary
-parent activation. See
-[Run, Pause, Resume, Stop, and Restart](../spec/system-specification.md#7-run-pause-resume-stop-and-restart).
+> Since 14:00 UTC today, summarize accepted work, current work, failures and decisions
+> needed. Cite exact cards, record versions or session entries; distinguish unknowns.
 
-## Reading evidence
+Saivage does not remember your last visit or maintain a guaranteed catch-up ledger.
+Ask for evidence rather than a claim that every command/change was recorded.
+If work is `blocked`, supply the missing input and let its parent reactivate it
+normally; do not require a DONE/FAILED-style reopen for every blocked card. A
+paused Run needs Resume, not another Run merely because a notification queued.
+After project Stop or successful new-server recovery, a later explicit Run is
+distinct. See [startup and Run recovery](../runbook/runtime-control.md#startup-and-run-recovery).
 
-- **Card > Records & History**: the accepted briefs, statuses, and reviews,
-  plus every card version with diffs.
-- **Card > Conversations** (or an admitted card-session link): full redacted
-  transcripts including every command run and its bounded output, with durable
-  log URLs, inside the persistent card cockpit. A global session instead shows
-  global purpose with no invented card context. If a retained exact session's
-  card flow is unavailable, its exact ID and transcript remain while unavailable
-  card facets are disabled and no hierarchy is invented.
-- **Card > Evidence**: bounded event tails and source-labeled version,
-  revision, and segment catalogs.
-- **Files**: canonical documents behind the projections.
+Oversight's optional default two-hour check starts after one full continuous
+eligible interval; it does not run immediately on Run. It can send an evidenced
+notification, not implement repairs itself. A lack of new children or messages
+alone does not establish a stuck project.
 
-## Where to go next
+## Files and System
 
-- [Configuration](./configuration.md) for providers, routes, and workflows.
-- [Operator runbook](../runbook/index.md) for lifecycle, recovery, and reset
-  procedures (authoritative).
-- [What is Saivage](../overview.md) for the model behind the UI.
+![Disposable Files fixture listing virtual root-card records and previewing its fictional brief with server-redaction notice.](/screenshots/files.png)
+
+*Files presents admitted virtual card documents and projected content, not the
+physical persistence layout or unrestricted secret-bearing files.*
+
+Files also supports admitted ordinary project content. Directory observations can
+age; refresh when needed. Generated card/record paths are virtual projections.
+Private configuration, provider diagnostics and repair attic are not a raw-file
+escape hatch. Images use explicit current-source inspection, not text preview.
+
+![System Provider availability fixture showing four synthetic local model candidates and process-local availability text.](/screenshots/system-provider-availability.png)
+
+*Synthetic provider availability is a local routing observation, not commercial
+service health, credential validation, future dispatch or durable history.*
+
+Select a System section to read it: Errors, Events, Processes, MCP, Provider
+availability, Configuration, Installed workflows and other diagnostics are
+independent observations. **Installed workflows** shows what compiled; saved YAML
+is not proof of hot-loaded workflow changes. **Updates** explains socket hints
+versus manual Refresh. System is not a provider-secret editor or general runtime
+control console; MCP observations do not launch a browser for you.
+
+For no readiness, unauthorized views, provider errors or capacity refusal, use the
+[diagnosis chapter](../runbook/diagnosis.md). For an upgrade or corrupt current data,
+use [state-adoption decisions](../runbook/state-adoption.md#choose-the-operation).
+There is no degraded repair UI, automatic prior-selector fallback or permission
+to reset data from an observation error.

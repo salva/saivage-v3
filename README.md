@@ -1,561 +1,98 @@
 # Saivage v3
 
-The optional direct Analyst MCP service exposes configured tools without an
-internal model conversation. It is loopback-only, separately authenticated and
-startup-selected; internal chat remains the default. Provision
-`SAIVAGE_ANALYST_MCP_TOKEN` privately in the server environment, then use:
+Saivage coordinates long-running software engineering in a target project.
+Give its Analyst an objective and acceptance criteria; explicitly start a Run;
+configured Planners delegate cards, Executors do the work, and Reviewers assess
+results. A web control room lets you inspect work products and evidence and steer
+the run. Workflows can also use non-LLM actions for finite commands.
 
-```bash
-saivage start --analyst-mode external --analyst-mcp-port 8090 \
-  --analyst-mcp-principal local-client --analyst-mcp-tools get_status,read
-```
+Agents can edit files, run commands, use configured external tools and spend
+provider credits. Deploy inside an **externally isolated environment**, normally
+LXC: Saivage does not supply the isolation. Review and retained evidence help you
+judge results; they do not guarantee correct delivery, complete recording or no
+data loss. See [how the work model fits together](docs/overview.md).
 
-Connect a Streamable HTTP client to the printed
-`http://127.0.0.1:8090/mcp/analyst/<projectIdentityDigest>` URL; supply the secret
-in its Authorization header, never the URL. MCP requires revision 2025-11-25.
-External-only hides interactive desktop/mobile chat while keeping exact Analyst
-history read-only; both mode retains normal chat alongside direct operations.
-External edits appear in ordinary records and settled audit evidence, not chat.
-See [startup and failure semantics](docs/runbook/index.md#direct-analyst-mcp-service).
-Source completion grants no live restart, migration or deployment permission.
+## Choose your path
 
-Shell action nodes can optionally bind `stdout_record` to one declared own-card
-record: completed substantive UTF-8 stdout (maximum 1 MiB, no NUL) becomes an
-ordinary versioned report with truthful shell provenance, not an agent verdict.
-See [configuration](docs/guides/configuration.md#action-execution-and-typed-handoff)
-and the strict [workflow2/accepted3 adoption boundary](docs/architecture/durable-format-changes.md#shell-stdout-record-authorship-2026-10-19).
-
-Managed process evidence can become **unavailable** after lost group authority.
-Leader exit and EOF do not confirm cleanup; failed scopes remain blockers and later
-activations cannot take ownership. See [operator diagnosis](docs/runbook/index.md#unavailable-process-evidence).
-
-### Inspecting files
-
-Agent `read`, `glob` and `grep` accept ordinary native absolute paths outside the
-project as well as project-relative paths. Known secret/private sources remain
-blocked; resource URLs, mutations, images and operator Files keep their separate
-boundaries. See [agent filesystem inspection](docs/runbook/index.md#agent-filesystem-inspection).
-
-Operator Files previews physical UTF-8 text up to 1 MiB of raw bytes, including
-CJK and emoji. Malformed UTF-8, NUL and control-dominated content are refused;
-privacy and availability restrictions still apply. See the
-[Files contract](docs/spec/operator-ui-contracts.md#8-files-processes-and-evidence)
-for text, image and virtual-record boundaries.
-
-### Inspecting screenshots
-
-An agent can use `run_command` to save a **non-secret** screenshot in the project,
-then call `view_image({"path":"screenshots/settings.png"})`. Command output alone
-never attaches an image. Selected Analyst, Executor and Reviewer surfaces include
-this tool; custom agents must opt in. Image input requires a compatible Responses
-or Codex primary **and summary** route (including `gpt-6.1-sol` and `gpt-6-astra`);
-Chat remains text-only. The default longest side is 1600, with integer 1..16384 or
-`"original"` as `max_dimension`. Local original does not force provider-original
-processing. Successful tool results use optional ordered text/image `content`;
-the UI offers **Inspect image** for each typed selection at its content position.
-The shared viewer provides **Fit** (never upscaled) and **1:1**; Escape returns
-to the same conversation position. Pixels are recorded model-input snapshots,
-not proof of delivery or perception. Files uses the same viewer for eligible
-static PNG/JPEG/WebP, labeled **Current source**, not the recorded snapshot.
-`view_image` selects one workspace snapshot. Configured `mcp_tool_call` also
-preserves ordered native text and static PNG/JPEG/WebP images, without a file round
-trip. Its local `max_dimension` uses the same default and bounds. Complete results
-are bounded, never truncated: wire 48 MiB, aggregate source images 32 MiB,
-projected non-image text/JSON 1 MiB. Selected Analyst/Executor tools can start a
-configured official Playwright MCP server, discover exact schemas and invoke native
-screenshots (`scale:'css'`, no filename). See the [pinned browser recipe](docs/runbook/index.md#configured-browser-lifecycle).
-Reviewer requires explicit admission; Oversight has no MCP. Independently selected
-registration/replacement/removal tools persist connections separately from operator YAML;
-registration does not launch and dynamic connections never autostart. Discover
-`bindingId` and `catalogId` before calling; bindings change on stop/start or explicit
-`mcp_server_control` restart. Restart stops the retained owner before fresh startup
-and discovery; it is non-atomic and promises neither remote restart nor target
-continuity. Default role grants are unchanged. See the
-[restart procedure](docs/runbook/index.md#explicit-mcp-server-restart). Opt-in
-`mcp_catalog_refresh` re-lists one ready connection without restarting it and
-publishes a fresh catalog identity; discover again before a new call. See the
-[refresh procedure](docs/runbook/index.md#explicit-mcp-catalog-refresh). MCP-managed stdio process
-association does not grant ordinary process wait/kill; HTTP stop is local only.
-Tool execution defaults to 900,000 ms (15 minutes) after dispatch, with earlier
-caller cancellation still possible. Actual stdio expiry can lose every session on
-that server; see [deadline consequences](docs/runbook/index.md#mcp-invocation-deadlines).
-Opt-in `mcp_server_replace` wholly replaces an exclusively agent-owned, known-stopped
-connection without launching it; explicitly stop/join used owners first, then separately
-start and discover. See [dynamic connections](docs/runbook/index.md#dynamic-mcp-connections).
-Notifications/native tool projection and card-tree lifetimes remain deferred. One server shares a
-disposable context, lost on stop/active cancellation. Pixels cannot be certified secret-free.
-Configured stdio servers receive the admitted project workspace through negotiated
-`roots/list` throughout the connection lifetime, including discovery and idle intervals.
-
-Conversation index/genesis/envelope now share strict **format 12** for baseline0,
-explicit draft document/target versions and historical-selection observations, retaining excerpt exposure
-and encoded oversized record-prompt display, alongside typed owning
-record observations and descriptor-only required facts, retaining historical
-instruction evidence, loss-tolerant maintenance and ordered content.
-Format 11 or earlier/mixed
-state stays a stopped blocker: adoption needs a separately consented complete
-reset or explicitly owner-requested external offline migration, never automatic
-conversion. Snapshots grow with observations and are included in complete backups;
-there is no GC. Installing Sharp requires optional native dependencies (see the
-[runbook](docs/runbook/index.md#image-snapshots-and-native-dependencies)).
-
-Conversation activation boundaries expose **Prepared instructions**: privacy-filtered
-historical rendered role and node text, not a delivery receipt or complete wire request.
-Current prepared evidence also records stable card orientation, actual activation
-identity and caller, and exact rendered parent direction where present. Parent
-`activate_card({card_id,instructions})` requires explicit non-whitespace direction;
-its bytes belong to that actual child activation, not a mailbox or future Run.
-Public `queue_notification` is selected only by configured Analyst/Oversight roles;
-card recipients and internal notifications remain.
-Conditional instructions retain actual bytes in source order; record descriptors
-distinguish accepted/draft selections and metadata/slice/full/reference/excerpt exposure.
-Compacted descriptors preserve original coordinates/time, not body recall or new
-occurrences. Immutable links inspect record evidence, never reconstructed requests;
-public copies omit internal hashes and independently redact text and source metadata.
-Recognized secrets in supplier JSON-quoted record text are filtered by the same server
-projection before current/history/protected display and full copy. Safe encoded text
-remains quoted, not decoded. Raw record bodies over 32768 UTF-8 bytes now inject a
-marked preview of complete encoded/redacted display, keeping at most 8192 display
-bytes per end plus notice and final JSON quoting. Its versionless pointer reads
-latest effective content through normal bounded reads, not historical omitted bytes.
-Small/null substitutions and separate full accepted bootstrap remain unchanged;
-omissions never waive requirements or grant acceptance. Large bootstrap can still
-dominate context. See the [9→10 contract/adoption record](docs/architecture/durable-format-changes.md#record-prompt-excerpts-2026-10-16).
-Owned durable prompts are **Recorded workflow instruction** at their original rows;
-compacted activation text is inspected through explicit indexed source history.
-Unavailable history is never filled from current templates. **Currently configured
-instructions** remains independent. Source completion authorizes no adoption or
-deployment; binary-only downgrade after current-format publication is unsupported.
-
-Nodes explicitly select create-if-absent record templates with narrow card/node
-macros and direct includes. They create **Baseline v0 — not authored or accepted**;
-an ordinary changed edit authors draft-for-1, then acceptance publishes document1.
-Existing heads never rerender; explicit clean remains a separate empty-draft cycle.
-Document versions are independent of head mutation revisions. Record heads advance
-**2→3**, accepted artifacts **1→2**, and conversation index/genesis/envelope
-**11→12** together. Old input/state blocks strictly. See the
-[lifecycle contract](docs/spec/system-specification.md) and
-[configuration/adoption procedure](docs/runbook/index.md#optional-record-scaffolds).
-This source-only slice defers creation-time scaffolds; GitHub #4 remains OPEN.
-It authorizes no deployment, reset or external migration.
-
-Conversation maintenance first preserves useful ordinary summaries. If bounded
-construction cannot produce a qualifying candidate, it may publish a fixed notice
-declaring omission of earlier compactable narrative and inherited summary prose.
-Protected instructions, canonical facts, exact suffix and frozen current context
-remain; indexed history is not automatically restored to active memory. Known
-successful maintenance returns to ordinary primary admission, not task approval.
-See [maintenance limits and evidence](docs/runbook/index.md#prepared-conversation-compaction)
-and the [format cutover](docs/architecture/durable-format-changes.md).
-
-Saivage is autonomous software engineering built for the long run. Give it the
-specification for a software project and it carries the work from
-specification to accepted delivery — planning, implementing, testing, and
-reviewing on its own, over long runs, with evidence for every step — asking
-for you only when a real decision is missing. The operator observes
-everything through a web control room and steers through a single Analyst
-conversation.
-
-Conversation tails track exact immutable segment identity, not just the displayed
-ordinal; refreshed baselines replace rather than mix after a changed selection.
-See the [conversation contracts](docs/spec/operator-ui-contracts.md#6-conversation-readers).
-Each conversation has one reading scroll surface, with compacted context, activation
-index and Technical details initially closed. Full safe summary, retained instructions,
-facts and source/continuation remain inspectable; recorded system text closes at its
-source position. Segment history selects exact retained history, not a stitched transcript.
-Optional **Currently configured instructions** composes all current session bindings
-from configuration loaded by the server, not historical instructions or unactivated disk
-edits. Open to read, Refresh explicitly, close to discard; this is not an exact-request viewer.
-Matched tool exchanges use exact session/source-input/call identity, not provider call ID alone,
-and appear once at the request position, including nonadjacent results;
-**Result recorded later** discloses interleaving, and both source anchors, coordinates and
-times remain inspectable. Compact friendly action/abbreviated-target/honest-outcome summaries
-expand to complete Request/Result detail and independent output heads; safe-original
-disclosures copy complete public values.
-Public request locations are privacy-filtered even for failed calls or calls with no
-recorded result, in both current and selected history; exact record selections remain usable.
-Safe-original image copy stays descriptor-only. Settlement need not mean process completion,
-acceptance, delivery or perception. Repair directives do not prove repair; interruption
-notices keep effects uncertainty visible. Scroll-away pauses following; Analyst's explicit
-Pause survives its one-shot Jump to latest, unlike ordinary unpaused following.
-
-Dedicated JSON data inspection uses consistent safe, readable lexical highlighting
-without changing supplied text or existing copy payloads. Files JSON preserves the
-exact received safe text. See the
-[shared JSON display contract](docs/spec/operator-ui-contracts.md#shared-json-data-display).
-
-Start with the [documentation overview](docs/overview.md), the
-[getting-started guide](docs/guides/getting-started.md), or the
-[documentation site](https://salva.github.io/saivage-v3/) (also served by
-every running instance at `/docs/`).
-
-For an AI-guided LXC installation, use the subordinate
-[AI setup procedure](README-IF-YOU-ARE-AN-AI.md). It applies the canonical
-contracts linked below; it is not an independent product or operations
-authority.
-
-Outbound HTTP lifecycle metadata is continuously emitted at `info` to the process
-log, independently of finite private diagnostic captures; it is not UI Debug or
-provider exchange evidence. See [pending requests, waits and journal filtering](docs/runbook/index.md#outbound-http-lifecycle).
-This source-only instrumentation changes no durable format and needs no state
-adoption, reset or migration by itself; source completion authorizes no deployment
-or runtime action, and unrelated release changes retain their own adoption rules.
-
-## Quick start
-
-Saivage is designed for an externally isolated LXC container in which trusted
-agents may have root access. See the
-[architecture trust model](docs/architecture/system-architecture.md#deployment-and-trust-model)
-before deployment. For a first agent-run trial, use a disposable target (such
-as a controlled copy) inside a trusted, externally isolated VM/container. A
-copy protects the original working tree, not the host; loopback binding limits
-listeners but does not contain agent
-commands or untrusted local/browser origins. Local builds and tests outside LXC
-remain supported. This trial deliberately disables operator authentication;
-follow the [runbook](docs/runbook/index.md) for deployment decisions.
-
-Use the latest supported Node.js 24.x LTS patch. The package engines require
-`node >=24 <25` and `npm >=10 <12`,
-matching GitHub Actions. Build from a source checkout, then initialize and start
-from the target project:
-
-```bash
-cd <SAIVAGE_SOURCE_CHECKOUT>
-npm ci
-(cd web && npm ci)
-npm run build
-SAIVAGE_BIN="/absolute/path/to/saivage-v3/bin/saivage.js"
-
-TARGET_PROJECT="/absolute/path/to/target-project"
-mkdir -p "$TARGET_PROJECT"
-cd "$TARGET_PROJECT"
-"$SAIVAGE_BIN" init
-# Before starting, configure a provider and point the model routes and
-# compaction summarizer at it; the bundled template ships no provider.
-# Follow the getting-started guide for the example configuration.
-env -u SAIVAGE_API_TOKEN "$SAIVAGE_BIN" start --host 127.0.0.1 --port 8080
-```
-
-Custom workflows can combine real agents with finite captured `shell.run`
-action nodes and explicitly compiled typed plugins. Executions has its own cockpit
-facet, never a fake conversation. A post-natural-commit hook is advisory, not a
-required acceptance check; incomplete evidence means effects unknown, not replay
-authority. Pause still gates providers only: admitted action chains can continue
-until the next provider frontier or natural completion. See
-[configuration](docs/guides/configuration.md#action-execution-and-typed-handoff).
-
-On a config-absent project, `init` defaults to `classic`; use `init --profile
-classic-typed` for typed workflows or `init --profile paad-typed` for the same
-typed configuration with optional PAAD-derived pushback, alignment and structural
-review guidance. See the [profile guidance and attribution](src/config/system-templates/paad-typed/README.md).
-This is prompt guidance, not measured quality or an additional runtime gate.
-Existing-config init preserves YAML, prompts and marker; it never switches or
-upgrades profiles. All three shipped project workflows route both candidate direct
-closure and approved review through Main Planner objective assessment before DONE;
-bounded acceptance alone is not project completion. See the
-[configured graphs and assessment contract](docs/spec/system-specification.md#shipped-project-completion-and-profile-graphs).
-Adopting removal of the old project notification-handler identity on a reached
-retained non-tombstoned project, including DONE/FAILED, requires separately
-consented complete reset or explicitly requested external offline migration, not
-only stopped input reconciliation; see [identity cutovers](docs/runbook/index.md#agent-and-workflow-identity-cutovers).
-
-The startup announcement reports the actual binding (including the OS-selected
-port for `--port 0`). Qualified wildcard output is not a browser destination;
-see [startup command inputs](docs/runbook/index.md#startup-command-inputs).
-
-The [getting-started guide](docs/guides/getting-started.md) walks through a
-complete minimal configuration and first objective, and the
-[configuration guide](docs/guides/configuration.md) documents every key. The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
-owns startup options and precedence; the [runbook](docs/runbook/index.md)
-owns deployment, configuration cutovers, lifecycle operations, recovery, and
-reset, including its [command-environment guidance](docs/runbook/index.md#command-environment).
-Successful startup and offline workflow loads report redacted advisory
-missing-environment warnings; see the [configuration guide](docs/guides/configuration.md).
-Successful fresh startup settles interrupted linked cards before listener/readiness
-and leaves execution stopped. Before card settlement, configured-global Analyst
-and established Oversight final unmatched tool calls receive uncertainty-only
-failed mates, without new submissions, checks, or global recovery notices; see the
-[global startup guidance](docs/runbook/index.md#configured-global-startup-settlement-and-invalid-history).
-An explicit Run starts project work. Same-process
-project Stop leaves any durable running chain for the next Run. See the
-[runbook lifecycle guidance](docs/runbook/index.md#activation-ownership-and-runtime-halt).
-For steering, the Analyst can queue normal context while work runs. Exceptional
-urgent context may stop exact active work and re-enter its recipient workflow;
-enqueue and interruption do not promise delivery or action. Without an eligible
-running owner it only queues until a later explicit Run; Pause still needs
-explicit Resume. See the [notification contract](docs/spec/system-specification.md#7-urgent-notification-ordering-implemented-shared-contract).
-
-For that auth-disabled trial, open the UI at `http://localhost:8080/` and the
-built documentation at `http://localhost:8080/docs/`, or check the public probes:
-
-The control room has **Cockpit**, **Files**, and **System**. The card cockpit
-keeps its tree and **Overview**, **Conversations**, **Records & History**, and
-**Evidence** facets together; the Analyst panel stays available for steering. Submitted [workspace focus](docs/spec/system-specification.md) is advisory context captured at Send, not continuous observation of the screen.
-See the authoritative [operator UI contracts](docs/spec/operator-ui-contracts.md).
-For selected-segment activation markers and bounded direct-control Events, see
-[exact evidence navigation](docs/runbook/index.md#open-exact-activation-evidence);
-the new durable event kind requires [incompatible adoption](docs/runbook/index.md#direct-runtime-control-event-adoption).
-Analyst submissions use REST only (`POST /api/chat`); WebSocket carries live observation subscriptions and freshness hints, not submissions or turn acknowledgements.
-
-```bash
-curl http://localhost:8080/health
-curl http://localhost:8080/health/ready
-```
-
-**Separate bearer-enabled API deployment example (not UI login):** the control
-room has no token-entry screen, so a bearer-enabled deployment presents
-unauthorized views in the browser. For a protected API request, send the bearer
-token only in the `Authorization` header, never in a URL. See the
-[runbook's authentication guidance](docs/runbook/index.md#operator-rest-authentication).
-
-```bash
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/processes
-```
-
-## Current documentation
-
-Confirmed typed provider overload retries indefinitely with exponential delays
-from 30 seconds to a 10-minute cap, including admitted policy pins and summary calls.
-Other failures retain their finite/terminal policies. Stop cancels requests and waits;
-cooperative Pause may remain pending. Each active HTTP consumption is bounded to
-15 minutes. See [provider overload operations](docs/runbook/index.md#provider-overload).
-
-Failed-provider request diagnostics are disabled by default. Explicit
-`saivage start --failed-provider-diagnostics <UUID>` opts into finite, private local
-capture (16 failure slots/one hour, at most 8 MiB per file). Project/prompt text
-remains sensitive after projection: it is not a secret-free export, complete raw
-request, replay fixture or receipt. New captures use diagnostic v3/policy-2; retained
-v1 files do not gain its privacy guarantees. See the [diagnostics runbook](docs/runbook/index.md#private-failed-provider-request-diagnostics)
-before enabling, inspecting or rolling back over retained captures.
-
-New here? Follow the overview and guides first. Exact rules and procedures live
-in the authority pages below; the guides summarize them rather than replacing
-them.
-
-| Link | Role |
+| You want to… | Start here |
 | --- | --- |
-| [Documentation overview](docs/overview.md) | Orientation summary: what Saivage is, the card model, agent roles, the run loop, and vocabulary. Not an authority. |
-| [Getting started](docs/guides/getting-started.md) | Guide: build, initialize, configure, start, and hand over a first objective. |
-| [Configuration](docs/guides/configuration.md) | Guide: every `saivage.yaml` key with annotated examples. |
-| [Operating a project](docs/guides/operating.md) | Guide: the control room, the Analyst conversation, and long-run operation. |
-| [System specification](docs/spec/system-specification.md) | Sole authority for product, runtime, CLI-visible behavior, and exact functional contracts. |
-| [Operator UI needs](docs/spec/operator-ui-needs.md) + [contracts](docs/spec/operator-ui-contracts.md) | Authority for operator web UI requirements and exact presentation contracts. |
-| [System architecture](docs/architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
-| [Durable format changes](docs/architecture/durable-format-changes.md) | Source-contract baseline and evidenced cutovers under [AGENTS Storage Policy](AGENTS.md#durable-format-versioning), not exhaustive compatibility certification or operational consent. |
-| [Operator runbook](docs/runbook/index.md) | Sole authority for deployment, startup, lifecycle, recovery, reset, and other operator procedures. |
-| [Validation internals](docs/validation.md) | Validation toolchain detail: guard contracts, CI job topology, and browser/E2E profiles. |
-| [README](README.md) | Introduction, minimal quick start, authority navigation, and repository validation profiles. |
-| [AI setup procedure](README-IF-YOU-ARE-AN-AI.md) | Subordinate seven-stage LXC setup procedure; follow its links to the authorities above. |
+| Try a first objective | [Fresh-project tutorial](docs/guides/getting-started.md) — build, initialize, configure, start, explicitly Run, end the trial |
+| Operate a project | [Operating guide](docs/guides/operating.md) and [runbook decision map](docs/runbook/index.md) — observe, steer, control and diagnose |
+| Develop Saivage | [Developer guide](docs/guides/development.md) — trace owners, extend contracts and select checks |
+| Retrieve an exact fact | [Reference map](docs/reference/index.md) and [agent navigation](docs/reference/agent-navigation.md) — requirements, procedures and source owners |
 
-For prompt customization, see the canonical [shipped project-guidance authoring guide](docs/architecture/prompts.md#authoring-shipped-project-guidance).
+Read the [documentation site](https://salva.github.io/saivage-v3/) or the same
+sources served at `/docs/` by a built running instance. For an authorized,
+AI-assisted LXC installation, use [the standalone setup task](README-IF-YOU-ARE-AN-AI.md).
+It does not authorize deployment merely by being opened.
 
-Bundled roles prefer selected dedicated file tools for authorized ordinary file work; Executor prefers available `apply_patch` for deliberate source edits over shell replacements, retaining appropriate `write`/`edit` use, including permitted records. Role-authorized builds/tests, Git, generators and legitimate pipelines still use shell. Executor's authorized Git-delivery guidance favors high-level operations, synchronized owned checkout/index paths and applicable combined-revision checks while preserving unrelated work. This is guidance, not enforced model behavior. Existing materialized/custom prompts need [deliberate stopped adoption](docs/architecture/prompts.md#dedicated-file-tool-preference), not an init upgrade.
+## Start safely
 
-Card operations supply fresh accepted bootstrap context and may declare finite
-record-conditioned prompts. Triggers use actual conversation record/view knowledge,
-not node re-entry; latest descriptor facts do not imply body recall. See
-[record-context compilation](docs/architecture/prompts.md#one-compiler-and-one-discriminated-host-contract).
-
-## Notable current behaviors
-
-- Codex uses stable owner-session cache affinity; reuse remains provider-dependent,
-  with no guaranteed hits or savings. This source-only change requires no reset;
-  other format cutovers still apply. Live efficacy needs separately authorized
-  [bounded commissioning](docs/runbook/index.md#codex-cache-affinity-and-bounded-commissioning),
-  not just source tests.
-
-- Latest provider-exchange metadata retains provider-reported input/output/total,
-  cached-input and reasoning-output tokens when reported; unknown is not zero and
-  subsets are not additional totals. This is not billing or complete accounting.
-  See [semantics](docs/spec/system-specification.md#provider-reported-token-usage) and
-  the separately authorized [incompatible payload adoption](docs/runbook/index.md#provider-usage-payload-adoption).
-
-- Strict startup errors require stop/disable restarts, positive no-owner verification,
-  a successful complete fresh preserved backup, then one exact offline report/consent
-  repair and separate restart. For example, from the project root:
-  `saivage repair --target card:card-a --backup /absolute/backup --report /absolute/fresh-report.md`.
-  Record and conversation targets use `record:ID/NAME` and `conversation:SESSION_ID`.
-  Absolute backup/report paths must be outside Saivage generated/lifecycle roots;
-  ordinary project source-side paths are allowed. Report must be fresh and outside
-  the declared backup as well.
-  Only both unusable card selections permit separately confirmed `--discard-card`;
-  non-root discard requires configured parent-permitted `--card-type`, project type
-  is fixed. Own data and former descendant reachability can be lost; FAILED is not
-  an operator-only hold (later ancestor Run may Planner-reopen unchanged placeholders).
-  No scans, reconstruction, automatic repair/restart or deployment authorization.
-  See the [full procedure and limits](docs/runbook/index.md#exact-target-offline-repair).
-
-- Card/record publications now require fresh `head_id` UUIDs alongside current
-  revision, and every card/record head and conversation index maintains one
-  previous hardlink slot. Normal reads/startup never use it as fallback; the
-  sequence is nontransactional and does not guarantee a usable prior selection.
-  The required identity field is a separate **incompatible format adoption**, even
-  with unchanged outer format 1 at its pre-policy introduction, not permission for
-  future version reuse. Exact-target offline repair is available; see the
-  [runbook](docs/runbook/index.md#previous-selectors-and-head-identity-adoption).
-
-- Cards use small current heads selecting immutable ordinary history and current-only mailbox UUID pointers; records select accepted predecessor history and current drafts. Queue-only revisions and draft-only record revisions are not historical selectors. Current freshness counts every mutation, catalogs count retained entries, and accepted provenance separates observed current card revision from its ordinary history link. Delivery appends conversation bodies before removing pointers and can repeat after interruption. Forgotten physical files remain ignored forever; this is not physical erasure, a queue audit, or solved check-once/startup certification. [Incompatible adoption](docs/runbook/index.md#external-migrations) chooses separately consented destructive reset or explicitly owner-requested external offline migration. No core compatibility/migration code, automatic conversion or implicit deployment/loss consent.
-
-- Provider-exchange evidence now belongs to each exact conversation session rather
-  than the app log; adopting this layout from an existing three-lane app log is a
-  **incompatible cutover**, not a same-format upgrade. Source
-  completion is not deployment or loss authorization. See the
-  [reset-versus-external-migration decision](docs/runbook/index.md#external-migrations).
-- Conversation compaction is model-aware (`context_utilization_fraction` 0.80,
-  `trigger_fraction` 0.90, `tail_fraction` 0.25) with one contextual
-  sequential-refine accumulator inside a shared 16-logical-call bound. A narrowly
-  identified first internal-summary refusal stops summary calls and permits only
-  eligible completed-summary reuse or local omission, never an identical policy retry.
-  Exhausted safe maintenance blocks the owning card without exposing provider prose. See the
-  [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
-   Conversation index/genesis/segment format **11** retains summary, protected
-  instructions, required model facts, and continuation without compaction
-  checksums or accumulated accounting. Adoption from earlier formats is a
-  **incompatible cutover** across all four generated roots: separately consented
-  reset loses history; explicitly requested external migration reports evidenced
-  fidelity and confirms any unavoidable concrete loss. Both require stopped exclusion
-  and a successful complete preserved backup; source completion authorizes no instance
-  action or binary-only rollback. See the
-  [storage and cutover rules](docs/runbook/index.md#storage-and-interruption)
-  ([prompt contract](docs/architecture/prompts.md),
-  [cutover procedure](docs/runbook/index.md#configuration-file-cutovers)).
-  Responses private rows additionally require successful-producer provenance;
-  same local provider/account identity retains encrypted reasoning, other
-  identities omit only encrypted reasoning before request admission. Adopting
-  this payload also requires the separate incompatible-adoption decision, even
-  with matching outer versions; those alone are not compatibility.
-  Current card heads/mailbox remain format1; ordinary/tombstone history bodies
-    require format4 with discriminated agent/action executor results and external attribution. Workflow input2,
-  operation `shell.run` contract1 and lazy card execution JSONL1 accompany this
-  [source cutover](docs/architecture/durable-format-changes.md#stateless-node-operations-2026-10-19).
-    Accepted documents4 include strict external-principal authorship under the
-    [external-attribution cutover](docs/architecture/durable-format-changes.md#external-analyst-operation-attribution-2026-10-20).
-    App log/provider evidence share rows envelope2; external settled receipts are
-    body-free observations, never synthetic Analyst conversation or provider turns.
-   Record heads3, conversation12 and initializer input1 are unchanged.
-  Source completion authorizes no deployment, external migration or destructive reset.
-- New projects enable an independent two-hour
-  [Project Oversight](docs/spec/system-specification.md#project-oversight)
-  check by default; its only project effect is an evidenced notification.
-- Growing JSONL families (conversation, app log, provider evidence, lazy card execution evidence) use exact owner-at-use reads that may discard
-  only a torn final suffix after full retained-prefix validation. Complete
-  corruption remains strict, older conversation segments remain immutable,
-  and uncertain truncation is fatal. See the
-  [interruption contract](docs/runbook/index.md#storage-and-interruption).
-- Process tools return bounded, redacted inline stdout/stderr heads with
-  completeness flags and durable log URLs
-  ([process result contract](docs/spec/system-specification.md#7-run-pause-resume-stop-and-restart));
-   adopting that payload from metadata-only rows is an incompatible cutover
-  ([procedure](docs/runbook/index.md#card-process-configuration-and-prompt-cutover)).
-- `glob`/`grep` results are packed into byte-bounded stateless pages
-  ([search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction)).
-
-## Verification
-
-Use the profile that matches the change; `docs/validation.md` owns the
-toolchain internals and CI topology behind them.
-
-For Vue core patches, use the [matched root/web comparison recipe](docs/validation.md#matched-vue-core-patch-comparison):
-backend routine validation alone does not cover the compiler, mounted UI and browser consumers.
-
-For ts-jest patches, use the [backend runner and scoped comparison guidance](docs/validation.md#backend-test-runner-ownership):
-declared peer compatibility does not replace semantic, terminal and natural-exit checks.
-
-The [offline compaction fact/action rubric](tests/fixtures/compaction-semantic-quality.md)
-complements mechanical regression tests; its frozen evidence does not establish
-changed-model fidelity.
-
-Build (and release through build) checks compiler-derived classic/classic-typed
-shared-template parity during prompt packaging, then runs compiled prompt
-composition with source/package byte comparison and all five selected roles.
-Routine validation does not run these build checks.
-
-| Profile | Runs | Use for |
-| --- | --- | --- |
-| `npm run validate:docs` | `docs:verify` (docs build + all drift guards); excludes `npm test` and `web:test:operator-smoke` | Documentation-only changes |
-| `npm run validate:routine` | typecheck, `check:export-consumers`, canonical-persistence drift, architecture Jest, `docs:verify` | Routine backend/runtime changes (not complete backend Jest or lint) |
-| `npm run validate:ui-smoke` | `npm run web:test:operator-smoke` | Quick UI/operator smoke |
-| `npm run validate:ui` | web typecheck, complete `web:test`, operator browser smoke | Web UI changes |
-| `npm run validate:release` | typecheck, build, non-E2E Jest, backend E2E, operator smoke, docs | Release sign-off |
-
-Focused backend commands: `npm test` is the
-complete non-E2E backend authority — it runs ordinary parallel Jest 30 (ts-jest ESM) followed by the exact serial
-real-terminal-child suite after ordinary workers exit. Use `npm run
-test:parallel -- <Jest arguments>` or `npm run test:direct -- <Jest
-arguments>` for focused tests in the ordinary Jest set, which excludes the
-terminal-child suite; run `npm run test:terminal-child` for that in-band
-exceptional suite, and `npm run test:e2e` for the backend E2E tier.
-Jest owns explicit JS/TS test families; the import-boundary `.cjs` regression
-suite remains owned by `node --test` through `npm run test:import-boundaries`.
-Release-profile success does not replace the separately required
-`npm run audit:security` high/critical gate for both root and web graphs.
-Export or backend boundary refactors require the focused semantic export test
-(`npm run test:direct -- --runInBand --runTestsByPath tests/scripts/export-consumers.test.js`),
-`npm run check:export-consumers`, `npm run test:import-boundaries`, and the full
-`npm test` parallel-plus-serial run. `validate:routine` runs only architecture Jest
-and is not sufficient validation for these refactors. Shared-root export changes
-also require `node scripts/check-web-browser-imports.cjs`,
-`npm --prefix web run build`, and focused root-consuming browser tests; Node
-typecheck and Jest alone do not establish browser eligibility.
-Required guards: `npm run check:export-consumers`, `npm run
-web:test:operator-smoke`, `npm run lint`, `npm run test:import-boundaries`,
-`npm run audit:security`, and `npm run deps:review`. Root and web
-dependencies must be installed before `npm run check:export-consumers`,
-`npm run lint`, or `npm run validate:routine`.
-
-For development-tool refreshes, run `node --test
-tests/scripts/devtool-security.test.cjs`, the focused Vitest lifecycle regression,
-and the existing browser-client smoke. See the [development-tool semantic
-checks](docs/validation.md#development-tool-semantic-checks) for commands and
-evidence limits; these supplement, not replace, the build/UI/browser and audit
-profiles.
-
-Opt-in offline compaction packing characterization (250/500/1000 small rows and
-bounded mixed tool/evidence/Unicode/image source, real adapters, synthetic completions):
-`timeout --kill-after=10s 120s node --import tsx tests/scripts/compaction-packing-characterization.ts`.
-It prints JSONL probe/byte/fold and wall/CPU observations with synthetic waits
-reported separately; redirect results under workspace `tmp/`. This is not live
-latency, semantic-quality evidence or a timing gate.
-
-`npm run lint` currently runs the export-consumer guard, stamp-producer guard, ESLint,
-backend import-boundary checks, web-component boundary check, reachable-browser
-import guard (`node scripts/check-web-browser-imports.cjs`), then the
-`npm run format` Prettier check. This sequence describes the current script;
-the cadence guard requires coverage and fail-propagating composition, not the
-relative order of independent checks. The formatter checks `src/` excluding
-`src/config/system-templates/**/prompts/**` with the existing Prettier settings
-and does not rewrite files. Shipped model-facing prompt bytes, including whitespace,
-are edited deliberately; packaging parity, source/package byte comparison, and
-compiled composition checks remain in build. The existing CI `lint-guards` job enforces this
-profile through `validation-required` under its applies/skipped semantics;
-`validate:routine` runs architecture Jest, not lint or the complete backend suite.
-
-CI notes: the always-run `routine-docs` job clean-installs both root and web
-dependencies before running `validate:routine` once, including its sole
-`docs:verify` gate; it does not separately run `validate:docs`.
-`backend-jest-build` also clean-installs root (`npm ci`) and web (`cd web && npm ci`)
-dependencies before build and non-E2E Jest. Required coverage and real setup
-prerequisites are enforced, not incidental ordering of independent operations.
-`npm run web:test:e2e:smoke` is the
-complete self-contained browser profile: it owns
-every production-preview smoke test
-and the one source browser-client test. The preview owner starts the
-production preview server; the browser-client owner starts the Vite
-dev server, and neither contacts a live Saivage deployment. After a failed or cancelled
-CI browser run, a best-effort artifact upload preserves
-`tmp/playwright-report` and `tmp/playwright-results`; missing output only
-warns. See [validation internals](docs/validation.md) for the guard
-contracts, full CI topology, and dependency governance.
+Use Node `>=24 <25` and npm `>=10 <12`; prefer the latest supported Node 24 LTS
+patch. Build from the Saivage source checkout, not the managed target:
 
 ```bash
-npm run check:export-consumers
-npm run validate:docs
-npm run validate:routine
-npm run validate:ui-smoke
-npm run validate:ui
-npm run validate:release
-npm run audit:security
-npm run deps:review
+npm ci
+npm --prefix web ci
+npm run build
 ```
 
-README owns validation selection and navigation, not product contracts.
+Then follow the [tutorial](docs/guides/getting-started.md) in a disposable target
+inside the isolated deployment. It separates these decisions:
+
+1. **Initialize** a fresh target with the built `bin/saivage.js init`. The default
+   is `classic`; optional `classic-typed` and
+   [paad-typed](src/config/system-templates/paad-typed/README.md) use typed workflows.
+   Existing-config init preserves inputs; it is not a profile switch or upgrade.
+2. **Configure** providers, all required model routes and the fixed summarizer.
+   Bundled templates ship no provider. Use the [configuration tasks](docs/guides/configuration.md)
+   and [exact field lookup](docs/reference/configuration.md); keep credentials private.
+3. **Start and inspect** readiness and the stopped project before authorizing work.
+   Startup does not imply Run. The browser has no token-login screen: an
+   auth-disabled trial requires deployment-owned network confinement; protected
+   API clients send bearer credentials only in `Authorization`, never URLs.
+4. **Supply the objective, then explicitly Run.** Project Stop contains project
+   work but leaves the server, Analyst and optional inbound listener available.
+   [Closing the application](docs/runbook/runtime-control.md#project-stop-and-application-close)
+   is a different operation.
+
+For retained state, do not use fresh init, reset or repair as a default upgrade
+step. Start with [the adoption decision](docs/runbook/state-adoption.md#choose-the-operation).
+Reset is destructive; exact current-format repair is not migration; external
+offline migration requires an explicit identified-project request and its full gates.
+
+## Documentation authorities
+
+| Owner | Exact responsibility |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | Repository engineering, safety and storage policy |
+| [System specification](docs/spec/system-specification.md) | Functional behavior and runtime/CLI/API contracts |
+| [UI needs](docs/spec/operator-ui-needs.md) and [UI contracts](docs/spec/operator-ui-contracts.md) | Operator requirements and exact presentation |
+| [System architecture](docs/architecture/system-architecture.md) | Ownership, dependency direction, flows and source-derived inventories |
+| [Prompt handling](docs/architecture/prompts.md) | Selection, composition, retention and deliberate customization |
+| [Runbook](docs/runbook/index.md) | Deployment, control, diagnosis, evidence and state-adoption procedures |
+| [Durable format reference](docs/architecture/durable-format-changes.md) | Current source baseline and bounded historical change evidence, not installation compatibility certification |
+
+Guides teach tasks; they do not replace these owners. Public docs are not
+automatically injected into runtime agents. Source edits alone do not update
+materialized prompts or authorize installed-state adoption.
+
+## Choose validation
+
+Install both root and web dependencies first. Use focused owner tests, then the
+profile appropriate to the change; [Validation](docs/validation.md) owns exact
+coverage, prerequisites, specialized recipes and CI interpretation.
+
+| Command | Select for |
+| --- | --- |
+| `npm run validate:docs` | Documentation build, contract/parity/link/source/cadence checks; no complete backend or UI suite |
+| `npm run validate:routine` | Backend typecheck, export/persistence guards, architecture Jest and docs; not lint or full backend Jest |
+| `npm run validate:ui-smoke` | Quick operator Vitest and selected browser smoke |
+| `npm run validate:ui` | Web typecheck, complete web Vitest and operator smoke |
+| `npm run validate:release` | Local release composition: typecheck, full build, backend non-E2E and E2E, operator smoke, docs |
+
+Release success does **not** replace the separate `npm run audit:security`
+high/critical gate. `npm run lint` and `npm run deps:review` have their own
+[coverage and applicability](docs/validation.md#select-a-profile).
+Local results do not establish exact-SHA CI success, provider behavior or deployment
+readiness. Validation grants no live restart, Run, reset or migration permission.

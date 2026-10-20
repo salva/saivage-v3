@@ -1,50 +1,32 @@
 # Operator UI: Exact Contracts Register
 
-Prepared format-12 activation evidence uses named `activation_id`, `caller`, `card`,
-`parent_direction`, `role_text` and `node` fields. Root/card ingress records its actual
-activation and stable orientation; global preparation has null activation/card/parent
-and a global caller. Parent callers record exact parent card/session/source-input/call/
-tool provenance, with separately recorded rendered parent direction. Privacy applies
-independently to text and metadata. Non-model ingress stays `not_applicable`; unrecorded
-instructions stay `unavailable`. History is never filled from current configuration.
+This register owns exact presentation and navigation for the operator web UI.
+Use the [needs register](operator-ui-needs.md) for stable F requirements and owner
+decisions, the [system specification](system-specification.md) for backend behavior,
+and the [runbook](../runbook/) for procedures. Presentation of retained evidence
+never grants mutation authority or certifies current execution.
 
-At prepared boundaries, **Parent activation direction** and **Caller and card
-orientation** disclose complete privacy-filtered recorded values with safe full copy.
-Root/global callers explicitly have no parent direction. Conditional `record_prompt`
-bytes render as **Recorded workflow instruction** in actual source order, with
-initial/changed provenance. **Recorded record observations** identifies owning
-read/mutation/preparation/prompt, selection kind/view, accepted/draft/absence and
-metadata/slice/full_body/reference_only/excerpt exposure. Slice byte coordinates remain exact.
-Excerpt is a non-complete source-body presentation, not a contiguous byte range.
-Oversized prompt JSON strings contain a marked encoded/redacted display preview;
-their notice reports display-byte omission, not source offsets, and links latest
-effective content without a version selector. That read can return a newer draft.
-The UI does not decode fragments or reconstruct omitted historical text. Full
-record/current/history APIs, pagination and immutable evidence links are unchanged;
-no new UI workflow or read-completeness claim follows.
-Compacted latest descriptors retain original source coordinates/time and are not
-inserted into the timeline as fresh observations. **Inspect immutable record evidence**
-selects only the recorded accepted locator (including draft backing), not today's
-record/template or historical request bytes. Preparation descriptors explicitly state
-that full prepared record text was not recorded. Public row policy omits internal
-hashes, templates and evidence arguments; descriptor hashes are omitted independently
-from text redaction, including protected copies and required facts. Existing tool
-pairing, exact anchors, inline scrolling and current-config/Debug Graph views remain.
+## Product model
 
-Current, exact-history and retained-protected record instruction disclosures and full
-copy use the same server-filtered string, including recognized secrets inside the
-supplier's JSON-quoted record text. Display/copy preserves safe encoded spelling; it
-is neither a decoded record body nor raw original bytes. The browser adds no decoding
-or redaction owner, and canonical stored history remains unchanged.
+- Inspect backend projections; request project Start/Stop/Pause/Resume through enabled
+  internal Analyst chat or configured external MCP tools. Only capability-gated,
+  confirmed **Restart server** is a direct runtime UI mutation, and it starts no work.
+  Cards, records, queues, processes, routes and settings have no direct mutation
+  affordances. Displayed permissions never reserve invocation-time admission.
+- Every view, copied value, link and tool payload uses backend-owned safe projection.
+  Provider exchange metadata is not raw HTTP, a prompt or a private-reasoning view.
+- There is no token-entry, sign-out, provider-secret or bootstrap UI. Expected browser
+  deployment is auth-disabled behind deployment-owned isolation. Backend bearer support
+  remains. Unauthorized states do not ask for a token or offer an in-browser remedy.
+- Tombstones stay absent from discovery. Exact known history/version/diff, historical
+  `card.json` and retained-conversation access never permits a deleted-card inventory,
+  replacement search, restoration, forensic browser or orphan scan.
+- No visit timestamps, unread/read models or saved reading positions survive views/
+  visits. Ephemeral logical Back and mounted scroll/pause-follow stability are mechanics.
 
-Outstanding named-agent execution includes provider overload/backoff, not just
-active wire consumption. Existing provider-resource refresh reports advisory
-cooling/reason/deadline, not an exact send countdown. Compaction in-flight means
-one logical summary call outstanding; overload retries add no completed folds.
-Recorded exchanges may appear only at settlement. No provider wait is represented
-as the exact tool/child/process waiting barrier. Cooperative Pause may remain
-`pausing` while admitted work continues; Stop is containment. These clarifications
-change no presentation fields or rendering contract.
+The topic owners below separate runtime observation, exact navigation, hierarchy,
+records, conversations, Analyst availability, Files/evidence and System diagnostics.
+Shared JSON and legibility contracts apply across them without changing wire data.
 
 ## Shared JSON data display
 
@@ -147,7 +129,11 @@ tool is an image producer. `view_image` selects one workspace descriptor; config
 native MCP production selects every native image in content order. MCP envelope
 metadata and indexed capture dimensions/orientation/resize/scale/bound are separate
 explicit JSON sections, with no required or fabricated `source_path` and no duplicate
-native text/descriptors. Concise MCP lifecycle/discovery presenters show recorded
+native text/descriptors.
+
+## Configured MCP presentation
+
+Concise MCP lifecycle/discovery presenters show recorded
 ready/stopped outcomes (including context-loss caution) and complete JSON input schemas,
 not browser controls or delivery claims. Authenticated POST lifecycle routes use the
 shared operator contract/auth machinery and strict empty bodies, including
@@ -186,49 +172,20 @@ paired exact anchors and one reading surface remain unchanged.
 
 ## Repair visibility and selection identity
 
-No degraded UI, repair button or attic browser is provided. Strict startup failure keeps readiness unavailable; repair is the separately consented offline CLI procedure in the [runbook](../runbook/index.md#exact-target-offline-repair). Files omits `.saivage/repair-attic` and resolved aliases from parent listings and rejects direct directory/content/preview access before attic bytes or directory contents are inspected. Similarly named ordinary siblings remain accessible. Missing owning-card current/historical `record:///` URLs show **Card not found**, distinct from existing-card record/version misses and consumed corruption.
+No degraded UI, repair button or attic browser is provided. Strict startup failure keeps readiness unavailable; repair is the separately consented [offline CLI procedure](../runbook/state-adoption.md#current-format-repair). Files omits `.saivage/repair-attic` and resolved aliases from parent listings and rejects direct directory/content/preview access before attic bytes or directory contents are inspected. Similarly named ordinary siblings remain accessible. Missing owning-card current/historical `record:///` URLs show **Card not found**, distinct from existing-card record/version misses and consumed corruption.
 
 Current card/record freshness uses exact `head_id` plus mutable revision, not numeric revision equality or old authored reviewer text. Historical selections have no current identity. Conversation incremental/sync baselines use exact segment UUID and version; rollback or re-created ordinal forces replace/refetch rather than mixing retained cursors/messages or suppressing lower-version invalidation.
 
 Synthetic `runtime:repair` FAILED v1 is shown through ordinary canonical card and Files projections, including loss `status.md` and bootstrap placeholder requirements. No previous completion/verdict is implied. FAILED rejects direct activation while FAILED, **not** an operator-only repair hold: later explicit healthy-ancestor Run can let its active Planner reopen to CHANGED and execute unchanged placeholders. Guidance to replace requirements first is not enforced. Former physical children are unlinked/ignored, not recovered or listed through an attic inventory.
 
-Status: canonical operator-UI contracts register, created at the Card Cockpit
-cutover (owner decision Q1, 2026-09-20; 2026-09-24). It is paired with the
-needs register in [operator-ui-needs.md](operator-ui-needs.md); together they
-replace the retired `docs/spec/operator-ui.md`. Backend wire contracts remain
-owned by [system-specification.md](system-specification.md); this register
-owns surviving UI-facing wire/behavior contracts and the exact presentation
-contracts the current Card Cockpit implements.
+## Runtime observation and the global strip
 
-## 1. Product model
-
-- Projection-oriented inspection with Analyst-mediated mutation. Project start,
-  stop, pause, and resume are requested through enabled internal Analyst chat or configured external MCP tools, not
-  direct UI controls. The sole direct runtime mutation is capability-gated,
-  confirmed **Restart server**; it does not start project work. Agent-owned
-  cards, records, notifications, processes, routes, and settings gain no direct
-  mutation affordance; displayed permissions never
-  reserve invocation-time admission.
-- Backend-owned safe projections govern every view, copied value, link, and
-  tool payload. Outbound secret non-disclosure and redaction are unchanged.
-  Provider exchange presentation is metadata only (provider/model/account and
-  settlement/request-parameter facts), never raw HTTP bodies or prompt views.
-- There is no authentication/bootstrap UI: no token entry, sign-out, or
-  provider-secret entry. Deployments are expected to run auth-disabled behind
-  deployment-owned isolation; backend bearer-auth capability is unchanged for
-  deployments that want it. Unauthorized surfaces present honest
-  resource-specific rejection and must not instruct the operator to provide,
-  re-enter, save, clear, or retry with a token, or offer sign-out.
-- Tombstones stay absent from discovery. Exact retained-evidence exceptions
-  (card history/version/diff, `card.json?v=N`, known retained conversations)
-  never authorize a deleted-card inventory, forensic browser, replacement
-  search, restoration, or orphan scan.
-- The UI keeps no operator-visit state: no viewing timestamps, unread/read
-  models, or recorded reading positions retained across views or visits.
-  Ephemeral logical Back history and mounted-presentation stability
-  (including pause-follow) are mechanics, not visit state.
-
-## 2. Runtime observation and the global strip
+Outstanding named-agent execution includes overload/backoff, not just wire
+consumption. Provider refresh shows advisory cooling/reason/deadline, not a send
+countdown. Compaction in-flight is one logical summary call; overload retries add
+no completed folds. Exchanges may appear only at settlement. A provider wait is
+not the exact tool/child/process barrier. Pause can remain `pausing` while admitted
+work continues; Stop is containment, not evidence that every effect was undone.
 
 - The browser runtime authority is the accepted `runtime.status` observation
   used together: `runtime` lifecycle label, `currentCardId`, and
@@ -294,12 +251,8 @@ contracts the current Card Cockpit implements.
   Attempts do not guarantee successful reads. Processes and Events have no
   invalidation resource and use explicit Refresh.
 
-## 3. Identity, routes, and navigation
+## Executions and selected output files
 
-- Conversation session identity is the exact `agent:<name>:<cardId|global>`
-  grammar. Malformed session routes render a distinct invalid-session state
-  without mounting detail; malformed card routes make no detail request and
-  share the typed **Card not found** presentation.
 - **Executions** is a separate card facet, not an agent or conversation. It reads
   `GET /api/cards/:id/executions` in retained row order (default 50, maximum 100
   rows; optional exact `after` row UUID cursor), and
@@ -349,6 +302,14 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
   "$ORIGIN/api/cards/$CARD_ID/executions/$INVOCATION_ID/files/$FILE_KEY/download"
 ```
 
+## Identity, routes, and navigation
+
+Conversation identity uses exact `agent:<name>:<cardId|global>` grammar. Malformed
+session routes show a distinct invalid-session state without mounting detail.
+Malformed card routes make no detail request and share typed **Card not found**.
+
+### Exact routes and workspace history
+
 - The singular route table is `/` (cockpit home: accepted current work,
   accepted **No current work**, or honest unknown/loading/error before
   acceptance), `/cards` (explicit tree/selection surface),
@@ -387,6 +348,8 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
 - Analyst chat context is a detached `{view, entityId, refinement}` copy captured at Send, not a live route. Views are cockpit/files/system or null; entity identity is opaque and refinements are opaque string metadata (not evidence of reading a facet or entry). The strict serialized context is bounded to 2048 UTF-8 bytes; invalid input preserves the draft and reports the send error, without truncating identity or retrying. Server preparation may add only a bounded linked-card or owning-card snapshot for exact cockpit card/session identity; Files/System identity supplies no content. Displayed context is not evidence the Analyst has read it.
 - A rejected capacity submission is not automatically resent. A later explicit Send is a fresh submission on retained history; earlier ingress, compaction or tool effects/results may already be present. Rejection is not a success acknowledgement or proof of no effects; existing error/draft handling is unchanged.
 - Analyst form/Enter submission and System participant refresh consume action failures at their UI event boundaries. Store-owned send feedback/restored drafts and initial/refresh inventory errors remain visible; failed sends do not run success-only composer focus. Targeted global membership observations retain sibling sessions and explicit System selection.
+### Shared card context and work-first Overview
+
 - The shared card header stays compact on every cockpit facet and on the
   exact card-session reader: title, type, one lifecycle badge, exact identity,
   represented path, and one plain-language **Observed workflow step** lead.
@@ -409,9 +372,25 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
   then **Parent and related work**. Detailed workflow mechanics remain
   available from the shared header rather than leading the reading order.
 
-Plain resource reads cancel their pending request when their owner departs. Superseded success or failure cannot change the current view or clear newer loading. System resources and diagnostic/MCP refreshes retain last-good values on failure; file selection and exact-session resolution clear departed content. Current-card orientation retains its last accepted detail, identified by that detail's own ID, separately from its current admission outcome (`idle`, `loading`, `observed`, `not-found`, `failed`, `unauthorized`). Each accepted non-null identity/admission transition starts one exact read and clears the prior outcome; return to the prior card after another identity, null or revoked admission always reads again. Null/unaccepted/runtime-unauthorized observations cancel pending work and set idle without erasing detail. Unchanged identity/admission adds no refresh trigger. Only an owned success replaces retained detail; owned failures classify the current acquisition without proving deletion, and cancelled/late callbacks publish nothing. These request-lifetime rules do not replace Cards freshness or conversation lease contracts, nor change runtime refresh-failure retention.
+### Request ownership and retained observations
 
-## 4. Card tree and hierarchy
+Departing plain resource owners cancel pending reads; superseded success/failure
+cannot change the current view or clear newer loading. System and diagnostic/MCP
+refreshes retain last-good values on failure; file selection/exact-session resolution
+clear departed content. These are resource-owner rules, not a new universal request
+abstraction or a replacement for Cards freshness and conversation leases.
+
+Current-card orientation separately retains the last accepted detail, identified by
+its own ID, and current admission outcome: `idle|loading|observed|not-found|failed|unauthorized`.
+Each accepted non-null identity/admission transition starts one read and clears the
+prior outcome. Returning after another identity, null or revoked admission reads
+again even when the old detail ID matches. Null/unaccepted/runtime-unauthorized
+observations cancel pending work and set idle without erasing detail; unchanged
+identity/admission creates no refresh trigger. Only owned success replaces detail.
+Owned failure classifies acquisition, not deletion; late/cancelled callbacks do
+nothing. Runtime refresh-failure retention is unchanged.
+
+## Card tree and hierarchy
 
 - Hierarchy slices are the sole render authority. Discovery states are
   `undiscovered`, loading, error, loaded-empty (configured-empty types),
@@ -428,7 +407,9 @@ Plain resource reads cancel their pending request when their owner departs. Supe
   only requested immediate children. No bootstrap global inventory or
   transcript fan-out.
 
-## 5. Records, versions, and diffs
+## Records, versions, and diffs
+
+### Content state, authorship and installed declarations
 
 Accepted records expose the strict `author` union, not `writer_agent`.
 Records shows **Agent · name**, **External credential holder · principal**,
@@ -507,6 +488,8 @@ configuration, not evidence that a report was published or a verdict accepted.
   does not hide the objective, recorded result, or other usable records, and
   Retry does not reload unrelated successful records. Parent-detail 404 tears
   down card-owned reads.
+### Historical selection and comparison
+
 - Selected card/record history is a committed immutable ordinary/accepted predecessor document: a
   failed history or exact selected-version request (sparse card versions or consecutive
   accepted record document versions) is an ordinary selection-local
@@ -558,7 +541,41 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 ```
 <!-- saivage:value-contract:displayed-current-diff:end -->
 
-## 6. Conversation readers
+## Conversation readers
+
+### Recorded preparation and record observations
+
+Prepared format-12 activation evidence uses `activation_id`, `caller`, `card`,
+`parent_direction`, `role_text` and `node`. Card ingress records actual activation
+and stable orientation. Globals have null activation/card/parent and a global
+caller. Parent callers retain exact card/session/source-input/call/tool provenance
+and rendered direction. Independently filter text and metadata. Non-model ingress
+is `not_applicable`; missing recording is `unavailable`, never current configuration.
+
+At the prepared boundary, **Parent activation direction** and **Caller and card
+orientation** disclose complete safe values with full copy. Root/global explicitly
+have no parent direction. Source-ordered `record_prompt` is **Recorded workflow
+instruction**, with initial/changed provenance. **Recorded record observations**
+names the owning read/mutation/preparation/prompt, selection/view, accepted/draft/
+absence, and metadata/slice/full_body/reference_only/excerpt exposure. Slice
+coordinates are exact; excerpt is not complete body or a contiguous source interval.
+
+Oversized prompt JSON contains a marked encoded/redacted display preview. Its notice
+counts omitted display bytes, not source offsets; a versionless link reads latest
+effective content, possibly a newer draft. Decode no fragments and reconstruct no
+omitted history. Full APIs, pagination and immutable links retain their existing
+contracts; this adds neither a new workflow nor a completeness claim.
+
+Compacted descriptors retain original coordinates/time, not fresh timeline entries.
+**Inspect immutable record evidence** selects only the recorded accepted locator,
+including backing, not today's record/template or request bytes. Preparation
+descriptors explicitly say full prepared text was not recorded. Public policy omits
+internal hashes, templates and evidence arguments, independently of prose redaction,
+including protected copies/facts. Current/history/protected copy preserves the same
+server-filtered JSON-quoted string, not decoded/raw originals. The browser neither
+decodes nor becomes a redaction owner; canonical history remains unchanged.
+
+### Segment selection, reading and tool exchanges
 
 Explicit JSON tool data and context/technical JSON use the
 [shared JSON data-display contract](#shared-json-data-display); string-valued
@@ -811,7 +828,7 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   (via `GET /api/chat`) is retained; its inspector and the ordinary Analyst
   conversation consumer are never mounted together.
 
-## 7. Analyst panel
+## Analyst panel and external-only mode
 
 - Mount the interactive desktop/mobile Analyst pane only after backend identity resolves with `internal_enabled:true`, except while its exact read-only inspector owns the transcript. Pending/error availability mounts no composer and never authorizes sending. Availability failure remains visible. Suppression removes the pane, skip link/target, mobile tab/activity indicator and focus shortcut/help entry, and gives the workspace its width back. The exact disabled Analyst inspector explains that interaction is disabled and retained history is read-only. Hiding never deletes browser drafts or server history. Internal/both retain ordinary busy, draft, navigation and focus behavior. External operations are visible through canonical records and bounded audit projections, never synthesized chat messages.
 
@@ -843,7 +860,9 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   any reported stopped IDs; neither suppression nor queue success promises receipt,
   handling or re-entry. Failed queue refusal preserves the recorded reason/status.
 
-## 8. Files, processes, and evidence
+## Files, processes, and evidence
+
+### Text, private namespaces and current images
 
 - Physical text previews consume complete UTF-8 files up to 1,048,576 raw bytes
   (1 MiB), without truncation. CJK, emoji and other Unicode text are supported;
@@ -860,7 +879,7 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   local hashes, not public evidence. No UI inspector/export/control or API link is
   provided. Canonical exchange evidence remains metadata-only; a private explicit
   `content_filter` observation may coexist with canonical `ok`. Content-policy
-  dashboard counts are not a complete census of internal-summary refusals.
+  historical refusal counts are not a complete census of internal-summary refusals.
 
 - Eligible ordinary static PNG/JPEG/WebP are recognized by content and successful
   decode, not extension. `files.content` returns strict image metadata without
@@ -881,6 +900,8 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   spelling/precision are preserved. This is projected/redacted received text, not
   a claim to expose private original file bytes. Existing JSON content type,
   `+json` or `.json` path classification is unchanged; text logs remain text.
+
+### Listing freshness and virtual records
 
 - Files is the canonical virtual-file read-only browser (metadata/output
   roots, breadcrumbs, `card.json[?v=N]` format reads, typed failures, safe
@@ -914,6 +935,8 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   immutable; complete corruption remains unavailable/error, and publication
   uncertainty is fatal before a response, not translated to not-found or Retry.
   No browser repair action or new control is introduced.
+### Process observations and evidence navigation
+
 - Process rows carry supplied owner/card identity, status, and canonical
   `work:///` log references. Successfully stopped scope-tree selections disappear
   after terminal settlement and retirement. Retirement does not erase a known link or
@@ -944,7 +967,7 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   facts anchored in durable publication order, never as one canonical
   cross-session order.
 
-## 9. System surface
+## System surface
 
 - Configuration, provider exchange metadata and technical graph/error JSON use
   the [shared JSON data-display contract](#shared-json-data-display), after their
@@ -988,7 +1011,7 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   conversation with epoch diagnostics (waiting/checking/unavailable) and no
   manual check, configuration editor, or trigger.
 
-## 10. Legibility presentation register (2026-09-25)
+## Shared legibility
 
 Presentation-only layer over the surfaces above; no request, contract, or
 honesty-rule changes. Owners: `web/src/utils/legibility.ts` and

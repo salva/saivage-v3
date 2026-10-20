@@ -1,232 +1,174 @@
-# What is Saivage
+# What is Saivage?
 
-Status: orientation summary. This page introduces the system and its vocabulary
-for readers. It owns no contract; every statement below is derived from the
-linked authorities — the [System specification](spec/system-specification.md),
-[Operator UI needs](spec/operator-ui-needs.md) and [contracts](spec/operator-ui-contracts.md),
-[System architecture](architecture/system-architecture.md), and
-[Operator runbook](runbook/index.md).
+Saivage coordinates software work in a target project over long runs. You supply
+an objective and constraints; configured agents break work down, perform tasks,
+assess results and revise plans. The web control room lets you follow the work and
+ask the Analyst to steer it. It can support a bounded fix or a much larger project;
+completion time, correctness and minimal intervention are goals, not guarantees.
 
-## What it does for you
+This is an explanation. Exact behavior belongs to the [system specification](spec/system-specification.md),
+presentation to the [UI contracts](spec/operator-ui-contracts.md), and operating
+procedures to the [runbook](runbook/index.md).
 
-Persistence is deliberately loss-tolerant, not guaranteed preservation. Strict
-startup may block readiness; supported offline exact-target repair requires stopped
-ownership, a fresh complete backup, external report and explicit consent, followed
-by separate restart. It never regenerates heads or scans history. Catastrophic
-both-unusable-card-selections discard loses own data and unlinks former descendants,
-leaving physical children ignored. Its synthetic FAILED replacement is not an
-operator-only hold: later explicit ancestor Run can Planner-reopen and execute
-placeholder requirements. Incompatible adoption separately chooses consented reset
-or explicitly owner-requested [external migration](runbook/index.md#external-migrations). See the
-[operator ladder](runbook/index.md#exact-target-offline-repair).
+## From objective to cards and workflows
 
-Saivage is autonomous software engineering built for the long run. Its aim is
-to carry a software project all the way — from a specification to an accepted,
-evidenced delivery — with minimal user intervention. You describe what the
-project must achieve; Saivage turns that specification into its own plan and
-work tree, then implements, tests, reviews, and integrates the work, hour
-after hour and day after day, escalating to you only when a real decision,
-resource, or input is genuinely missing.
+The work tree begins with one **project card**, whose fixed identity is `project`.
+A card is a unit of work with a title, lifecycle state, records and a configured
+**workflow**. Planners can create child cards, such as `card-a` and `card-a-b`.
+Identity describes ancestry, not display order or a task's mutable title.
 
-Bounded work — a defect fix, a feature, a codebase translation, a research
-question answered with evidence — is simply the small end of that range. The
-same runtime is designed to hold a multi-week objective: it keeps its plan
-current as findings arrive, repairs its own completed work when review
-requires it, and records every command, change, test run, and decision
-durably, so you can watch the work live or audit it afterwards.
+A workflow is a graph of **nodes** and outcome **edges**. A node either invokes a
+named agent or runs a finite action. Its edges determine the next node or terminal
+outcome. An **activation** is one execution of this graph, admitted and coordinated
+by the runtime; it is not the same thing as an agent's persistent conversation.
 
-You stay in charge throughout. You steer the project through a single
-conversation, you can pause, resume, or stop the work at any time, and
-planning results are accepted only through independent review against their
-stated brief.
+For example, a project might delegate a code task, then inspect its result and
+request review. The `classic` profile gives most leaf types one execution node;
+`classic-typed` and `paad-typed` give them specialized graphs, such as
+code red→green→refactor and test diagnose/coverage/repair/verify paths. Those paths
+are configured work policies, not a hard-coded universal development lifecycle.
+See [profile selection](guides/configuration.md#choose-a-fresh-profile).
 
-## How it works
+Cards use `backlog`, `changed`, `running`, `blocked`, `stopped`, `done`, `failed`
+and `cancelled`. A state describes runtime acceptance, not independent proof that
+the software works. An owning Planner may reopen its own done/failed child for
+correction; cancelled work remains terminal. The complete
+[lifecycle contract](spec/system-specification.md#exact-card-lifecycle-vocabulary)
+owns the allowed transitions.
 
-Under the hood, an objective becomes a visible tree of **cards**: planner
-agents decompose the work, executor agents perform the terminal cards, reviewer
-agents assess results, and the runtime alone dispatches work between them. The
-human operator observes everything through a web control room and steers
-through one conversation with the global Analyst agent. The rest of this page
-introduces that machinery.
+## Agents and actions
 
-Saivage runs inside an externally isolated LXC container in which trusted
-agents may have root access; the deployment, not Saivage, supplies that
-isolation. See the [trust model](architecture/system-architecture.md#deployment-and-trust-model).
-
-## The card model
-
-All work is represented as **cards** in one rooted tree:
-
-- The fixed root is the `project` card; every other card is its descendant.
-- **Planning cards** (`project`, `goal` in the bundled templates) are owned by
-  a Planner and decompose work into child cards.
-- **Terminal cards** (`code`, `test`, `doc`, `data`, `research`, `ops`, and in
-  one bundled template `architecture`) are owned by an Executor and perform the
-  actual work.
-- Each card carries configured **records** — always `brief.md` as the bootstrap
-  record, plus `status.md`, and `review.md` for the types that declare it
-  (`project`, `goal`, and `architecture` in the bundled templates). Each
-  record is a chain of immutable versions selected by a replaceable head
-  (the latest accepted version plus the current draft), and additional names
-  can be configured.
-- Each card runs a configured **workflow graph** whose nodes select real agent
-  sessions or finite stateless actions and whose edges are validated outcomes.
-  Actions have separate execution evidence, not synthetic conversations.
-  For example, bundled terminal `code`
-  cards use a red/green/refactor loop; `test` cards use
-  diagnose/add-coverage/repair/verify.
-- Card identity is hierarchical and immutable (`project`, `card-a`,
-  `card-a-b`, …); display names and ordering are separate mutable data.
-
-Cards have an exact lifecycle vocabulary:
-`backlog`, `changed`, `running`, `blocked`, `stopped`, `done`, `failed`,
-`cancelled` — see the
-[exact lifecycle contract](spec/system-specification.md#exact-card-lifecycle-vocabulary).
-`done` and `failed` can be reopened by their owning Planner; `cancelled` is
-terminal forever.
-
-## Agent roles
-
-| Role | What it does |
+| Responsibility | Typical bundled role |
 | --- | --- |
-| **Planner** | Owns planning cards. Decomposes objectives into children, orders them, notifies and activates children, and may reopen its own done/failed children for correction. Does not implement, build, or test itself. |
-| **Executor** | Owns terminal cards. Performs the work of each workflow node: code, tests, documents, research, data work, or operations. |
-| **Reviewer** | Assesses completed planning work against its brief and records; accepts or requires revision. |
-| **Analyst** | The single global agent the human operator talks to. It is the ordinary operator surface: it can create and reopen cards, edit records, read state, and drive runtime control, all inside one conversation. |
-| **Oversight** | An optional periodic (default two-hour) read-only check by its own global agent. Its only project effect is an evidenced notification to a planning-capable card. See [Project Oversight](spec/system-specification.md#project-oversight). |
+| Turn operator context into project changes and runtime-control requests | **Analyst**, a global agent |
+| Decompose, order and activate child work; assess and replan | **Planner**, on planning cards |
+| Implement, investigate, test or document the current task | **Executor**, on leaf work |
+| Independently assess configured planning or architecture results | **Reviewer** |
+| Periodically inspect running work and send evidenced notifications | **Oversight**, an optional global agent |
 
-Each named agent gets an exact compiled prompt, tool inventory, and model route
-from the selected configuration; creation, activation, and reopening authority
-is configured per role and per card type, never inferred from a role label.
+Names do not grant authority. Each declaration selects a prompt, model route,
+session scope, exact tools and record-write patterns. The card type separately
+restricts child types and workflow participants. Bundled Planners delegate rather
+than implementing/building/testing themselves. Oversight is read-only apart from
+its notification intervention; it is not another execution owner.
 
-## The run loop
+An **action**, such as `shell.run`, has no model or conversation. It receives typed
+inputs, executes its compiled operation and returns a declared outcome. Required
+checks belong before acceptance in the graph. An optional postcommit hook is
+advisory and cannot turn an accepted DONE into an unaccepted result.
 
-1. An operator explicitly starts a **Run**; the root planning card activates
-   and its Planner works its graph.
-2. The Planner creates child cards, notifies them with context, and activates
-   them; activation ownership is tracked exactly by the supervisor.
-3. Executors and Reviewers run their nodes; tool calls and provider exchanges
-   are recorded as durable evidence.
-4. Terminal outcomes settle each card (`done`, `failed`, `blocked`); the parent
-   Planner reacts — accepting, correcting via reopen, replanning, or blocking —
-   until the root objective is accepted by review.
-5. The operator can **Pause**, **Resume**, or **Stop** the run at any time;
-   after a process restart, successful startup settles the interrupted linked
-   card chain before availability but does not start work; after same-process
-   Stop, the next explicit Run settles remaining running cards. See
-   [Run, Pause, Resume, Stop, and Restart](spec/system-specification.md#7-run-pause-resume-stop-and-restart).
+## Execution and review
 
-The [operating guide](guides/operating.md) walks this loop from the
-operator's seat, panel by panel.
+1. You settle the root objective with the Analyst, then explicitly request a **Run**.
+2. The runtime activates the root. Its configured Planner can create and activate
+   children, supplying current direction through the supported activation operation.
+3. Agents use their tools; actions use their declared capabilities. Record gates,
+   dependency rules and configured outcomes govern acceptance.
+4. Results return to the parent. It can accept, arrange review, reopen its own
+   child for correction, replan, or report a missing decision. Bundled root workflows
+   include a Planner completion assessment after approved review: remaining
+   authorized work leads back to planning, not premature project completion.
+5. You inspect and steer while the Run continues, or deliberately pause/stop it.
 
-Long agent conversations are kept viable by **conversation compaction**: when a
-session's context approaches its model's window, the runtime summarizes covered
-history into a new segment under exact admission and coverage rules. See the
-[runbook compaction section](runbook/index.md#prepared-conversation-compaction).
+Normal notifications supply context; urgent notifications can interrupt exact
+active work and cause recipient-first recovery. Queueing is not proof of delivery
+or action. After a server interruption, successful startup settles the interrupted
+linked card chain to stopped without launching work. A later explicit Run starts
+at the root; descendants require ordinary parent activation.
 
-## Operator surfaces
+**Pause** gates new provider work cooperatively; it is not a barrier for every
+action or command. **Resume** continues the paused Run. **Project Stop** contains
+project execution but leaves the application and Analyst available. Application
+close and confirmed server restart are different operations. Use the
+[control decision table](runbook/runtime-control.md#choose-the-control), not these
+short definitions, when operating an instance.
 
-- **Web control room** — the application has a **Cockpit** card-workspace
-  layout (the card cockpit) showing the card tree and selected card's
-  **Overview**, **Conversations**, **Records & History**, and **Evidence**;
-  the Analyst panel stays available for steering. **Files** browses the
-  virtual project files. **System** shows runtime observation, global
-  participants (including Oversight after its first periodic check), provider
-  availability, processes, and errors. Project Run/Pause/Resume/Stop are
-  requested through the Analyst, not buttons on the card; the only direct
-  runtime mutation in the UI is capability-gated confirmed **Restart server**
-  when bearer authentication is enabled. See the
-  [operator UI needs and contracts](spec/operator-ui-needs.md).
-- **CLI** — `init`, `start`, `status`, `pause`, `resume`, `stop`,
-  `restart_server`, `reset`. See
-  [Lifecycle Lock and CLI](spec/system-specification.md#8-lifecycle-lock-and-cli)
-  and the [runbook](runbook/index.md#startup-command-inputs).
-- **REST API and WebSocket** — authenticated operator and live-sync surfaces;
-  bearer tokens are sent only in the `Authorization` header, never in URLs.
-- **This documentation site** — served by every running instance at `/docs/`.
+## Records, conversations and evidence
 
-## Persistence and reset
+Cards own Markdown **records**. Bundled types use `brief.md` for their objective,
+`status.md` for work status and, where declared, review records. Custom types choose
+their own bootstrap and other names. A replaceable **head** selects the latest
+accepted immutable document and any current draft.
 
-Saivage stores all durable state as ordinary files under the target project's
-`.saivage/` tree. Cards and records keep a small replaceable **head** file
-that selects immutable versioned documents (the current card snapshot or
-tombstone, the accepted record versions and current draft); conversations and
-logs are append-only JSONL streams with strict envelopes; generated work
-artifacts live in plain directories. There is no database or core migration/
-compatibility reader. Incompatible adoption has two separately authorized offline
-choices: destructive reset with explicit irreversible-loss consent, or an explicit
-owner-requested external migration. Neither is automatic deployment fallback. Both
-require stopped exclusion, successful complete preserved backup, preserved outside
-inputs and matching release/state before authorized start. External migration uses
-an independent complete candidate, strict full validation and evidence-based factual/
-historical fidelity; structural changes are not automatically loss, and unavoidable
-concrete loss needs confirmation before cutover. See [External migrations](runbook/index.md#external-migrations).
-Current conversation format 5 retains the format-4 removal of
-compaction checksums, not semantic prefix/continuation validation. Source completion
-authorizes no instance action; binary-only rollback is unsupported. See
-[Direct File Persistence](spec/system-specification.md#9-direct-file-persistence)
-and the [global startup and invalid-history procedures](runbook/index.md#configured-global-startup-settlement-and-invalid-history).
+- **Baseline0** is configured starter data, not authored acceptance. A draft may
+  coexist with an older accepted document.
+- An accepted **document number** is not the mutable head **revision**. Exact
+  current selections also carry a head UUID. Historical selections have no current
+  write authority.
+- Authorship can be agent, runtime bootstrap/repair, shell stdout or external
+  credential-holder attribution. Authorship alone is not a review verdict.
+
+A named card agent keeps a stable **session**, normally `agent:<name>:<card-id>`;
+globals have project-wide sessions. Its retained conversation may span multiple
+indexed **segments**. Compaction summarizes covered history into a successor while
+retaining required context under the owning contract. It is deliberately
+loss-tolerant, not a promise that all old narrative survives.
+
+**Prepared instructions** show retained preparation, not proof of exact delivery
+or model perception. **Currently configured instructions** use the server's loaded
+configuration, not edited disk files or a reconstructed historical request. Fresh
+record context is selected for each logical model operation; a brief is not simply
+frozen for an entire session. See [instruction evidence](runbook/evidence.md#prepared-current-and-historical-instructions).
+
+The same distinction applies elsewhere: a recorded image selects captured pixels,
+not the current source image or proof the provider saw them; missing process output
+does not establish that a process is running or completed; action execution rows
+are not conversations. Body-free external-operation receipts are not a universal
+audit or delivery ledger. See [how to read evidence](runbook/evidence.md).
+
+## Observe and steer
+
+- **Cockpit**: a tree plus Overview, Conversations, Executions, Records & History
+  and Evidence facets for a selected card. Exact global sessions have no invented card.
+- **Files**: admitted, server-projected workspace and virtual canonical documents,
+  not unrestricted access to physical persistence or secrets.
+- **System**: diagnostics, processes, configured integrations and loaded workflow
+  observations. Provider availability is process-local, not a durable health guarantee.
+- **Analyst**: ordinary operator conversation and supported mutations. Startup can
+  instead expose an external Analyst MCP interface, or both interfaces. External
+  tools are concurrent operations, not a shared internal chat.
+- **CLI/API**: control and observation interfaces; the CLI delegates runtime controls
+  using the verified live lifecycle owner's published endpoint.
+
+The browser has no token-entry/sign-in flow. Deployment-owned isolation and operator
+authentication decisions must be established before exposure. Saivage does not
+create that isolation; trusted command-capable agents can modify the target and Git.
+Provider calls can incur charges, including later Analyst calls after project Stop.
+
+## Persistence and adoption
+
+Saivage-owned durable state uses ordinary files, not a database. Current selectors
+and strict owning readers define what is canonical; unselected temporary/unlinked
+artifacts are ignored, not discovered for recovery. Persistence supplies no
+guarantee against loss after interruption or corruption.
+
+An existing project that fails startup needs diagnosis, not another fresh-init
+recipe. Current-format damage, incompatible adoption and intentional destructive
+reset are different cases. The [state-adoption decision map](runbook/state-adoption.md#choose-the-operation)
+owns their complete gates. Previous selectors are not normal fallback or old-format
+converters. This documentation changes no format and grants no deployment, reset,
+repair or migration permission.
 
 ## Glossary
 
-- **Card** — one node of the work tree; the unit of planning, execution,
-  review, and history.
-- **Brief** — a card's `brief.md` record: the written objective and acceptance
-  context that guides its work and review. The root brief sets the project
-  objective.
-- **Record** — a versioned Markdown document owned by a card: a replaceable
-  head selects the latest accepted immutable version and the current draft.
-  Names come from the card type's configuration — `brief.md` is always the
-  bootstrap record; `status.md` and `review.md` are the other common
-  defaults, and additional names such as `review-*.md` can be configured.
-- **Analyst** — the global operator-conversation agent; the ordinary operator
-  mutation surface.
-- **Session** — one conversation owned by a named agent: card-scoped agents
-  get one session per card (`agent:<name>:<card-id>`); global agents (the
-  Analyst, Oversight) get one project-wide session.
-- **Notification** — context durably queued for a card (`queue_notification`).
-  Queueing is not delivery: the card type's designated recipient consumes the
-  pending context when it next runs, and a terminal or cancelled card may
-  clear undelivered notifications instead.
-- **Activation** — one live execution of a card's compiled workflow graph,
-  from a lifecycle entry (`BACKLOG`, `CHANGED`, `BLOCKED`, or `STOPPED`) to a
-  terminal outcome or cancellation, coordinated exclusively by the supervisor.
-- **Prepared request** — the frozen request blocks of a card node — static
-  role instruction and tools, the canonical card block (id, type, title,
-  brief), and the compiled current-node prompt. Prepared once per node and
-  reused unchanged across all of that node's continuations; prepared anew
-  for the next node.
-- **Exact admission** — the strict check that a candidate's complete
-  serialized provider request fits that candidate's own usable input capacity
-  before anything is sent.
-- **Compaction** — summarizing covered conversation history into a new
-  immutable segment (with a replaced cumulative index) when a session
-  approaches its model window; only successful compaction over a validated atomic
-  source prefix omits rows.
-- **Outcome-unknown** — a durable publication whose result cannot be known
-  after a failure or interruption. It is never inspected, retried, or
-  compensated; the process fails at the fatal boundary instead, and strict
-  canonical reads govern any later start.
-- **Tombstone** — a deleted card's retained terminal link; traversal stops
-  there, evidence stays readable.
-- **Cutover** — adoption of an incompatible durable contract: separately consented
-  destructive reset or explicitly requested external migration, never core conversion.
-- **Lifecycle lock** — the process-exclusion lock owning a project's runtime;
-  the runtime-control CLI commands (`status`, `pause`, `resume`, `stop`,
-  `restart_server`) delegate only through a verified live lock record.
-- **Service epoch** — one lifetime of a server process; some schedules and
-  transient states reset per epoch. Oversight's first check waits a full
-  continuous eligible interval while the project is running; leaving running
-  discards the wait (see [Project Oversight](spec/system-specification.md#project-oversight)).
+| Term | Meaning / precise owner |
+| --- | --- |
+| Brief | Objective and acceptance context; bundled `brief.md`, not a universal custom record name |
+| Card / node | Card is a work-tree item; node is a step in that card's configured workflow |
+| Record / document / head | Record is the named product; document is an accepted immutable version; head selects accepted/draft state |
+| Revision / selection identity | Mutable current counter / exact UUID selection; neither is a durable family format version |
+| Session / activation | Persistent agent conversation / one admitted card workflow execution |
+| Segment | One indexed conversation body; ordinal alone is not its UUID identity |
+| Run / service epoch | Explicit project execution / one server-process lifetime |
+| Notification | Pending card context for its designated recipient; not delivery confirmation |
+| Prepared request / exact admission | Prepared context / candidate-specific check of complete serialized request capacity |
+| Tombstone | Retained deleted-card selection that ends linked traversal |
+| Publication outcome-unknown | Potentially committed write failure; [fatal no-follow-up boundary](runbook/diagnosis.md#publication-uncertainty), not permission to retry |
+| Cutover | Adoption of changed contracts/identities under the [state-adoption procedure](runbook/state-adoption.md), not a format probe or automatic conversion |
+| Lifecycle lock | Exceptional process-exclusion boundary; [five ownership outcomes](runbook/runtime-control.md#five-ownership-outcomes) |
 
-## Where to go next
+## Next steps
 
-- Run your first instance: the [Getting started](guides/getting-started.md)
-  guide, then [Configuration](guides/configuration.md) and
-  [Operating a project](guides/operating.md).
-- Deploy or operate a deployment: the [Operator runbook](runbook/index.md).
-- Understand the internals: the
-  [System architecture](architecture/system-architecture.md).
-- Check exact behavior: the [System specification](spec/system-specification.md).
-- Customize agent prompts: the
-  [prompt handling guide](architecture/prompts.md).
+[Try a disposable project](guides/getting-started.md), [operate the cockpit](guides/operating.md),
+[configure an instance](guides/configuration.md), or [trace the implementation](guides/development.md).
+For a precise question, use the [owner map](reference/agent-navigation.md).

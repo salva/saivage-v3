@@ -330,7 +330,7 @@ intentionally stopped before the outage.
 Only a current operator instruction or explicit incident-recovery objective can
 independently authorize considering ordinary Run. At that later point, follow
 the applicable canonical [runbook](../../../docs/runbook/index.md), including
-the [trusted failed-root reopening and restart](../../../docs/runbook/index.md#trusted-failed-root-reopening-and-restart)
+the [failed-root reopening and explicit Run](../../../docs/runbook/runtime-control.md#reopen-a-failed-root-then-explicitly-run)
 procedure when the root is failed. Establish the exact healthy lifecycle owner
 and control authority, inspect current runtime status and strict current
 card/root state, and require the current procedure's admission conditions. Do
@@ -364,7 +364,7 @@ Keep these boundaries exact:
 Transient host network loss can exhaust provider retries and leave the root card
 failed with the runtime halted. First verify outbound connectivity. If the
 diagnosed incident is eligible for ordinary reopen followed by a new Run, follow
-the canonical [trusted failed-root reopening and restart](../../../docs/runbook/index.md#trusted-failed-root-reopening-and-restart)
+the canonical [failed-root reopening and explicit Run](../../../docs/runbook/runtime-control.md#reopen-a-failed-root-then-explicitly-run)
 procedure. Its prerequisites derive the configured root-process sessions plus
 the configured global Analyst session; do not substitute default role names or
 an LXC-local call sequence.

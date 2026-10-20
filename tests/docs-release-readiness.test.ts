@@ -15,7 +15,7 @@ describe('release-readiness documentation', () => {
     expect(readme).toContain('npm run validate:routine');
     expect(readme).toContain('npm run validate:release');
     expect(readme).toContain('npm run build');
-    expect(readme).toContain('npm test');
+    expect(readDoc('docs/validation.md')).toContain('npm test');
   });
 
   it('README records the canonical documentation authority and navigation roles', () => {
@@ -26,11 +26,9 @@ describe('release-readiness documentation', () => {
     expect(readme).toContain('docs/spec/operator-ui-contracts.md');
     expect(readme).toContain('docs/architecture/system-architecture.md');
     expect(readme).toContain('docs/runbook/index.md');
-    expect(readme).toContain('README.md');
-    expect(readme).toContain('deployment, startup, lifecycle, recovery, reset, and other operator procedures');
-    expect(readme).toContain('Introduction, minimal quick start, authority navigation, and repository validation profiles');
+    expect(readme).toContain('docs/reference/agent-navigation.md');
+    expect(readme).toContain('docs/guides/development.md');
     expect(readme).toContain('README-IF-YOU-ARE-AN-AI.md');
-    expect(readme).toContain('Subordinate seven-stage LXC setup procedure');
     expect(readme).not.toContain('documentation tree is being reconstructed');
   });
 });

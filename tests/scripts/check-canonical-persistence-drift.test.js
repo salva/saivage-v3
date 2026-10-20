@@ -14,6 +14,7 @@ const CARD_RECORD_DOCS = [
   'docs/architecture/system-architecture.md',
   'docs/architecture/index.md',
   'docs/runbook/index.md',
+  'docs/runbook/state-adoption.md',
 ];
 const NONCANONICAL_DOCS = [
   'docs/spec/extra.md',
@@ -21,21 +22,23 @@ const NONCANONICAL_DOCS = [
   'docs/runbook/extra.md',
 ];
 const GUIDE_REQUIREMENTS = [
-  '## Stage 4 — Initialize and configure',
-  '## Stage 5 — Confine access, install, and start',
-  '## Stage 6 — Verify and teach first use',
-  '## Stage 7 — Hand off and present later options',
-  'docs/spec/system-specification.md#9-direct-file-persistence',
-  'docs/runbook/index.md#storage-and-interruption',
-  'no live lifecycle owner',
-  'four generated roots wholesale',
-  'permanently destroys generated cards, records, conversations, and history',
-  'before the first listener',
+  '## Stage 4 — Initialize and configure without state loss',
+  '## Stage 5 — Confine access before installing the listener',
+  '## Stage 6 — Verify restart confinement and teach first use',
+  '## Stage 7 — Hand off and separate later operations',
+  'docs/spec/system-specification.md#direct-file-persistence',
+  'docs/runbook/state-adoption.md#storage-and-interruption',
+  'no live owner or relevant\nprocess',
+  'fresh full stopped target-project backup',
+  'preserved unchanged',
+  '`.saivage/cards`, `.saivage/agents`,\n  `.saivage/logs` and `.saivage/work` wholesale',
+  'cards, records, conversations and history are permanently lost',
+  'before first listener',
   'Requires=nftables.service',
-  'After that actual restart, prove all of the following again:',
+  'actual guest restart',
+  'After restart, reverify nftables success/exact table',
   'stop and disable',
-  'Authorization header',
-  'never in a URL',
+  '`Authorization`, never a URL',
 ];
 const CARD_RECORD_CATEGORIES = [
   ['card/authored-record index.json authority', 'card index.json'],
@@ -76,6 +79,7 @@ function withRepository(testFn) {
     write(root, 'docs/architecture/system-architecture.md', '# Architecture\n');
     write(root, 'docs/architecture/index.md', '# Architecture\n');
     write(root, 'docs/runbook/index.md', '# Runbook\n');
+    write(root, 'docs/runbook/state-adoption.md', '# State adoption\n');
     for (const path of NONCANONICAL_DOCS) write(root, path, '# Extra\n');
     const initialized = spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8' });
     expect(initialized.status).toBe(0);

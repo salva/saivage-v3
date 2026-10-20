@@ -51,7 +51,7 @@ const retiredDiscriminators = /card-version-index|authored-record-version-index/
 const recordOwnerModules = new Set(['src/persistence/card-files.ts', 'src/persistence/authored-record-files.ts', 'src/persistence/canonical-card-artifacts.ts', 'src/persistence/canonical-record-artifacts.ts']);
 const pathConstructionFiles = new Set(['src/persistence/layout.ts', 'src/schemas/record-name.ts', 'src/persistence/card-files.ts', 'src/persistence/authored-record-files.ts']);
 
-const cardRecordDocPaths = new Set(['README.md', 'README-IF-YOU-ARE-AN-AI.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui-needs.md', 'docs/spec/operator-ui-contracts.md', 'docs/architecture/system-architecture.md', 'docs/architecture/durable-format-changes.md', 'docs/architecture/index.md', 'docs/runbook/index.md']);
+const cardRecordDocPaths = new Set(['README.md', 'README-IF-YOU-ARE-AN-AI.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui-needs.md', 'docs/spec/operator-ui-contracts.md', 'docs/architecture/system-architecture.md', 'docs/architecture/durable-format-changes.md', 'docs/architecture/index.md', 'docs/runbook/index.md', 'docs/runbook/state-adoption.md']);
 function isAllDocPath(path) {
   return path === 'README.md'
     || path === 'README-IF-YOU-ARE-AN-AI.md'
@@ -211,21 +211,23 @@ if (!/function recordHeadFilename/u.test(recordName) || !recordName.includes('`r
 
 const guide = existsSync('README-IF-YOU-ARE-AN-AI.md') ? readFileSync('README-IF-YOU-ARE-AN-AI.md', 'utf8') : '';
 for (const required of [
-  '## Stage 4 — Initialize and configure',
-  '## Stage 5 — Confine access, install, and start',
-  '## Stage 6 — Verify and teach first use',
-  '## Stage 7 — Hand off and present later options',
-  'docs/spec/system-specification.md#9-direct-file-persistence',
-  'docs/runbook/index.md#storage-and-interruption',
-  'no live lifecycle owner',
-  'four generated roots wholesale',
-  'permanently destroys generated cards, records, conversations, and history',
-  'before the first listener',
+  '## Stage 4 — Initialize and configure without state loss',
+  '## Stage 5 — Confine access before installing the listener',
+  '## Stage 6 — Verify restart confinement and teach first use',
+  '## Stage 7 — Hand off and separate later operations',
+  'docs/spec/system-specification.md#direct-file-persistence',
+  'docs/runbook/state-adoption.md#storage-and-interruption',
+  'no live owner or relevant\nprocess',
+  'fresh full stopped target-project backup',
+  'preserved unchanged',
+  '`.saivage/cards`, `.saivage/agents`,\n  `.saivage/logs` and `.saivage/work` wholesale',
+  'cards, records, conversations and history are permanently lost',
+  'before first listener',
   'Requires=nftables.service',
-  'After that actual restart, prove all of the following again:',
+  'actual guest restart',
+  'After restart, reverify nftables success/exact table',
   'stop and disable',
-  'Authorization header',
-  'never in a URL',
+  '`Authorization`, never a URL',
 ]) {
   if (!guide.includes(required)) violation(`README-IF-YOU-ARE-AN-AI.md: missing required Stage 4-7 assertion '${required}'`);
 }

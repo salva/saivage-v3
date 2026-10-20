@@ -18,7 +18,6 @@ import {
 
 const SCRIPT = join(process.cwd(), 'scripts/verify-doc-routes.js');
 jest.setTimeout(240_000);
-const CUTOVERS = JSON.parse(readFileSync(join(process.cwd(), 'tests/fixtures/doc-value-contracts/cutover-paragraphs.json'), 'utf8'));
 const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
 const PROCESS_PATHS = ['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
 const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
@@ -341,7 +340,7 @@ function replaceOccurrence(root, path, token, occurrence) {
 }
 
 describe('documentation value contracts', () => {
-  it('publishes a closed, total fourteen-block catalog', () => {
+  it('publishes a closed, total fifteen-block catalog', () => {
     expect(VALUE_CONTRACT_MANIFEST.map(({ key, family, file, heading, claims }) => [key, family, file, heading, claims])).toEqual(EXPECTED_MANIFEST);
     const uses = VALUE_CONTRACT_MANIFEST.flatMap((entry) => entry.claims).sort();
     expect(uses).toEqual(Object.keys(EXPECTED_CATALOG).sort());
@@ -361,6 +360,27 @@ describe('documentation value contracts', () => {
         expect(new Set(values).size).toBe(values.length);
       }
     }
+  });
+
+  it('fails closed when any one of the fifteen owning blocks is missing or malformed', () => {
+    withProject((root) => {
+      for (const entry of VALUE_CONTRACT_MANIFEST) {
+        const target = join(root, entry.file);
+        const source = readFileSync(target, 'utf8');
+        const start = `<!-- saivage:value-contract:${entry.key}:start -->`;
+        const end = `<!-- saivage:value-contract:${entry.key}:end -->`;
+        const begin = source.indexOf(start);
+        const finish = source.indexOf(end) + end.length;
+        expect(begin).toBeGreaterThanOrEqual(0);
+        expect(finish).toBeGreaterThan(begin);
+        const verify = families.find(([name]) => name === entry.family[0])[1];
+        writeFileSync(target, source.slice(0, begin) + source.slice(finish));
+        expect(verify({ projectRoot: root }).ok).toBe(false);
+        writeFileSync(target, source.replace(start, start.replace(':start', ':malformed')));
+        expect(verify({ projectRoot: root }).ok).toBe(false);
+        writeFileSync(target, source);
+      }
+    });
   });
 
   it('canonicalizes invented JSON values and rejects unsupported values', () => {
@@ -488,34 +508,6 @@ describe('documentation value contracts', () => {
     });
   });
 
-  it('applies exactly the twelve focused before/after cutovers and preserves the reviewed clauses', () => {
-    expect(CUTOVERS).toHaveLength(12);
-    expect(new Set(CUTOVERS.map((cutover) => cutover.id)).size).toBe(12);
-    for (const cutover of CUTOVERS) {
-      expect(cutover.before).toHaveLength(cutover.after.length);
-      let local = cutover.before.join('\nfixture-separator\n');
-      cutover.before.forEach((before, index) => { local = local.replace(before, cutover.after[index]); });
-      cutover.before.forEach((before) => expect(local).not.toContain(before));
-      cutover.after.forEach((after) => expect(local.split(after)).toHaveLength(2));
-
-      const current = readFileSync(join(process.cwd(), cutover.file), 'utf8');
-      cutover.before.forEach((before) => expect(current).not.toContain(before));
-      cutover.after.forEach((after) => expect(current.split(after)).toHaveLength(2));
-    }
-
-    const system = readFileSync(join(process.cwd(), 'docs/spec/system-specification.md'), 'utf8');
-    const architecture = readFileSync(join(process.cwd(), 'docs/architecture/system-architecture.md'), 'utf8');
-    const runbook = readFileSync(join(process.cwd(), 'docs/runbook/index.md'), 'utf8');
-    expect(system).toContain('one parent append adding the child to both `child_membership` and `active_child_order`');
-    expect(architecture).toContain('`src/contracts/historical-version-not-found.ts` is the singular schema authority');
-    expect(architecture).not.toContain("Card history entry not found");
-    expect(runbook).toContain('For explicit event inspection, use the authenticated `/api/events` query or the Analyst `read_runtime_events` tool.');
-    expect(runbook).toContain('Debug has no Timeline.');
-    for (const responseClaim of ['numeric response `to`', 'numeric response `to` is evidence', 'response `to` records']) {
-      expect(`${system}\n${architecture}\n${readFileSync(join(process.cwd(), 'docs/spec/operator-ui-contracts.md'), 'utf8')}`).not.toContain(responseClaim);
-    }
-  });
-
   it.each(families)('%s verification, aggregate reporting, and direct CLI fail on a drifted row', (_family, verify, claimKey) => {
     withProject((root) => {
       driftClaimRow(root, claimKey);
@@ -546,7 +538,7 @@ describe('documentation value contracts', () => {
       expect(verifySourceConstantDocs({ projectRoot: root }).ok).toBe(true);
 
       replaceChecked(root, file, `${block}\n`, '');
-      replaceChecked(root, file, '## 4. Full-Chain Stopped Recovery', `${block}\n\n## 4. Full-Chain Stopped Recovery`);
+      replaceChecked(root, file, '## Startup and Run recovery', `${block}\n\n## Startup and Run recovery`);
       expect(verifySourceConstantDocs({ projectRoot: root }).failures)
         .toContainEqual(expect.objectContaining({ type: 'value-contract-block', message: expect.stringContaining('outside') }));
     });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -9,13 +9,32 @@ const PREFIX_RE = /See historical:/i;
 
 const DEFAULT_CURRENT_DOCS = [
   'README.md',
+  'README-IF-YOU-ARE-AN-AI.md',
   'AGENTS.md',
+  'docs/index.md',
+  'docs/overview.md',
+  'docs/validation.md',
+  'docs/guides/getting-started.md',
+  'docs/guides/configuration.md',
+  'docs/guides/operating.md',
+  'docs/guides/development.md',
+  'docs/reference/index.md',
+  'docs/reference/configuration.md',
+  'docs/reference/agent-navigation.md',
+  'docs/runbook/index.md',
+  'docs/runbook/deployment.md',
+  'docs/runbook/runtime-control.md',
+  'docs/runbook/diagnosis.md',
+  'docs/runbook/mcp.md',
+  'docs/runbook/evidence.md',
+  'docs/runbook/state-adoption.md',
   'docs/spec/index.md',
   'docs/spec/system-specification.md',
   'docs/spec/operator-ui-needs.md',
   'docs/spec/operator-ui-contracts.md',
   'docs/architecture/index.md',
   'docs/architecture/system-architecture.md',
+  'docs/architecture/prompts.md',
   'docs/architecture/durable-format-changes.md',
 ];
 
@@ -47,7 +66,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/check-historical-isolation.js [options]\n\nOptions:\n  --root <path>        Repository root (default: cwd)\n  --doc <path>         Current-doc path to scan; repeatable. Defaults to the canonical current docs.\n  --self-test          Run the built-in three-case hermetic fixture test.\n  --expect-failure     Negative-test mode: pass only if a prohibited historical reference is found.\n`);
+  console.log(`Usage: node scripts/check-historical-isolation.js [options]\n\nOptions:\n  --root <path>        Repository root (default: cwd)\n  --doc <path>         Current-doc path to scan; repeatable. Defaults to the canonical current docs.\n  --self-test          Run the built-in hermetic reference and default-scope fixtures.\n  --expect-failure     Negative-test mode: pass only if a prohibited historical reference is found.\n`);
 }
 
 function inventoryCurrentDocs(root) {
@@ -147,6 +166,16 @@ function runSelfTest() {
     const prefixed = checkHistoricalIsolation({ root, docs: ['prefixed-reference.md'] });
     if (!prefixed.ok) {
       throw new Error(`self-test rejected a prefixed historical reference: ${prefixed.failures.map((failure) => failure.message).join('; ')}`);
+    }
+
+    for (const doc of ['docs/guides/development.md', 'docs/reference/configuration.md', 'docs/runbook/evidence.md']) {
+      const file = path.join(root, doc);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, 'Read docs/historical/reference.md.\n');
+    }
+    const expanded = checkHistoricalIsolation({ root, docs: [] });
+    if (expanded.failures.length !== 3 || expanded.failures.some(({ category }) => category !== 'missing-prefix')) {
+      throw new Error('self-test did not scan the new current guide, reference and runbook owners by default');
     }
 
     console.log('✓ historical isolation checker self-test passed');

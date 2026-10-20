@@ -1,89 +1,60 @@
 ---
 layout: home
-
 hero:
   name: Saivage v3
-  text: Autonomous software delivery
+  text: Software work over long runs
   tagline: >-
-    Give Saivage the specification for a software project. It carries the work
-    from specification to accepted delivery — planning, implementing, testing,
-    and reviewing on its own, over long runs, with evidence for every step —
-    and asks for you only when a real decision is missing.
-
-actions:
-  - theme: brand
-    text: Get started
-    link: /guides/getting-started
-  - theme: alt
-    text: What can it do?
-    link: /overview
-  - theme: alt
-    text: Operating a project
-    link: /guides/operating
-
+    Give a project an objective. Configured agents plan, implement, test and review
+    work in a visible card tree, while you inspect evidence and steer the next steps.
+  actions:
+    - theme: brand
+      text: Try a first project
+      link: /guides/getting-started
+    - theme: alt
+      text: Understand the model
+      link: /overview
 features:
-  - icon: 🎯
-    title: Whole projects, not task lists
-    details: >-
-      Describe what the project must achieve. Saivage decomposes the
-      specification, sequences the work, and carries it through implementation
-      and verification over long runs — without step-by-step instructions.
-  - icon: 🔎
-    title: Evidence, not promises
-    details: >-
-      Every command, file change, test run, and review verdict is recorded
-      durably. Progress and acceptance rest on inspectable evidence, not on
-      claims.
-  - icon: 🎛️
-    title: You stay in control
-    details: >-
-      Watch the work unfold live, steer the project through one conversation,
-      and pause, resume, or stop at any time.
-  - icon: 🛡️
-    title: Runs where it is safe
-    details: >-
-      Designed for an externally isolated container with trusted agents.
-      Operator authentication and secret non-disclosure remain product
-      boundaries.
-  - icon: 💾
-    title: Plain-file durability
-    details: >-
-      All durable state is ordinary files with exact immutable version
-      histories. No database or core compatibility/migration code. Incompatible
-      adoption chooses separately consented reset or explicitly owner-requested
-      external offline migration, never automatic conversion.
-  - icon: 📚
-    title: Docs built with the product
-    details: >-
-      This site is built from the same repository every instance serves at
-      /docs/, with drift guards keeping the published pages current.
+  - title: Learn
+    details: Understand cards, workflows and responsibilities, then try a disposable project.
+    link: /guides/getting-started
+  - title: Operate
+    details: Configure models, orient in the cockpit, control work and diagnose failures.
+    link: /guides/operating
+  - title: Develop
+    details: Trace contracts to their owners and extend existing tool, action and workflow boundaries.
+    link: /guides/development
+  - title: Retrieve exact facts
+    details: Find the owning requirement, procedure, schema or source without reading every page.
+    link: /reference/agent-navigation
 ---
 
-## Documentation map
+## Choose a path
 
-Start with the overview and guides to learn the vocabulary and try the control
-room. Exact rules and procedures live in the authority pages below; the guides
-do not replace them, and each authority owns its subject exactly.
+| You want to… | Start here | Then use |
+| --- | --- | --- |
+| Understand what runs where | [Overview](overview.md) | [First-project tutorial](guides/getting-started.md) |
+| Configure or operate an instance | [Configuration tasks](guides/configuration.md) | [Field lookup](reference/configuration.md), [operating guide](guides/operating.md), [runbook decision map](runbook/index.md) |
+| Change the implementation | [Development guide](guides/development.md) | [Architecture](architecture/index.md), [validation](validation.md) |
+| Answer a precise question, including as an agent | [Question-to-owner map](reference/agent-navigation.md) | [Specifications](spec/index.md), [reference index](reference/index.md) |
 
-| Document | Role |
-| --- | --- |
-| [Overview](overview.md) | Orientation: what Saivage is, the card model, agent roles, the run loop, and vocabulary. Not an authority. |
-| [Getting started](guides/getting-started.md) | From nothing to a running instance working on your first objective. |
-| [Configuration](guides/configuration.md) | Every `saivage.yaml` key explained with annotated examples. |
-| [Operating a project](guides/operating.md) | The control room, the Analyst conversation, and the rhythm of a long run. |
-| [System specification](spec/system-specification.md) | Sole authority for product, runtime, CLI-visible behavior, and exact functional contracts. |
-| [Operator UI needs](spec/operator-ui-needs.md) and [contracts](spec/operator-ui-contracts.md) | Authority for operator web UI requirements and exact presentation contracts. |
-| [System architecture](architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
-| [Operator runbook](runbook/index.md) | Sole authority for deployment, startup, lifecycle, recovery, reset, and other operator procedures. |
-| [Validation internals](validation.md) | Contributor reference: guard contracts, CI topology, and browser/E2E profiles. |
+## What to expect
 
-## Reading paths
+Saivage runs against a target workspace in deployment-provided isolation. Agents
+with command tools can modify files, execute programs and use Git. Provider calls
+can incur charges. Neither a disposable copy nor loopback binding is an agent
+sandbox; see the [first-use prerequisites](guides/getting-started.md#before-you-begin).
 
-- **New operator** — [Overview](overview.md) → [Getting started](guides/getting-started.md) →
-  [Operating a project](guides/operating.md), then the
-  [runbook](runbook/index.md) when you own a deployment.
-- **Contributor or reviewer** — read the [Overview](overview.md), then the
-  [system architecture](architecture/system-architecture.md).
-- **Exact behavior question** — go straight to the
-  [system specification](spec/system-specification.md) or the
-  [operator UI needs and contracts](spec/operator-ui-needs.md).
+Records, selected conversations, execution observations and provider evidence make
+work inspectable. They are not a complete ledger of all changes, proof of model
+perception, or a guarantee of correct delivery. Persistence is loss-tolerant.
+Use the [evidence guide](runbook/evidence.md) to interpret what was actually retained.
+
+The guides teach tasks. [System requirements](spec/system-specification.md) own
+functional behavior; [UI needs](spec/operator-ui-needs.md) and
+[UI contracts](spec/operator-ui-contracts.md) own operator requirements and exact
+presentation. Use the [specification map](spec/index.md) to choose a topic.
+[System architecture](architecture/system-architecture.md) owns implementation
+structure; its [owner map](architecture/index.md) helps locate a component. The
+[runbook](runbook/index.md) owns operating procedures. Repository development policy
+remains in [AGENTS.md](https://github.com/salva/saivage-v3/blob/master/AGENTS.md).
+Editing these pages does not load them into runtime agents or authorize an operation.
