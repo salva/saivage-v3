@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { CardService } from '../../../src/cards/card-service.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 import { compileProjectWorkflows, bindRuntimeWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
@@ -45,7 +46,7 @@ function capture(name: string, value: unknown) {
 }
 
 function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'action' | 'pending' = 'entry', parent = false) {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/ne04-entry-');
+  const root = mkdtempSync(join(tmpdir(), 'ne04-entry-'));
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
   const workflow = config.card_types.project!.workflow;
   const original = workflow.nodes.plan!;
