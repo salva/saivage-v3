@@ -323,7 +323,7 @@ them.
 
 For prompt customization, see the canonical [shipped project-guidance authoring guide](docs/architecture/prompts.md#authoring-shipped-project-guidance).
 
-Bundled roles prefer selected dedicated file tools for authorized ordinary file work; Executor prefers available `apply_patch` for deliberate source edits over shell replacements, retaining appropriate `write`/`edit` use, including permitted records. Role-authorized builds/tests, Git, generators and legitimate pipelines still use shell. This is guidance, not enforced model behavior. Existing materialized/custom prompts need [deliberate stopped adoption](docs/architecture/prompts.md#dedicated-file-tool-preference), not an init upgrade.
+Bundled roles prefer selected dedicated file tools for authorized ordinary file work; Executor prefers available `apply_patch` for deliberate source edits over shell replacements, retaining appropriate `write`/`edit` use, including permitted records. Role-authorized builds/tests, Git, generators and legitimate pipelines still use shell. Executor's authorized Git-delivery guidance favors high-level operations, synchronized owned checkout/index paths and applicable combined-revision checks while preserving unrelated work. This is guidance, not enforced model behavior. Existing materialized/custom prompts need [deliberate stopped adoption](docs/architecture/prompts.md#dedicated-file-tool-preference), not an init upgrade.
 
 Card operations supply fresh accepted bootstrap context and may declare finite
 record-conditioned prompts. Triggers use actual conversation record/view knowledge,

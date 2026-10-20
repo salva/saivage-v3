@@ -875,6 +875,8 @@ The first node ordinal is 0 and accepted node reentry advances it once.
 
 The shared roles own [selected dedicated-file-tool preference](./prompts.md#dedicated-file-tool-preference): Executor prefers available `apply_patch` for deliberate source edits over shell replacements, retaining appropriate `write`/`edit` use, including permitted records, and legitimate role-authorized shell/generator work. Prepared delivery and permissions are unchanged. Tool definitions, not that method prose, remain authoritative for invocation contracts; independently authored prompt references require deliberate adoption.
 
+The same shared Executor hosts own [authorized Git-delivery guidance](./prompts.md#dedicated-file-tool-preference), not Planner/Reviewer or individual nodes. This is prompt method, not enforcement; compilation, selected tools, prepared delivery and retention remain unchanged.
+
 Provider modules own immutable tool identities/descriptions and one bind-time schema-factory binder contract.
 The scope-aware runtime catalog aggregates those entries, rejects duplicate `(scope,name)` pairs, and structural compilation retains their exact ordered references without freezing context-dependent schemas.
 Both global and card binding contexts carry the selected compiled card-type vocabulary.
