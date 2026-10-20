@@ -873,7 +873,7 @@ If any transition, entry, task-result callback, or framework invariant escapes, 
 The first node ordinal is 0 and accepted node reentry advances it once.
 `NodeExecution` consumes common record, descendant-context and outcome contracts; `AgentExecutor` consumes the compiled agent, prompt, tool and model selection without role or family lookup. Operations consume an exact qualified/versioned definition, never a fake agent binding.
 
-The shared roles own [selected dedicated-file-tool preference](./prompts.md#dedicated-file-tool-preference), with legitimate role-authorized shell exceptions and no change to prepared delivery or permissions. Tool definitions, not that method prose, remain authoritative for invocation contracts; independently authored prompt references require deliberate adoption.
+The shared roles own [selected dedicated-file-tool preference](./prompts.md#dedicated-file-tool-preference): Executor prefers available `apply_patch` for deliberate source edits over shell replacements, retaining appropriate `write`/`edit` use, including permitted records, and legitimate role-authorized shell/generator work. Prepared delivery and permissions are unchanged. Tool definitions, not that method prose, remain authoritative for invocation contracts; independently authored prompt references require deliberate adoption.
 
 Provider modules own immutable tool identities/descriptions and one bind-time schema-factory binder contract.
 The scope-aware runtime catalog aggregates those entries, rejects duplicate `(scope,name)` pairs, and structural compilation retains their exact ordered references without freezing context-dependent schemas.
