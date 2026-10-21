@@ -47,7 +47,9 @@ assesses the owner's objective and remaining authorized work before completion,
 without requiring you to approve each transition. See the
 [work and review loop](overview.md#execution-and-review).
 
-The output is work in your target workspace, supported by records and evidence.
+The aim is useful coherent delivery against the objective, not activity volume;
+investigation and justified no-change can be meaningful outcomes too. The output
+is work in your target workspace, supported by records and evidence.
 DONE is configured acceptance, not independent software correctness or automatic
 deployment. Work can remain blocked, failed or unresolved. Making routine
 supervision mostly unnecessary is the aim, not a measured reliability promise.

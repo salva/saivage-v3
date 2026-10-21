@@ -19,6 +19,13 @@ delivery. Then follow relevant children to their implementation, investigation,
 tests or documents. The tree is a work breakdown, not a checklist for you to
 dispatch.
 
+Look for useful milestones toward the complete objective, not just edits, commits
+or passing pieces. A bounded child's delivery may leave integration and other
+requirements with its parent; a milestone inside a larger unchanged brief is not
+completion of that child. Research that narrows uncertainty and evidenced no-change
+are legitimate progress. Compare earlier and current gaps before concluding that
+difficult or slow work needs a different approach.
+
 During a Run, Planners coordinate children and corrections; configured review
 assesses evidence; the root Planner checks remaining authorized work before
 completion. The [overview](../overview.md#execution-and-review) explains the loop.
@@ -231,4 +238,6 @@ have cleared; that is not proof of continued execution. See
 Oversight's optional default two-hour check starts after one full continuous
 eligible interval; it does not run immediately on Run. It can send an evidenced
 notification, not implement repairs itself. A lack of new children or messages
-alone does not establish a stuck project.
+alone does not establish a stuck project. Its bounded assessment can consider a
+recurring delivery gap despite local progress; advice is not acceptance or a
+guarantee of action. See [shipped convergence guidance](../architecture/prompts.md#convergence-within-existing-role-decisions).

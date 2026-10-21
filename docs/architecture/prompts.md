@@ -329,7 +329,7 @@ and baggage review. Static projection is not delivery or quality evidence.
 | Reusable strategy, evidence reuse, scope and authority | Always-prepared shared role. |
 | Today's work, evidence and outcome distinction | Actual current-node process host. |
 | Accepted findings, immutable citations, outstanding obligations | One-time edge/handoff; not a second destination task. |
-| Correct result/record violations using supplied diagnostics and budget | Correction host; not indiscriminate reimplementation. |
+| Correct the attempted result/record violations using supplied diagnostics and budget | Correction host; not indiscriminate reimplementation or a future activation's task. |
 | Current selected record data | Supplier/record-context host; not indispensable init-only procedure. |
 | Parameter/output mechanics | Generated tool/result contract. |
 
@@ -369,6 +369,47 @@ Reviewer separates violated requirements from suggestions; Oversight may advise
 against evidenced complexity-sustaining cycles without gaining strategy authority.
 Stronger guarantees or weaker requirements need the requirement owner. These are
 instruction policies, not runtime gates, new outcomes or measured model improvements.
+
+### Convergence within existing role decisions
+
+Shipped guidance aims at useful coherent requirement-satisfying delivery, not
+activity volume, tiny diffs or forced success. Planner delegates bounded outcomes
+with meaningful acceptance and necessary dependencies, retaining remaining scope
+and integration at the responsible parent in existing records. Child Done is not
+parent Done; a milestone inside an unchanged larger child brief is not child
+completion. Planner can clarify activation direction within accepted scope, not
+edit a child's brief or dependencies; genuine requirement changes need their
+authorized owner. At existing result/review/evidence opportunities it reassesses
+recurring seams, growing prerequisites and disconnected successes against remaining
+acceptance, without treating hard work or necessary broad fixes as failure.
+
+Executor continues actionable permitted current-node work and delivers the complete
+scoped candidate with applicable verification. Research, design, runtime investigation
+and justified no-change need evidence, not manufactured edits or commits. Node-owned
+handoffs, useful retries, exhaustion and unavailable-input outcomes remain distinct;
+incompleteness alone is not conclusive failure. Old correction/status prose does not
+select fresh work, but still-applicable requirements, failures and effect/resource
+facts remain consequential. Correction fixes the actual attempted result/records
+from diagnostics; a valid envelope proves neither fulfillment nor impossibility.
+
+Reviewer independently assesses the requested combined outcome/current input against
+every assigned criterion, retaining applicable unchanged evidence rather than
+automatically restarting broad checks at every edit. Historical verdicts and isolated
+green pieces are not fresh acceptance. During existing bounded checks, Oversight
+compares inspected earlier/current evidence to objectives and recurring delivery gaps
+even when patches, commits or checks show local progress. Qualified normal advice
+acknowledges that progress and asks the nearest eligible responsible Planner to
+reassess approach, decomposition or ownership. Healthy research narrowing uncertainty,
+truthful red cycles and deep review remain legitimate; partial observation, elapsed
+time or difficulty alone establish no futility. No new actionable concern means
+successful no-action. Advice gains no strategy, acceptance or guaranteed-attention
+authority.
+
+These are role/node instruction policies, not new runtime gates, outcomes, progress
+detectors, retention rules or durable contracts. Static composition does not prove
+improved convergence or model understanding. Source changes do not upgrade installed
+materialized/custom prompts; [authorized adoption](#loaded-configuration-and-installed-adoption)
+remains separate.
 
 ### Current status
 

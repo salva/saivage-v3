@@ -6,9 +6,10 @@ investigate and test, and configured Reviewers assess evidence. Parents coordina
 correction; the root Planner assesses remaining authorized work before completion.
 Workflows can also use non-LLM actions for finite commands.
 
-The goal is autonomous progress from direction to work products, not continual
-human dispatch. Use the web control room to understand results or intervene when
-needed. Reduced supervision is an aim, not a guarantee of unattended success.
+The goal is convergence from direction to useful coherent deliverables satisfying
+the objective, not activity volume or continual human dispatch. Use the web control
+room to understand results or intervene when needed. Reduced supervision is an aim,
+not a guarantee of unattended success.
 
 Agents can edit files, run commands, use configured external tools and spend
 provider credits. Deploy inside an **externally isolated environment**, normally
