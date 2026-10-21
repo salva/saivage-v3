@@ -355,7 +355,7 @@ const processNodeSchema = z
   .strict();
 const cardProcessSchema = z
   .object({
-    format_version: z.literal(2),
+    format_version: z.literal(3),
     after_activation_commit: z
       .object({
         statuses: z

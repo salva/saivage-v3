@@ -23,13 +23,32 @@ Default path is `<project>/.saivage/saivage.yaml`. Ordinary string values expand
 `${ENV_VAR}` from the captured startup environment. Missing variables substitute
 empty strings and, after successful loading, produce redacted advisory warnings
 without values. Keys are not expansion hosts. Record initializer `template` and
-action execution `config`/`inputs` remain literal. Dynamic MCP connection values
+action execution `config`/`inputs` and durable prompt `compaction_key` values remain
+literal. The latter exception applies to lifecycle entry, correction, record,
+direct/conditional route and pending-notification declarations, not arbitrary
+fields sharing that name. Prompt references still expand normally. Dynamic MCP connection values
 are also literal, independently of YAML.
 
 The source schema decodes first; an omitted `card_types` gets the complete classic
 map; the effective schema and workflow compiler then validate it. There is no
 partial-map merge. Reconfigure publishes validated next-start YAML and reports
 restart required; it does not hot-load workflows/prompts.
+
+### Command-specific input selection
+
+| Command | Project root | YAML / control authority |
+| --- | --- | --- |
+| `start` | `--project-root` → `SAIVAGE_PROJECT_ROOT` → cwd, canonicalized | `--config` → `SAIVAGE_CONFIG` → selected root's `.saivage/saivage.yaml` |
+| `init`, `reset`, `repair` | Exact cwd, canonicalized; no ancestor search | That root's `.saivage/saivage.yaml`, with the invoking process's interpolation environment; Start root/config selectors do not apply |
+| `status`, `pause`, `resume`, `stop`, `restart_server` | Nearest ancestor of cwd, including cwd, containing `.saivage/saivage.yaml` (`findProjectRoot`) | Only the selected project's verified live lock endpoint/auth; never endpoint rediscovery from YAML, flags, environment or defaults |
+
+Offline commands do not accept `--project-root` or `--config`. Init alone may
+materialize an absent canonical YAML from its selected profile. Identical YAML text
+does not establish identical effective inputs when interpolation environments or
+prompt closure differ. Before consequential retained-input operations, follow the
+[offline input gate](../runbook/state-adoption.md#offline-command-inputs).
+Control commands retain their [five-way ownership outcomes](../runbook/runtime-control.md#five-ownership-outcomes),
+not offline runtime-state access.
 
 ## Top-level YAML
 
@@ -175,6 +194,14 @@ is the precise tool lookup, not this field table.
 | Static: agent role, agent-node task | `reference`, `compactable` | Reference required; compactable defaults true |
 | Durable: correction, entry, edge, pending-notification or record prompt | `reference`, `compactable`, optional `compaction_key` | compactable true; a nonempty key is allowed only with compactable false |
 
+Under workflow3, a key is the exact parsed YAML string, not quote delimiters or
+escape spelling. `${POLICY_KEY}`, embedded substitutions, whitespace, case and
+Unicode remain literal whether variables exist or not; no key-only missing-variable
+warning is emitted. Empty is invalid; whitespace-only is nonempty and is not
+trimmed. Static declarations still forbid keys. Body rendering and fragment
+inclusion do not transform key identity. See [protection semantics](../architecture/prompts.md#declaration-owned-retention)
+and [workflow adoption](../runbook/state-adoption.md#workflow3-literal-protection-keys).
+
 References select `.md` files by the actual override tiers, not by agent name
 alone. Globals use shared hosts; card hosts select project-card/shared then bundled
 card/shared tiers in root-major order. One-level fragments and host-specific tokens
@@ -230,7 +257,7 @@ Path `card_types.<type>`; `project` required in a supplied map:
 | --- | --- |
 | `permitted_child_types` | Required array; configured unique types, never `project`; empty means leaf |
 | `records` | Required name→record declaration map; exactly one bootstrap record |
-| `workflow` | Required workflow2 object below |
+| `workflow` | Required workflow3 object below |
 
 At resulting card depth12 creation requires a compiled leaf type. Child permission
 and card identity are runtime requirements, not configurable allocation scans.
@@ -254,7 +281,7 @@ and [baseline0/draft/accepted semantics](../runbook/evidence.md#baseline0-drafts
 
 | Field | Required/default | Constraint |
 | --- | --- | --- |
-| `format_version` | Required | Literal2, independent of operation/initializer versions |
+| `format_version` | Required | Literal3, independent of operation/initializer versions |
 | `notification_recipient` | Required | Existing card agent used by a workflow node |
 | `entries` | Required | Exactly BACKLOG, CHANGED, BLOCKED, STOPPED |
 | `entries.<entry>.node` | Required | Existing node; compiler validates identifier |
@@ -424,7 +451,8 @@ verified live lock's published endpoint/auth, not these startup inputs.
 Failed-request capture consequences/retention are in
 [private failed-request captures](../runbook/diagnosis.md#private-failed-request-captures).
 Bind/auth/service setup is in [deployment](../runbook/deployment.md#start-inputs).
-The browser has no token login. Credential environment is not automatically passed
+The browser has no token login; use [private browser credential setup](../runbook/deployment.md#browser-credential-setup).
+Credential environment is not automatically passed
 to child commands; the [command allowlist](../runbook/deployment.md#child-command-environment)
 owns that separate contract.
 

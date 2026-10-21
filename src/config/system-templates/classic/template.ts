@@ -23,7 +23,7 @@ function planningCardType(): CardTypesSource[CardTypeName] {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
-      format_version: 2,
+      format_version: 3,
       notification_recipient: 'planner',
       entries: {
         BACKLOG: { node: 'plan' },
@@ -132,7 +132,7 @@ function executionCardType(): CardTypesSource[CardTypeName] {
     },
     workflow: {
       notification_recipient: 'executor',
-      format_version: 2,
+      format_version: 3,
       entries: {
         BACKLOG: { node: 'execute' },
         CHANGED: { node: 'execute' },

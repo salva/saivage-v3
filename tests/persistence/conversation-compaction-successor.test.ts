@@ -127,6 +127,29 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
+  it('roundtrips distinct expanded/literal keys and anonymous provenance through repeated real compaction', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'literal-compaction-')); initProjectTree(root);
+    const prior = process.env.POLICY_KEY;
+    try {
+      process.env.POLICY_KEY = 'expanded-name';
+      appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('expanded', 'old expanded instruction', 'expanded-name'), protectedText('literal-old', 'old literal instruction', '${POLICY_KEY}'), protectedText('anonymous', 'anonymous instruction'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      expect((await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('summary') }), readConversation(root, SESSION))).kind).toBe('compacted');
+      const inherited = readConversation(root, SESSION).effectiveCompactedHistory!.protectedPrompts;
+      expect(inherited.map(row => row.message.id)).toEqual(['expanded', 'literal-old', 'anonymous']);
+      delete process.env.POLICY_KEY;
+      appendConversationBatch({ projectRoot: root }, [activation(4), protectedText('literal-new', 'new literal instruction', '${POLICY_KEY}'), text('t4', BIG), activation(5), text('t5', BIG), activation(6), text('t6', BIG)]);
+      expect((await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('summary two') }), readConversation(root, SESSION))).kind).toBe('compacted');
+      const retained = readConversation(root, SESSION).effectiveCompactedHistory!.protectedPrompts;
+      expect(retained.map(row => row.message.id)).toEqual(['expanded', 'anonymous', 'literal-new']);
+      expect(retained[0]).toEqual(inherited[0]);
+      expect(retained[1]).toEqual(inherited[2]);
+      expect(retained[2]!.message.context_policy).toMatchObject({ compaction_key: '${POLICY_KEY}' });
+      expect(retained[2]!.source).toMatchObject({ segmentVersion: 2 });
+    } finally {
+      if (prior === undefined) delete process.env.POLICY_KEY; else process.env.POLICY_KEY = prior;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it('freshly rejects a complete invalid result in indexed old history even before valid later rows', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-result-history-')); initProjectTree(root);
     try {

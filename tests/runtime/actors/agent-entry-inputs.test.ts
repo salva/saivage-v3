@@ -45,7 +45,7 @@ function capture(name: string, value: unknown) {
   writeFileSync(join(process.env.NE04_CAPTURE_DIR, `${name}.json`), JSON.stringify(value, null, 2) + '\n');
 }
 
-function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'action' | 'pending' = 'entry', parent = false) {
+function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'action' | 'pending' = 'entry', parent = false, literalKey = false) {
   const root = mkdtempSync(join(tmpdir(), 'ne04-entry-'));
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
   const workflow = config.card_types.project!.workflow;
@@ -92,6 +92,18 @@ function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'acti
     workflow.nodes.source = { ...original, execution: { ...original.execution, agent: 'reviewer' }, initialize_records: [], records: {},
       edges: { complete: { target: { terminal: 'DONE', promote: 'current', export_records: [] },
         pending_notifications: { node: 'plan', prompt: { reference: 'ne04-pending', compactable: true } } } } };
+  }
+  if (literalKey) {
+    const prompt = { reference: 'ne04-changed', compactable: false, compaction_key: '${POLICY_KEY}' };
+    const execution = workflow.nodes.plan!.execution;
+    if (execution.kind !== 'agent') throw new Error('Expected agent');
+    execution.correction_prompt = { ...execution.correction_prompt, compactable: false, compaction_key: '${CORRECTION_KEY}' };
+    if (route === 'entry') workflow.entries.BACKLOG.prompt = prompt;
+    if (route === 'agent') workflow.nodes.plan!.edges.complete = { target: { node: 'next' }, prompt };
+    if (route === 'pending') workflow.nodes.source!.edges.complete = {
+      target: { terminal: 'DONE', promote: 'current', export_records: [] },
+      pending_notifications: { node: 'plan', prompt: { ...prompt, reference: 'ne04-pending' } },
+    };
   }
   if (parent) {
     config.card_types.goal!.workflow = structuredClone(workflow);
@@ -239,6 +251,31 @@ it('delivers selected facts on the real configured pending-notifications branch'
   expect(JSON.stringify(f.requests[1])).toContain('Pending bounded correction');
   expect(JSON.stringify(f.requests[1])).not.toContain(ALPHA);
   capture('pending-edge', f.requests[1]);
+});
+
+it.each(['entry', 'agent', 'pending'] as const)('publishes literal protection from the compiled %s declaration', async route => {
+  const f = fixture({}, route, false, true);
+  if (route === 'pending') f.cards.enqueueNotification('project', { id: '11111111-1111-4111-8111-111111111111', content: 'Pending bounded correction', created_at: new Date().toISOString() });
+  const owner = await launch(f); await owner.settlement.promise;
+  const rows = readConversation(f.root, 'agent:planner:project').sourceRows;
+  const protectedRows = rows.filter(row => row.context_policy.kind === 'content' && row.context_policy.compaction_key === '${POLICY_KEY}');
+  expect(protectedRows).toHaveLength(1);
+  expect(protectedRows[0]!.context_policy).toMatchObject({ compactable: false, compaction_key: '${POLICY_KEY}' });
+  expect(f.requests.at(-1)!.providerConversation.messages.some(row => row.content === protectedRows[0]!.content)).toBe(true);
+});
+
+it('publishes literal correction policy from a compiled declaration after an actual plain-text turn', async () => {
+  const f = fixture({}, 'entry', false, true);
+  f.provider.mockImplementationOnce(async input => {
+    f.requests.push(input);
+    return { result: { kind: 'message', content: 'Plain text is not the required terminal result.' }, provider_exchanges: [] } as never;
+  });
+  const owner = await launch(f); await owner.settlement.promise;
+  expect(f.requests).toHaveLength(2);
+  const corrections = readConversation(f.root, 'agent:planner:project').sourceRows.filter(row => row.context_policy.kind === 'content' && row.context_policy.compaction_key === '${CORRECTION_KEY}');
+  expect(corrections).toHaveLength(1);
+  expect(corrections[0]!.context_policy).toMatchObject({ compactable: false, compaction_key: '${CORRECTION_KEY}' });
+  expect(f.requests[1]!.providerConversation.messages.some(row => row.content === corrections[0]!.content)).toBe(true);
 });
 
 it('uses actual urgent routing and retains queued context and recovery ahead of fresh selected data', async () => {

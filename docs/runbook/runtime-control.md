@@ -25,7 +25,10 @@ existing halt including closing/error cases. Stopped needs Run, not Resume.
 ## Five ownership outcomes
 
 CLI `status`, `pause`, `resume`, `stop`, `restart_server` classify the exact
-`.saivage/locks/runtime.lock`. They never control runtime by reading/writing an
+`.saivage/locks/runtime.lock` under the nearest ancestor of cwd (including cwd)
+containing the canonical YAML marker. This is not the exact-cwd rule for offline
+mutations; see [command selection](../reference/configuration.md#command-specific-input-selection).
+They never control runtime by reading/writing an
 offline runtime-state file.
 
 | Outcome | Meaning and CLI consequence |

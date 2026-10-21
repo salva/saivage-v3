@@ -198,6 +198,19 @@ The cadence guard structurally parses workflow YAML once, rejecting duplicate ke
 and checks command coverage/prerequisites, not arbitrary shell semantics or prose
 comprehension. Missing/malformed contract negative cases must remain meaningful.
 
+The Markdown guard retains repository-wide file resolution, but published docs
+fragments and internal HTML links use **actual freshly rendered IDs and hrefs**,
+not guessed heading slugs. Missing rendered output is a failure. It checks local
+pages/assets under the selected `DOCS_BASE` (default `/docs/`), including same-page,
+cross-page, index, encoded and explicit-ID targets. README/repository links into
+published docs use those same emitted IDs. Repository-only Markdown has a separate
+GitHub-heading/explicit-anchor check; explicit remote GitHub source links are not
+treated as local VitePress pages. This is bounded local navigation validation,
+not a network crawl, browser interaction, search-quality or prose-accuracy proof.
+The same gate runs `node scripts/check-markdown-links.js --self-test`: an installed
+VitePress build in disposable scratch, with positive navigation and deliberately
+broken fragments, pages, output and prefix checks.
+
 `npm run build` compiles TypeScript, packages every registered prompt closure,
 builds docs/web, then runs `npm run test:compiled-prompt-composition` and
 `npm run test:static-serving`. Packaging compares independently compiled classic/

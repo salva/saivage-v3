@@ -70,7 +70,7 @@ describe('ConversationLLMActor purpose authority',()=>{
 
     await actor.appendToolResult(outcome.toolCallId,executedNoneSettlement(toolFailed('rejected')),undefined,()=>({
       messages:[
-        {role:'user',content:'configured correction',protection:{compactable:false,compaction_key:'correction-key'}},
+        {role:'user',content:'configured correction',protection:{compactable:false,compaction_key:'${POLICY_KEY}'}},
         {role:'user',content:'runtime diagnostic'},
       ],
       afterAppend:()=>{effects.push('after-append');},
@@ -82,7 +82,7 @@ describe('ConversationLLMActor purpose authority',()=>{
     const envelope=envelopes.find(({rows})=>rows.some(({id})=>id===`${input.inputId}:tool-result:call-1`));
     expect(envelope?.rows).toMatchObject([
       {id:`${input.inputId}:tool-result:call-1`,kind:'tool_result'},
-      {kind:'text',content:'configured correction',context_policy:{kind:'content',compactable:false,compaction_key:'correction-key'}},
+      {kind:'text',content:'configured correction',context_policy:{kind:'content',compactable:false,compaction_key:'${POLICY_KEY}'}},
       {kind:'text',content:'runtime diagnostic',context_policy:{kind:'content',compactable:true}},
     ]);
     expect(envelope?.rows).toHaveLength(3);
@@ -99,7 +99,7 @@ describe('ConversationLLMActor purpose authority',()=>{
     armed=true;
 
     await actor.continueAfterPlainText([
-      {role:'user',content:'configured correction',protection:{compactable:false,compaction_key:'correction-key'}},
+      {role:'user',content:'configured correction',protection:{compactable:false,compaction_key:'${POLICY_KEY}'}},
       {role:'user',content:'runtime diagnostic'},
     ],undefined,jest.fn(),()=>({messages:[{role:'user',content:'ordinary notification'}],afterAppend:()=>{effects.push('after-append');}}));
 
@@ -108,7 +108,7 @@ describe('ConversationLLMActor purpose authority',()=>{
     const envelopes=readFileSync(cardConversationVersionFile(projectRoot,'project','planner',segment.entry.filename),'utf8').trimEnd().split('\n').map((line)=>JSON.parse(line) as {rows:Array<{id:string;kind:string;content:string;context_policy:{kind:string;compactable?:boolean;compaction_key?:string}}>});
     const envelope=envelopes.find(({rows})=>rows.some(({kind})=>kind==='model_repair'));
     expect(envelope?.rows).toMatchObject([
-      {kind:'model_repair',content:'configured correction',context_policy:{kind:'content',compactable:false,compaction_key:'correction-key'}},
+      {kind:'model_repair',content:'configured correction',context_policy:{kind:'content',compactable:false,compaction_key:'${POLICY_KEY}'}},
       {kind:'text',content:'runtime diagnostic',context_policy:{kind:'content',compactable:true}},
       {kind:'text',content:'ordinary notification',context_policy:{kind:'content',compactable:true}},
     ]);

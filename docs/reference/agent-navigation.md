@@ -59,6 +59,13 @@ provider perception claims, or a universal “everything recorded” ledger.
 
 ## Configuration, extension and retained state
 
+For commissioning, first resolve [command-specific inputs](configuration.md#command-specific-input-selection)
+and [browser access/setup](../runbook/deployment.md#browser-access-across-namespaces).
+Before offline mutation, use the [effective-input gate](../runbook/state-adoption.md#offline-command-inputs),
+not Start's selectors. Current workflow declarations use format3; the
+[literal-key adoption boundary](../runbook/state-adoption.md#workflow3-literal-protection-keys)
+explains why historical workflow2 examples are not current inputs.
+
 | Exact question | Owning heading | Source/contract to inspect |
 | --- | --- | --- |
 | Which YAML/default/capability is current? | [Configuration reference](configuration.md), grouped field heading | [`saivage-config.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/schemas/saivage-config.ts), [`resolved-config-authority.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/config/resolved-config-authority.ts), [`provider.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/agents/provider.ts) |

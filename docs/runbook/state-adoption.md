@@ -60,6 +60,50 @@ existing files. Existing generated work still requires compatible selected ident
 Partial generated roots cannot be combined with first publication; remain stopped
 and obtain the appropriate separately authorized procedure, not `init --force`.
 
+### Offline command inputs
+
+Before init on retained inputs, repair inspection or reset, resolve the exact
+canonical cwd `.saivage/saivage.yaml`, its **interpolation environment and selected
+prompt/workflow closure** against the intended matching service inputs. These
+commands do not consume Start's `--config`, `--project-root`, `SAIVAGE_CONFIG` or
+`SAIVAGE_PROJECT_ROOT` selection. Control commands have a different ancestor-root
+rule; see the [command matrix](../reference/configuration.md#command-specific-input-selection).
+
+A service-only alternate YAML does not carry across to offline commands. Neither
+the same filename nor byte-identical YAML proves effective equivalence. Divergence
+blocks the operation pending an explicitly scoped stopped-input reconciliation
+decision, after exclusion and a successful complete preserved backup. Do not copy
+or merge service YAML automatically, overwrite canonical inputs, or use init/reset
+as a configuration probe. Repair uses these workflows for eligibility; reset uses
+them to publish the fresh root and required participants.
+
+### Workflow3 literal protection keys
+
+Workflow input advances **2→3**: authored durable prompt `compaction_key` values
+are now literal parsed YAML strings at all admitted durable sites, including
+record prompts and conditional/pending routes. Explicit workflow2 is rejected
+even if it contains no substitutions. Omitted `card_types` selects the complete
+current bundled map, not an old-version reader; the full selected-input and
+participating-identity comparison still applies.
+
+A version edit alone is not a universal semantic migration. For substitution-bearing
+keys, establish actual source-era effective values and retained protection
+relationships. Old stored `expanded-name` and new literal `${POLICY_KEY}` are
+different identities even when the source environment bound that variable to
+`expanded-name`. Keeping old rows unchanged can retain both protected occurrences;
+a later literal occurrence supersedes only that literal key. Do not relabel old
+expanded keys as authored names or promise continuity, release, supersession or
+losslessness without evidence. Conversation format12 and its exact stored-key
+comparison are unchanged. Bundled current templates declare no environment-generated
+protection keys; that says nothing about installed customizations.
+
+Use authorized stopped matching-release input reconciliation. Where retained-state
+transformation is needed, it requires the separately owner-requested
+[external migration](#explicit-external-offline-migration) gates, not core conversion.
+Reset is a separately consented destructive alternative, not automatically required
+for every version change. Source applicability and the historical promise/loader
+mismatch are recorded in the [format reference](../architecture/durable-format-changes.md#literal-authored-protection-keys-workflow-2-to-3-2026-10-21).
+
 ### Participating identity changes
 
 After generated work exists, including the initial root, renaming, removing,
@@ -137,7 +181,8 @@ closing, scans no history and never regenerates a head.
 2. Successfully complete and preserve a **fresh complete stopped-project backup**.
    Keep exclusion throughout. Existence alone proves neither completion nor a small
    loss bound. The CLI does not create or inspect the archive.
-3. From the exact root use the positively identified matching current build, choosing
+3. Resolve the [offline effective inputs](#offline-command-inputs) before inspection.
+   From the exact root use the positively identified matching current build, choosing
    **one** target. These are alternatives, not a batch:
 
    ```bash
@@ -241,7 +286,8 @@ continuity in the reset installation. Reset is not target-project cleanup.
    canonical docs. Do not change objectives or use backup/generated descendants as a
    reconstruction/merge workspace. Every existing lock blocks reset; exact abandoned
    lock handling needs separate positive absence proof and authorization.
-4. From the exact project root invoke the positively identified matching release:
+4. Resolve the [offline effective inputs](#offline-command-inputs), then from the
+   exact project root invoke the positively identified matching release:
 
    ```bash
    node /absolute/matching-release/bin/saivage.js reset
@@ -359,7 +405,7 @@ manual mkdir remedy. See [established directories](../spec/system-specification.
 
 Card head/mailbox format1, ordinary/tombstone4, record head3/accepted4, shared
 conversation index/genesis/envelope12, app-log/provider rows envelope2, execution1,
-workflow2 and initializer1 are distinct source contracts. The
+workflow3 and initializer1 are distinct source contracts. The
 [format reference](../architecture/durable-format-changes.md) owns applicability
 and historical changes, not a supported-version matrix or installation inventory.
 Equal versions do not certify nested payloads, layouts, identities or provenance.
@@ -367,8 +413,8 @@ Examples include process inline heads/completeness/URLs, five-field reported usa
 per-session evidence, Responses `producer_account_id`, protected instructions and
 record observations. Never invent missing usage, pixels, stream facts or producer
 identity during adoption; unresolved required facts block. Historical summaries stay
-genuine summaries, not fabricated local omissions. This documentation reorganization
-changes no discriminator and authorizes no adoption.
+genuine summaries, not fabricated local omissions. Documentation alone authorizes
+no adoption; workflow3's input change has its explicit assessment above.
 
 When assessing the historical per-session-evidence change, present its measured
 benefit and limits before an adoption decision: selected-session consumption can

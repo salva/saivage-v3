@@ -21,9 +21,14 @@ Run from `/home/salva/g/ml/saivage-v3`:
 
 ```bash
 npm run validate:routine
-NODE_OPTIONS=--experimental-vm-modules npx jest <focused-tests> --runInBand --forceExit
+npm run test:direct -- --runInBand --runTestsByPath <test-file>
 npm run build
 ```
+
+Use the package-owned focused recipe without forced exit. See
+[backend tests and terminal-child coverage](../../../docs/validation.md#backend-execution-and-terminal-ownership)
+for applicability and natural-exit evidence; a focused pass does not replace the
+canonical ordinary-plus-terminal-child suite when that broader coverage is required.
 
 For Vue single-file components, check for duplicate script blocks before building:
 

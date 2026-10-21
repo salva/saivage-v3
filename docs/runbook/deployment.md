@@ -64,24 +64,21 @@ before first server use; [configuration](../guides/configuration.md) owns that t
 
 ## Start inputs
 
-Start from the target root or pass it explicitly. Credentials must already be
+Select both the target and YAML explicitly for an identified deployment. Credentials must already be
 provisioned privately in the service environment/credential file. This example
 exports an existing value; it does not generate or print one:
 
 ```bash
 export SAIVAGE_API_TOKEN
-saivage start --project-root /work/project --host 127.0.0.1 --port 8080
+saivage start --project-root /work/project --config /work/project/.saivage/saivage.yaml --host 127.0.0.1 --port 8080
 ```
 
 Only for an authorized initial publication may `--create-runtime` be added.
-The selected-raw-value precedence is:
-
-| Input | Selection, highest first |
-|---|---|
-| Project root | `--project-root`, `SAIVAGE_PROJECT_ROOT`, cwd; canonicalized |
-| Config | `--config`, `SAIVAGE_CONFIG`, project `.saivage/saivage.yaml` |
-| Host | `--host`, `SAIVAGE_HOST`, YAML `server.host` |
-| Port | `--port`, `SAIVAGE_PORT`, YAML `server.port` |
+The [command-selection reference](../reference/configuration.md#command-specific-input-selection)
+owns precedence and the different offline/control roots. Cwd alone does not pin
+Start's root or YAML against inherited selectors. Intentional alternate service
+YAML does not become the input to init, repair or reset; resolve their
+[offline effective-input gate](./state-adoption.md#offline-command-inputs) first.
 
 An invalid selected value fails, not falls through to another source. CLI/env port
 accepts 0..65535; 0 requests an ephemeral OS port. Read the actual announcement.
@@ -100,7 +97,8 @@ Exact command authority is `src/cli.ts`; startup selection is
 
 `NODE_ENV`, `LOG_LEVEL`, `SAIVAGE_API_TOKEN` are independent environment-only
 inputs. Unset API token intentionally disables auth; set-but-blank or padded token
-fails startup. Missing `${ENV_VAR}` interpolation becomes empty with redacted
+fails startup. In [expandable YAML values](../reference/configuration.md#owners-and-selected-input),
+missing `${ENV_VAR}` interpolation becomes empty with redacted
 `Configuration warning: ` diagnostics, not necessarily fatal validation. Correct
 the actual service environment; warnings neither test credentials nor reload config.
 
@@ -118,6 +116,30 @@ Do not turn scripts/argv/config into a secret-delivery channel. See
 Ordinary file tools and commands use native paths/cwd rules; relative paths default
 to managed project context. A deployment mount is not a filesystem sandbox.
 
+## Browser access across namespaces
+
+Choose the access path before starting the listener. `127.0.0.1` belongs to the
+network namespace of the calling process: a host browser cannot reach guest
+loopback by using host loopback or changing the URL to the guest IP. A browser
+inside the guest namespace can use `http://127.0.0.1:8080/` directly.
+
+Where guest SSH is **already available and authorized**, run this in the
+**operator host shell**, substituting the verified guest/user:
+
+```bash
+timeout -k 5s 3600s ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:18080:127.0.0.1:8080 user@verified-guest
+```
+
+Keep that foreground session open and browse `http://127.0.0.1:18080/` on the host;
+the destination loopback is evaluated in the SSH guest. Ctrl+C closes the forward;
+the example also expires after one hour. It does not stop Saivage. A changed host
+port is a different browser origin. The forward does not replace deployment-owned
+isolation or trusted-origin requirements, especially for disabled authentication.
+If SSH is unavailable, stop at this prerequisite or use an already authorized
+confined access arrangement. Do not automatically install SSH, change firewall
+rules or expose a wildcard listener.
+
 ## Authentication and public docs
 
 `/health` and `/health/ready` are public registry-owned health contracts. All operator
@@ -129,8 +151,9 @@ submit internal Analyst turns via REST `POST /api/chat`, not old socket messages
 
 The SPA/static assets/docs are public, not evidence that protected API access works.
 There is **no token login, token-entry, sign-out or provider-secret console in the UI**.
-For an unauthorized browser, use [diagnosis](./diagnosis.md#unauthorized-ui-or-api),
-not storage reset or weakened auth. Inbound Analyst MCP has an independent bearer
+Provision a bearer browser through the procedure below; for failures use
+[diagnosis](./diagnosis.md#unauthorized-ui-or-api), not storage reset or weakened auth.
+Inbound Analyst MCP has an independent bearer
 and loopback listener; the operator credential does not grant MCP access or vice versa.
 
 `/docs` redirects to `/docs/`; the server serves installed `docs/.vitepress/dist`.
@@ -139,12 +162,37 @@ matching source. Missing output returns 404; a missing page is a build/path prob
 not a reason to patch generated HTML or reset project state. Source/Pages hosting
 can use another docs prefix, independent of runtime `/docs/` serving.
 
+### Browser credential setup
+
+1. Verify the trusted matching application assets and exact browser origin
+   (scheme, host and port), over appropriate transport or the authorized tunnel.
+   Use the already authorized **operator REST** credential, not a provider or MCP key.
+2. Privately use the browser developer-tools storage editor for that origin to set
+   local-storage key `saivage_api_token` to that credential. This is manual browser
+   configuration, not a Saivage login UI. Never print/read it into logs, put it in
+   a URL, chat, screenshot or commit, or paste a literal secret into console history.
+3. Reload to recreate HTTP observations and the WebSocket ticket connection. Local
+   storage is readable by same-origin scripts, not a secure credential vault.
+
+The auth helper uses a **nonempty local value first**, including stale or whitespace
+values without trimming. Empty/absent local storage falls through to the built
+asset's `VITE_SAIVAGE_API_TOKEN`; empty/absent fallback sends no token. Setting the
+server's `SAIVAGE_API_TOKEN` does not provision the browser. The build-time fallback
+is existing behavior, not recommended secret provisioning: do not embed real bearer
+credentials in public served bundles. Removing a local key does not remove a build
+fallback. For deliberately disabled auth, no bearer is needed; remove stale local
+configuration and account for any fallback using [diagnosis](./diagnosis.md#unauthorized-ui-or-api).
+
 ## Verify startup without starting work
 
 1. Verify the exact launched executable, service user, project/config path and
    ownership. Startup takes lifecycle exclusion before full environment validation.
-   Config/tool/model capability errors fail before optional first root publication;
-   credential/network validity remains a real-invocation concern, not a startup probe.
+   Structural config/tool/route compilation precedes optional first root publication
+   and strict current-state admission. Concrete capability/capacity binding happens
+   **after** those steps in server composition. The lock is already a write effect;
+   first publication and permitted admission tail truncations may remain after a
+   binding failure. Credential/network validity remains a real-invocation concern,
+   not a startup probe. See the [ordered startup owners](../architecture/system-architecture.md#startup-select-compile-admit-bind-listen).
 2. Check actual bound announcement, public `/health` and `/health/ready`, static UI
    and docs, then authorized runtime/configured identity observations. Expected runtime
    is **stopped**, after any bounded authorized startup settlement. No automatic Run.

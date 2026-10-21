@@ -68,6 +68,18 @@ async function command(projectRoot: string, name: string, ...args: string[]) {
 }
 
 describe('offline workflow compilation and publication', () => {
+  it('rejects retained workflow2 YAML without automatic upgrade or initial card publication', async () => {
+    const projectRoot = root();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    Object.assign(config.card_types.project!.workflow, { format_version: 2 });
+    const path = join(projectRoot, '.saivage', 'saivage.yaml');
+    write(path, YAML.stringify(config));
+    const before = readFileSync(path);
+    await expect(command(projectRoot, 'init')).rejects.toThrow(/Configuration validation failed/);
+    expect(readFileSync(path)).toEqual(before);
+    expect(readProjectIdentity(projectRoot)).toBeNull();
+    expect(existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json'))).toBe(false);
+  });
   it('actual PAAD init strictly loads its entire materialized closure and preserves it on a different profile request', async () => {
     const projectRoot = root();
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -78,6 +90,8 @@ describe('offline workflow compilation and publication', () => {
     const markerPath = join(projectRoot, '.saivage', 'config', 'template.json');
     const effective = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: {}, projectRoot }).loadEffective();
     expect(effective.config).toEqual(template.config);
+    const emitted = YAML.parse(readFileSync(configPath, 'utf8')) as typeof template.config;
+    for (const type of Object.values(emitted.card_types!)) expect(type.workflow.format_version).toBe(3);
     expect(JSON.parse(readFileSync(markerPath, 'utf8'))).toEqual({ template: 'paad-typed', saivage_version: SAIVAGE_VERSION });
     assertTreeEqual(template.promptRoot, promptsRoot);
     const artifacts: Array<{path: string; source: string}> = [];

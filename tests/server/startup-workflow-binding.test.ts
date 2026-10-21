@@ -19,6 +19,16 @@ function config(): SaivageConfig {
 }
 
 describe('startup workflow binding authority', () => {
+  it('binds disabled Oversight but excludes the external-only Analyst from model requirements', () => {
+    const source = config();
+    source.oversight.enabled = false;
+    source.models.routes.analyst!.candidates = ['missing-analyst'];
+    const registry = new ProviderRegistry(source);
+    const bound = bindRuntimeWorkflows(compileProjectWorkflows(source), new ModelRouter(registry), registry, source.compaction.context_utilization_fraction, { internalAnalystEnabled: false });
+    expect([...bound.agentBindings.keys()]).toEqual(['oversight', 'planner', 'reviewer', 'executor']);
+    source.models.routes.oversight!.candidates = ['missing-oversight'];
+    expect(() => bindRuntimeWorkflows(compileProjectWorkflows(source), new ModelRouter(registry), registry, source.compaction.context_utilization_fraction, { internalAnalystEnabled: false })).toThrow(/oversight/);
+  });
   it('completes binding in production composition before actor-capable services are constructed', () => {
     const composition = readFileSync(new URL('../../src/server/composition/server-services.ts', import.meta.url), 'utf8');
     const binding = composition.indexOf('const workflows = bindRuntimeWorkflows(');

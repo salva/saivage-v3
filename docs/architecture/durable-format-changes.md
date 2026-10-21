@@ -36,7 +36,7 @@ source-era values; they must not be read as today's accepted-version list.
 | Record head / previous slot | `records/record-<stem>.json` and injective `.prev.json` sibling; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; fresh UUID/mutation revision, current-only baseline0, explicit draft version/target and latest accepted reference. Baseline/draft0/empty is ineligible. |
 | Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:4`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated agent/external/runtime/shell author and ordinary card provenance. Historical projection has null current head/revision. |
 | Record initialization input | Card-type YAML; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; no old content/trigger input reader. |
-| Workflow input | Card-type YAML `workflow`; same owners | `format_version:2`; agent/action execution, optional shell stdout record binding, typed fields/cases/inputs and advisory natural-postcommit attachment. |
+| Workflow input | Card-type YAML `workflow`; same owners | `format_version:3`; literal authored durable prompt keys; agent/action execution, optional shell stdout record binding, typed fields/cases/inputs and advisory natural-postcommit attachment. |
 | Operation selection | Explicit compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; retained in action results/execution observations, not package/shared-envelope version. |
 | Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, `runtime/actors/operation-execution.ts` | `version:1`, `type:card-execution`; strict entry/spawn/finish/file association. Incomplete is valid, not resumable state; declared artifacts select mutable source. |
 | Conversation index / previous index and ordinary/compacted genesis | Session `index.json`, `index.prev.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/source/cutoff/continuation, baseline/draft/current/historical record facts, protected prompts, excerpts and declared structural omission. |
@@ -55,9 +55,11 @@ schemas **and semantic consumers**, including nested payload/provenance/layout.
 
 The [external-attribution entry](#external-analyst-operation-attribution-2026-10-20)
 records the latest card4/accepted4/shared2 source boundary; conversation12 and
-heads1/3 remain unchanged. Deployment applicability remains unknown. Editorial
-reorganization changes no contract/discriminator and creates no new cutover or
-adoption obligation. Version equality, startup and this table are not whole-project
+heads1/3 remain unchanged. The [literal-key entry](#literal-authored-protection-keys-workflow-2-to-3-2026-10-21)
+records the later workflow2→3 input change. Deployment applicability remains unknown.
+The earlier editorial reorganization changed no contract/discriminator and created
+no new cutover or adoption obligation; that does not describe the later runtime fix.
+Version equality, startup and this table are not whole-project
 compatibility proofs or operation permission.
 
 ## Find historical source evidence
@@ -66,12 +68,12 @@ compatibility proofs or operation permission.
 | --- | --- |
 | Current card/record creators and actors | [External attribution](#external-analyst-operation-attribution-2026-10-20); [shell stdout](#shell-stdout-record-authorship-2026-10-19); [action executor](#stateless-node-operations-2026-10-19); [minimal card](#minimal-card-bodies-ev01-2026-10-19). |
 | Document numbering, templates and prompt observations | [Document0/templates](#record-document-0-and-selected-node-templates-2026-10-18); [scaffolds](#node-entry-record-scaffolds-2026-10-16); [excerpts](#record-prompt-excerpts-2026-10-16); [activation/records](#explicit-activation-and-record-context-2026-10-13); [instruction evidence](#historical-instruction-evidence-2026-10-11). |
-| Graph identity without a new family format | [Project assessment](#main-planner-completion-no-family-format-bump-incompatible-reached-node-identity-adoption-2026-10-20); [typed test policy](#typed-test-work-ownership-no-durable-impact-2026-10-16). |
-| Compaction semantics versus transient construction | [Summary maintenance6→7](#loss-tolerant-summary-maintenance-2026-10-10); [C01 framing](#c01-historical-prefix-framing-no-durable-impact-2026-10-15); [C02 condensation](#c02-decision-relevant-condensation-no-durable-impact-2026-10-15); [C05 packing](#c05-whole-component-packing-no-durable-impact-2026-10-15); [B01 deletion](#b01-prepared-context-attestation-deletion-no-durable-impact-2026-10-14); [dead invocation context](#dead-invocation-context-deletion-no-durable-impact-2026-10-14). |
-| Image selections and transient image boundaries | [Image4→5](#conversation-image-results-2026-10-07-conversation-format-45); [ordered5→6 / known incompatibilities](#known-incompatible-changes); [operator inspection](#durable-preserving-operator-image-inspection-2026-10-08); [AR03 facts](#ar-03-producer-neutral-image-normalization-facts-no-durable-impact-2026-10-15); [AR08 eligibility](#ar-08-shared-image-eligibility-facts-no-durable-impact-2026-10-15). |
-| Outbound MCP persistence versus live lifecycle | [Definitions](#minimal-dynamic-mcp-definitions-2026-10-10); [restart](#explicit-selected-mcp-restart-no-durable-impact-2026-10-18); [lifecycle baseline](#durable-preserving-mcp-cancellation-native-results-and-lifecycle-source-baseline-422b315f); [AR05 counter](#ar-05-redundant-mcp-closure-counter-removal-no-durable-impact-2026-10-15); [AR06 result typing](#ar-06-native-mcp-result-typing-no-durable-impact-2026-10-15); [F05 telemetry](#durable-preserving-native-mcp-invocation-telemetry-f-05-2026-10-09); [F07 discovery](#durable-preserving-mcp-discovery-settlement-f-07-2026-10-09); [schema language](#durable-preserving-mcp-schema-language-fix); [F10 deletion](#f10-dead-mcp-health-and-aggregate-api-deletion-no-durable-impact-2026-10-14). |
-| Provider diagnostics and operational observation | [Introduction](#historical-introduction-private-failed-provider-diagnostic-family-2026-10-09); [F01 privacy](#protocol-owned-failed-provider-diagnostic-privacy-f-01-2026-10-09); [overload](#provider-overload-diagnostics-2026-10-12); [HTTP lifecycle](#outbound-http-lifecycle-no-durable-impact-2026-10-14); [summary cancellation](#urgent-internal-summary-cancellation-no-durable-impact-2026-10-16). |
-| Durable-preserving reads and display | [Absolute reads](#ordinary-absolute-agent-reads-no-durable-impact-2026-10-16); [native cwd](#native-absolute-command-cwd-no-durable-impact-2026-10-14); [unavailable processes](#durable-preserving-unavailable-process-observations-2-2026-10-09); [record UI](#current-record-ui-settlement-ownership-no-durable-impact-2026-10-14); [conversation UI](#durable-preserving-conversation-apiui-change); [Markdown refresh](#durable-preserving-markdown-dependency-refresh-2026-10-08); [card ID admission](#durable-preserving-card-inspection-id-admission); [timeline](#durable-preserving-timeline-local-presentation); [F06 YAML tooling](#f06-workflow-yaml-structural-authority-no-durable-impact-2026-10-15). |
+| Graph identity without a new family format | [Project assessment](#main-planner-completion-no-family-format-bump-incompatible-reached-node-identity-adoption-2026-10-20); [typed test policy](#typed-test-work-ownership-—-no-durable-impact-2026-10-16). |
+| Compaction semantics versus transient construction | [Summary maintenance6→7](#loss-tolerant-summary-maintenance-2026-10-10); [C01 framing](#c01-historical-prefix-framing-—-no-durable-impact-2026-10-15); [C02 condensation](#c02-decision-relevant-condensation-—-no-durable-impact-2026-10-15); [C05 packing](#c05-whole-component-packing-—-no-durable-impact-2026-10-15); [B01 deletion](#b01-prepared-context-attestation-deletion-—-no-durable-impact-2026-10-14); [dead invocation context](#dead-invocation-context-deletion-—-no-durable-impact-2026-10-14). |
+| Image selections and transient image boundaries | [Image4→5](#conversation-image-results-—-2026-10-07-conversation-format-4→5); [ordered5→6 / known incompatibilities](#known-incompatible-changes); [operator inspection](#durable-preserving-operator-image-inspection-2026-10-08); [AR03 facts](#ar-03-producer-neutral-image-normalization-facts-—-no-durable-impact-2026-10-15); [AR08 eligibility](#ar-08-shared-image-eligibility-facts-—-no-durable-impact-2026-10-15). |
+| Outbound MCP persistence versus live lifecycle | [Definitions](#minimal-dynamic-mcp-definitions-2026-10-10); [restart](#explicit-selected-mcp-restart-—-no-durable-impact-2026-10-18); [lifecycle baseline](#durable-preserving-mcp-cancellation-native-results-and-lifecycle-source-baseline-422b315f); [AR05 counter](#ar-05-redundant-mcp-closure-counter-removal-—-no-durable-impact-2026-10-15); [AR06 result typing](#ar-06-native-mcp-result-typing-—-no-durable-impact-2026-10-15); [F05 telemetry](#durable-preserving-native-mcp-invocation-telemetry-f-05-2026-10-09); [F07 discovery](#durable-preserving-mcp-discovery-settlement-f-07-2026-10-09); [schema language](#durable-preserving-mcp-schema-language-fix); [F10 deletion](#f10-dead-mcp-health-and-aggregate-api-deletion-—-no-durable-impact-2026-10-14). |
+| Provider diagnostics and operational observation | [Introduction](#historical-introduction-private-failed-provider-diagnostic-family-2026-10-09); [F01 privacy](#protocol-owned-failed-provider-diagnostic-privacy-f-01-2026-10-09); [overload](#provider-overload-diagnostics-2026-10-12); [HTTP lifecycle](#outbound-http-lifecycle-—-no-durable-impact-2026-10-14); [summary cancellation](#urgent-internal-summary-cancellation-—-no-durable-impact-2026-10-16). |
+| Durable-preserving reads and display | [Absolute reads](#ordinary-absolute-agent-reads-—-no-durable-impact-2026-10-16); [native cwd](#native-absolute-command-cwd-—-no-durable-impact-2026-10-14); [unavailable processes](#durable-preserving-unavailable-process-observations-2-2026-10-09); [record UI](#current-record-ui-settlement-ownership-—-no-durable-impact-2026-10-14); [conversation UI](#durable-preserving-conversation-api-ui-change); [Markdown refresh](#durable-preserving-markdown-dependency-refresh-2026-10-08); [card ID admission](#durable-preserving-card-inspection-id-admission); [timeline](#durable-preserving-timeline-local-presentation); [F06 YAML tooling](#f06-workflow-yaml-structural-authority-—-no-durable-impact-2026-10-15). |
 | Pre-policy equal-number incompatibilities and unknown boundaries | [Known incompatible changes](#known-incompatible-changes), including heads1→1, shared envelope1→1 and unestablished producer/inline-output source boundaries. |
 
 ## Historical source-contract entries
@@ -80,6 +82,39 @@ Everything below describes its named source boundary. “Unchanged” compares t
 entry's source/target, not that historical value to today's baseline. Original
 source parents, reported applicability, evidence limits and adoption consequences
 are retained; no historical version is retrospectively repaired.
+
+### Literal authored protection keys: workflow 2 to 3 (2026-10-21)
+
+Exact implementation parent: `315d425839ea94a3b69bcf4548c072a05fbcc2ca`.
+Card-type `workflow.format_version` advances **2→3**. Source workflow2 expanded
+ordinary YAML strings, including durable prompt keys; target workflow3 preserves
+the exact parsed `compaction_key` string at lifecycle, correction, record,
+direct/conditional route and pending-notification sites. Schema/compiler strictness
+and ordinary interpolation elsewhere remain. Owners are `config/env-interpolation.ts`,
+`schemas/saivage-config.ts` and the workflow compiler; classic/classic-typed producers
+and PAAD's inherited typed configuration now emit3. Explicit2 is rejected.
+
+The introduction `781a340b69533a3ab046cd8a0e7b43ae1d971923` already paired a
+categorical no-interpolation promise with a loader that expanded ordinary string
+values. This is a historical requirement/implementation mismatch, not a retrospective
+bump or evidence of deployed behavior. Deployment applicability is unknown, so this
+is a fresh2→3 change, not an assumed unreleased grouping.
+
+Conversation index/genesis/segment remain **12**: stored strings still denote exact
+keys, with unchanged latest-equal-key/anonymous retention and provenance. No reader
+reinterprets or rewrites old expanded keys; no authored-spelling provenance is invented.
+Other family versions are unchanged. A new literal `${POLICY_KEY}` does not supersede
+an old `expanded-name` merely because the source environment once equated them.
+
+Retained explicit workflow2 inputs block the new release, even without substitutions.
+Omitting the entire type map still selects current bundled definitions, not old-format
+acceptance. Bundled templates declare no environment-generated protection keys;
+installed customizations remain unknown. A bare version edit is not a universal
+semantic migration: assess source-era effective keys and retained relationships under
+[workflow3 adoption](../runbook/state-adoption.md#workflow3-literal-protection-keys).
+No continuity/losslessness promise, installed edit, implicit reset or migration follows.
+Any needed retained-state transformation requires explicit owner-requested external
+offline migration; reset remains separately consented.
 
 ### External Analyst operation attribution (2026-10-20)
 

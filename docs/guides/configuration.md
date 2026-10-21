@@ -164,7 +164,10 @@ there is no image garbage-collection promise.
 
 ## Configure workflows and records
 
-A card type declares permitted children, records and `workflow.format_version: 2`.
+A card type declares permitted children, records and `workflow.format_version: 3`.
+For retained explicit workflow2 inputs, follow the
+[literal-key adoption boundary](../runbook/state-adoption.md#workflow3-literal-protection-keys),
+not an automatic version rewrite.
 Exactly one record is bootstrap; it supplies accepted objective context. Other
 records may have absence-only starter data. Nodes select an agent or action,
 completion record gates and outcome edges. All four lifecycle entries must resolve;
@@ -336,10 +339,10 @@ model failover, server host/port) fresh-read and validate/compile the candidate,
 general invalid-schema repair nor live rebinding. Outbound MCP lifecycle operations
 have their own current-entry reload rules, not whole-runtime reconfiguration.
 
-Environment interpolation applies to ordinary YAML strings except record initializer
-templates and action config/inputs. Missing variables become empty with redacted
-advisories after a successful load; inspect the service environment without
-disclosing values. Startup CLI/env selection is in the
+Use the [canonical interpolation rules](../reference/configuration.md#owners-and-selected-input)
+to distinguish expandable YAML values from literal data before changing the
+service environment. Inspect that environment without disclosing values; warnings
+do not validate credentials. Startup CLI/env selection is in the
 [separate startup lookup](../reference/configuration.md#startup-only-cli-and-environment).
 
 Changing a retained participating agent/node/record/workflow identity or durable

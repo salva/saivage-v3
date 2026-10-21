@@ -100,7 +100,7 @@ function compile(config = fixture()) {
   return compileProjectWorkflows(config, { operationPlugins: [plugin] });
 }
 
-describe('workflow2 typed action compilation', () => {
+describe('workflow3 typed action compilation', () => {
   function stdoutFixture() {
     const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
     const type = config.card_types.code!;

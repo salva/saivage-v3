@@ -648,7 +648,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     inputs[0]!.prompt = {
       reference: 'changed-record',
       compactable: false,
-      compaction_key: 'brief',
+      compaction_key: '${POLICY_KEY}',
     };
     inputs[1]!.prompt = { reference: 'changed-record-with-body', compactable: false };
     const f = fixture(inputs);
@@ -660,6 +660,8 @@ describe('closed record-context compiler and same-read supplier', () => {
     const b = f.prepare();
     f.publish(b.rows);
     const source = readConversation(f.root, SESSION);
+    expect(prompts(a.rows)[0]!.context_policy).toMatchObject({ compactable: false, compaction_key: '${POLICY_KEY}' });
+    expect(source.sourceRows.find(row => row.id === prompts(a.rows)[0]!.id)!.context_policy).toEqual(prompts(a.rows)[0]!.context_policy);
     const protection = selectConversationProtection({
       inherited: [],
       rows: source.sourceRows,

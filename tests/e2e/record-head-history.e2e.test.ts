@@ -76,7 +76,7 @@ describe('new-format record publication, current/history API and restart', () =>
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: { format_version: 2,
+          workflow: { format_version: 3,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },

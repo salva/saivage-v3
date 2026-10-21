@@ -61,13 +61,14 @@ acyclic-module or complete-JavaScript-syntax proof. Type-only imports erase;
 value reexports create evaluation edges. Residual application/runtime/tools cycles
 are accepted and tested at relevant first entries, not promised universally safe.
 
-## Startup: select, compile, bind, admit, listen
+## Startup: select, compile, admit, bind, listen
 
 ```text
 CLI StartInputs → canonical root + bound lifecycle exclusion
-  → selected environment/YAML → structural workflows → live bindings
+  → selected environment/YAML → structural workflows
   → optional first publication + strict current generated-state admission
-  → registered terminal owners + bounded configured-global settlement
+  → server composition/live bindings → owned services + terminal registrations
+  → bounded configured-global settlement
   → Supervisor startup card-chain settlement (execution stays stopped)
   → outbound MCP reconciliation/install → external Analyst listener
   → operator HTTP listen → published lock control endpoint
@@ -78,14 +79,29 @@ passes typed `StartInputs`; boot does not reparse argv. Root precedence is CLI,
 environment, cwd; config is CLI, environment, selected-root default; host/port are
 CLI, environment, YAML, defaults. Each chain selects the raw source before
 validating it. Token, log level and Node environment remain environment-owned.
-`boot/app.ts::startApp` acquires exclusion before environment and generated effects,
+`boot/app.ts::startApp` creates the terminal coordinator and acquires exclusion
+before environment and generated effects,
 narrows the lock to immutable `{pid,startedAt}` and injects it. A post-listen TCP
 observation supplies the announced bound address, not delegation authority or proof
 of reachability; lock endpoint publication is separate.
 
+The early coordinator/lock cleanup registration is not live service composition.
+After optional publication and canonical admission, `createServerServices` binds
+workflows, creates Fastify and application/integration owners and registers their
+admission/cleanup hooks. It settles configured globals, starts Supervisor recovery,
+reconciles/installs outbound MCP, then listens on optional external Analyst MCP.
+Server composition registers operator routes/live sync before HTTP listen; boot
+publishes the lock endpoint afterward. This is not an all-validation-before-writes
+transaction: the lock, first-root prefix, permitted admission tail truncation or
+earlier settlement can remain after a later failure. No rollback or speculative
+restart loop follows. [Startup diagnosis](../runbook/diagnosis.md#startup-does-not-reach-readiness)
+distinguishes the failing boundary.
+
 ### Structural compilation and live binding
 
-`ResolvedConfigAuthority` reads/interpolates/parses strict source YAML, resolves
+`ResolvedConfigAuthority` reads and parses YAML, interpolates its ordinary values
+(preserving [literal data](../reference/configuration.md#owners-and-selected-input)),
+then strictly decodes source config, resolves
 omitted `card_types` to the complete classic map (no per-key merge), validates the
 required effective map and calls `compileProjectWorkflows`. Deleted selectors and
 old model shapes fail, not normalize. The same decoder serves mutation
@@ -106,8 +122,9 @@ not a duplicate destination/node index. Entries are BACKLOG/CHANGED/BLOCKED/STOP
 terminals DONE/FAILED/BLOCKED. Result outcomes and runtime execution failure/block
 edges remain distinct. A card selects by immutable type, not init profile or role.
 
-`bindRuntimeWorkflows` discovers actual participants by traversing every graph node
-plus selected globals. It installs bindings beside the same tables, using local
+After canonical admission, `bindRuntimeWorkflows` binds the
+[specified participant set](../spec/system-specification.md#capacity-arithmetic-and-frozen-preparation).
+It installs bindings beside the same tables, using local
 structural Router/Registry ports, preserving ordered candidates and complete
 capability requests. It retains maximum positive usable input `floor(U*C)-O` for
 capacity-eligible candidates without credential/network probes. External-only mode

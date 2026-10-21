@@ -130,7 +130,7 @@ engine's routing and terminal gates, with the narrowly bound stdout publication 
 
 ### Action contract and cancellation
 
-Workflow input format2 selects `execution.kind:agent` or `action` per node.
+Workflow input format3 selects `execution.kind:agent` or `action` per node.
 Actions name an exact `namespace.operation` and contract version; only explicitly
 compiled operations exist. The builtin `shell.run` contract1 launches captured
 `bash --noprofile --norc -o pipefail -c <script> saivage-action <args...>`.
@@ -429,7 +429,11 @@ Generic status reopens blocked, done, or failed to changed, while running-to-cha
 A real immediate-child Planner `edit_card` delta and an accepted Analyst record mutation modify it without changing its status; successive Analyst corrections require no intervening activation.
 It moves to running through activation and to cancelled through cancellation.
 
-`running` is the sole active execution state: a card is running only while a live activation owns and executes its compiled workflow.
+`running` is a durable lifecycle value, not proof of a current live activation.
+Normal execution has an exact activation owner, but successful same-process Stop
+can clear live owners/current work while leaving durable cards running. Fresh
+startup or later explicit Run performs the specified [recovery](#startup-and-run-recovery);
+neither retained card status nor a socket connection establishes liveness.
 It is nonterminal and preserves notifications.
 Terminal completion is owned only by a non-cancelled activation outcome on a running card, producing done, failed, or blocked; cancellation moves it to cancelled. The Supervisor alone may publish running-to-stopped after full-chain recovery stabilization at startup or explicit Run, or after safely joining exact urgently interrupted live activations, including project before its in-run STOPPED replacement.
 running-to-changed is not an operation, and an exact parent or sibling `activate_card` may join its retained activation.
@@ -480,7 +484,12 @@ The current Card REST contract is granular.
 Required `permitted_child_types` is the card type's ordered startup-compiled child-admission policy; it is not evidence that a current child or descendant exists.
 The operation consumes each linked child's exact current head/selected snapshot only to classify that child; it never projects or follows the child's raw links, opens a grandchild namespace, or returns `children`, `has_children`, descendant counts, or another grandchild fact.
 A retained tombstoned link is omitted and terminates traversal.
-`GET /api/cards/:id` returns only `{id,title,type,lifecycle,version_seq,urgency,created_at,updated_at,allowedActions}` and reads no record definition, head, or document.
+`GET /api/cards/:id` returns the strict `{card: ...}` envelope defined by
+[`CardDetailResponseSchema` and `CardDetailSchema`](https://github.com/salva/saivage-v3/blob/HEAD/src/contracts/operator-api-runtime-cards.ts).
+Its current detail includes the exact UUID `head_id` and mutable `version_seq`:
+equal revisions alone do not identify the same selected head. It reads the selected
+card head/document, but no record definition, record head or record document.
+The owning schemas, not a second exhaustive prose field list, define the response.
 It contains no dependency, assignment, start, note, notification, child, or operator-summary data and imposes no dependency uniqueness rule.
 
 `GET /api/cards/:id/records` proves active linkage and returns the selected card type's startup-compiled declarations in declaration order, with exact `{name,format,schema,bootstrap,current}` descriptors and no write-authority field.
@@ -629,7 +638,7 @@ Every agent-node requirement is `{mode:'clean'|'continue',gate:'exists'|'updated
 Neither `edit` nor `webfetch` substitutes for `write`, and a record-targeted Webfetch additionally requires both `webfetch` and `write`.
 ::: v-pre
 
-Declared non-bootstrap records may define optional/null `initialization:{format_version:1,template}`. Nodes select an ordered duplicate-free `initialize_records` list independently of completion requirements. Each selection requires a declared initializer, matching `record_writes` and direct `write`. Old `{content,at}` input is rejected. The narrow template host admits `cardType`, `cardId`, `cardTitle`, `nodeId`, `recordName` and existing direct fragment includes; unavailable/malformed macros or nested includes fail compilation. Only `card_types.<type>.records.<name>.initialization.template` skips environment interpolation; `${NAME}` remains literal, including in fragments. Inserted values are never reparsed. `{{...}}` is template syntax, not literal Markdown.
+Declared non-bootstrap records may define optional/null `initialization:{format_version:1,template}`. Nodes select an ordered duplicate-free `initialize_records` list independently of completion requirements. Each selection requires a declared initializer, matching `record_writes` and direct `write`. Old `{content,at}` input is rejected. The narrow template host admits `cardType`, `cardId`, `cardTitle`, `nodeId`, `recordName` and existing direct fragment includes; unavailable/malformed macros or nested includes fail compilation. Within record initializer declarations, `card_types.<type>.records.<name>.initialization.template` is the literal content path; `${NAME}` remains literal, including in fragments. The [configuration reference](../reference/configuration.md#owners-and-selected-input) owns the complete environment-expansion boundary. Inserted values are never reparsed. `{{...}}` is template syntax, not literal Markdown.
 
 :::
 
@@ -759,8 +768,10 @@ A callback failure rejects an unsettled activation exactly; if cancellation, Sto
 
 Configuration requires global `agents`, `analyst_agent`, and named `models.routes`, plus the card-type source form: a complete `card_types` map or omission for the bundled `classic` definitions.
 
-Missing `${ENV_VAR}` references substitute an empty string and produce advisory
-warnings; interpolation does not impose credential-presence validation.
+In values eligible for [environment expansion](../reference/configuration.md#owners-and-selected-input),
+missing `${ENV_VAR}` references substitute an empty string and produce advisory
+warnings; literal data is not an expansion host, and interpolation does not impose
+credential-presence validation.
 Startup emits the successful environment load's warnings to stderr immediately
 after loading and before runtime construction/readiness. Offline CLI workflow
 loads report their own successful load's warnings before returning workflows.
@@ -786,6 +797,14 @@ Classic `project` adds objective assessment to the visible plan/review loop; `go
 `classic-typed` supplies the [typed profile graphs](#shipped-project-completion-and-profile-graphs) without changing runtime classification; `paad-typed` uses the identical typed configuration with optional methodology guidance only.
 These names are configuration values, not runtime classifications.
 Default Reviewer omits MCP, while default Analyst and Executor list unrestricted configured `mcp_tool_call`.
+
+Workflow input format3 preserves the exact parsed YAML `compaction_key` at every
+durable declaration, including record prompts and conditional cases/defaults and
+their pending alternatives. Environment variables and body/fragment rendering do
+not alter that string. Empty fails; whitespace-only remains nonempty. History
+retains actual stored keys without reconstructing their source spelling. See
+[declaration-owned retention](../architecture/prompts.md#declaration-owned-retention)
+and [workflow3 adoption](../runbook/state-adoption.md#workflow3-literal-protection-keys).
 
 Each card type is compiled once at startup into one shared immutable semantic state table.
 Lifecycle entries, configured nodes, and terminal sinks are actor states; accepted typed outcomes are events and configured edges are transitions.
@@ -2414,7 +2433,18 @@ Tool-result and repair continuations retain the activation's exact prefix, tools
 Application composition retains candidate identity only in the summarizer's fixed one-candidate invocation route; runtime/Analyst policy, prepared policy, compactor arguments, and prompts are identity-free.
 The singular `ConversationLLMActor` requires prepared input for every persisted named-agent provider turn and rejects an unprepared call before transition or persistence.
 
-Structural workflow compilation remains provider-independent. Startup binding derives the distinct participant set—the configured global Analyst plus every named node agent in every selected graph—and requires each to have at least one capability-compatible configured candidate with positive usable input. Missing limits and output-ineligible candidates do not inflate the maximum. Configured agents unused by selected graphs are exempt. Binding uses the same immutable Registry snapshot as candidate admission and performs no credential, availability, auth, or network probe.
+Structural workflow compilation remains provider-independent. After canonical
+admission, startup binding derives the distinct participant set: selected global
+Oversight **even when scheduling is disabled**, selected internal Analyst unless
+startup mode is external-only, and every actual agent node in every selected graph.
+Action nodes acquire no model. Each participant needs at least one capability-compatible
+configured candidate with positive usable input. Missing limits and output-ineligible
+candidates do not inflate the maximum. Unused catalog agents are exempt only when
+they are neither selected globals nor selected graph participants. External-only
+mode omits internal Analyst model binding, not its structural declaration, required
+index/history or startup settlement. Binding uses the same immutable Registry
+snapshot as candidate admission and performs no credential, availability, auth or
+network probe.
 
 ### Self-contained successor and protected context
 
@@ -3087,11 +3117,16 @@ Agent filenames use the configured prompt reference; the global Analyst uses sha
 Direct `&#123;&#123;> fragment-id&#125;&#125;` inclusion is one level, uses the host card type, and is validated under the host policy.
 Each shipped Planner, Executor, Reviewer, and Analyst agent prompt directly includes `project-guidance-common` and its matching role fragment. These hooks compose only when that selected prompt contains them: custom prompt references and full overrides are not automatically modified or required to include them, and the Analyst remains shared-scope only.
 Workflow-agent system prompts require `&#123;&#123;contractDescription&#125;&#125;` exactly once after composition; process prompts allow only `&#123;&#123;cardType&#125;&#125;`, render eagerly, and are frozen as final text.
-Startup discovers the selected Analyst and distinct card agents directly from the singular state tables, then installs one immutable `agentBindings` map before actor construction.
+After optional initial publication and canonical admission, startup binds the
+[capacity participant set](#capacity-arithmetic-and-frozen-preparation) and installs
+one immutable `agentBindings` map before actor construction.
 Each installation resolves only its explicit model IDs through the Provider Registry and retains its exact capability request: complete card surfaces include generated `emit_result` last and require tools plus exclusive choice, while Analyst has only its operational surface and may retain no-tools plus exclusive choice.
 Provider admission consumes that retained request unchanged.
 Real turns bind only selected invocation-scope executor/cleanup closures.
-Offline `init`, `reset`, and `start --create-runtime` use only the same structural compiler and never reconcile MCP or require live provider availability.
+Offline `init` and `reset`, and the initial-publication step of `start --create-runtime`,
+use the same structural compiler without live provider binding. Start then continues
+through server binding, recovery and MCP reconciliation; the flag does not make
+Start an offline validation command.
 Offline `init` additionally materializes the selected template's complete prompt tree and provenance marker before publishing the config YAML last; the copy skips already-existing destination paths, so a crashed config-absent materialization attempt can be completed by re-running `init`, while an existing config preserves the tree, marker, and YAML bytes exactly. If generated work already exists, that retry still undergoes strict current-state admission and is not an identity-changing upgrade or repair.
 `reset` and `start --create-runtime` materialize nothing.
 Actors receive only the bound artifact and perform no source-config, prompt, route, capability, or tool selection.

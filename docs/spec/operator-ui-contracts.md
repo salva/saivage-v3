@@ -18,6 +18,9 @@ never grants mutation authority or certifies current execution.
 - There is no token-entry, sign-out, provider-secret or bootstrap UI. Expected browser
   deployment is auth-disabled behind deployment-owned isolation. Backend bearer support
   remains. Unauthorized states do not ask for a token or offer an in-browser remedy.
+  Manual bearer-browser provisioning is an operator deployment task, documented in
+  [private browser credential setup](../runbook/deployment.md#browser-credential-setup),
+  not a new UI affordance.
 - Tombstones stay absent from discovery. Exact known history/version/diff, historical
   `card.json` and retained-conversation access never permits a deleted-card inventory,
   replacement search, restoration, forensic browser or orphan scan.

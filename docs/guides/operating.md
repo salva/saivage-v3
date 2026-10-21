@@ -5,6 +5,8 @@ work. Exact UI behavior is in the [UI contracts](../spec/operator-ui-contracts.m
 the [runbook](../runbook/index.md) owns consequential operating procedures.
 If the server never reaches readiness, go to [startup diagnosis](../runbook/diagnosis.md#startup-does-not-reach-readiness)
 instead of looking for a repair UI.
+For first browser access, use [deployment access and private credential setup](../runbook/deployment.md#browser-access-across-namespaces);
+public UI assets alone do not grant protected observations.
 
 ## Orient in the cockpit
 
@@ -165,7 +167,9 @@ If work is `blocked`, supply the missing input and let its parent reactivate it
 normally; do not require a DONE/FAILED-style reopen for every blocked card. A
 paused Run needs Resume, not another Run merely because a notification queued.
 After project Stop or successful new-server recovery, a later explicit Run is
-distinct. See [startup and Run recovery](../runbook/runtime-control.md#startup-and-run-recovery).
+distinct. Stop can leave durable cards `running` after live owners/current work
+have cleared; that is not proof of continued execution. See
+[startup and Run recovery](../runbook/runtime-control.md#startup-and-run-recovery).
 
 Oversight's optional default two-hour check starts after one full continuous
 eligible interval; it does not run immediately on Run. It can send an evidenced

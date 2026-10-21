@@ -74,7 +74,7 @@ describe('record URL failures in production composition', () => {
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: { format_version: 2,
+          workflow: { format_version: 3,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } } } } },

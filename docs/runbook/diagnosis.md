@@ -19,22 +19,29 @@ Do not make reset, restart, retry or Run the default response to missing evidenc
 
 1. Identify exact release/project/config/service command and actual environment
    selection; do not print provider credentials/config or whole environment.
-   [Deployment](./deployment.md#start-inputs) lists precedence/strict options.
+   The [command-selection reference](../reference/configuration.md#command-specific-input-selection)
+   distinguishes startup selectors from offline and control inputs.
 2. Classify the lifecycle lock. Live null endpoint is only active owner/control
    unavailable; malformed/indeterminate is fail-closed, not absence. An existing
    lock is never automatically removed. Follow separately authorized
    [abandoned-lock handling](./runtime-control.md#abandoned-locks).
-3. Distinguish selected-input compilation/binding from network/provider work.
-   Undefined scope tool, unavailable expanded model or capability-incompatible
-   final surface blocks startup. Card bindings include generated emit_result even
-   with an empty operational list; Analyst does not. Correct intended route/tool/
-   capability inputs through stopped reconciliation. Startup does not probe credentials.
+3. Locate the failure in the [ordered startup chain](../architecture/system-architecture.md#startup-select-compile-admit-bind-listen).
+   Structural config/tool/route compilation precedes optional initial publication;
+   concrete capability/capacity binding follows that publication and canonical
+   admission. Binding failure does not prove nothing was written. Check the
+   [actual participant set](../spec/system-specification.md#capacity-arithmetic-and-frozen-preparation),
+   including disabled Oversight. Card bindings include generated emit_result even
+   with an empty operational list; Analyst does not. Correct intended inputs through
+   [stopped reconciliation](./state-adoption.md#selected-configuration-and-prompts).
+   Remote credentials/network are tested at actual invocation, not by binding.
 4. For generated-state rejection, distinguish current damage, missing required index,
    unsupported contract and partial initial publication. No replacement empty
    Analyst/card history, head promotion, prefix salvage or degraded UI. Valid empty
    index is legitimate; absent lazy Oversight differs from broken selected references.
    [State adoption](./state-adoption.md) is the only applicable operation map.
-5. Account for known startup effects: init can materialize prompts/YAML/identity;
+5. Account for known startup effects: exclusion already publishes a lock;
+   authorized Start `--create-runtime` can publish initial state before binding;
+   init can materialize prompts/YAML/identity;
    ordinary consuming reads can truncate validated torn tails; bounded global mates
    and leaf-to-root card correction can precede a later failure. Listener failure
    does not roll them back. Repeated speculative starts are not diagnosis.
@@ -48,20 +55,28 @@ bounded ordinary cards-read diagnostic, not repair or global certification.
 
 ## Unauthorized UI or API
 
-Static UI/docs can load publicly while protected API requests fail. There is no
-browser token-entry/login/sign-out screen. Verify the actual published server auth
-mode and matching web assets. Bearer clients supply Authorization; disabled mode
-sends none. Never place credentials in URLs, copy secrets into chat/logs, weaken
-backend auth to make UI work, or assume the MCP secret authenticates REST.
+First distinguish reachability from authentication. If the browser cannot reach
+public `/health`, `/health/ready` or `/docs/`, check the actual namespace, bind and
+[confined access path](./deployment.md#browser-access-across-namespaces), not tokens.
+Public assets loading does not prove protected API access.
 
-Use public `/health`, `/health/ready` and `/docs/` for safe orientation. Browser
-access in disabled mode needs deployment-owned isolation; it is not safe general
-networking. WebSocket uses tickets for observation only; old chat frames close1008.
-Correct access through the deployment's authorized auth arrangement, not a new
-token UI or filesystem reset. Auth rejection occurs before request validation.
-Strict response-validation failure is different from401: preserve bounded safe
-operation/status/phase diagnostics, use matching client/server, never expose raw
-exceptions or accept arbitrary fallback JSON.
+For401, verify the published server auth mode, matching trusted assets and exact
+browser origin. Follow [private browser credential setup](./deployment.md#browser-credential-setup);
+there is no login/sign-out screen and server environment does not provision browser
+storage. Replace/remove stale `saivage_api_token` privately in that origin's storage
+editor, then reload. Nonempty whitespace is also an override. Removal still permits
+the built asset's fallback; if one is present, identify matching assets and arrange
+a separately authorized clean build/deployment without embedded credentials. Do not
+weaken server auth. A different hostname or forwarded port has different storage.
+Disabled mode needs no bearer, but still needs deliberate confinement and accounting
+for stale local/build values. Never put tokens in URLs/chat/logs or use the MCP key.
+
+If REST succeeds but observation disconnects, inspect the separate HTTP ticket and
+WebSocket connection, not a second login: sockets are observation-only and old chat
+frames close1008. Auth rejection precedes request validation. Strict response-schema
+rejection is not401; retain bounded safe operation/status/phase diagnostics and use
+matching client/server, never raw exceptions or arbitrary fallback JSON. None of
+these failures calls for state reset or proves project work stopped.
 
 ## Provider unavailable or overloaded
 

@@ -533,6 +533,11 @@ describe('operator API runtime contract without runtime ledgers', () => {
 
   it('keeps hierarchy, displayed detail, records, and history as distinct exact shapes', () => {
     expect(parseOperatorResponse('cards.get', 200, { card: canonicalCardDetail }).card).toEqual(canonicalCardDetail);
+    expect(() => parseOperatorResponse('cards.get', 200, canonicalCardDetail)).toThrow();
+    expect(() => parseOperatorResponse('cards.get', 200, { card: canonicalCardDetail, extra: true })).toThrow();
+    for (const head_id of [undefined, null, 'not-a-uuid']) {
+      expect(() => parseOperatorResponse('cards.get', 200, { card: { ...canonicalCardDetail, head_id } })).toThrow();
+    }
     expect(parseOperatorResponse('cards.get',200,{card:{...canonicalCardDetail,id:'card-a',type:'custom-leaf'}}).card.type).toBe('custom-leaf');
     expect(()=>parseOperatorResponse('cards.get',200,{card:{...canonicalCardDetail,id:'card-a',type:'Not Valid'}})).toThrow();
     expect(parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [] }).parent).toEqual(canonicalHierarchyCard);

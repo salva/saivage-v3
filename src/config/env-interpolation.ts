@@ -25,12 +25,35 @@ function interpolateString(raw: string, env: EnvironmentSource): EnvInterpolatio
   return { value, warnings };
 }
 
-/** Initializers and action config/inputs are literal data, not expansion hosts. */
+function isDurablePromptKey(path: readonly string[]): boolean {
+  if (path[0] !== 'card_types' || path[2] !== 'workflow' || path.at(-1) !== 'compaction_key')
+    return false;
+  if (path[3] === 'entries') return path.length === 7 && path[5] === 'prompt';
+  if (path[3] !== 'nodes') return false;
+  if (path[5] === 'execution') return path.length === 8 && path[6] === 'correction_prompt';
+  if (path[5] === 'record_prompts')
+    return path.length === 9 && /^\d+$/.test(path[6]!) && path[7] === 'prompt';
+  if (path[5] !== 'edges') return false;
+  const route = path.slice(7);
+  const leaf =
+    route[0] === 'cases' && /^\d+$/.test(route[1]!)
+      ? route.slice(2)
+      : route[0] === 'otherwise'
+        ? route.slice(1)
+        : route;
+  return (
+    (leaf.length === 2 && leaf[0] === 'prompt') ||
+    (leaf.length === 3 && leaf[0] === 'pending_notifications' && leaf[1] === 'prompt')
+  );
+}
+
+/** Initializers, action data and durable prompt keys are literal data. */
 export function interpolateValue(
   v: unknown,
   env: EnvironmentSource,
   path: readonly string[] = [],
 ): { value: unknown; warnings: string[] } {
+  if (isDurablePromptKey(path)) return { value: v, warnings: [] };
   if (
     path.length === 6 &&
     path[0] === 'card_types' &&

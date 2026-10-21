@@ -48,9 +48,11 @@ inside the isolated deployment. It separates these decisions:
    Bundled templates ship no provider. Use the [configuration tasks](docs/guides/configuration.md)
    and [exact field lookup](docs/reference/configuration.md); keep credentials private.
 3. **Start and inspect** readiness and the stopped project before authorizing work.
-   Startup does not imply Run. The browser has no token-login screen: an
-   auth-disabled trial requires deployment-owned network confinement; protected
-   API clients send bearer credentials only in `Authorization`, never URLs.
+   Pin the [exact target and YAML](docs/guides/getting-started.md#start-and-check-readiness),
+   choose the [guest-to-browser access path](docs/runbook/deployment.md#browser-access-across-namespaces),
+   and, for bearer deployments, complete [private browser setup](docs/runbook/deployment.md#browser-credential-setup).
+   Startup does not imply Run. The auth-disabled trial still requires deployment-owned
+   confinement; bearer credentials belong in headers, never URLs.
 4. **Supply the objective, then explicitly Run.** Project Stop contains project
    work but leaves the server, Analyst and optional inbound listener available.
    [Closing the application](docs/runbook/runtime-control.md#project-stop-and-application-close)

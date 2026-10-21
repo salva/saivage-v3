@@ -37,7 +37,7 @@ owners. Project policy remains in
 * Preserve external authentication and outbound confidentiality. No tokens in URLs,
   no provider-config/credential/transcript dumps, no assumption the public UI/docs
   grants protected API access. [Authentication](./deployment.md#authentication-and-public-docs)
-  explains the UI's no-login boundary.
+  supplies private browser setup despite the UI's no-login boundary.
 * Offline mutation requires positive owner exclusion and successful complete preserved
   backup, not just a stopped unit or an existing archive. Follow
   [offline prerequisites](./deployment.md#offline-exclusion-and-complete-backups),
@@ -54,7 +54,7 @@ Run target-local commands from the exact project root with the identified releas
 | Task | Command/location |
 |---|---|
 | Fresh init | `saivage init [--profile classic\|classic-typed\|paad-typed]` |
-| Start server | `saivage start --project-root <root> --host <host> --port <port>` |
+| Start server | `saivage start --project-root <absolute-root> --config <absolute-yaml> --host <host> --port <port>` |
 | Read/control live runtime | `saivage status`, `pause`, `resume`, `stop` |
 | Confirm server restart | `saivage restart_server` (bearer mode only) |
 | Public health | `/health`, `/health/ready` |
@@ -63,6 +63,8 @@ Run target-local commands from the exact project root with the identified releas
 | Lifecycle exclusion | `.saivage/locks/runtime.lock` (not reset-owned) |
 | Reset-owned generated roots | `.saivage/cards`, `.saivage/agents`, `.saivage/logs`, `.saivage/work` |
 
+The [command-selection matrix](../reference/configuration.md#command-specific-input-selection)
+distinguishes Start, exact-cwd offline commands and ancestor-selected controls.
 Do not execute repair/reset/migration from a quick command table: use their complete
 procedures. Starting/restarting a server does not Run a project; an explicit Run
 does not authorize deployment, repair or data loss.

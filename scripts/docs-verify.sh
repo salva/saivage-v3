@@ -12,7 +12,7 @@ set -euo pipefail
 #   - Historical-link isolation for canonical current docs.
 #   - Fixture-backed operator API response contract checks.
 #   - Named-agent tool documentation/source parity checks.
-#   - Global Markdown internal-link and anchor resolution.
+#   - Renderer-backed link fixtures, emitted HTML IDs/hrefs and repository Markdown links.
 #   - Documented source-anchor path/line validation for README.md and docs/.
 #   - Validation-cadence command/package-script/docs:verify sub-guard parity, including operator smoke command drift (without executing Vitest smoke).
 
@@ -39,7 +39,8 @@ echo "==> Verifying operator API response contracts..."
 NODE_OPTIONS=--experimental-vm-modules npx jest tests/server/operator-api-contracts.test.ts --runInBand || ALL_OK=false
 
 echo ""
-node scripts/check-markdown-links.js || ALL_OK=false
+node scripts/check-markdown-links.js --self-test || ALL_OK=false
+node scripts/check-markdown-links.js --rendered-dir docs/.vitepress/dist --base "${DOCS_BASE:-/docs/}" || ALL_OK=false
 
 echo ""
 node scripts/check-source-anchors.js --doc README.md --doc docs || ALL_OK=false
@@ -49,7 +50,7 @@ node scripts/check-validation-cadence.js || ALL_OK=false
 
 echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — VitePress docs build, dist artifact policy, route/debug-route/agent/config anchors plus strict-error/closed-vocabulary/source-constant/shipped-tool/identity/card-diff value contracts, architecture links, canonical-doc historical isolation, operator API response contracts, named-agent tool docs/source parity, global Markdown links, README.md/docs source anchors, and validation cadence are valid"
+  echo "✓ docs:verify passed — VitePress docs build, dist artifact policy, route/debug-route/agent/config anchors plus strict-error/closed-vocabulary/source-constant/shipped-tool/identity/card-diff value contracts, architecture links, canonical-doc historical isolation, operator API response contracts, named-agent tool docs/source parity, renderer-backed fixtures and HTML/Markdown links, README.md/docs source anchors, and validation cadence are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1

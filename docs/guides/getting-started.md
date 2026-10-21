@@ -33,7 +33,7 @@ For an assistant-led LXC installation, use the staged
 
 ## 1. Build the application
 
-In the Saivage source checkout:
+In the Saivage source checkout available to the isolated guest (not the target):
 
 ```bash
 npm ci
@@ -47,7 +47,9 @@ Keep the built checkout separate from the project it will work on.
 
 ## 2. Initialize the disposable target
 
-Substitute absolute paths for this trial:
+In the **guest target shell**, substitute absolute guest paths for this trial.
+`init` uses the exact current directory and its canonical YAML, not Start's
+environment selectors:
 
 ```bash
 SAIVAGE_BIN="/absolute/path/to/saivage-v3/bin/saivage.js"
@@ -93,18 +95,30 @@ still fail. There is no built-in documented monetary cap: `max_tokens` and
 compaction are not spending limits. Use provider-side controls if available and
 monitor actual charges. Analyst calls can continue to cost money after project Stop.
 
+<a id="start-and-check-readiness"></a>
+
 ## 4. Start, then check readiness
 
-From the target directory, with its provider environment supplied privately:
+First choose the browser access path in [deployment access](../runbook/deployment.md#browser-access-across-namespaces).
+A browser in the guest's network namespace can use guest loopback directly. A
+browser on the operator host needs an authorized confined forward to that listener;
+host loopback is not guest loopback, and the guest IP cannot reach a loopback-only
+bind. Establish that prerequisite before continuing, not a wildcard-bind fallback.
+
+In the same **guest target shell**, with its provider environment supplied privately:
 
 ```bash
-env -u SAIVAGE_API_TOKEN "$SAIVAGE_BIN" start --host 127.0.0.1 --port 8080
+env -u SAIVAGE_API_TOKEN "$SAIVAGE_BIN" start \
+  --project-root "$TARGET_PROJECT" --config "$TARGET_PROJECT/.saivage/saivage.yaml" \
+  --host 127.0.0.1 --port 8080
 ```
 
 This foreground command deliberately disables operator bearer authentication for
 the isolated browser trial. **Unset**, not blank, selects disabled auth. For a real
 installation follow [authentication and public docs](../runbook/deployment.md#authentication-and-public-docs).
-Keep the terminal open; in another terminal check:
+Both absolute selectors are intentional: cwd alone does not override inherited
+`SAIVAGE_PROJECT_ROOT` or `SAIVAGE_CONFIG`. Keep the terminal open; in a second
+**guest shell** check:
 
 ```bash
 curl -fsS http://127.0.0.1:8080/health
@@ -118,12 +132,17 @@ read its terminal output: the UI cannot diagnose a server that never became read
 
 ## 5. Inspect before starting work
 
-Open `http://127.0.0.1:8080/` and select the project in Cockpit. Confirm its identity,
-root objective and stopped/no-current-work state. The [operating tour](operating.md)
-shows the facets. Built public documentation is at `http://127.0.0.1:8080/docs/`.
+On the **operator browser machine**, open the URL for the selected access path:
+`http://127.0.0.1:18080/` for the deployment guide's host forward, or
+`http://127.0.0.1:8080/` only for a browser in the guest namespace. Select the
+project in Cockpit and confirm its identity, root objective and stopped/no-current-work
+state. The [operating tour](operating.md) shows the facets. Public docs are at
+`/docs/` on that same browser origin.
 
-The browser has no sign-in or token-entry screen. A bearer-enabled instance shows
-unauthorized views; do not put a token in its URL. Diagnose it using the
+The browser has no sign-in or token-entry screen. For a deliberately bearer-enabled
+installation, complete [private browser credential setup](../runbook/deployment.md#browser-credential-setup)
+before protected observations; never put a token in its URL. Unexpected unauthorized
+views in this disabled-auth trial belong in the
 [unauthorized procedure](../runbook/diagnosis.md#unauthorized-ui-or-api).
 
 ## 6. Supply an objective, then explicitly Run
@@ -154,10 +173,12 @@ Ask the Analyst to stop project work, or from the exact target directory use:
 "$SAIVAGE_BIN" stop
 ```
 
-Project Stop is containment, **not application shutdown**. It leaves the server,
+Project Stop clears live project owners but can leave durable cards `running`;
+that retained value is not evidence of continued execution. Project Stop is
+containment, **not application shutdown**. It leaves the server,
 Analyst, outbound integrations and any external Analyst listener alive. For this
 foreground trial, Ctrl+C requests application shutdown. For a managed deployment,
-stop its exact service. Verify actual process/service termination; do not infer
+stop its exact service. Close the host forward when finished. Verify actual process/service termination; do not infer
 all children were contained merely from a Stop acknowledgment. See
 [project Stop and application close](../runbook/runtime-control.md#project-stop-and-application-close).
 

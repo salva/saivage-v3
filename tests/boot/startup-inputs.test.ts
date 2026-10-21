@@ -30,6 +30,16 @@ afterEach(() => {
 });
 
 describe('typed startup input precedence', () => {
+  it('pins both trial root and YAML despite conflicting inherited selectors and cwd', async () => {
+    const trial = rootWithConfig('trial.example');
+    const inherited = rootWithConfig('inherited.example');
+    process.chdir(inherited);
+    const selected = await loadEnvironment(inputs(trial, { config: join(trial, '.saivage', 'saivage.yaml') }), {
+      SAIVAGE_PROJECT_ROOT: inherited, SAIVAGE_CONFIG: join(inherited, '.saivage', 'saivage.yaml'),
+    });
+    expect(selected.projectRoot).toBe(trial);
+    expect(selected.server.host).toBe('trial.example');
+  });
   it('retains immutable advisory warnings and empty substitutions without authority/environment console effects', async () => {
     const root = rootWithConfig();
     const config = structuredClone(TEST_SAIVAGE_CONFIG);

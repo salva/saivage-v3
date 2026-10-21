@@ -307,7 +307,7 @@ describe('Supervisor restart full-chain recovery', () => {
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 2,
+          workflow: { format_version: 3,
             notification_recipient: 'planner',
             entries: {
               BACKLOG: { node: 'plan' },
@@ -339,7 +339,7 @@ describe('Supervisor restart full-chain recovery', () => {
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: { format_version: 2,
+          workflow: { format_version: 3,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },
@@ -574,7 +574,7 @@ describe('Supervisor restart full-chain recovery', () => {
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 2,
+          workflow: { format_version: 3,
             notification_recipient: 'planner',
             entries: {
               BACKLOG: { node: 'plan' },
@@ -606,7 +606,7 @@ describe('Supervisor restart full-chain recovery', () => {
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: { format_version: 2,
+          workflow: { format_version: 3,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },

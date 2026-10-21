@@ -89,7 +89,7 @@ function harness(args: {
     nodeId: 'work',
     execution: { kind: 'agent', dataInputs: {}, inputs: {},
     prompt: { promptId: 'work', compactable: true },
-    correctionPrompt: args.protectedCorrection ? { promptId: 'correct', compactable: false, compactionKey: ' correction key ' } : { promptId: 'correct', compactable: true },
+    correctionPrompt: args.protectedCorrection ? { promptId: 'correct', compactable: false, compactionKey: ' ${POLICY_KEY} ' } : { promptId: 'correct', compactable: true },
     agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } } },
     initializeRecords: [],
     requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
@@ -415,7 +415,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
     expect(test.plainTextCorrectionMessages[0]).toEqual([
-      { role: 'user', content: 'correct the result', instruction_origin: 'workflow_prompt', protection: { compactable: false, compaction_key: ' correction key ' } },
+      { role: 'user', content: 'correct the result', instruction_origin: 'workflow_prompt', protection: { compactable: false, compaction_key: ' ${POLICY_KEY} ' } },
       { role: 'user', content: '\n\nValidation errors:\n- emit_result is required.\n\nCorrective attempts remaining before this node fails: 15.' },
     ]);
   });
@@ -434,7 +434,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const continuation = callback('continuation-input');
     expect(continuation.messages.slice(0, expectedPrefix.length).map(({content})=>content)).toEqual(expectedPrefix);
     expect(continuation.messages.slice(expectedPrefix.length, expectedPrefix.length + 2)).toEqual([
-      { role: 'user', content: 'correct the result', instruction_origin: 'workflow_prompt', protection: { compactable: false, compaction_key: ' correction key ' } },
+      { role: 'user', content: 'correct the result', instruction_origin: 'workflow_prompt', protection: { compactable: false, compaction_key: ' ${POLICY_KEY} ' } },
       expect.objectContaining({ role: 'user', content: expect.stringMatching(/^\n\nValidation errors:\n- .+\n\nCorrective attempts remaining before this node fails: 15\.$/us) }),
     ]);
     if(terminalVariant==='pending'||terminalVariant==='stale'){

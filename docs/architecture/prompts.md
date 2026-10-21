@@ -81,7 +81,7 @@ reference share applicable overrides. Independent content needs independent
 references. An independently named agent selecting `planner` receives that host's
 includes; a custom `project-planner` reference receives only includes it contains.
 
-Within workflow input format 2, agent-node `execution` contains `agent`, static `prompt`
+Within workflow input format 3, agent-node `execution` contains `agent`, static `prompt`
 and durable `correction_prompt`. Action execution has neither. Process references
 remain on declarations; the compiled workflow's `processPrompts` map owns bodies.
 There is no runtime workflow-family lookup or prompt manifest.
@@ -144,9 +144,23 @@ own these policies:
 | false, no key | Retain every actual occurrence. |
 | false, exact nonempty key | Retain the newest occurrence; older occurrence becomes summary material. |
 
-Keys are exact, including whitespace; no trimming or synthesized keys. Two sites
-may share a file but choose different policies. Shared fragments are policy-free.
-Protection, observation facts and structural prepared evidence are independent.
+Keys preserve the exact parsed YAML string: `${POLICY_KEY}` and embedded
+substitutions remain literal with present or absent environment variables. Case,
+Unicode and whitespace are unchanged; empty keys fail, whitespace-only keys remain
+nonempty. This applies to entries, correction and record prompts, direct routes,
+conditional cases/defaults and their pending alternatives. See the
+[loading exception](../reference/configuration.md#owners-and-selected-input).
+
+The compiler freezes keys separately from prompt bodies. Host/fragment selection
+and placeholder rendering do not transform them; execution and record delivery
+copy them into durable context policy. History and compaction compare the actual
+stored strings, never consult environment or reconstruct authored source spelling.
+An old expanded key and a new literal key remain independent; only a later equal
+key supersedes its predecessor, while anonymous occurrences stay independent.
+See [workflow3 adoption](../runbook/state-adoption.md#workflow3-literal-protection-keys)
+before changing retained inputs. Two sites may share a file but choose different
+policies. Shared fragments are policy-free. Protection, observation facts and
+structural prepared evidence are independent; no feeding/retention rule changes.
 
 Declaration excerpt (other required agents, routes, records, entries and edges
 omitted; not a complete configuration):
@@ -158,7 +172,7 @@ agents:
 card_types:
   code:
     workflow:
-      format_version: 2
+      format_version: 3
       entries:
         STOPPED:
           node: red
