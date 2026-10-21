@@ -1,11 +1,13 @@
 # Architecture: find the owner
 
-Read [the product overview](../overview.md) for vocabulary, then follow a flow below.
+Read [the product overview](../overview.md) for the autonomous work loop, then trace
+dispatch, execution and acceptance through their owners below.
 Architecture explains implementation responsibilities; the [specifications](../spec/index.md)
 own requirements and the [runbook](../runbook/index.md) owns operating procedures.
 
 | What you need to understand or extend | Start here | Main source boundary |
 | --- | --- | --- |
+| Autonomous delegation, implementation and acceptance | [Activation and node execution](./system-architecture.md#activation-and-node-execution), [shared acceptance](./system-architecture.md#agent-path-and-shared-acceptance) | `SupervisorRuntimeApi`, `CardProcessActor`, `NodeExecution`, `AgentExecutor`; bundled root assessment in `classic-shared.ts`. |
 | Where a change belongs | [Ownership and dependencies](./system-architecture.md#ownership-and-dependency-direction) | Owner-published package roots/ports; `scripts/check-import-boundaries.cjs`. |
 | Configuration, workflow or action | [Startup compilation](./system-architecture.md#structural-compilation-and-live-binding), then [node execution](./system-architecture.md#activation-and-node-execution) | `schemas/saivage-config.ts`, `runtime/card-process/card-process-config.ts`, `operation-contract.ts`, `NodeExecution`. |
 | Dispatch, Pause/Stop or cancellation | [Control and recovery](./system-architecture.md#control-notifications-and-recovery) | `SupervisorRuntimeApi`, exact owner/lease and process-scope joins. |

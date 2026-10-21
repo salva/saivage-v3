@@ -1,10 +1,12 @@
 # What is Saivage?
 
-Saivage coordinates software work in a target project over long runs. You supply
-an objective and constraints; configured agents break work down, perform tasks,
-assess results and revise plans. The web control room lets you follow the work and
-ask the Analyst to steer it. It can support a bounded fix or a much larger project;
-completion time, correctness and minimal intervention are goals, not guarantees.
+Saivage is for **autonomous software development**: you establish the objective,
+constraints and acceptance criteria, then explicitly authorize a Run. Configured
+agents plan, implement, investigate, test, review and correct work in the target
+workspace. The aim is to make routine supervision mostly unnecessary, whether for
+a bounded fix or a larger project—not to guarantee completion, correctness or
+minimal intervention. The control room provides visibility and a way to intervene
+when needed; it does not require you to dispatch each task.
 
 This is an explanation. Exact behavior belongs to the [system specification](spec/system-specification.md),
 presentation to the [UI contracts](spec/operator-ui-contracts.md), and operating
@@ -59,29 +61,45 @@ advisory and cannot turn an accepted DONE into an unaccepted result.
 
 ## Execution and review
 
-1. You settle the root objective with the Analyst, then explicitly request a **Run**.
+1. After deployment and model configuration, you settle the root objective and
+   acceptance criteria with the Analyst, inspect the accepted brief, then explicitly
+   request a **Run**. Startup alone does not start work.
 2. The runtime activates the root. Its configured Planner can create and activate
    children, supplying current direction through the supported activation operation.
 3. Agents use their tools; actions use their declared capabilities. Record gates,
    dependency rules and configured outcomes govern acceptance.
-4. Results return to the parent. It can accept, arrange review, reopen its own
-   child for correction, replan, or report a missing decision. Bundled root workflows
-   include a Planner completion assessment after approved review: remaining
-   authorized work leads back to planning, not premature project completion.
-5. You inspect and steer while the Run continues, or deliberately pause/stop it.
+4. Results return to the parent. It assesses delivery and can arrange configured
+   review, reopen its own done/failed child for justified correction, replan, or
+   report a missing decision. Reviewer assessment is a distinct responsibility,
+   not a universal extra node on every leaf.
+5. In bundled root workflows, the Planner assesses completion against the owner's
+   objective, child delivery and applicable review evidence. Approved review also
+   returns to this assessment. Remaining authorized work leads back to planning;
+   missing required independent acceptance leads to review. A fulfilled finite
+   objective can finish; ambiguous continuing scope can require an owner decision.
 
-Normal notifications supply context; urgent notifications can interrupt exact
-active work and cause recipient-first recovery. Queueing is not proof of delivery
-or action. After a server interruption, successful startup settles the interrupted
-linked card chain to stopped without launching work. A later explicit Run starts
-at the root; descendants require ordinary parent activation.
+These transitions do not normally require human approval between children. The
+configured graph and each participant's authority determine what can happen;
+autonomy does not supply missing access, decide an unresolved owner choice or
+authorize work beyond the brief. See the exact
+[planning and completion responsibilities](spec/system-specification.md#planning-assessment-and-current-status).
 
-**Pause** gates new provider work cooperatively; it is not a barrier for every
-action or command. **Resume** continues the paused Run. **Project Stop** contains
-project execution but leaves the application and Analyst available. Application
-close and confirmed server restart are different operations. Use the
-[control decision table](runbook/runtime-control.md#choose-the-control), not these
-short definitions, when operating an instance.
+## Understand the outcome
+
+The useful result is the work in the target workspace: for example, changed source,
+tests, documentation or an investigation's findings. Accepted status and review
+records point to what was delivered and the evidence supporting it. Compare those
+products and actual test results with the accepted objective, not merely with the
+number of completed cards.
+
+**DONE means configured workflow acceptance.** A completed child or milestone need
+not complete the project, and a completed project is not independent proof of
+software correctness, deployment or publication. There is no default guarantee of
+commits or pushes. Work may instead remain ongoing, become blocked on a real input
+or decision, or fail with unresolved obligations. Missing evidence remains unknown.
+The [first-project tutorial](guides/getting-started.md#understand-one-result) walks
+through interpreting one result; the [evidence runbook](runbook/evidence.md) owns
+the exact distinctions below.
 
 ## Records, conversations and evidence
 
@@ -118,6 +136,10 @@ audit or delivery ledger. See [how to read evidence](runbook/evidence.md).
 
 ## Observe and steer
 
+Inspection is available when useful, not a required every-turn checklist. Start
+with the objective, recorded result and accepted evidence in the
+[work tour](guides/operating.md); open deeper inspectors for a specific question.
+
 - **Cockpit**: a tree plus Overview, Conversations, Executions, Records & History
   and Evidence facets for a selected card. Exact global sessions have no invented card.
 - **Files**: admitted, server-projected workspace and virtual canonical documents,
@@ -134,6 +156,19 @@ The browser has no token-entry/sign-in flow. Deployment-owned isolation and oper
 authentication decisions must be established before exposure. Saivage does not
 create that isolation; trusted command-capable agents can modify the target and Git.
 Provider calls can incur charges, including later Analyst calls after project Stop.
+
+Normal notifications supply context; urgent notifications can interrupt exact
+active work and cause recipient-first recovery. Queueing is not proof of delivery
+or action. After a server interruption, successful startup settles the interrupted
+linked card chain to stopped without launching work. A later explicit Run starts
+at the root; descendants require ordinary parent activation.
+
+**Pause** gates new provider work cooperatively; it is not a barrier for every
+action or command. **Resume** continues the paused Run. **Project Stop** contains
+project execution but leaves the application and Analyst available. Application
+close and confirmed server restart are different operations. Use the
+[control decision table](runbook/runtime-control.md#choose-the-control), not these
+short definitions, when operating an instance.
 
 ## Persistence and adoption
 
@@ -169,6 +204,6 @@ repair or migration permission.
 
 ## Next steps
 
-[Try a disposable project](guides/getting-started.md), [operate the cockpit](guides/operating.md),
+[Try a disposable project](guides/getting-started.md), [follow the work](guides/operating.md),
 [configure an instance](guides/configuration.md), or [trace the implementation](guides/development.md).
 For a precise question, use the [owner map](reference/agent-navigation.md).

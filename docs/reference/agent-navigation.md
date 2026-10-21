@@ -18,6 +18,25 @@ or permission to operate a project.
 | [Guides](../guides/getting-started.md), [overview](../overview.md), field lookup | Learning/tasks/explanation/current lookup | A competing normative policy |
 | `docs/working/` | Local task plan/review/provenance, when assigned | Published authority or completed implementation |
 
+## Autonomous work and completion
+
+For orientation, read the [objective-to-outcome explanation](../overview.md#execution-and-review).
+For exact behavior, start with the applicable row rather than assuming every card
+has the same graph or that DONE certifies the software independently.
+
+| Exact question | Owning heading | Source/contract to inspect |
+| --- | --- | --- |
+| Who owns the objective, scope and remaining authorized work? | [Planning, assessment and current status](../spec/system-specification.md#planning-assessment-and-current-status); [authored records](../spec/system-specification.md#authored-records-and-current-selections) | [`classic-shared.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/config/system-templates/classic-shared.ts), selected Planner/node prompt closure, [`authored-record-files.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/persistence/authored-record-files.ts) |
+| How do Planner delegation and Executor work reach actual execution? | [Activation and node execution](../architecture/system-architecture.md#activation-and-node-execution); [caller-aware admission](../spec/system-specification.md#caller-aware-operation-admission) | [`supervisor-runtime-api.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/actors/supervisor-runtime-api.ts), [`card-process-actor.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/actors/card-process-actor.ts), [`agent-executor.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/actors/agent-executor.ts) |
+| Where are review acceptance and parent correction distinct? | [Agent path and shared acceptance](../architecture/system-architecture.md#agent-path-and-shared-acceptance); [planning and correction](../spec/system-specification.md#planning-assessment-and-current-status) | [`node-execution.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/actors/node-execution.ts), [`supervisor-runtime-api.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/actors/supervisor-runtime-api.ts), selected workflow edges and participant grants |
+| When can the root finish rather than replan, request review or block? | [Shipped project completion and profile graphs](../spec/system-specification.md#shipped-project-completion-and-profile-graphs); [completion assessment](../spec/system-specification.md#planning-assessment-and-current-status) | [`projectCompletion`](https://github.com/salva/saivage-v3/blob/HEAD/src/config/system-templates/classic-shared.ts), selected `assess-completion` prompt; no runtime natural-language objective checker |
+| What do results and tests establish, and where are action results? | [Understand the outcome](../overview.md#understand-the-outcome); [action execution and stdout](../runbook/evidence.md#action-execution-and-stdout) | [`node-execution.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/actors/node-execution.ts), [`card-execution-log.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/persistence/card-execution-log.ts), exact cited work products and checks |
+
+Selected prompts carry role/node policy; configured graphs and tool admission
+bound its effects. Public documentation is a retrieval aid, not another runtime
+instruction source. Use [prompt selection](../architecture/prompts.md#exact-prompt-references-and-lookup)
+to find the actual host instead of assuming the shipped text was delivered.
+
 ## Analyst, MCP and lifecycle
 
 | Exact question | Owning heading | Source/contract to inspect |

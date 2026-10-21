@@ -1,6 +1,8 @@
 # System architecture
 
-Saivage is a card-centered runtime: configuration compiles the workflow, Supervisor
+Saivage supports autonomous software development through a card-centered runtime:
+configured Planner, Executor and Reviewer nodes separate coordination, engineering
+and assessment. Configuration compiles the workflow, Supervisor
 owns dispatch and activation lifetimes, domain owners publish ordinary files, and
 read models expose selected evidence. The browser observes those owners; it is not
 a scheduler or persistence authority. This is the canonical architecture

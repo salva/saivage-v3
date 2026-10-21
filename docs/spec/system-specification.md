@@ -10,7 +10,12 @@ own the operator experience. Historical source applicability belongs to the
 
 ## Product and trust boundary
 
-Saivage plans and executes software work represented by cards in one target project.
+Saivage's purpose is autonomous software development: after configuration,
+objective/acceptance preparation and explicit Run, configured agents carry out
+software work represented by cards in one target project. Reducing routine human
+supervision is an aim, not a guarantee of completion, correctness or minimal
+intervention. Configured acceptance and the owner's required decisions remain
+distinct; the contracts below define both execution authority and its limits.
 The runtime is the sole dispatcher. Its server provides Analyst interaction,
 card/session/file/evidence inspection and process-local controls. A notification
 queue is private delivery state, not an ordinary card-query surface.

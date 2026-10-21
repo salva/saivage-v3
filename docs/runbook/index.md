@@ -1,6 +1,11 @@
 # Operator runbook
 
-Choose the operation from the observed problem. Do not start with repair/reset
+For the normal objective → work → outcome journey, start with the
+[overview](../overview.md) and [work tour](../guides/operating.md). Use this runbook
+when commissioning, deliberate control or a problem calls for an operation—not
+as a required checklist for every agent turn.
+
+Choose the operation from the observed need. Do not start with repair/reset
 when you need ordinary control or clearer evidence. The runbook owns procedures;
 [system requirements](../spec/system-specification.md),
 [operator contracts](../spec/operator-ui-contracts.md) and

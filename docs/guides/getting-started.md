@@ -1,7 +1,8 @@
 # Your first project
 
 This tutorial takes a **fresh, disposable target** from initialization to an
-explicit first Run, then ends the trial. Read the [overview](../overview.md) if
+explicit first Run, shows how to understand its work and outcome, then ends the
+trial. Read the [overview](../overview.md) if
 cards and workflows are new to you. For an existing installation, begin at the
 [runbook decision map](../runbook/index.md), not by reinitializing it.
 
@@ -161,11 +162,57 @@ the Analyst if necessary. Then request execution separately:
 
 The Analyst can call `start_project`; a prose promise alone is not evidence that
 Run was admitted. Inspect runtime state, current work and the corresponding tool
-result. Follow the selected card's **Conversations**, **Executions** and records.
-Planning may create/activate children, but the tree need not grow every turn.
-Replies may take seconds to minutes; meaningful work may take much longer.
+result. Once admitted, the configured workflow owns progression—you do not need to
+dispatch each child or approve each transition. Planning may create/activate
+children, but the tree need not grow every turn. Replies may take seconds to
+minutes; meaningful work may take much longer.
 
-## 7. End the trial
+<a id="understand-one-result"></a>
+
+## 7. Follow autonomous work and understand one result
+
+Start with the root **Overview** and its accepted brief. The Planner coordinates
+work through children; Executors perform their scoped engineering; configured
+review assesses evidence and can return findings for correction. The root's
+completion assessment considers remaining authorized work, not just a finished
+child. The [overview](../overview.md#execution-and-review) explains that loop; the
+[work tour](operating.md) locates its observations. This is not a prescribed tree
+or a promise that your trial will finish within a particular time.
+
+When a result is available, select one relevant card and:
+
+1. Compare its **Overview** objective and recorded result with the accepted brief
+   in **Records & History**. Open the accepted status, not just a newer draft.
+2. Follow the cited work products and checks. For an illustrative small text-parser
+   fix, that could mean the changed parser, a regression test for empty input and
+   the actual test result. This is an example of evidence to look for, not a claim
+   that this tutorial produced those artifacts.
+3. If review is configured, read the applicable accepted review and its unresolved
+   findings. A leaf need not have its own Reviewer; parent assessment and review
+   are separate from that leaf's implementation result. Use **Conversations** or
+   **Executions** only when you need the exact agent or action evidence.
+4. Return to the root result/status to distinguish local delivery from fulfillment
+   of the whole objective. The Planner may continue or replan without your input.
+
+Interpret what you actually find:
+
+| Observation | Meaning for the trial |
+| --- | --- |
+| Work is ongoing | You can leave it progressing within its authority; lack of a new message alone does not show it is stuck |
+| A child is DONE | Its configured workflow accepted that task, not necessarily the whole project |
+| The root is DONE | Assess the delivered products and supporting evidence against your criteria; it is not independent correctness, deployment or publication certification |
+| Work is BLOCKED | Read the named missing input/decision; supply it through the Analyst if appropriate, rather than adding a new approval gate to ordinary work |
+| Work is FAILED or evidence is missing | Keep the failure or uncertainty explicit; do not infer success or replay an old command from an incomplete result |
+
+No result yet is a valid observation. You need not keep the trial running to
+manufacture a completion. For a real blocker or changed objective, use
+[supported intervention](operating.md#supply-context-and-steer-while-running);
+for evidence interpretation, use the [evidence runbook](../runbook/evidence.md).
+
+## 8. End the trial
+
+You can end the trial regardless of whether work completed, failed or is still
+ongoing; stopping is not an acceptance verdict.
 
 Ask the Analyst to stop project work, or from the exact target directory use:
 
@@ -197,6 +244,6 @@ repair, reset and migration have separate procedures and consent.
 | No apparent progress | Inspect exact current card/session and action evidence; ask for an observation, not guessed success |
 | Data-format failure | [Choose adoption versus repair](../runbook/state-adoption.md#choose-the-operation), not another init |
 
-Next: [operate and steer](operating.md), [configure capabilities](configuration.md),
+Next: [follow work and outcomes](operating.md), [configure capabilities](configuration.md),
 or [develop Saivage](development.md). This tutorial is not proof of a qualified
 deployment or a successful provider-backed delivery.

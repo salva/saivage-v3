@@ -2,7 +2,8 @@
 
 These are normative references: what Saivage must do and how the operator UI
 must present it. They are not startup instructions or evidence that a particular
-installation conforms. Begin with the [overview](../overview.md) for vocabulary,
+installation conforms. Begin with the [overview](../overview.md) for the autonomous
+work and completion model,
 the [runbook](../runbook/) for an operator task, or the
 [architecture](../architecture/) for implementation ownership.
 
@@ -11,6 +12,7 @@ the [runbook](../runbook/) for an operator task, or the
 | Question | Owning reference |
 | --- | --- |
 | What is the product/trust boundary? | [System: product and trust](system-specification.md#product-and-trust-boundary) |
+| Who delegates, corrects and assesses completion? | [Planning and assessment](system-specification.md#planning-assessment-and-current-status), [shipped completion graphs](system-specification.md#shipped-project-completion-and-profile-graphs) |
 | Which caller may mutate which work? | [Caller-aware operation admission](system-specification.md#caller-aware-operation-admission) |
 | How do card identity, lifecycle and records work? | [Cards](system-specification.md#card-identity-and-lifecycle), [authored records](system-specification.md#authored-records-and-current-selections), [history and selections](system-specification.md#card-history-membership-and-publication) |
 | What runs an agent or an action? | [Workflow engine](system-specification.md#workflow-engine), [actions and execution evidence](system-specification.md#workflow-actions-and-execution-evidence), [shipped policy](system-specification.md#workflow-configuration-and-shipped-policies) |

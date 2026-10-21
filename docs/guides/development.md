@@ -7,6 +7,24 @@ owns repository policy and issue-fix review; the [architecture](../architecture/
 owns dependency direction. Use [validation](../validation.md) for complete check
 recipes and CI applicability.
 
+## Trace autonomous work first
+
+The [work loop](../overview.md#execution-and-review) spans distinct owners, not one
+agent that does everything. The accepted root brief supplies objective context;
+bundled Planner policy owns decomposition and correction through direct children;
+Executor nodes own scoped implementation and verification. Configured Reviewer
+nodes assess evidence rather than dispatch work. Root completion assessment is
+separate from a child's success or an approved review.
+
+For an implementation change, follow [activation and node execution](../architecture/system-architecture.md#activation-and-node-execution):
+`SupervisorRuntimeApi` owns dispatch/activation lifetimes, `CardProcessActor` owns
+graph progression, and `NodeExecution` owns shared acceptance while `AgentExecutor`
+runs agent nodes. `classic-shared.ts::projectCompletion` declares the bundled root
+assessment routes; it is not a deterministic software-quality checker. Accepted
+records and actual work/test evidence support conclusions, not a blanket delivery
+guarantee. The [question-to-owner map](../reference/agent-navigation.md#autonomous-work-and-completion)
+connects these responsibilities to their exact contracts and source paths.
+
 ## Establish a development checkout
 
 Use Node`>=24 <25`, npm`>=10 <12`, and install both dependency trees:

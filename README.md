@@ -1,10 +1,14 @@
-# Saivage v3
+# Saivage — Autonomous Software Development
 
-Saivage coordinates long-running software engineering in a target project.
-Give its Analyst an objective and acceptance criteria; explicitly start a Run;
-configured Planners delegate cards, Executors do the work, and Reviewers assess
-results. A web control room lets you inspect work products and evidence and steer
-the run. Workflows can also use non-LLM actions for finite commands.
+Give Saivage an objective, constraints and acceptance criteria, then explicitly
+start a Run. Configured Planners delegate and sequence work, Executors implement,
+investigate and test, and configured Reviewers assess evidence. Parents coordinate
+correction; the root Planner assesses remaining authorized work before completion.
+Workflows can also use non-LLM actions for finite commands.
+
+The goal is autonomous progress from direction to work products, not continual
+human dispatch. Use the web control room to understand results or intervene when
+needed. Reduced supervision is an aim, not a guarantee of unattended success.
 
 Agents can edit files, run commands, use configured external tools and spend
 provider credits. Deploy inside an **externally isolated environment**, normally
@@ -16,8 +20,9 @@ data loss. See [how the work model fits together](docs/overview.md).
 
 | You want to… | Start here |
 | --- | --- |
-| Try a first objective | [Fresh-project tutorial](docs/guides/getting-started.md) — build, initialize, configure, start, explicitly Run, end the trial |
-| Operate a project | [Operating guide](docs/guides/operating.md) and [runbook decision map](docs/runbook/index.md) — observe, steer, control and diagnose |
+| Try a first objective | [Fresh-project tutorial](docs/guides/getting-started.md) — prepare, explicitly Run, understand a result, end the trial |
+| Understand autonomous development | [Overview](docs/overview.md) — delegation, configured review, correction and evidence-qualified completion |
+| Follow work and assess outcomes | [Work tour](docs/guides/operating.md) — objective, results and evidence; [runbook decision map](docs/runbook/index.md) when control or diagnosis is needed |
 | Develop Saivage | [Developer guide](docs/guides/development.md) — trace owners, extend contracts and select checks |
 | Retrieve an exact fact | [Reference map](docs/reference/index.md) and [agent navigation](docs/reference/agent-navigation.md) — requirements, procedures and source owners |
 

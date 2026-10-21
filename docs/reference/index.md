@@ -5,6 +5,8 @@ understand the model, and the runbook for an operating decision.
 
 | Question | Owning destination |
 | --- | --- |
+| How does an objective become autonomous work and an outcome? | [Work loop](../overview.md#execution-and-review), [autonomous ownership lookup](agent-navigation.md#autonomous-work-and-completion) |
+| Who accepts results, coordinates correction and decides completion? | [Planning and assessment](../spec/system-specification.md#planning-assessment-and-current-status), [shared acceptance](../architecture/system-architecture.md#agent-path-and-shared-acceptance) |
 | Which YAML field/default or startup input? | [Configuration lookup](configuration.md) |
 | Where should an agent retrieve a precise answer? | [Question-to-owner map](agent-navigation.md) |
 | What must the product do? | [System specification](../spec/system-specification.md) |
@@ -16,7 +18,7 @@ understand the model, and the runbook for an operating decision.
 | Which validation gate/evidence? | [Validation](../validation.md) |
 | How do I operate, diagnose or adopt state? | [Runbook decision map](../runbook/index.md#choose-the-safe-next-task) |
 
-The [configuration guide](../guides/configuration.md), [operating guide](../guides/operating.md)
+The [configuration guide](../guides/configuration.md), [work tour](../guides/operating.md)
 and [developer guide](../guides/development.md) supply worked tasks. None replaces
 the linked contract or authorizes live effects. Source facts and historical evidence
 do not override repository policy or explicit owner instructions.

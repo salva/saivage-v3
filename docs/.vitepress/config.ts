@@ -13,38 +13,39 @@ const base = process.env.DOCS_BASE ?? '/docs/';
 
 export default defineConfig({
   base,
-  title: 'Saivage v3',
+  title: 'Saivage',
   description:
-    'Autonomous multi-agent runtime for software-development work: card-centered planning, execution, review, and operator control.',
+    'Autonomous Software Development: set an objective, explicitly Run, and follow configured planning, implementation, review and evidenced outcomes.',
   srcExclude: ['working/**'],
   themeConfig: {
     nav: [
-      { text: 'Learn', link: '/guides/getting-started' },
-      { text: 'Operate', link: '/runbook/' },
+      { text: 'Get started', link: '/guides/getting-started' },
+      { text: 'How it works', link: '/overview' },
+      { text: 'Follow the work', link: '/guides/operating' },
       { text: 'Develop', link: '/guides/development' },
       { text: 'Reference', link: '/reference/' },
     ],
     outline: 'deep',
     sidebar: [
       {
-        text: 'Overview',
+        text: 'Start here',
         items: [
           { text: 'Choose a path', link: '/' },
-          { text: 'What is Saivage', link: '/overview' },
+          { text: 'How it works', link: '/overview' },
         ],
       },
       {
-        text: 'Guides',
+        text: 'Work with Saivage',
         items: [
           { text: 'Getting started', link: '/guides/getting-started' },
           { text: 'Configuration', link: '/guides/configuration' },
-          { text: 'Operating a project', link: '/guides/operating' },
+          { text: 'Follow the work', link: '/guides/operating' },
           { text: 'Developing Saivage', link: '/guides/development' },
         ],
       },
       {
-        text: 'Operations',
-        collapsed: false,
+        text: 'Runbook',
+        collapsed: true,
         items: [
           { text: 'Choose the safe next task', link: '/runbook/' },
           { text: 'Deployment and startup', link: '/runbook/deployment' },

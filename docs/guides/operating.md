@@ -1,12 +1,37 @@
-# Operating a project
+# Follow the work
 
-Use this guide to orient, supply context, inspect evidence and decide how to steer
-work. Exact UI behavior is in the [UI contracts](../spec/operator-ui-contracts.md);
+Use this tour to understand what an autonomous Run is doing and what it has
+delivered. Start with the objective and results; open detailed evidence for a
+question, or use the Analyst when work needs new context or intervention. You do
+not need to watch each turn or manually advance the workflow. Exact UI behavior
+is in the [UI contracts](../spec/operator-ui-contracts.md);
 the [runbook](../runbook/index.md) owns consequential operating procedures.
 If the server never reaches readiness, go to [startup diagnosis](../runbook/diagnosis.md#startup-does-not-reach-readiness)
 instead of looking for a repair UI.
 For first browser access, use [deployment access and private credential setup](../runbook/deployment.md#browser-access-across-namespaces);
 public UI assets alone do not grant protected observations.
+
+## Start with the work and outcome
+
+Select the project to read its objective, accepted status and recorded result.
+Use these to distinguish the owner's overall goal from an individual child's
+delivery. Then follow relevant children to their implementation, investigation,
+tests or documents. The tree is a work breakdown, not a checklist for you to
+dispatch.
+
+During a Run, Planners coordinate children and corrections; configured review
+assesses evidence; the root Planner checks remaining authorized work before
+completion. The [overview](../overview.md#execution-and-review) explains the loop.
+A changed node or returning child can be normal progression, not a request for
+human approval. Missing access or an unresolved owner decision may need you;
+ordinary engineering choices remain with the assigned agents.
+
+When assessing a result, compare the actual workspace product and cited checks
+with the accepted brief. Read applicable review findings, including unresolved
+ones, before concluding that a task met its criteria. The
+[tutorial's outcome step](getting-started.md#understand-one-result) gives a small
+illustrative example. The controls later in this tour remain available whether
+work is ongoing, completed, blocked or failed.
 
 ## Orient in the cockpit
 
@@ -38,14 +63,44 @@ them as the work product.
 | Question | Facet and useful observation |
 | --- | --- |
 | What is this work and what happened? | **Overview**: objective, activity/participants, recorded result, declared records, relationships; unknown waiting reasons stay unknown |
+| What is draft versus accepted, or what changed? | **Records & History**: current record state, accepted versions, card snapshots and diffs |
 | What did an agent say or call? | **Conversations**: choose the exact named-agent session and retained segment |
 | What did a finite action do? | **Executions**: retained non-LLM invocation/outcome and selected output files |
-| What is draft versus accepted, or what changed? | **Records & History**: current record state, accepted versions, card snapshots and diffs |
 | Which exact source supports a claim? | **Evidence**: source-labeled catalogs and bounded card-scoped events |
 
 `done` means accepted as done by the configured workflow, not independently verified
 correctness. An ordinary successful tool envelope may describe a process that exited
 1; read the disposition. A blank/unavailable result is not an inferred success.
+
+## Inspect records and action results
+
+![Disposable checklist Records and History: accepted review text, prior card snapshot and comparison with current membership.](/screenshots/cockpit-records-history.png)
+
+*The fictional review and card-version diff are retained fixture evidence, not a
+review of a real deployment. Record document numbers and card/head revisions are
+different coordinates.*
+
+A **Baseline0** starter is not authored approval. A **Draft** may be newer than the
+last **Accepted** document. Record history shows accepted documents; current head
+revision plus UUID identifies the mutable selection. Select an exact historical
+document/snapshot before comparing; never infer currentness from a number alone.
+Authorship labels identify agent, runtime, shell-stdout or external principal;
+none automatically supplies an independent review verdict.
+
+Use **Executions** for an action or postcommit hook, not a missing agent transcript.
+Refresh its retained rows explicitly, open one invocation and inspect selected files.
+Missing completion does not mean still running; a selected workspace artifact may
+be its current content, not a historical snapshot. A shell stdout accepted record
+is the completed captured report with factual provenance, not semantic acceptance
+of the software. Advisory hook failure does not reverse the card's prior acceptance.
+See [action execution and stdout](../runbook/evidence.md#action-execution-and-stdout).
+
+For image results, metadata is not pixels. **Inspect image** explicitly fetches the
+exact recorded selected PNG into a dialog; current **Files** image inspection
+reads a fresh current source. Neither proves what a provider perceived. Ordinary
+JSON-looking image data is not an attachment. For missing process output use
+[process state and missing output](../runbook/evidence.md#process-state-and-missing-output),
+not an assumption of running/completed work or a retry of the old command.
 
 ## Read a conversation without losing your place
 
@@ -84,39 +139,41 @@ For instruction questions:
 
 See [exact activation and instruction evidence](../runbook/evidence.md#exact-activation-and-instruction-evidence).
 
-## Inspect records and action results
+## Files and System
 
-![Disposable checklist Records and History: accepted review text, prior card snapshot and comparison with current membership.](/screenshots/cockpit-records-history.png)
+![Disposable Files fixture listing virtual root-card records and previewing its fictional brief with server-redaction notice.](/screenshots/files.png)
 
-*The fictional review and card-version diff are retained fixture evidence, not a
-review of a real deployment. Record document numbers and card/head revisions are
-different coordinates.*
+*Files presents admitted virtual card documents and projected content, not the
+physical persistence layout or unrestricted secret-bearing files.*
 
-A **Baseline0** starter is not authored approval. A **Draft** may be newer than the
-last **Accepted** document. Record history shows accepted documents; current head
-revision plus UUID identifies the mutable selection. Select an exact historical
-document/snapshot before comparing; never infer currentness from a number alone.
-Authorship labels identify agent, runtime, shell-stdout or external principal;
-none automatically supplies an independent review verdict.
+Files also supports admitted ordinary project content. Directory observations can
+age; refresh when needed. Generated card/record paths are virtual projections.
+Private configuration, provider diagnostics and repair attic are not a raw-file
+escape hatch. Images use explicit current-source inspection, not text preview.
 
-Use **Executions** for an action or postcommit hook, not a missing agent transcript.
-Refresh its retained rows explicitly, open one invocation and inspect selected files.
-Missing completion does not mean still running; a selected workspace artifact may
-be its current content, not a historical snapshot. A shell stdout accepted record
-is the completed captured report with factual provenance, not semantic acceptance
-of the software. Advisory hook failure does not reverse the card's prior acceptance.
-See [action execution and stdout](../runbook/evidence.md#action-execution-and-stdout).
+![System Provider availability fixture showing four synthetic local model candidates and process-local availability text.](/screenshots/system-provider-availability.png)
 
-For image results, metadata is not pixels. **Inspect image** explicitly fetches the
-exact recorded selected PNG into a dialog; current **Files** image inspection
-reads a fresh current source. Neither proves what a provider perceived. Ordinary
-JSON-looking image data is not an attachment. For missing process output use
-[process state and missing output](../runbook/evidence.md#process-state-and-missing-output),
-not an assumption of running/completed work or a retry of the old command.
+*Synthetic provider availability is a local routing observation, not commercial
+service health, credential validation, future dispatch or durable history.*
+
+Select a System section to read it: Errors, Events, Processes, MCP, Provider
+availability, Configuration, Installed workflows and other diagnostics are
+independent observations. **Installed workflows** shows what compiled; saved YAML
+is not proof of hot-loaded workflow changes. **Updates** explains socket hints
+versus manual Refresh. System is not a provider-secret editor or general runtime
+control console; MCP observations do not launch a browser for you.
+
+For no readiness, unauthorized views, provider errors or capacity refusal, use the
+[diagnosis chapter](../runbook/diagnosis.md). For an upgrade or corrupt current data,
+use [state-adoption decisions](../runbook/state-adoption.md#choose-the-operation).
+There is no degraded repair UI, automatic prior-selector fallback or permission
+to reset data from an observation error.
 
 ## Supply context and steer while running
 
-Use the Analyst panel for ordinary project changes. A concrete request separates
+Intervene when the objective changes, a genuine decision is needed, or evidence
+justifies correction—not because each transition needs your approval. Use the
+Analyst panel for ordinary project changes. A concrete request separates
 observation, proposed action and execution intent:
 
 > Inspect card-a's current result and accepted review. Explain the remaining defect
@@ -156,7 +213,7 @@ when its authenticated capability is available; project controls normally go thr
 the Analyst. CLI controls delegate through the verified lifecycle owner. See the
 [full control procedure](../runbook/runtime-control.md#choose-the-control).
 
-For a long run, ask for a bounded catch-up with a supplied horizon:
+When returning to a long run, you can ask for a bounded catch-up with a supplied horizon:
 
 > Since 14:00 UTC today, summarize accepted work, current work, failures and decisions
 > needed. Cite exact cards, record versions or session entries; distinguish unknowns.
@@ -175,33 +232,3 @@ Oversight's optional default two-hour check starts after one full continuous
 eligible interval; it does not run immediately on Run. It can send an evidenced
 notification, not implement repairs itself. A lack of new children or messages
 alone does not establish a stuck project.
-
-## Files and System
-
-![Disposable Files fixture listing virtual root-card records and previewing its fictional brief with server-redaction notice.](/screenshots/files.png)
-
-*Files presents admitted virtual card documents and projected content, not the
-physical persistence layout or unrestricted secret-bearing files.*
-
-Files also supports admitted ordinary project content. Directory observations can
-age; refresh when needed. Generated card/record paths are virtual projections.
-Private configuration, provider diagnostics and repair attic are not a raw-file
-escape hatch. Images use explicit current-source inspection, not text preview.
-
-![System Provider availability fixture showing four synthetic local model candidates and process-local availability text.](/screenshots/system-provider-availability.png)
-
-*Synthetic provider availability is a local routing observation, not commercial
-service health, credential validation, future dispatch or durable history.*
-
-Select a System section to read it: Errors, Events, Processes, MCP, Provider
-availability, Configuration, Installed workflows and other diagnostics are
-independent observations. **Installed workflows** shows what compiled; saved YAML
-is not proof of hot-loaded workflow changes. **Updates** explains socket hints
-versus manual Refresh. System is not a provider-secret editor or general runtime
-control console; MCP observations do not launch a browser for you.
-
-For no readiness, unauthorized views, provider errors or capacity refusal, use the
-[diagnosis chapter](../runbook/diagnosis.md). For an upgrade or corrupt current data,
-use [state-adoption decisions](../runbook/state-adoption.md#choose-the-operation).
-There is no degraded repair UI, automatic prior-selector fallback or permission
-to reset data from an observation error.

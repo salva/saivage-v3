@@ -1,6 +1,8 @@
 # Configure an instance
 
-Use this page for configuration tasks and the [field reference](../reference/configuration.md)
+Configure the models, capabilities and workflows that enable autonomous work;
+this is not a per-task dispatch checklist. Use this page for configuration tasks
+and the [field reference](../reference/configuration.md)
 for exact keys, defaults and constraints. Saivage loads one selected strict YAML
 document, normally `<target>/.saivage/saivage.yaml`. Unknown keys fail; there is no
 legacy overlay. Initial templates are starting points, not ongoing authorities

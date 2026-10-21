@@ -1,24 +1,26 @@
 ---
 layout: home
+title: Autonomous Software Development
+description: Set an objective, explicitly Run, and let configured agents plan, implement, test and review. Understand outcomes and intervene when needed.
 hero:
-  name: Saivage v3
-  text: Software work over long runs
+  name: Saivage
+  text: Autonomous Software Development
   tagline: >-
-    Give a project an objective. Configured agents plan, implement, test and review
-    work in a visible card tree, while you inspect evidence and steer the next steps.
+    Set the objective and acceptance criteria, then explicitly Run. Configured
+    agents carry out the engineering; follow results and intervene when needed.
   actions:
     - theme: brand
       text: Try a first project
       link: /guides/getting-started
     - theme: alt
-      text: Understand the model
+      text: How it works
       link: /overview
 features:
-  - title: Learn
-    details: Understand cards, workflows and responsibilities, then try a disposable project.
+  - title: Start with an objective
+    details: Prepare an isolated disposable project, configure models and authorize its first Run.
     link: /guides/getting-started
-  - title: Operate
-    details: Configure models, orient in the cockpit, control work and diagnose failures.
+  - title: Follow work to outcomes
+    details: Understand delivered work, accepted records and review evidence; investigate or intervene when needed.
     link: /guides/operating
   - title: Develop
     details: Trace contracts to their owners and extend existing tool, action and workflow boundaries.
@@ -32,12 +34,23 @@ features:
 
 | You want to… | Start here | Then use |
 | --- | --- | --- |
-| Understand what runs where | [Overview](overview.md) | [First-project tutorial](guides/getting-started.md) |
+| Understand autonomous work and completion | [Overview](overview.md) | [First-project tutorial](guides/getting-started.md) |
 | Configure or operate an instance | [Configuration tasks](guides/configuration.md) | [Field lookup](reference/configuration.md), [operating guide](guides/operating.md), [runbook decision map](runbook/index.md) |
 | Change the implementation | [Development guide](guides/development.md) | [Architecture](architecture/index.md), [validation](validation.md) |
 | Answer a precise question, including as an agent | [Question-to-owner map](reference/agent-navigation.md) | [Specifications](spec/index.md), [reference index](reference/index.md) |
 
 ## What to expect
+
+Planners delegate and sequence child work; Executors implement, investigate and
+test. Configured review can send findings back for correction. The root Planner
+assesses the owner's objective and remaining authorized work before completion,
+without requiring you to approve each transition. See the
+[work and review loop](overview.md#execution-and-review).
+
+The output is work in your target workspace, supported by records and evidence.
+DONE is configured acceptance, not independent software correctness or automatic
+deployment. Work can remain blocked, failed or unresolved. Making routine
+supervision mostly unnecessary is the aim, not a measured reliability promise.
 
 Saivage runs against a target workspace in deployment-provided isolation. Agents
 with command tools can modify files, execute programs and use Git. Provider calls
