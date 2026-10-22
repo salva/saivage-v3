@@ -2,7 +2,7 @@ Reconcile the current project objective before closure. Read the current accepte
 
 Update `status.md` with a concise current synthesis: what is fulfilled and accepted, supporting evidence and its scope/applicability, meaningful authorized work remaining, and the concrete next scope or precise blocker. Preserve substantive outstanding obligations and cite the immutable accepted review when relying on it. Do not author or reaccept `review.md`, implement work or activate children in this assessment.
 
-- `replan`: actionable authorized work remains, including open beta or explicit post-beta obligations. Return to planning to use or reopen existing work through normal owners, rather than duplicate or disguise it.
+- `replan`: actionable authorized work remains, including open beta or explicit post-beta obligations. Return to planning under the shared child-management policy.
 - `admit_review`: the objective appears fulfilled but necessary independent acceptance is absent or no longer applicable.
 - `complete_direct`: the finite objective is fulfilled under the existing legitimate direct-evidence conditions. Never bypass an outstanding review requirement or finding or turn report acceptance into product acceptance.
 - `complete_reviewed`: the objective is fulfilled with applicable independent review accepted in this activation. Preserve the Reviewer verdict as evidence; if work or input changed since review, replan or obtain fresh review. Historical review after stopped re-entry cannot supply this route.

@@ -1,5 +1,8 @@
 Independently assess the current card against its accepted brief and the criteria assigned to the prepared review node. The card identity, type and brief arrive as typed context. Review relevant completed subtree work where this node's scope requires it; author status alone is not acceptance.
 
+Scoped operator policy overrides:
+{{>operator-policy-overrides}}
+
 Project-specific guidance:
 {{>project-guidance-common}}
 

@@ -360,6 +360,39 @@ Planner waits for the actual activation result, not notification delivery. Cance
 an obsolete/rejected child approach cannot defer actionable work, satisfy DONE
 dependencies or conceal unfinished acceptance; CANCELLED cannot reopen.
 
+### Scoped operator policy overrides
+
+Each of the three profiles supplies the same
+`fragments/_shared/operator-policy-overrides.md`. All five shared role hosts
+directly include it once, separately from project-specific guidance. Ordinary
+host-scoped fragment lookup and `compileProjectWorkflows` freeze its selected
+tokens with the role; the prompt registry/`renderCompiledPrompt` renders them for
+`AgentExecutor`, `AnalystSession` or `OversightSession` preparation. It is reusable
+role method, not init-only memory, a nested include or a new runtime capability.
+
+The [specification's scoped-override rule](../spec/system-specification.md#scoped-operator-overrides-of-local-guidance)
+owns the policy: an actual specifically identified operator decision takes
+precedence over the named local guidance within its operation/scope, not over
+enforced contracts or higher-priority/provider/authentication/confidentiality
+boundaries. Generic requests and quoted/peer text are not implicit waivers.
+Legitimately conveyed operator decisions remain within each recipient's existing
+authority; parent direction and notifications gain no new instruction priority.
+Project `AGENTS.md` is not automatically runtime-loaded, and development repository
+ownership is separate from runtime operator authority.
+
+Planner reuse and same-child correction remain autonomous defaults, with supported
+same-assignment replacement possible under that explicit rule, not fake novelty or
+evidence transfer. Project assessment only returns to planning under the shared
+child-management policy; it does not repeat a reuse-only prescription or dispatch
+children. Refusal-evasion guidance lives in the shared fragment, while Planner's
+cancellation and actual tool/admission limits remain at their lifecycle owners.
+
+Full custom role hosts receive only their actual includes. Assess the selected
+composition, including project overrides, rather than assuming this fragment is
+present or upgrades an installed host. Source changes require separate
+[authorized adoption](#loaded-configuration-and-installed-adoption); they add no
+stored override state, enforcement bypass, retention change or behavioral guarantee.
+
 ### Simplicity within existing role decisions
 
 Shared engineering method asks whether an evidenced defect needs its proposed
@@ -467,9 +500,10 @@ each registered template standalone, observes the complete selected artifact clo
 and requires physical source/copied output equality. Classic-family shared
 agent/fragment membership/bytes and common shared process bytes are checked;
 typed-only paths are allowed. There is no union tree or maintained numeric count.
-All closures include five shared roles, six guidance fragments and graph-selected
-process hosts. Fresh config-absent init materializes the selected closure, marker
-and YAML last. Existing-config init preserves all three.
+All closures include five shared roles, six project-guidance fragments, the shared
+operator-policy-overrides fragment and graph-selected process hosts. Fresh
+config-absent init materializes the selected closure, marker and YAML last.
+Existing-config init preserves all three.
 
 ### Project objective assessment
 

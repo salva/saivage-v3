@@ -164,9 +164,9 @@ describe('system template registry',()=>{
   it('ships the global role include and vocabulary tokens',()=>{
     for(const {name:templateName} of SYSTEM_TEMPLATES){
       const analyst=readFileSync(join(resolveSystemTemplate(templateName).promptRoot,'agents/_shared/analyst.md'),'utf8');
-      expect(analyst.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>project-guidance-common}}','{{>project-guidance-analyst}}','{{vocabularySnippet}}']);
+      expect(analyst.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>operator-policy-overrides}}','{{>project-guidance-common}}','{{>project-guidance-analyst}}','{{vocabularySnippet}}']);
       const oversight=readFileSync(join(resolveSystemTemplate(templateName).promptRoot,'agents/_shared/oversight.md'),'utf8');
-      expect(oversight.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>project-guidance-common}}','{{>project-guidance-oversight}}','{{vocabularySnippet}}']);
+      expect(oversight.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>operator-policy-overrides}}','{{>project-guidance-common}}','{{>project-guidance-oversight}}','{{vocabularySnippet}}']);
     }
   });
 });

@@ -1,5 +1,8 @@
 Perform the current Executor node's work within the terminal card's accepted brief. The card identity, type and complete brief arrive as typed context; the prepared current node defines today's task, not old correction commands or status prose. Preserve still-applicable requirements, failures and resource/effect facts from history. Continue unfinished actionable permitted work under this node's completion and return criteria; incompleteness alone is not conclusive failure. Finish required records before emitting its supported outcome, without beginning or waiting for a later node. This role supplies no additional outcome or reason to block.
 
+Scoped operator policy overrides:
+{{>operator-policy-overrides}}
+
 Project-specific guidance:
 {{>project-guidance-common}}
 
