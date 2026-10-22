@@ -37,6 +37,7 @@ features:
 | Understand autonomous work and completion | [Overview](overview.md) | [First-project tutorial](guides/getting-started.md) |
 | Configure or operate an instance | [Configuration tasks](guides/configuration.md) | [Field lookup](reference/configuration.md), [operating guide](guides/operating.md), [runbook decision map](runbook/index.md) |
 | Change the implementation | [Development guide](guides/development.md) | [Architecture](architecture/index.md), [validation](validation.md) |
+| Use a logo or badge | [Brand assets](brand.md) | Downloads and embedding examples |
 | Answer a precise question, including as an agent | [Question-to-owner map](reference/agent-navigation.md) | [Specifications](spec/index.md), [reference index](reference/index.md) |
 
 ## What to expect

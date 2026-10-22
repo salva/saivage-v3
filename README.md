@@ -32,6 +32,8 @@ sources served at `/docs/` by a built running instance. For an authorized,
 AI-assisted LXC installation, use [the standalone setup task](README-IF-YOU-ARE-AN-AI.md).
 It does not authorize deployment merely by being opened.
 
+Download the pixel-art logos and “Made with Saivage” badges from [Brand assets](docs/brand.md).
+
 ## Start safely
 
 Use Node `>=24 <25` and npm `>=10 <12`; prefer the latest supported Node 24 LTS

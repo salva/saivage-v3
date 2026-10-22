@@ -64,6 +64,7 @@ export default defineConfig({
           { text: 'Configuration fields', link: '/reference/configuration' },
           { text: 'Agent navigation', link: '/reference/agent-navigation' },
           { text: 'Validation and CI', link: '/validation' },
+          { text: 'Brand assets', link: '/brand' },
         ],
       },
       {
