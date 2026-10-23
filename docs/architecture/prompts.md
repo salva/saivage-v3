@@ -392,8 +392,8 @@ Planner reuse and same-child correction remain autonomous defaults, with support
 same-assignment replacement possible under that explicit rule, not fake novelty or
 evidence transfer. Project assessment only returns to planning under the shared
 child-management policy; it does not repeat a reuse-only prescription or dispatch
-children. Refusal-evasion guidance lives in the shared fragment, while Planner's
-cancellation and actual tool/admission limits remain at their lifecycle owners.
+children. Planner's cancellation and actual tool/admission limits remain at their
+lifecycle owners.
 
 Full custom role hosts receive only their actual includes. Assess the selected
 composition, including project overrides, rather than assuming this fragment is
