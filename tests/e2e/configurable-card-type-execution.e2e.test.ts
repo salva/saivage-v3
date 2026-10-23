@@ -15,6 +15,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -113,6 +114,7 @@ describe('custom card type execution admission', () => {
       'runtime-cards',
     );
     const supervisor = createSupervisorRuntimeApi({
+      retrieval: createObservedCollections(root),
       ...testAutonomousCompaction,
       workflows,
       projectRoot: root,

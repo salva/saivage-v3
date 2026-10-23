@@ -15,9 +15,11 @@ export function inlinePartsText(parts: readonly InlinePart[]): string {
         ? part.text
         : part.kind === 'file'
           ? (part.label ?? part.path)
-          : part.kind === 'entry' || part.kind === 'session'
-            ? part.label
-            : (part.fallbackLabel ?? part.id),
+          : part.kind === 'source-file'
+            ? part.path
+            : part.kind === 'entry' || part.kind === 'session'
+              ? part.label
+              : (part.fallbackLabel ?? part.id),
     )
     .join('')
     .trim();
@@ -57,7 +59,7 @@ export function buildToolDisplay(row: TimelineRow): ToolDisplayModel {
           ? [{ ...part, fallbackLabel: 'Open card' }]
           : part.kind === 'session'
             ? [{ ...part, label: 'Open session' }]
-            : part.kind === 'entry'
+            : part.kind === 'entry' || part.kind === 'source-file'
               ? [part]
               : [],
     ),

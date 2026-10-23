@@ -1,5 +1,6 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { randomUUID } from 'node:crypto';
+import { createObservedCollections } from '../../src/retrieval/observed-collections.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +43,7 @@ function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvoca
     cancelCard:async()=>{throw new Error('Unexpected cancellation.');}, currentProcessPosition:()=>null,
     context:{
       projectRoot, store, configAuthority:testConfigAuthority(projectRoot),
+      retrieval:createObservedCollections(projectRoot),
       cardTypeVocabulary:workflows.cardTypeVocabulary,
       interventionReadiness:{assertInterventionReady(){}}, processRunner:{} as never,
       processScope:{} as never, mcpToolInvocation,
@@ -136,6 +138,21 @@ it('publishes only body-free known settled receipts, with a fixed marker for unt
   const bytes=readFileSync(join(f.projectRoot,'.saivage/logs/app.jsonl'),'utf8');
   expect(JSON.parse(bytes).version).toBe(2);
   expect(bytes).not.toContain('secret');
+});
+
+it('uses configured external observed tools with ordinary receipt identity and no internal transcript mutation', async () => {
+  const f=fixture(['list_observed_collections','query_observed_collections']);
+  const index=globalAgentConversationVersionIndexFile(f.projectRoot,'analyst');
+  const before=readFileSync(index);
+  const context={kind:'external' as const,principal:'operator-one',invocationId:randomUUID(),signal:new AbortController().signal};
+  const settlement=await invokeTool(f.surface,'list_observed_collections',{},context);
+  expect(settlement).toMatchObject({kind:'executed',execution:{evidence:{kind:'observational_result_bytes'},providerOutcome:{kind:'succeeded',data:{collections:[],coverage:{exhaustive:false}}}}});
+  recordExternalToolCall({...f,projectIdentityDigest:'a'.repeat(64),context,requestedTool:'list_observed_collections',settlement});
+  expect(new EventQueryService(f.projectRoot).queryExternalToolCalls()).toEqual([expect.objectContaining({id:context.invocationId,tool:'list_observed_collections',outcome:'ok'})]);
+  const log=readFileSync(join(f.projectRoot,'.saivage/logs/app.jsonl'),'utf8');
+  expect(log).not.toContain('exhaustive');expect(readFileSync(index)).toEqual(before);
+  expect(await f.call('query_observed_collections',{collections:['not-configured'],query:'private-query-not-for-receipts'})).toMatchObject({kind:'executed',execution:{providerOutcome:{kind:'failed'}}});
+  expect(await f.call('read',{path:'README.md'})).not.toMatchObject({kind:'executed'});
 });
 
 it('preserves ordered native MCP text/PNG output externally without forged LLM telemetry or publication', async () => {

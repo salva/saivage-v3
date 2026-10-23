@@ -1,4 +1,5 @@
 import { expect, it } from '@jest/globals';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ it('repeated public Run/Stop and application teardown retire contained processes
   const runner = processes.processRunner;
   let entered!: () => void;
   const supervisor = createSupervisorRuntimeApi({
+    retrieval: createObservedCollections(projectRoot),
     ...testAutonomousCompaction, runtimeGate: new RuntimeGate(), projectRoot,
     actorStore: new CardService(projectRoot), conversations: { projectRoot },
     provider: scriptedAdmissionProvider(async (_input, signal) => {

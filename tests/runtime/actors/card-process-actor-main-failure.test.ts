@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -63,6 +64,7 @@ function harness(
   let armed = false;
   let failureDelivered = false;
   const supervisor = createSupervisorRuntimeApi({
+    retrieval: createObservedCollections(projectRoot),
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     ...(compactor ? { compactor } : {}),

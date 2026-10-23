@@ -70,6 +70,7 @@ export interface NodeExecutionDeps {
   processRunner: ProcessRunner;
   runtimeProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
+  retrieval?: import('../../contracts/observed-collections.js').RetrievalPort;
   outboundHttp?: import('../../contracts/index.js').OutboundHttpEmitter;
   promptTemplates: PromptTemplateRegistry;
   conversations: ConversationFileContext;

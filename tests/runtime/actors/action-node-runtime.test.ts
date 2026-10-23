@@ -1,4 +1,5 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -110,6 +111,7 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
   });
   const supervisorOptions = { ...testAutonomousCompaction, workflows,
     fatalPort: testApplicationFatalPort, runtimeGate: new RuntimeGate(), projectRoot: root, actorStore: cards,
+    retrieval: createObservedCollections(root),
     provider: scriptedAdmissionProvider(provider), conversations: { projectRoot: root }, freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
     promptTemplates: createTestPromptTemplateRegistry(),

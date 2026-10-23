@@ -10,6 +10,7 @@ const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
   // Connection credentials require the MCP owner's safe observation, never raw Files reads.
   '.saivage/config/mcp-servers.json',
+  '.saivage/config/observed-collections-native.json',
 ]);
 
 const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set(['.saivage/saivage.yaml']);

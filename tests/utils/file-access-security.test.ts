@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
+import { inspectAgentReadPath } from '../../src/workspace/agent-read-path.js';
 import {
   isWriteBlocked,
   redactCommandForOperator,
@@ -11,6 +12,17 @@ import {
 } from '../../src/workspace/file-access-security.js';
 
 describe('resolveContainedProjectPath', () => {
+  it('blocks private observed authority via ordinary agent aliases', () => {
+    const root = mkdtempSync(join(tmpdir(), 'observed-agent-path-'));
+    try {
+      // The lexical private path is refused even before it exists.
+      const privatePath = join(root, '.saivage/config/observed-collections-native.json');
+      expect(inspectAgentReadPath(privatePath).blocked).toBe(true);
+      const key = join(root, 'private.key'); writeFileSync(key, 'synthetic');
+      symlinkSync(key, join(root, 'ordinary.txt'));
+      expect(inspectAgentReadPath(join(root, 'ordinary.txt')).blocked).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it('admits adjacent dots while preserving traversal and containment boundaries', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-contained-path-root-'));
     const outside = mkdtempSync(join(tmpdir(), 'saivage-contained-path-outside-'));

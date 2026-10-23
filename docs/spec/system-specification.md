@@ -1,5 +1,49 @@
 # Saivage v3 System Specification
 
+## Advisory observed source collections
+
+Optional strict logical definitions expose `list_observed_collections({})` and
+`query_observed_collections({collections,query,intent?,limit?})`. Shipped Analyst,
+Planner, Executor and Reviewer grants include both; custom role/node ceilings
+still apply. Oversight gains no grant. Internal and external Analyst use the same
+configured operation surface; external-only mode needs no model actor or internal
+conversation. External receipts remain body-free.
+
+The deployment starts one native XERJ watcher per disjoint adopted root. Native
+initial/event-driven ingestion elects datasets; Saivage only reads bounded catalog,
+mapping and query responses. Querying never refreshes or waits for ingestion.
+List reports available/initializing/unavailable with incomplete/unknown coverage;
+empty catalog is not proof of completely indexed emptiness. Neural fields may be
+absent even for useful small code/docs/skills. Missing neural fields are distinct
+from failed neural queries; lexical success can survive a neural failure.
+Any usable destination can make a collection available; metadata loss elsewhere
+remains explicit in collection and query limitations with unknown collection
+coverage, independent of destination order. All failed/unsupported destinations
+do not become known-empty query success.
+
+Queries select1–8 unique names,1–4096 UTF-8 query bytes, balanced/conceptual/
+identifier intent and1–50 hits (default20). One15s deadline includes metadata and
+queries. At most32 destinations,200 candidates/destination/channel and1600 total
+candidates are admitted; native bodies are capped at8MiB. Excerpts are redacted
+before a2048-byte cap; safe results fit32KiB. Results disclose failed/unavailable
+channels, candidate limits, postfilter starvation and output truncation, always
+`exhaustive:false`. Scores are ordinal fusion inputs only, not public confidence.
+
+Each result admits paths through the caller's ordinary reader authority and
+current path metadata. Only attributable string excerpts elected in `impl`→`body`→`text`
+order and permitted same-content aliases survive. This includes native short-line
+documentation windows, not arbitrary inferred columns. Joined/capped windows are
+not byte-exact source slices; coordinates are unavailable rather than inferred from a fresh
+body reread. Returned references are not definition claims, instruction activation
+or acceptance verdicts. Read originals and use read/grep/glob when useful. Stale
+or missing observations do not prove original absence and are not agent indexing
+chores. Native incomplete-walk/skip loss affects derived observations, not sources.
+Cancellation stops the query only, not deployment-owned engine/watchers.
+
+See [configuration](../reference/configuration.md#optional-observed-source-inputs)
+and [explicit native adoption](../runbook/observed-collections.md). Source delivery
+does not commission any existing instance.
+
 This is the normative functional reference. It specifies current behavior, not
 release news, installation compatibility or an operations recipe. The
 [architecture](../architecture/system-architecture.md) explains owners;

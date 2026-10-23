@@ -1,5 +1,27 @@
 # Validation
 
+## Optional native source observations
+
+Focused source tests cover strict input contracts, safe preparation, actual HTTP
+catalog-root joins, channel failures, caller filtering and redaction. These are
+not native semantic-quality evidence. The implementation manager separately runs
+the actual prepared engine/watcher argv with exact pinned922921 binary and local
+MiniLM assets in a disposable workspace, retaining direct owned child handles and
+independent bounded cleanup. Validate initial docs/code/skills, nested scopes,
+empty-root population, subsequent events, actual inferred neural capability and
+lexical-only limits, then list/query/original read through the product tools.
+Include a classifier-justified short-line documentation file with actual native
+`text` and no `body`/`impl`, privately retained mapping/provenance evidence, and a
+watched edit through the real tool/read path. Controlled HTTP tests separately
+cover carrier election/fetch/impl→body→text projection, metadata loss in both
+destination orders, redaction-before-caps and the real15s whole-query deadline at
+catalog/mapping/search stalls without borrowing a caller timeout. Retain abort
+regressions. Excerpts remain file-level references with unavailable coordinates;
+joined/capped line windows do not establish exact source ranges.
+No handbuilt production indexes, synthetic vectors, live services or universal
+small-file semantic claim. Require browser checks for named result navigation and
+actual composed-tool review across affected roles/profiles after the last edit.
+
 Choose checks by the owner and risk of the change, then interpret their evidence
 at that scope. This contributor reference owns commands, prerequisites, CI
 applicability and specialized comparison recipes. [README](https://github.com/salva/saivage-v3/blob/HEAD/README.md#choose-validation)

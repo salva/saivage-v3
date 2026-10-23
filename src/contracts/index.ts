@@ -369,3 +369,4 @@ export type {
   OutboundHttpEmitter,
   OutboundHttpObservation,
 } from './outbound-http.js';
+export * from './observed-collections.js';

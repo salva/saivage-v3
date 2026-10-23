@@ -840,11 +840,13 @@ describe('disposable production-composition smoke', () => {
     let publishedExecutorRequest: ChatRequest | undefined;
     let continuedExecutorRequest: ChatRequest | undefined;
     let summaryCallsBeforeC = 0;
-    // Leave room for current record-selection descriptors in the first write/A fold.
-    // B still triggers compaction; C remains an uncompacted continuation below.
-    const sourceA = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(28_000)}`;
+    // Leave 2,000 more estimated message tokens for the current prompt/tool surface:
+    // write/A must not trigger; adding B must trigger the write/A then B folds.
+    // C gets the same headroom so the published short summary continues unchanged.
+    // Keep B and the oversized corrected summary large: they force endpoint extension.
+    const sourceA = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(20_000)}`;
     const sourceB = `Refreshed unresolved task from the second observation. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`;
-    const sourceC = `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(28_000)}`;
+    const sourceC = `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(20_000)}`;
     const incompleteSummary = 'INCOMPLETE SUMMARY MUST NEVER CONTINUE';
     const correctedSummary = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(30_000)}`;
     const finalSummary =
@@ -918,7 +920,20 @@ describe('disposable production-composition smoke', () => {
           finalMessage(response, correctedSummary);
         } else if (summaryCalls === 3) {
           finalMessage(response, finalSummary);
-        } else throw new Error(`Unexpected summary call ${summaryCalls}.`);
+        } else throw new Error(`Unexpected summary call ${summaryCalls}: ${JSON.stringify({
+          executorCalls,
+          summaryExecutorCounts,
+          summaryCallsBeforeC,
+          summarySources: summaryRequests.map((summary) => ({
+            messageBytes: summary.messages.map((message) => Buffer.byteLength(message.content, 'utf8')),
+            hasA: summary.messages.some((message) => message.content.includes('X'.repeat(100))),
+            hasB: summary.messages.some((message) => message.content.includes('Y'.repeat(100))),
+            hasC: summary.messages.some((message) => message.content.includes('Z'.repeat(100))),
+            hasCorrectedSummary: summary.messages.some((message) => message.content.includes('P'.repeat(100))),
+          })),
+          publishedSegment: publishedExecutorSegment?.entry.version,
+          continuedSegment: continuedExecutorSegment?.entry.version,
+        })}`);
         return;
       }
       const isAnalyst = names.includes('show_config');
@@ -993,6 +1008,22 @@ describe('disposable production-composition smoke', () => {
 
       if (isExecutor) {
         executorCalls += 1;
+        if (executorCalls === 1) {
+          // Chat serialization preserves canonical tool fields. Account for the
+          // new surface without removing either tool from the actual invocation.
+          const tools = body.tools ?? [];
+          const priorTools = tools.filter(({ function: tool }) =>
+            tool.name !== 'list_observed_collections' && tool.name !== 'query_observed_collections');
+          const currentToolBytes = Buffer.byteLength(JSON.stringify(tools), 'utf8');
+          const priorToolBytes = Buffer.byteLength(JSON.stringify(priorTools), 'utf8');
+          const addedStaticTokens = Math.ceil(currentToolBytes / 4) - Math.ceil(priorToolBytes / 4);
+          expect(tools.length - priorTools.length).toBe(2);
+          expect(addedStaticTokens).toBeGreaterThan(0);
+          expect(addedStaticTokens).toBeLessThan(2_000);
+          console.info('Disposable compaction fixture tool accounting', {
+            currentToolBytes, priorToolBytes, addedStaticTokens, payloadHeadroomTokens: 2_000,
+          });
+        }
         if (executorCalls === 1) {
           executorEffects.push('status-write');
           toolCall(response, 300, 'write', {

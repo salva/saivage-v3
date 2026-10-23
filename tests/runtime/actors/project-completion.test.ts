@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -76,6 +77,7 @@ function fixture(profile: Profile, steps: Step[]) {
       function: { name: step.tool, arguments: JSON.stringify(step.args) } }] }, provider_exchanges: [] };
   });
   const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, workflows, projectRoot: root, actorStore: cards,
+    retrieval: createObservedCollections(root),
     fatalPort: testApplicationFatalPort, runtimeGate: new RuntimeGate(), provider, conversations: { projectRoot: root },
     freshness: { runtimeChanged() {}, agentMembershipChanged() {} }, processRunner: processes.processRunner,
     runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createPromptTemplateRegistry(compiled) });

@@ -76,6 +76,7 @@ interface SupervisorRuntimeApiOptions {
   workflows: CompiledRuntimeWorkflows;
   runtimeGate: RuntimeGate;
   mcpToolInvocation: McpToolInvocationPort;
+  retrieval?: import('../../contracts/observed-collections.js').RetrievalPort;
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
   runtimeStatusChanged?(status: RuntimeStatus): void;
@@ -821,6 +822,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       fatalPort: this.behavior.fatalPort,
       gate: this.runtimeGate,
       mcpToolInvocation: this.behavior.mcpToolInvocation,
+      retrieval: this.behavior.retrieval,
       outboundHttp: this.behavior.outboundHttp,
       compactor: this.behavior.compactor,
       compactionConfig: this.behavior.compactionConfig,

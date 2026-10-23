@@ -14,6 +14,7 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import {
   scriptedAdmissionProvider,
@@ -243,6 +244,7 @@ describe('reviewer rework completion E2E', () => {
       });
       const processRegistry = new ManagedProcessGroupRegistry();
       const runtime = createSupervisorRuntimeApi({
+        retrieval: createObservedCollections(projectRoot),
         fatalPort: testApplicationFatalPort, ...testAutonomousCompaction,
         runtimeGate: new RuntimeGate(), projectRoot, actorStore: cards,
         provider: scriptedAdmissionProvider(providerTurn), conversations: { projectRoot },
@@ -478,6 +480,7 @@ describe('reviewer rework completion E2E', () => {
       [];
     let runtime!: ReturnType<typeof createSupervisorRuntimeApi>;
     runtime = createSupervisorRuntimeApi({
+      retrieval: createObservedCollections(projectRoot),
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       runtimeGate: new RuntimeGate(),
@@ -848,6 +851,7 @@ describe('reviewer rework completion E2E', () => {
       'runtime-cards',
     );
     const runtime = createSupervisorRuntimeApi({
+      retrieval: createObservedCollections(projectRoot),
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       runtimeGate: new RuntimeGate(),
@@ -1031,6 +1035,7 @@ describe('reviewer rework completion E2E', () => {
     });
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtime = createSupervisorRuntimeApi({
+      retrieval: createObservedCollections(projectRoot),
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       runtimeGate: new RuntimeGate(),

@@ -5,11 +5,12 @@ import { CardService } from '../helpers/canonical-project.js'; import { NO_FRESH
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 
 const roots: string[] = [];
 function realHarness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_r, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })))) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-terminal-supervisor-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const processes = createTestProcessRunner(root); const runner = processes.processRunner;
-  const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, runtimeGate: new RuntimeGate(), projectRoot: root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: cards, provider, conversations: { projectRoot: root }, freshness: NO_FRESHNESS_EFFECTS, processRunner: runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createTestPromptTemplateRegistry(), fatalPort: testApplicationFatalPort });
+  const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, retrieval: createObservedCollections(root), runtimeGate: new RuntimeGate(), projectRoot: root, processIdentity: { pid: 1, startedAt: 'now' }, actorStore: cards, provider, conversations: { projectRoot: root }, freshness: NO_FRESHNESS_EFFECTS, processRunner: runner, runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createTestPromptTemplateRegistry(), fatalPort: testApplicationFatalPort });
   const terminal = createAppTerminalCoordinator(); terminal.registerAdmissionCloser('runtime', () => supervisor.closeApplicationAdmission()); terminal.registerCleanupLeaf('runtime', () => supervisor.cleanupForApplicationStop()); return { supervisor, terminal, cards, runner };
 }
 

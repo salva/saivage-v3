@@ -1,4 +1,6 @@
 import type { CardService } from '../cards/store-api.js';
+import type { RetrievalPort } from '../contracts/index.js';
+import { retrievalToolBinders, type RetrievalProviderContext } from './retrieval-provider.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type {
   AgentName,
@@ -56,6 +58,7 @@ import {
 type RuntimeToolScope = 'global' | 'card';
 
 export interface CardToolBindingContext {
+  readonly retrieval?: RetrievalPort;
   readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
   readonly scope: 'card';
   readonly agentName: AgentName;
@@ -76,6 +79,7 @@ export interface CardToolBindingContext {
 }
 
 export interface GlobalToolBindingContext {
+  readonly retrieval?: RetrievalPort;
   readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
   readonly scope: 'global';
   readonly agentName: AgentName;
@@ -280,6 +284,22 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
         ...(scope === 'global' ? { cleanup: cleanupProcessProvider } : {}),
       },
       { key: `${scope}:web`, providerName: 'web', scope, binders: webToolBinders, context: web },
+      {
+        key: `${scope}:retrieval`,
+        providerName: 'retrieval',
+        scope,
+        binders: retrievalToolBinders,
+        context: (runtime): RetrievalProviderContext => {
+          if (!runtime.retrieval) throw new Error('Observed source query owner not composed.');
+          return {
+            projectRoot: runtime.projectRoot,
+            agentName: runtime.agentName,
+            store: runtime.store,
+            retrieval: runtime.retrieval,
+            ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}),
+          };
+        },
+      },
       {
         key: `${scope}:skill`,
         providerName: 'skill',

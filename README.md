@@ -19,6 +19,16 @@ data loss. See [how the work model fits together](docs/overview.md).
 
 ## Choose your path
 
+Optional [observed source preparation](docs/runbook/observed-collections.md) emits
+configuration and units for native automatic code/docs/skill observation. Adoption
+is separate from source installation; native embeddings are uneven and originals
+remain authoritative. Preparation does not walk sources or create indexes.
+After explicit adoption, agents can discover logical views with
+`list_observed_collections`, query useful references with
+`query_observed_collections`, then read originals. Native watchers maintain these
+observations without agent refresh commands; missing/stale search is not a
+completeness verdict or an indexing chore.
+
 | You want to… | Start here |
 | --- | --- |
 | Try a first objective | [Fresh-project tutorial](docs/guides/getting-started.md) — prepare, explicitly Run, understand a result, end the trial |

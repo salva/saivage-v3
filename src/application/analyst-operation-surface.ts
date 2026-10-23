@@ -51,6 +51,7 @@ export function createAnalystOperationSurface(input: {
     processOwnerId:
       input.author.kind === 'external-agent' ? operationActor(input.author) : context.sessionId,
     mcpToolInvocation: context.mcpToolInvocation,
+    retrieval: context.retrieval,
     analystToolContext: context,
     observationToolContext: {
       agentName: workflows.analyst.name,

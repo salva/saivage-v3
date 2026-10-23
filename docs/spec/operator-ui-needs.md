@@ -1,5 +1,17 @@
 # Operator UI: Functional Needs Specification
 
+## Observed source evidence
+
+Operators need to distinguish advisory references from source completeness or
+acceptance. Show selected logical views, actual lexical/neural channel facts,
+unknown embedding coverage, stale/partial limitations and transformed excerpts.
+Offer original-file navigation only for permitted returned paths, distinctly labeled
+as a current source preview rather than a metadata/output directory listing. The
+current protected read may differ from the indexed observation or fail; navigation
+does not refresh indexing or expand reading permissions. Search
+absence is not source absence. There is no collection-management or native index
+inspection UI; external Analyst receipts remain body-free.
+
 This register defines the operator capabilities required of one project's web UI.
 The [contracts register](operator-ui-contracts.md) owns their exact presentation;
 the [system specification](system-specification.md) owns backend behavior. These

@@ -1,5 +1,11 @@
 # Configure an instance
 
+Optional [observed source definitions](../reference/configuration.md#optional-observed-source-inputs)
+select logical code/docs/skill views. The [prepare/adopt procedure](../runbook/observed-collections.md)
+generates private native deployment inputs without indexing or starting services.
+Native watcher adoption is separate; lexical-only small-file coverage is valid,
+and original-source inspection remains authoritative.
+
 Configure the models, capabilities and workflows that enable autonomous work;
 this is not a per-task dispatch checklist. Use this page for configuration tasks
 and the [field reference](../reference/configuration.md)

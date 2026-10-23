@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { createObservedCollections } from '../../src/retrieval/observed-collections.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -100,6 +101,11 @@ function expectRecordReaderPreparedDelivery(surface: Parameters<typeof surfaceTo
         ? reader
         : { type: 'function', ...reader.function },
     );
+    for (const observed of tools.filter((tool) => ['list_observed_collections', 'query_observed_collections'].includes(tool.function.name))) {
+      const wire = prepared.tools.find((tool) => (tool.function?.name ?? tool.name) === observed.function.name);
+      expect(wire).toEqual(transportProtocol === 'openai-chat-completions'
+        ? observed : { type: 'function', ...observed.function });
+    }
   }
 }
 
@@ -163,6 +169,8 @@ const expected = {
     'websearch',
     'webfetch',
     'skill',
+    'list_observed_collections',
+    'query_observed_collections',
     'mcp_tool_call',
     'mcp_server_control',
     'mcp_tools',
@@ -207,6 +215,8 @@ const expected = {
     'read_record_version',
     'websearch',
     'webfetch',
+    'list_observed_collections',
+    'query_observed_collections',
   ],
   reviewer: [
     'read',
@@ -222,6 +232,8 @@ const expected = {
     'websearch',
     'webfetch',
     'skill',
+    'list_observed_collections',
+    'query_observed_collections',
   ],
   executor: [
     'read',
@@ -241,6 +253,8 @@ const expected = {
     'websearch',
     'webfetch',
     'skill',
+    'list_observed_collections',
+    'query_observed_collections',
     'mcp_tool_call',
     'mcp_server_control',
     'mcp_tools',
@@ -393,6 +407,7 @@ describe('named-agent inventories and composition', () => {
       scope: 'card',
       agentName: 'reviewer',
       projectRoot,
+      retrieval: createObservedCollections(projectRoot),
       store: new CardService(projectRoot),
       cardId: 'project',
       sessionId: 'agent:reviewer:project',
@@ -422,6 +437,7 @@ describe('named-agent inventories and composition', () => {
       'card-version',
       'workspace',
       'web',
+      'retrieval',
       'skill',
     ]);
     expect(surface.tools.has('mcp_tool_call')).toBe(false);

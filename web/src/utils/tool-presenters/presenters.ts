@@ -196,8 +196,45 @@ function navigationTarget(a: Facts): InlinePart[] {
   const target = asRecord(a.target);
   return textPart([str(target?.kind), str(target?.id), str(target?.refinement)].filter(Boolean).join(' · '));
 }
+function observedSourceMemberships(value: unknown): SemanticSection[] {
+  if (!Array.isArray(value)) return [];
+  return [{ title: 'Read original source', items: value.map((value) => {
+    const member = asRecord(value);
+    const path = member?.path;
+    // Only this known result field offers a project-source preview. Generic
+    // historical path strings keep their existing text/virtual-file semantics.
+    const projectRelative = typeof path === 'string' && !path.includes(':') && !path.includes('\\')
+      && path.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
+    return { title: 'Current source', fields: [
+      { label: 'collection', parts: textPart(member?.collection) },
+      { label: 'path', parts: projectRelative ? [{ kind: 'source-file' as const, path }] : textPart(path) },
+    ] };
+  }) }];
+}
 const queryKeys = ['position', 'response_bytes', 'section', 'version', 'from_version', 'to_version', 'byte_offset', 'limit', 'since', 'kind', 'status', 'cardId', 'session_id', 'last_n', 'record_name', 'rootId', 'depth', 'type', 'parent'] as const;
 export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
+  list_observed_collections: {
+    action: 'Discover observed sources',
+    call: request('observed collections', [], () => textPart('Configured source views')),
+    result: (ctx) => ctx.envelope.success === false ? { headline: [], sections: [] } : observed(count(ctx.dataRecord?.collections, 'source views'), [
+      ...list('Source views', ctx.dataRecord?.collections, ['name', 'purpose', 'kind', 'queryability', 'coverage', 'limitations']),
+      ...content('Non-exhaustive coverage', ctx.dataRecord?.coverage),
+    ], 'Advisory observation'),
+  },
+  query_observed_collections: {
+    action: 'Query observed sources',
+    call: request('source query', ['collections', 'intent', 'limit'], (a) => textPart(a.query), ['query']),
+    result: (ctx) => ctx.envelope.success === false ? { headline: [], sections: [] } : observed(count(ctx.dataRecord?.hits, 'references'), [
+      ...list('Selected views', ctx.dataRecord?.collections, ['name', 'queryability', 'coverage', 'limitations']),
+      ...content('Non-exhaustive coverage', ctx.dataRecord?.coverage),
+      ...(Array.isArray(ctx.dataRecord?.hits) ? ctx.dataRecord.hits.flatMap((value) => {
+        const hit = asRecord(value);
+        if (!hit) return [];
+        return [fields('Observed reference — not a definition claim', hit, ['rank', 'channels', 'transformed', 'excerpt_truncated', 'location']),
+          ...observedSourceMemberships(hit.memberships), ...content('Attributable excerpt', hit.excerpt)];
+      }) : []),
+    ], 'Advisory observation · inspect originals'),
+  },
   run_command: { action: 'Run command', call: (a) => { const rendered = request('command', ['cwd', 'wait', 'timeout_ms'], (v) => textPart(v.command, 48), ['command'])(a); if (a.cwd === undefined) rendered.sections[0].fields!.push({ label: 'cwd', parts: textPart('Project workspace default') }); return rendered; }, result: processResult },
   wait_process: { action: 'Wait for process', call: request('wait', ['process_id', 'timeout_ms'], (a) => textPart(a.process_id)), result: processResult },
   kill_process: { action: 'Signal process', call: request('signal', ['process_id'], (a) => textPart(a.process_id)), result: processResult },

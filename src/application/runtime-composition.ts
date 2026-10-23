@@ -1,4 +1,5 @@
 import type { SaivageConfig } from '../schemas/index.js';
+import { createObservedCollections } from '../retrieval/index.js';
 import type { OutboundHttpEmitter } from '../contracts/index.js';
 import {
   buildProviderRoutingReadModel,
@@ -214,6 +215,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     snap: config.compaction.snap,
   };
   const compactor: CompactorPort = { shouldCompact, compact };
+  const retrieval = createObservedCollections(projectRoot);
   const processRunner = services.processRunner;
   const runtimeGate = new RuntimeGate();
   const promptTemplates = createPromptTemplateRegistry(services.workflows);
@@ -234,6 +236,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     runtimeProcessRootScope: services.runtimeProcessRootScope,
     runtimeGate,
     mcpToolInvocation: services.mcpToolInvocation,
+    retrieval,
     conversations,
     freshness: services.freshness,
     fatalPort: services.fatalPort,
@@ -283,6 +286,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
             getStatus: runtimeApi.getStatus.bind(runtimeApi),
           }),
           mcpToolInvocation: services.mcpToolInvocation,
+          retrieval,
           restartCapability,
           eventQueries,
           captureExecutingLlmSnapshots,
@@ -472,6 +476,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
             getStatus: runtimeApi.getStatus.bind(runtimeApi),
           },
           mcpToolInvocation: services.mcpToolInvocation,
+          retrieval,
           restartCapability,
           eventQueries,
           captureExecutingLlmSnapshots,

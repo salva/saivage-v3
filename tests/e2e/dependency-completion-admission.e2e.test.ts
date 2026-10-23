@@ -8,6 +8,7 @@ import { CardService } from '../helpers/canonical-project.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -71,6 +72,7 @@ function runtime(
   provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort,
 ): ReturnType<typeof createSupervisorRuntimeApi> {
   return createSupervisorRuntimeApi({
+    retrieval: createObservedCollections(projectRoot),
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),

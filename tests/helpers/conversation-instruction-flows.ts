@@ -19,6 +19,7 @@ import {
   describeNodeResultContract,
 } from '../../src/runtime/card-process/card-process-config.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -159,6 +160,7 @@ export async function createInstructionFlow(scene: InstructionScene) {
     );
     const groups = new ManagedProcessGroupRegistry();
     supervisor = createSupervisorRuntimeApi({
+      retrieval: createObservedCollections(root),
       ...testAutonomousCompaction,
       workflows,
       projectRoot: root,

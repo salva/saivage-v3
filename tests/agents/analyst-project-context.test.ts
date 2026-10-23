@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -75,6 +76,7 @@ describe('Analyst project context', () => {
     const prompts = createTestPromptTemplateRegistry();
     const processes = new ManagedProcessGroupRegistry();
     const surface = new BoundAgentToolSet(TEST_WORKFLOWS.analyst.tools).bind({
+      retrieval: createObservedCollections(projectRoot),
       scope: 'global',
       agentName: TEST_WORKFLOWS.analyst.name,
       projectRoot,

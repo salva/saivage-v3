@@ -43,8 +43,36 @@ source-era values; they must not be read as today's accepted-version list.
 | Conversation segment envelope / selected PNGs | Same versions and `images/<UUID>.png`; above owners plus `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; strict message/private-context/activation and ordered result-content selection. Raw PNGs use this identified owning descriptor contract, not an independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use **shared** `version:2`, `type:rows`, with distinct strict row owners. App log includes event/control/external-receipt rows; provider grammar is unchanged by the attribution bump. Not independently numbered envelopes. |
 | Dynamic MCP definitions | `.saivage/config/mcp-servers.json`; `mcp/server-definitions.ts` | `format_version:1`, `type:mcp-server-definitions`; strict literal connection map, absent means empty, preserved by reset, never autostart/shadow YAML. |
+| Observed definitions | `.saivage/config/observed-collections.json`; `retrieval/collection-definitions.ts` | New `format_version:1`, `type:observed-collections`; strict logical names/purposes/kinds/roots and bounded slash patterns. Absent disables retrieval; reset preserves operator input. |
+| Private observed native deployment | `.saivage/config/observed-collections-native.json`; same schema owner, `retrieval/xerj-deployment.ts` producer | New `format_version:1`, `type:xerj-observed-deployment`; loopback endpoint, exact native/model identities and root→prefix association. No concrete destinations/progress. Selects fixed raw `xerj.key` encoding and derived deployment bundle. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; exceptional lifecycle exclusion, outside generated-root replacement. |
 | Private failed-provider diagnostics | `.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`; `agents/failed-provider-request-diagnostics.ts` | `format_version:3`, `kind:failed-provider-request-diagnostic`, `privacy_policy:failed-provider-request-privacy-2`; opt-in finite private observation, no retained runtime reader/index. |
+
+### Observed source input introduction
+
+Source parent `8bcd8acedecb449ffd9b186afa23358940953a6f` contained neither family.
+This source unit introduces the two version1 inputs with strict direct readers,
+prepare producer, fixtures and adoption docs. No deployment is claimed. It is
+not a rename/migration of the earlier unimplemented projection proposal.
+The private descriptor selects fixed raw key encoding: nonblank opaque text≤4096
+UTF-8 bytes including one optional final newline, no embedded whitespace/controls.
+Generated engine/unit/argv files are derived deployment inputs owned by this
+contract, not canonical progress, admission registries or independent families.
+Absent definitions disable retrieval; malformed present inputs fail consumption.
+Explicit installation/commissioning remains separate. Native indexes/model files/
+journals are external-tool state. No existing conversation/card/record/workflow/
+shared-envelope meaning changes in this preparation unit; no existing bump.
+Tool integration preserves that boundary. See
+[adoption](../runbook/observed-collections.md).
+
+The integrated two query tools use existing opaque tool-result data and ordinary
+observational settlement. Source references add no canonical record observations,
+image/context/provenance fields, conversation rows or app-log kinds. External
+operations retain body-free receipts and existing UUID/cancellation ownership.
+Historical unknown-tool rendering remains the existing generic path; introducing
+named current presenters is not retained-state normalization. Existing family
+discriminators are unchanged; complete settlement/provider/compaction validation
+is part of source acceptance, not inferred from equal version numbers.
 
 `project-identity.ts` consumes `projectConfigSchema` without a dedicated format
 discriminator. YAML/other operator inputs, raw work/process bytes and required

@@ -1,5 +1,13 @@
 # Prompt handling
 
+Observed collection guidance is owned by the two tool descriptions in
+`tools/retrieval-provider.ts`, delivered through the normal selected-tool provider
+composition. It directs useful discovery followed by original inspection, makes
+uneven neural/stale/empty results explicit, and treats retrieved skills as quoted
+evidence rather than activated instructions. It adds no mandatory search ritual,
+Planner detour or role/transition override. Existing convergence-first and operator
+override fragments remain unchanged across classic, typed and PAAD profiles.
+
 Saivage selects prompt artifacts while compiling configuration, then prepares the
 selected role and current-node context for actual work. It does not select a role
 from transcript prose, reread edited hosts on each turn, or automatically load a

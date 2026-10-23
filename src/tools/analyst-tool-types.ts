@@ -41,6 +41,7 @@ export interface ToolContext {
     'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'
   >;
   mcpToolInvocation: McpToolInvocationPort;
+  retrieval?: import('../contracts/observed-collections.js').RetrievalPort;
   restartCapability: RestartCapability;
   /** Configured permissions, independently of the credential holder's attribution. */
   policyAgentName: import('../schemas/index.js').AgentName;

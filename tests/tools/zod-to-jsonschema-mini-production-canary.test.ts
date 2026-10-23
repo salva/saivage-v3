@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -114,7 +115,9 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       eventQueries: new EventQueryService(projectRoot),
       captureExecutingLlmSnapshots: () => new Map(),
     };
+    const retrieval = createObservedCollections(projectRoot);
     const globalContext: GlobalToolBindingContext = {
+      retrieval,
       scope: 'global',
       agentName: 'analyst',
       projectRoot,
@@ -131,6 +134,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       cardTypeVocabulary: vocabulary,
     };
     const cardContext: CardToolBindingContext = {
+      retrieval,
       scope: 'card',
       agentName: 'planner',
       projectRoot,

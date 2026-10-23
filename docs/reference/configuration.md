@@ -1,5 +1,34 @@
 # Configuration field reference
 
+## Optional observed source inputs
+
+`src/retrieval/collection-definitions.ts` owns two strict version1 JSON contracts.
+`.saivage/config/observed-collections.json` has type `observed-collections` and
+`collections` (0–32 entries). Each has unique name `[a-z][a-z0-9-]{0,63}`, purpose
+(1–1024 UTF-8 bytes), kind `documentation|code`, project-relative directory
+(1–512 bytes), include (1–64 patterns) and exclude (0–64 patterns). Skills are
+documentation. Literal components allow letters, digits, underscore, dot, space
+and `@+,-`; patterns also allow component `*` and whole-component `**`. Empty,
+dot/parent components, absolute roots, negation and regex syntax are rejected;
+directory `.` denotes project root. Patterns are case-sensitive; exclusions win.
+Absent definitions disable retrieval; malformed present inputs fail their consumer.
+No hot reload. Reset preserves these operator inputs.
+
+Private `.saivage/config/observed-collections-native.json` has type
+`xerj-observed-deployment`: endpoint `http://127.0.0.1:<port>`, native
+`{source,executable,sha256}`, model `{revision,directory,mode,dimensions,files}`,
+roots `[{directory,prefix}]`. Exact source/build/model values are schema-selected;
+prefixes are unique `sv-` plus32 lowercase hex digits. Roots are canonical
+project-relative identities. No concrete destinations, mapping/copy-pipeline
+schema, token, progress or capability cache. Unsupported versions/unknown fields
+fail. Descriptor and fixed `.saivage/config/xerj.key` are refused by Files,
+including resolved aliases before body reads. The raw key allows nonblank opaque
+text≤4096 UTF-8 bytes total, one optional final newline, no embedded whitespace/
+controls. Failures do not expose content; rotation requires adoption/client restart.
+
+See [prepare/adopt](../runbook/observed-collections.md) for exact dependency paths,
+CLI, generated units and uneven native embedding limits.
+
 Lookup for the **current source contract**, not a supported-version matrix or a
 second behavior specification. For tasks and coordinated examples use
 [Configure an instance](../guides/configuration.md). For existing-state changes use

@@ -1,6 +1,7 @@
 export type InlinePart =
   | { kind: 'text'; text: string; language?: 'json' | 'text' }
   | { kind: 'file'; root: 'meta' | 'output'; path: string; label?: string }
+  | { kind: 'source-file'; path: string }
   | { kind: 'card'; id: string; fallbackLabel?: string }
   | { kind: 'session'; id: string; label: string }
   | { kind: 'entry'; id: string; label: string };

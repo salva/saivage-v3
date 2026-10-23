@@ -12,6 +12,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult } from '../../src/contracts/index.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
@@ -79,6 +80,7 @@ function runtime(
     processes?.runtimeProcessRootScope ??
     registry!.createContainerScope(registry!.rootScope, 'runtime-cards');
   return createSupervisorRuntimeApi({
+    retrieval: createObservedCollections(projectRoot),
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),

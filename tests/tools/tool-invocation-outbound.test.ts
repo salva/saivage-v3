@@ -26,6 +26,8 @@ const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
 const validArguments: Record<KnownToolInvocationName, unknown> = {
+  list_observed_collections: {},
+  query_observed_collections: { collections: ['docs'], query: 'request cancellation', intent: 'balanced', limit: 20 },
   view_image: { path: 'screen.png' },
   create_card: { type: 'code', title: marker, bootstrap_content: marker },
   cancel_card: { cardId: 'card-a', reason: marker },
@@ -88,6 +90,15 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 };
 
 describe('projectToolInvocation exhaustive identity switch', () => {
+  it('projects observed query canaries through live and retained argument surfaces without exposing private native facts', () => {
+    const args={collections:['docs'],query:`Locate Authorization: Bearer ${OUTBOUND_RAW_MARKER}`,intent:'balanced',limit:20};
+    const input={shape:'complete' as const,identity:identity('query_observed_collections'),arguments:args,result:{success:true as const,data:{collections:[],hits:[],coverage:{exhaustive:false}}}};
+    for(const projected of [projectToolInvocation(input),projectLiveToolInvocation(input)]) {
+      expect(JSON.stringify(projected)).not.toContain(OUTBOUND_RAW_MARKER);
+      expect(JSON.stringify(projected)).toContain('query_observed_collections');
+      expect(JSON.stringify(projected)).toContain('exhaustive');
+    }
+  });
   it.each(['mcp_server_register', 'mcp_server_replace'])('suppresses %s connection secrets before input validation in live and historical projections', toolName => {
     for (const env of [{ CUSTOM: 'opaque-environment-canary' }, ['opaque-environment-canary'], 'opaque-environment-canary']) {
       const args = { serverName: 'one', connection: { transport: 'stdio', command: 'node token=command-canary', args: ['token=argument-canary'], url: 'https://user:password-canary@host.invalid/?token=query-canary', env, extra: true } };

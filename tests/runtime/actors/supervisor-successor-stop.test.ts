@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,6 +57,7 @@ describe('Stop after an ordinary successful node', () => {
         };
       });
       const supervisor = createSupervisorRuntimeApi({
+        retrieval: createObservedCollections(projectRoot),
         ...testAutonomousCompaction,
         runtimeGate: new RuntimeGate(), projectRoot,
         processIdentity: { pid: 1, startedAt: '2026-10-02T00:00:00.000Z' },

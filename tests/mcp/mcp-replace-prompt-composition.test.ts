@@ -1,4 +1,5 @@
 import { agentExecution } from '../helpers/workflow-execution.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import { expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,7 @@ import { openAIChatAdapter } from '../../src/agents/llm-openai-chat-adapter.js';
 
 it('keeps every shipped profile unchanged and composes opted-in Analyst/card replacement with real generated schemas and provider serialization', () => {
   const root = mkdtempSync(join(tmpdir(), 'mcp-replace-composition-'));
+  const retrieval = createObservedCollections(root);
   try {
     for (const template of SYSTEM_TEMPLATES) {
       const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
@@ -28,6 +30,7 @@ it('keeps every shipped profile unchanged and composes opted-in Analyst/card rep
     const vocabulary = [...compiled.cardTypes.keys()];
     const globalContext = { projectRoot: root, cardTypeVocabulary: vocabulary };
     const definitions = (refs: readonly CompiledToolReference[], scope: 'card' | 'global', agentName: string, extra = {}) => surfaceToolDefinitions(new BoundAgentToolSet(refs).bind({
+      retrieval,
       scope, agentName, projectRoot: root, cardId: 'project', sessionId: `agent:${agentName}:${scope === 'card' ? 'project' : 'global'}`,
       mcpToolInvocation: unusedMcpToolInvocation, cardTypeVocabulary: vocabulary,
       processScope: {}, processOwnerId: 'offline-composition', observationToolContext: globalContext, analystToolContext: globalContext, ...extra,

@@ -1,4 +1,5 @@
 export { looksLikeSecretPath } from './secret-paths.js';
+export { inspectAgentReadPath } from './agent-read-path.js';
 export {
   hasParentPathSegment,
   isReadBlocked,

@@ -1,5 +1,10 @@
 # State adoption, repair and reset
 
+Optional observed source inputs use a distinct
+[native prepare/adopt procedure](./observed-collections.md). Definitions, private
+deployment descriptor and fixed key are operator inputs preserved by generated-state
+reset. Native storage is external derived state, not a Saivage migration/reset root.
+
 Use this chapter when retained inputs or generated state cannot be used as-is.
 For an ordinary start, use [Deployment](./deployment.md); for execution control,
 use [Runtime control](./runtime-control.md). None of these procedures is authorized

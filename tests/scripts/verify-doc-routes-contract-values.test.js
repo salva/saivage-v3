@@ -576,7 +576,7 @@ describe('documentation value contracts', () => {
     for (const mutate of [
       (root) => replaceChecked(root, 'docs/spec/system-specification.md', '```text\nidentity.card =', '```json\nidentity.card ='),
       (root) => replaceChecked(root, 'docs/spec/system-specification.md', '<!-- saivage:value-contract:card-identity:end -->', '<!-- saivage:value-contract:card-identity:end -->\n<!-- saivage:value-contract:card-identity:end -->'),
-      (root) => replaceChecked(root, 'README.md', '# Saivage v3', '# Saivage v3\n<!-- saivage:value-contract:invented:start -->'),
+      (root) => replaceChecked(root, 'README.md', '# Saivage — Autonomous Software Development', '# Saivage — Autonomous Software Development\n<!-- saivage:value-contract:invented:start -->'),
     ]) {
       withProject((root) => {
         mutate(root);

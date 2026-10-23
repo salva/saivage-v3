@@ -8,6 +8,12 @@
         :to="{ name: 'files', query: { root: part.root, path: part.path } }"
       >{{ part.label || part.path }}</RouterLink>
       <RouterLink
+        v-else-if="part.kind === 'source-file'"
+        class="inline-part inline-part-file"
+        :title="part.path"
+        :to="{ name: 'files', query: { preview: 'source', path: part.path } }"
+      >{{ part.path }}</RouterLink>
+      <RouterLink
         v-else-if="part.kind === 'card'"
         class="inline-part inline-part-card"
         :to="{ name: 'card-detail', params: { id: part.id } }"

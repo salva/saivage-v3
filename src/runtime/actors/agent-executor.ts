@@ -759,6 +759,7 @@ export class AgentExecutor {
         ? { processScope: scope, processOwnerId: `${input.activationId}:node:${nodeOrdinal}` }
         : {}),
       mcpToolInvocation: this.deps.mcpToolInvocation,
+      retrieval: this.deps.retrieval,
       outboundHttp: this.deps.outboundHttp,
       onRecordWritten: (name) => writtenRecords.add(name),
     });

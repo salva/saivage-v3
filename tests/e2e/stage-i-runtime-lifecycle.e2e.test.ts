@@ -9,6 +9,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
@@ -34,6 +35,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: import('.
   const registry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
   return createSupervisorRuntimeApi({
+    retrieval: createObservedCollections(projectRoot),
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),

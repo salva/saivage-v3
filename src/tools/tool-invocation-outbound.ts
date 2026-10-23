@@ -1,4 +1,8 @@
 import { z, type ZodTypeAny } from 'zod';
+import {
+  listObservedCollectionsInputSchema,
+  queryObservedCollectionsInputSchema,
+} from '../contracts/index.js';
 
 import { reconfigureParamsSchema } from '../config/index.js';
 import {
@@ -69,6 +73,8 @@ import { projectHistoricalToolResultForOutbound } from './tool-result-settlement
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
 
 export const KNOWN_TOOL_INVOCATION_NAMES = [
+  'list_observed_collections',
+  'query_observed_collections',
   'create_card',
   'cancel_card',
   'delete_card',
@@ -275,6 +281,9 @@ function projectValidArguments(
       return typeof input['name'] === 'string'
         ? { ...input, name: redactSecretAssignmentsForOutbound(input['name']) }
         : structuredClone(input);
+    case 'list_observed_collections':
+    case 'query_observed_collections':
+      return projectDynamicForOutbound(input);
     case 'mcp_tool_call':
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
     case 'mcp_server_control':
@@ -459,6 +468,10 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return WebfetchInvocationSchema;
     case 'skill':
       return skillInputSchema;
+    case 'list_observed_collections':
+      return listObservedCollectionsInputSchema;
+    case 'query_observed_collections':
+      return queryObservedCollectionsInputSchema;
     case 'mcp_tool_call':
       return McpToolCallArgumentsSchema;
     case 'mcp_server_control':

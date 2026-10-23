@@ -1,5 +1,28 @@
 # Operator UI: Exact Contracts Register
 
+## Observed collection Request/Result presentation
+
+The two named tool presenters show requested collections/query/intent/limit and
+safe view statuses. Query results show ordinal rank, contributing channels,
+`transformed`, `excerpt_truncated`, `location:unavailable`, attributable excerpt and collection/path
+memberships linked to Files with `preview=source` and the exact project-relative
+`path`, without a metadata/output root label. This **Current source preview**
+uses the existing protected content API and selected-preview owner, not a third
+directory browser. It reads no directory listing and leaves both listing observations
+unchanged. Refresh/reconnect refresh only the current selected source (joining an
+in-flight route read); navigation/unmount cancel superseded preview requests.
+Metadata/Output buttons return to those existing browsers. Current source may
+differ from the indexed excerpt or be missing, blocked, oversized, non-text or
+unauthorized; clicking never refreshes indexing. Source content retains its existing
+read/redaction policy, not arbitrary-secret certification or a promise of retrieval
+excerpt redaction. Generic historical path strings remain unchanged; only
+observed-result memberships gain this explicit navigation. Show `exhaustive:false`,
+failed/unavailable channels, candidate/output limits and filtering starvation;
+never display raw native IDs, endpoints, scores, vectors or error payloads.
+Do not interpret an observed reference as a definition or activated skill.
+Opaque historical tool results retain ordinary safe generic rendering; no durable
+conversation reinterpretation or external-receipt body expansion is introduced.
+
 This register owns exact presentation and navigation for the operator web UI.
 Use the [needs register](operator-ui-needs.md) for stable F requirements and owner
 decisions, the [system specification](system-specification.md) for backend behavior,

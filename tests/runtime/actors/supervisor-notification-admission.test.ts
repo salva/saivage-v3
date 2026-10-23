@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -113,6 +114,7 @@ function harness(
     : new CardService(projectRoot);
   const processes = createTestProcessRunner(projectRoot, processPlatform);
   const supervisor = createSupervisorRuntimeApi({
+    retrieval: createObservedCollections(projectRoot),
     ...testAutonomousCompaction,
     ...(summary ? { summarizerProvider: summary(projectRoot) } : {}),
     ...(workflows ? { workflows } : {}),

@@ -94,6 +94,21 @@ afterEach(() => {
 });
 
 describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
+  it('refuses observed deployment authority and key through direct and ordinary alias paths before body reads', async () => {
+    const root = temporaryRoot('saivage-observed-private-');
+    realFs.mkdirSync(join(root, '.saivage/config'), { recursive: true });
+    const model = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    for (const [index, path] of ['.saivage/config/observed-collections-native.json', '.saivage/config/xerj.key'].entries()) {
+      realFs.writeFileSync(join(root, path), 'synthetic-private-authority');
+      const alias = `ordinary-source-${index}.txt`;
+      realFs.symlinkSync(path, join(root, alias));
+      for (const request of [path, alias]) {
+        traces.length = 0;
+        expect(await model.readFileContent(request)).toMatchObject({ statusCode: 403 });
+        expect(traces.filter(({ operation }) => operation === 'readFileSync')).toEqual([]);
+      }
+    }
+  });
   it('excludes diagnostic directories, content and images through project/work aliases before target inspection', async () => {
     const root = temporaryRoot('saivage-diagnostic-files-ordering-');
     const relative = '.saivage/diagnostics'; const directory = join(root, relative);

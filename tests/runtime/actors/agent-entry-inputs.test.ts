@@ -1,4 +1,5 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -129,6 +130,7 @@ function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'acti
   });
   const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, workflows,
     fatalPort: testApplicationFatalPort, runtimeGate: new RuntimeGate(), projectRoot: root, actorStore: cards,
+    retrieval: createObservedCollections(root),
     provider: scriptedAdmissionProvider(provider), conversations: { projectRoot: root },
     freshness: { runtimeChanged() {}, agentMembershipChanged() {} }, processRunner: processes.processRunner,
     runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createPromptTemplateRegistry(compiled) });

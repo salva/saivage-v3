@@ -1,4 +1,5 @@
 import { agentExecution } from '../helpers/workflow-execution.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 import { expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,6 +16,7 @@ import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, collectTe
 
 it.each(SYSTEM_TEMPLATES)('renders the complete standalone $name role/generated-tools/node closure with unchanged defaults and explicitly configured Reviewer restart', template => {
   const root = mkdtempSync(join(tmpdir(), 'mcp-restart-prompt-'));
+  const retrieval = createObservedCollections(root);
   try {
     expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic');
     const baseline = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
@@ -43,6 +45,7 @@ it.each(SYSTEM_TEMPLATES)('renders the complete standalone $name role/generated-
         const vocabulary = [...compiled.cardTypes.keys()];
         const globalContext = { projectRoot: root, cardTypeVocabulary: vocabulary };
         return surfaceToolDefinitions(new BoundAgentToolSet(refs).bind({
+          retrieval,
           scope, agentName, projectRoot: root, cardId: 'project', sessionId: `agent:${agentName}:${scope === 'card' ? 'project' : 'global'}`,
           mcpToolInvocation: unusedMcpToolInvocation, cardTypeVocabulary: vocabulary,
           processScope: {}, processOwnerId: 'offline-composition',

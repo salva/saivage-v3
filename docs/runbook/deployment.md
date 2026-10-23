@@ -1,5 +1,10 @@
 # Deploy and start Saivage
 
+Optional deployment-owned source observation has a separate
+[observed collections prepare/adopt procedure](./observed-collections.md).
+It pins the native binary/model and starts automatic root watchers without manual
+index creation. This does not follow implicitly from server deployment.
+
 This is a procedure for an **authorized, identified deployment**, not permission to
 operate any remembered container/IP. Newcomers should follow the
 [fresh-project tutorial](../guides/getting-started.md). Retained-state changes go

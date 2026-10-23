@@ -33,7 +33,7 @@ async function fixture(mode:'external'|'both'='external',providerPort=1, customi
   const index=globalAgentConversationVersionIndexFile(root,config.analyst_agent);
   const before=readFileSync(index);
   const app=await startApp({projectRoot:root,createRuntime:false,analystMode:mode,analystMcpPort:String(port),
-    analystMcpPrincipal:'test-operator',analystMcpTools:'read,get_card,get_tree,get_status,write,webfetch,queue_notification,start_project,pause_runtime,resume_runtime,stop_project,restart_server,run_command,wait_process,kill_process,mcp_tools,mcp_tool_call'+(mode==='external'?',view_image,mcp_catalog_refresh':''),
+    analystMcpPrincipal:'test-operator',analystMcpTools:'read,get_card,get_tree,get_status,write,webfetch,queue_notification,start_project,pause_runtime,resume_runtime,stop_project,restart_server,run_command,wait_process,kill_process,mcp_tools,mcp_tool_call,list_observed_collections,query_observed_collections'+(mode==='external'?',view_image,mcp_catalog_refresh':''),
     env:{NODE_ENV:'test',LOG_LEVEL:'silent',SAIVAGE_HOST:mainHost,SAIVAGE_PORT:'0',SAIVAGE_API_TOKEN:'rest-synthetic-secret',SAIVAGE_ANALYST_MCP_TOKEN:'mcp-synthetic-secret'}});
   apps.push(app);
   const endpoint=app.server.analystMcpEndpoint!;
@@ -83,6 +83,49 @@ it('serves the real SDK client without an internal Analyst route, preserving his
   expect(readFileSync(f.index)).toEqual(f.before);
   expect(new EventQueryService(f.root).queryExternalToolCalls()).toEqual(expect.arrayContaining([expect.objectContaining({principal:'test-operator',tool:'write',outcome:'ok'})]));
   expect(await f.client.callTool({name:'restart_server',arguments:{}})).toMatchObject({structuredContent:{result:{data:{restart:'confirmation_required'}}}});
+},60_000);
+
+it.each(['external','both'] as const)('executes observed tools through authenticated MCP in %s mode without adding an internal turn',async(mode)=>{
+  const f=await fixture(mode);
+  const tools=await f.client.listTools();
+  expect(tools.tools.map(tool=>tool.name)).toEqual(expect.arrayContaining(['list_observed_collections','query_observed_collections']));
+  const listed=await f.client.callTool({name:'list_observed_collections',arguments:{}});
+  expect(listed).toMatchObject({isError:false,structuredContent:{result:{data:{collections:[],hits:[],coverage:{exhaustive:false}}}}});
+  const queried=await f.client.callTool({name:'query_observed_collections',arguments:{collections:['missing'],query:'private-observed-query-canary'}});
+  expect(queried).toMatchObject({isError:true});
+  expect(readFileSync(f.index)).toEqual(f.before);
+  const receipts=new EventQueryService(f.root).queryExternalToolCalls();
+  expect(receipts).toEqual(expect.arrayContaining([expect.objectContaining({tool:'list_observed_collections',outcome:'ok'}),expect.objectContaining({tool:'query_observed_collections',outcome:'error'})]));
+  expect(JSON.stringify(receipts)).not.toContain('private-observed-query-canary');
+  expect(JSON.stringify(receipts)).not.toContain('exhaustive');
+},60_000);
+
+it.each(['internal','both'] as const)('settles and projects a real internal observed-tool turn in %s mode',async(mode)=>{
+  const requests:unknown[]=[];
+  const provider=createServer(async(request,response)=>{
+    requests.push(await readJsonRequest(request));
+    if(requests.length===1)sendToolCall(response,'observed-list-call','list_observed_collections',{});
+    else sendFinalMessage(response,'No source collections are configured; ordinary source reads remain available.');
+  });
+  const port=await listen(provider);
+  try {
+    let app:App;let root:string;
+    if(mode==='both')({app,root}=await fixture('both',port));
+    else {
+      root=mkdtempSync(join(tmpdir(),'internal-observed-'));roots.push(root);
+      writeProductionConfig(root,productionTestConfig(port));initializeProject(root);
+      app=await startApp({projectRoot:root,createRuntime:false,analystMode:'internal',env:{NODE_ENV:'test',LOG_LEVEL:'silent',SAIVAGE_HOST:'127.0.0.1',SAIVAGE_PORT:'0',SAIVAGE_API_TOKEN:'rest-synthetic-secret'}});
+      apps.push(app);
+    }
+    await app.server.runtimeApplication.analystRuntime.submit({userContent:'Discover available source views without starting the project.'});
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify(requests[0])).toContain('list_observed_collections');
+    expect(JSON.stringify(requests[1])).toContain('exhaustive');
+    const retained=JSON.stringify(readConversation(root,'agent:analyst:global'));
+    expect(retained).toContain('list_observed_collections');expect(retained).toContain('exhaustive');
+    expect(new EventQueryService(root).queryExternalToolCalls()).toEqual([]);
+    expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
+  } finally {await closeServer(provider);}
 },60_000);
 
 it('overlaps two external clients with a genuine internal turn in both mode without claiming a shared conversation',async()=>{

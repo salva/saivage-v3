@@ -8,6 +8,7 @@ import type { CardProcessActor } from '../../../src/runtime/actors/card-process-
 import { ChildInvocationLease } from '../../../src/runtime/actors/child-invocation-wait.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
+import { createObservedCollections } from '../../../src/retrieval/index.js';
 import type { CardRecord, ConversationSessionId } from '../../../src/schemas/index.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
 import type { ApplicationFatalPort } from '../../../src/contracts/publication-outcome.js';
@@ -851,6 +852,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
         runtimeGate: new RuntimeGate(),
         projectRoot,
         processIdentity: { pid: 1, startedAt: 'now' },
+        retrieval: createObservedCollections(projectRoot),
         actorStore: cards,
         workflows: TEST_RUNTIME_WORKFLOWS,
         provider: scriptedAdmissionProvider(

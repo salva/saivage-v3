@@ -109,6 +109,57 @@ describe('FilesView', () => {
     vi.useRealTimers();
   });
 
+  it('deep-previews current observed source without reading or relabeling either listing root', async () => {
+    vi.mocked(getFileContent).mockResolvedValue({...jsonContent,path:'docs/guide.md',contentType:'text/plain',content:'Current source bytes'});
+    const {wrapper,fileStore,router}=await mountFilesView({initialRoute:'/files?preview=source&path=docs%2Fguide.md'});
+    expect(wrapper.get('[data-testid="files-source-preview"]').text()).toContain('Current source preview');
+    expect(wrapper.text()).toContain('not the indexed observation');
+    expect(wrapper.find('[data-testid="files-canonical-panel"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="files-viewer"]').text()).toContain('Current source bytes');
+    expect(listFiles).not.toHaveBeenCalled();
+    expect(fileStore.metaPath).toBe('.saivage');expect(fileStore.outputPath).toBe('.saivage/work');
+    const refetch=syncMocks.registerResource.mock.calls[0]![0].refetch as ()=>Promise<void>;
+    await refetch();expect(getFileContent).toHaveBeenCalledTimes(2);expect(listFiles).not.toHaveBeenCalled();
+    await router.push('/files?root=output');await flushPromises();
+    expect(wrapper.get('[data-testid="files-canonical-panel"]').text()).toContain('Output');
+    expect(listFiles).toHaveBeenCalledWith('.saivage/work',expect.any(AbortSignal));
+    expect(fileStore.viewedFilePath).toBe('');
+    wrapper.unmount();fileStore.$dispose();
+  });
+
+  it.each([
+    [403,'blocked','Preview blocked'],[404,'File not found','File not found'],
+    [413,'too large','Preview too large'],[415,'binary','Binary preview unavailable'],
+    [401,'Unauthorized','Preview unavailable'],
+  ] as const)('retains typed source-preview failure at HTTP %s without listing fallback',async(status,error,title)=>{
+    vi.mocked(getFileContent).mockRejectedValue(new OperatorApiError('files.content',status,{error,path:'docs/guide.md'}));
+    const {wrapper,fileStore}=await mountFilesView({initialRoute:'/files?preview=source&path=docs%2Fguide.md'});
+    if(status===401)expect(wrapper.get('[data-testid="files-status-banner"]').text()).toContain('not authorized');
+    else expect(wrapper.get('.viewer-state').text()).toContain(title);
+    expect(listFiles).not.toHaveBeenCalled();
+    wrapper.unmount();fileStore.$dispose();
+  });
+
+  it('joins pending source navigation on reconnect and cancels it on route change and unmount',async()=>{
+    const pending=deferred<FileContent>();
+    vi.mocked(getFileContent).mockReturnValueOnce(pending.promise);
+    const {wrapper,router,fileStore}=await mountFilesView({initialRoute:'/files?preview=source&path=docs%2Fold.md'});
+    const signal=vi.mocked(getFileContent).mock.calls[0]![1] as AbortSignal;
+    const refetch=syncMocks.registerResource.mock.calls[0]![0].refetch as ()=>Promise<void>;
+    const reconnect=refetch();expect(getFileContent).toHaveBeenCalledTimes(1);
+    vi.mocked(getFileContent).mockResolvedValueOnce({...jsonContent,path:'docs/new.md',content:'new source'});
+    await router.push('/files?preview=source&path=docs%2Fnew.md');await flushPromises();
+    expect(signal.aborted).toBe(true);
+    pending.resolve({...jsonContent,path:'docs/old.md',content:'obsolete source'});await reconnect;await flushPromises();
+    expect(fileStore.viewedFilePath).toBe('docs/new.md');expect(wrapper.text()).not.toContain('obsolete source');
+    const delayed=deferred<FileContent>();vi.mocked(getFileContent).mockReturnValueOnce(delayed.promise);
+    const refresh=refetch();await flushPromises();
+    const lastSignal=vi.mocked(getFileContent).mock.calls.at(-1)![1] as AbortSignal;
+    wrapper.unmount();expect(lastSignal.aborted).toBe(true);
+    delayed.resolve({...jsonContent,path:'docs/new.md'});await refresh;
+    expect(fileStore.viewedFilePath).toBe('');expect(listFiles).not.toHaveBeenCalled();fileStore.$dispose();
+  });
+
   it('shows initial failure without claiming an accepted empty listing', async () => {
     const { wrapper, fileStore } = await mountFilesView({
       listFilesImpl: async () => { throw new Error('unavailable'); },

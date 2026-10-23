@@ -32,6 +32,10 @@ import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './co
 import { handleRepair, type RepairInputs } from './cli-repair.js';
 import { parseRepairTarget } from './persistence/index.js';
 import { cardTypeNameSchema } from './schemas/index.js';
+import {
+  prepareObservedCollections,
+  type PrepareObservedCollectionsInputs,
+} from './retrieval/index.js';
 
 const fatalPort = createApplicationFatalPort();
 
@@ -60,15 +64,20 @@ type Command =
   | 'restart_server'
   | 'reset'
   | 'repair'
+  | 'observed-collections'
   | 'help';
 type ParsedCommand =
   | { readonly command: 'init'; readonly inputs: InitInputs }
   | { readonly command: 'start'; readonly inputs: StartInputs }
   | { readonly command: 'repair'; readonly inputs: RepairInputs }
-  | { readonly command: Exclude<Command, 'init' | 'start' | 'repair'> };
+  | { readonly command: 'observed-collections'; readonly inputs: PrepareObservedCollectionsInputs }
+  | { readonly command: Exclude<Command, 'init' | 'start' | 'repair' | 'observed-collections'> };
 const USAGE = `Saivage v3 CLI
 
 Usage:
+  saivage observed-collections prepare --project-root <absolute-path> --output <fresh-absolute-directory> --executable <absolute-path> --model-directory <absolute-path> --data-directory <existing-absolute-directory> --user <service-user> [--port 19880] [--rest-port 19881] [--grpc-port 19882]
+      Prepare private native engine/watcher configuration and systemd units only.
+      No source walk, token copy, index creation, network or service action.
   saivage init [--profile <classic|classic-typed|paad-typed>]
   saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>] [--analyst-mode internal|external|both] [--analyst-mcp-port <port>] [--analyst-mcp-principal <id>] [--analyst-mcp-tools <names>]
   saivage status
@@ -129,6 +138,46 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
   const rawCommand = args[0] ?? 'help';
   const command = rawCommand === '--help' || rawCommand === '-h' ? 'help' : rawCommand;
   const rest = args.slice(1);
+  if (command === 'observed-collections') {
+    if (rest[0] !== 'prepare') throw new Error('Expected observed-collections prepare.');
+    const values = parseSingletonOptions(rest.slice(1), {
+      'project-root': { type: 'string' },
+      output: { type: 'string' },
+      executable: { type: 'string' },
+      'model-directory': { type: 'string' },
+      'data-directory': { type: 'string' },
+      user: { type: 'string' },
+      port: { type: 'string' },
+      'rest-port': { type: 'string' },
+      'grpc-port': { type: 'string' },
+    });
+    const required = (name: string): string => {
+      const value = values[name];
+      if (typeof value !== 'string' || !value) throw new Error(`Preparation requires --${name}.`);
+      return value;
+    };
+    const port = (name: string, fallback: number): number => {
+      const value = values[name];
+      if (value === undefined) return fallback;
+      if (typeof value !== 'string' || !/^[0-9]+$/u.test(value))
+        throw new Error('Invalid native port.');
+      return Number(value);
+    };
+    return {
+      command,
+      inputs: {
+        projectRoot: required('project-root'),
+        output: required('output'),
+        executable: required('executable'),
+        modelDirectory: required('model-directory'),
+        dataDirectory: required('data-directory'),
+        user: required('user'),
+        port: port('port', 19880),
+        restPort: port('rest-port', 19881),
+        grpcPort: port('grpc-port', 19882),
+      },
+    };
+  }
   if (command === 'repair') {
     const values = parseSingletonOptions(rest, {
       target: { type: 'string' },
@@ -209,7 +258,9 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
   ]);
   if (!commandsWithoutOptions.has(command)) throw new Error(`Unknown command: ${command}`);
   parseSingletonOptions(rest, {});
-  return { command: command as Exclude<Command, 'init' | 'start' | 'repair'> };
+  return {
+    command: command as Exclude<Command, 'init' | 'start' | 'repair' | 'observed-collections'>,
+  };
 }
 function materializePromptTree(sourceRoot: string, destinationRoot: string): void {
   for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
@@ -353,6 +404,10 @@ function handleHelp(): void {
 export async function run(args: string[]): Promise<void> {
   const parsed = parseCommand(args);
   switch (parsed.command) {
+    case 'observed-collections':
+      prepareObservedCollections(parsed.inputs);
+      console.log('Observed collection bundle prepared; not installed or started.');
+      break;
     case 'init':
       await handleInit(parsed.inputs);
       break;

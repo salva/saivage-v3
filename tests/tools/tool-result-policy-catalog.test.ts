@@ -9,6 +9,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/regist
 import { canonicalJson } from '../../src/schemas/index.js';
 
 const OBSERVATIONAL_READERS = new Set([
+  'list_observed_collections', 'query_observed_collections',
   'get_card', 'list_cards', 'get_tree', 'read', 'view_image', 'glob', 'grep', 'skill', 'get_status', 'show_config',
   'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session',
   'list_card_versions', 'diff_card_versions',
@@ -35,7 +36,7 @@ describe('runtime tool result policy catalog', () => {
   });
 
   it('classifies read/list/get/search surfaces as observational summarizer_only results', () => {
-    for (const name of ['get_card', 'list_cards', 'get_tree', 'read', 'glob', 'grep', 'list_card_versions', 'diff_card_versions']) {
+    for (const name of ['get_card', 'list_cards', 'get_tree', 'read', 'glob', 'grep', 'list_card_versions', 'diff_card_versions', 'list_observed_collections', 'query_observed_collections']) {
       expect(templateFor(name)).toEqual({ storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'summarizer_only', evidenceMode: 'observational_query' });
     }
   });

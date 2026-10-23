@@ -392,7 +392,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect((compiled.cardTypes as Map<unknown,unknown>).set).toBeUndefined();
     expect(compiled.cardTypes.get('project')).not.toBe(compiled.cardTypes.get('goal'));
     for(const type of ['architecture','code','test','doc','data','research','ops'] as const)expect(compiled.cardTypes.get(type)?.states.get('node:execute')).toMatchObject({kind:'node',nodeId:'execute'});
-    expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reopen_card','reorder_child','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','read_record_version','websearch','webfetch']);
+    expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reopen_card','reorder_child','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','read_record_version','websearch','webfetch','list_observed_collections','query_observed_collections']);
     expect(compiled.agents.get('reviewer')?.tools.map((tool)=>tool.name)).not.toContain('mcp_tool_call');
     expect(compiled.agents.get('executor')?.tools.map((tool)=>tool.name)).toContain('mcp_tool_call');
     expect(compiled.agents.get('analyst')?.tools.map((tool)=>tool.name)).toEqual(source().agents.analyst!.tools);

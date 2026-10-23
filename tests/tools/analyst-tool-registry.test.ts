@@ -1,4 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createObservedCollections } from '../../src/retrieval/index.js';
 
 import { getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
 import { BoundAgentToolSet } from '../../src/tools/runtime-tool-catalog.js';
@@ -7,18 +11,19 @@ import { TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 
 const cardTypeVocabulary = ['project','goal','architecture','code','test','doc','data','research','ops'];
 
-function bindConfiguredAnalystSurface() {
+function bindConfiguredAnalystSurface(projectRoot: string) {
   return new BoundAgentToolSet(TEST_WORKFLOWS.analyst.tools).bind({
     scope: 'global',
     agentName: 'analyst',
-    projectRoot: '/',
+    projectRoot,
+    retrieval: createObservedCollections(projectRoot),
     store: {} as never,
     processRunner: {} as never,
     processScope: {},
     processOwnerId: 'agent:analyst:global',
     mcpToolInvocation: {} as never,
     analystToolContext: { restartCapability: { available: false }, actor: 'analyst', surface: 'web-chat', cardTypeVocabulary, runtime: { notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: 'project' }), submitNotification: async () => ({ queued: false, reason: 'missing_card', cardId: 'project' }) }, captureExecutingLlmSnapshots: () => new Map() } as never,
-    observationToolContext: { projectRoot:'/',store:{} as never,processRunner:{} as never,eventQueries:{} as never,runtime:{} as never,queueNotification:async()=>{throw new Error('unused notification');},captureExecutingLlmSnapshots:()=>new Map() },
+    observationToolContext: { projectRoot,store:{} as never,processRunner:{} as never,eventQueries:{} as never,runtime:{} as never,queueNotification:async()=>{throw new Error('unused notification');},captureExecutingLlmSnapshots:()=>new Map() },
     cardTypeVocabulary,
   } as never);
 }
@@ -33,8 +38,13 @@ describe('registered Analyst card mutation catalog', () => {
   });
 
   it('binds the Analyst surface in the compiled configured tool order', () => {
-    const surface = bindConfiguredAnalystSurface();
-    expect([...surface.tools.keys()]).toEqual(TEST_WORKFLOWS.analyst.tools.map((tool) => tool.name));
+    const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-tool-registry-'));
+    try {
+      const surface = bindConfiguredAnalystSurface(projectRoot);
+      expect([...surface.tools.keys()]).toEqual(TEST_WORKFLOWS.analyst.tools.map((tool) => tool.name));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it('selects type only during creation and exposes no post-creation edit or update input', () => {

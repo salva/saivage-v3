@@ -1,16 +1,27 @@
 <template>
   <div class="files-layout" data-testid="route-files" tabindex="-1">
     <StatusBanner
-      v-if="activeListingAge === 'aged' || unauthorized"
+      v-if="(!sourcePreview && activeListingAge === 'aged') || unauthorized"
       class="files-status-banner"
       :tone="unauthorized ? 'unauthorized' : 'stale'"
       :message="unauthorized ? 'Files are unavailable: this browser is not authorized for the operator API. Public docs at /docs/ remain available.' : 'This directory listing was read at least 30 seconds ago. Refresh to read it again.'"
       data-testid="files-status-banner"
     />
 
-    <StatusBanner v-if="activeError" class="files-status-banner" tone="danger" :message="activeError" data-testid="files-list-error" />
+    <StatusBanner v-if="!sourcePreview && activeError" class="files-status-banner" tone="danger" :message="activeError" data-testid="files-list-error" />
 
-    <Panel class="file-browser" :padded="false" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
+    <Panel v-if="sourcePreview" aria-label="Current source preview" data-testid="files-source-preview">
+      <PanelHeader title="Current source preview">
+        <template #actions>
+          <button class="btn" @click="goToRoot('meta')">Metadata</button>
+          <button class="btn" @click="goToRoot('output')">Output</button>
+          <button class="btn" :disabled="contentLoading" data-testid="files-refresh" @click="refreshActiveRoot">Refresh preview</button>
+        </template>
+      </PanelHeader>
+      <p>This is the current original source, not the indexed observation. It may have changed or moved. Opening it does not refresh the index.</p>
+    </Panel>
+
+    <Panel v-else class="file-browser" :padded="false" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
       <PanelHeader :title="activeRootLabel">
         <template #meta><span class="code-inline root-label">{{ activeRootPath }}/</span></template>
         <template #actions>
@@ -51,7 +62,7 @@
 
     <div v-if="viewedFilePath" class="file-viewer" data-testid="files-viewer">
       <PanelHeader class="viewer-header" :title="viewedFilePath">
-        <template #actions><button class="btn viewer-close-btn" @click="fileStore.clearViewedFile()">X</button></template>
+        <template #actions><button class="btn viewer-close-btn" @click="sourcePreview ? goToRoot('meta') : fileStore.clearViewedFile()">X</button></template>
       </PanelHeader>
       <ViewState v-if="contentLoading" class="viewer-loading" state="loading" title="Loading preview" />
       <ViewState v-else-if="viewerState !== 'ready'" class="viewer-state" :class="viewerStateClass" :state="viewerStateTone === 'danger' ? 'error' : 'stale'" :tone="viewerStateTone" :title="viewerStateTitle" :message="viewerStateMessage" />
@@ -108,6 +119,7 @@ const {
 } = storeToRefs(fileStore);
 
 const activeRoot = computed<FileRoot>(() => route.query.root === 'output' ? 'output' : 'meta');
+const sourcePreview = computed(() => route.query.preview === 'source');
 watch([viewedFilePath, () => route.fullPath], () => { imagePath.value = ''; });
 const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' : '.saivage/work');
 const activeRootLabel = computed(() => activeRoot.value === 'meta' ? 'Metadata' : 'Output');
@@ -228,6 +240,10 @@ let unmounted = false;
 
 async function refetchActiveFilesView(): Promise<void> {
   if (currentRouteResolution) return currentRouteResolution.promise;
+  if (sourcePreview.value) {
+    if (viewedFilePath.value) await fileStore.fetchFileContent(viewedFilePath.value);
+    return;
+  }
 
   const rootName = activeRoot.value;
   const routePath = canonicalPathForRoot(rootName, route.query.path);
@@ -248,12 +264,17 @@ async function refetchActiveFilesView(): Promise<void> {
   if (previewPath) await fileStore.fetchFileContent(previewPath);
 }
 
-async function applyQueryPath(operation: RouteResolution, rootName: FileRoot, path: string): Promise<void> {
+async function applyQueryPath(operation: RouteResolution, rootName: FileRoot, path: string, source: boolean): Promise<void> {
   const isCurrent = (): boolean => (
     !unmounted
     && operation.active
     && currentRouteResolution?.identity === operation.identity
   );
+  if (source) {
+    fileStore.clearViewedFile();
+    await fileStore.fetchFileContent(path);
+    return;
+  }
   const pathRoot = rootForPath(path);
   if (pathRoot && pathRoot !== rootName) {
     if (isCurrent()) await router.push({ name: 'files', query: { root: pathRoot, path } });
@@ -297,18 +318,19 @@ onUnmounted(() => {
   unregisterFiles?.();
 });
 
-watch(() => [route.query.root, route.query.path], async (_query, _previousQuery, onCleanup) => {
+watch(() => [route.query.root, route.query.path, route.query.preview], async (_query, _previousQuery, onCleanup) => {
   const rootName = activeRoot.value;
-  const path = canonicalPathForRoot(rootName, route.query.path);
+  const source = sourcePreview.value;
+  const path = source ? (typeof route.query.path === 'string' ? route.query.path : '') : canonicalPathForRoot(rootName, route.query.path);
   const operation = {
     identity: Symbol('files-route-resolution'),
     active: true,
     promise: Promise.resolve(),
   };
   currentRouteResolution = operation;
-  const promise = applyQueryPath(operation, rootName, path);
+  const promise = applyQueryPath(operation, rootName, path, source);
   operation.promise = promise;
-  onCleanup(() => { operation.active = false; });
+  onCleanup(() => { operation.active = false; if (source) fileStore.clearViewedFile(); });
 
   try {
     await promise;
