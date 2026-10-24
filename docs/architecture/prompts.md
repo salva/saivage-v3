@@ -424,6 +424,17 @@ authorized owner. At existing result/review/evidence opportunities it reassesses
 recurring seams, growing prerequisites and disconnected successes against remaining
 acceptance, without treating hard work or necessary broad fixes as failure.
 
+Analyst owns outcome-first brief/notice authoring; Planner applies the same principle
+to child briefs and activation direction within its existing authority. Their shared
+roles keep restrictions proportionate to actual requirements, authority boundaries
+or evidenced risks, with intelligible reasons and scope, leaving ordinary local
+choices open. Fresh direction replaces superseded agent-added contradictions rather
+than layering exceptions. Historical refusals remain evidence, not permanent bans
+or permission to evade provider safeguards; accepted constraints and independent
+assessment remain binding until their authorized owner changes them. This reusable
+method is prepared with the role, not repeated in each node or entrusted to old
+notices or summaries. It grants Planner no child-brief editing or public notices.
+
 Executor continues actionable permitted current-node work and delivers the complete
 scoped candidate with applicable verification. Research, design, runtime investigation
 and justified no-change need evidence, not manufactured edits or commits. Node-owned
@@ -499,6 +510,18 @@ checking the real combined input and preserving unrelated dirty/staged work. Ref
 advancement or an isolated passing commit alone is not usable combined delivery.
 This creates no Git permission, universal commit obligation or new BLOCKED reason;
 read-only plumbing/vetted tooling and applicable unchanged evidence remain valid.
+
+The same shared Executor owns versioned-work selection: meaningful source, compact
+faithful fixtures/goldens, pinned deterministic generators and concise reproducible
+research/provenance, rather than full logs, exhaustive exploratory captures or
+duplicated large result sets. Secret/runtime inputs and generated state/cache/build
+outputs are not ordinary commit content; authored non-secret configuration and
+genuinely required data remain legitimate. Compactness must preserve every applicable
+workload/assertion. Existing raw-evidence locations may be referenced when useful,
+without promised retention, mandatory hashes or new storage/approval mechanisms.
+This is future work-product guidance, not permission to delete unique/historical
+evidence or rewrite Git history. Role preparation, generated contracts and separate
+installed/customized-host adoption remain unchanged.
 
 ## Shipped profiles and customization
 

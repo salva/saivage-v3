@@ -926,6 +926,28 @@ For authorized Git delivery, shared Executor guidance prefers high-level operati
 
 Bundled Planner/Executor/Reviewer methods favor the simplest coherent design meeting actual requirements, separating warranted findings and concrete impact from proposed remedies. Optional availability, diagnostic precision and rare-failure recovery are not automatically obligations: explicit safe-boundary failure, capacity rejection before work admission or omission of optional diagnostics may suffice, without losing actual failure/effect facts, owned-resource identity/cleanup, independent control, authentication/authorization or confidentiality. Ordinary contention grants no cross-session destruction, and unknown effects grant no automatic replay or false success. Removing unnecessary machinery is a valid correction; strengthening guarantees or weakening explicit requirements needs the requirement owner's decision, not a simplicity slogan. Every assigned/exhaustive criterion, original-owner correction, supported early return and bounded-throughput rule remains binding. Oversight may advise reconsidering machinery within evidenced non-progress diagnosis, not patrol complexity or acquire strategy authority. This [shipped-role instruction policy](../architecture/prompts.md#simplicity-within-existing-role-decisions) adds no runtime gate, outcome, feeding/retention change or durable contract; prepared text and scripted feasibility do not prove model compliance or quality improvement. Materialized/custom roles require authorized stopped reconciliation and fresh compilation, not existing-config init or Run.
 
+Shared Analyst/Planner authoring guidance leads briefs, activation directions and
+advisory notices with useful outcomes, necessary scope, evidence and meaningful
+acceptance or next action. Prohibitions need an actual requirement, authority
+boundary or evidenced proportionate risk, with clear reason and scope; ordinary
+implementation choices stay open. Historical failures/refusals remain facts, not
+permanent bans on related work or permission to evade provider safeguards. Fresh
+direction replaces superseded agent-added contradictions within the author's
+authority; genuine accepted constraints and independent assessment remain binding,
+and requirement changes still need their authorized owner. This creates no new
+authority, notification guarantee, retry obligation or runtime gate.
+
+Executor's versioned-work guidance favors meaningful source, small faithful
+fixtures/goldens, pinned deterministic generators and concise reproducible research
+and provenance. Credentials, secret/runtime configuration, generated runtime state,
+caches/build outputs, full logs, exhaustive exploratory captures and duplicated
+large results stay out of ordinary commits by default. Authored non-secret
+configuration and genuinely required full test data remain eligible. Compact
+representations must preserve every applicable workload/assertion; raw evidence may
+remain at existing locations with useful references, without promised permanence
+or mandatory hashes, storage mechanisms or approvals. This authorizes no evidence
+deletion or Git history rewrite and changes no retention or acceptance contract.
+
 Shipped [convergence guidance](../architecture/prompts.md#convergence-within-existing-role-decisions)
 prioritizes useful coherent delivery against accepted requirements over activity
 volume. Planner delegates bounded outcomes while retaining parent-owned remainder
