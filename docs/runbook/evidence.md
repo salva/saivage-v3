@@ -229,6 +229,15 @@ argv/env/artifacts are not secret-delivery channels. Full authoring belongs in
 
 ## Process state and missing output
 
+[Explicit work GC](./work-gc.md) protects selected captures and work references in
+baseline0, current drafts, accepted predecessor history and all indexed original
+and compacted conversation segments—not merely the displayed context or inline
+output. Execution start/finish selections remain protections even without a finish.
+Directory and exact alias references can protect whole subtrees. Missing-file/404
+presentation is not permission to delete selected evidence. Unreferenced eligible
+stash/scratch may be collected; no source availability or lossless retention promise
+is added by GC, and canonical history/images are outside its deletion scope.
+
 Inspect actual process status/evidence, leader exit/error, stream open/EOF/closed,
 capture errors and returned canonical stdout/stderr URLs independently. Running
 or partial output calls for the returned links; done+complete inline heads can be

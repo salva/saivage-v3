@@ -22,6 +22,7 @@ export class ExternalAnalystOperations {
       directScope: ManagedProcessScope;
       fatalPort: ApplicationFatalPort;
       onOwnerFailure(error: unknown): void;
+      assertIngressAllowed(): void;
     },
   ) {}
 
@@ -30,6 +31,11 @@ export class ExternalAnalystOperations {
   }
 
   invoke(name: string, args: unknown): Promise<ToolSettlementInput> {
+    try {
+      this.input.assertIngressAllowed();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (!this.#open)
       return Promise.reject(
         new ExternalAnalystClosedError('External Analyst admission is closed.'),
@@ -84,6 +90,10 @@ export class ExternalAnalystOperations {
   closeAdmission(): void {
     this.#open = false;
     for (const { controller } of this.#active) controller.abort(new Error('Application stopping.'));
+  }
+
+  async awaitAcceptedOperations(): Promise<void> {
+    await Promise.all([...this.#active].map(({ task }) => task));
   }
 
   cleanupForApplicationStop(): Promise<void> {

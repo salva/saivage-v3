@@ -10,7 +10,11 @@ import {
   type ToolBinder,
 } from './invocation.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../application/index.js';
-import { readControlActionsInputSchema, toolSucceeded } from '../contracts/index.js';
+import {
+  readControlActionsInputSchema,
+  toolSucceeded,
+  WorkGcBusyError,
+} from '../contracts/index.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 
@@ -18,7 +22,13 @@ export async function start_project(
   ctx: ToolContext,
   _params: Record<string, never> = {},
 ): Promise<AnalystToolOutcome> {
-  const data = await ctx.runtime.startProject();
+  let data;
+  try {
+    data = await ctx.runtime.startProject();
+  } catch (error) {
+    if (error instanceof WorkGcBusyError) return toolFailure(error.message);
+    throw error;
+  }
   if (!data.error) return toolSucceeded(data);
   return toolFailure(data.error, {
     status: data.status,
@@ -32,7 +42,7 @@ export async function pause_runtime(
   _params: Record<string, never> = {},
 ): Promise<AnalystToolOutcome> {
   const state = ctx.runtime.getStatus();
-  if (state.status !== 'running')
+  if (state.status !== 'running' && !ctx.runtime.hasWorkGcMaintenanceHold())
     return toolFailure(
       state.status === 'stopped'
         ? 'Runtime is stopped. Use start_project to start it; Pause is only available while the runtime is running.'
@@ -61,7 +71,12 @@ export async function resume_runtime(
         : `Cannot resume runtime from '${state.status}'. Resume is only available for paused execution.`,
       { runtime_status: state.status },
     );
-  ctx.runtime.resume();
+  try {
+    ctx.runtime.resume();
+  } catch (error) {
+    if (error instanceof WorkGcBusyError) return toolFailure(error.message);
+    throw error;
+  }
   const updated = ctx.runtime.getStatus();
   return toolSucceeded({ status: updated.status });
 }

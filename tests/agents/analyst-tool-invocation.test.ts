@@ -12,6 +12,12 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolExecutionResult } from '../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
@@ -22,9 +28,11 @@ import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
 import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
+import { ActivationOperationTracker } from '../../src/runtime/actors/invocation-lifecycle.js';
+import { deferred } from '../../src/runtime/actors/deferred.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function toolCall(argumentsJson: string, toolName = 'demo'): ProviderTurnCompletion {
   return {
@@ -36,7 +44,7 @@ function toolCall(argumentsJson: string, toolName = 'demo'): ProviderTurnComplet
 function analyst(
   argumentsJson: string,
   executor: (args: { value: string }, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<ToolExecutionResult<'none'>>,
-  options: { toolName?: string; requestedToolName?: string; restartCapability?: RestartCapability; beforeContinuation?: (projectRoot: string) => void; fatalPort?: ApplicationFatalPort; conversationChanged?: (target: { session_id: string; segment_id: string; segment_version: number; visible_message_id: string | null }) => void } = {},
+  options: { toolCount?: number; runtimeProjectionChanged?: () => void; prepareSurface?: () => void; toolName?: string; requestedToolName?: string; restartCapability?: RestartCapability; beforeContinuation?: (projectRoot: string) => void; fatalPort?: ApplicationFatalPort; conversationChanged?: (target: { session_id: string; segment_id: string; segment_version: number; visible_message_id: string | null }) => void } = {},
 ) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-tool-invocation-'));
   roots.push(projectRoot);
@@ -56,7 +64,7 @@ function analyst(
   let turns = 0;
   const completeTurn = jest.fn(async (_input:LlmInvocationInput): Promise<ProviderTurnCompletion> => {
     turns += 1;
-    if (turns === 1) return toolCall(argumentsJson, options.requestedToolName ?? options.toolName);
+    if (turns <= (options.toolCount ?? 1)) return toolCall(argumentsJson, options.requestedToolName ?? options.toolName);
     options.beforeContinuation?.(projectRoot);
     return { result: { kind: 'message', content: 'done' }, provider_exchanges: [] };
   });
@@ -78,16 +86,201 @@ function analyst(
     summarizerProvider: unusedSummarizerProvider,
     cardStore,
     runtimeCurrent: () => ({ status: 'stopped' as const, currentCardId: null }),
-    runtimeProjectionChanged() {},
-    createInvocationSurface: () => surface,
+    runtimeProjectionChanged: options.runtimeProjectionChanged ?? (() => {}),
+    createInvocationSurface: () => { options.prepareSurface?.(); return surface; },
     shutdownProcesses: async () => {},
   });
   const createSession = jest.fn(() => session);
-  const runtime = new AnalystRuntime({ internalEnabled: true, createSession, getAvailableToolNames: () => [definition.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
-  return { session, runtime, createSession, completeTurn, capabilityRequest, projectRoot, list };
+  const runtime = new AnalystRuntime({ assertIngressAllowed() {}, internalEnabled: true, createSession, getAvailableToolNames: () => [definition.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
+  return { session, runtime, createSession, completeTurn, capabilityRequest, projectRoot, list, cardStore };
 }
 
 describe('Analyst parsed tool invocation', () => {
+  it.each(['natural', 'disconnect', 'timeout', 'stop', 'close'] as const)(
+    'actual GC maintenance waits for a real accepted Analyst tool; %s never disposes that turn', async mode => {
+      const entered = deferred<void>(), release = deferred<void>();
+      let toolSignal: AbortSignal | undefined;
+      let completed = false;
+      const test = analyst('{"value":"late"}', async (_args, signal) => {
+        toolSignal = signal;
+        entered.resolve();
+        await release.promise;
+        signal.throwIfAborted();
+        test.cardStore.acceptRecord('project', 'review-late.md', 'Late selected evidence', { kind: 'agent', agent: 'analyst' });
+        completed = true;
+        return executedToolOutcome('none', toolSucceeded('late write complete'));
+      });
+      const processes = createTestProcessRunner(test.projectRoot);
+      const gate = new RuntimeGate();
+      const supervisor = createSupervisorRuntimeApi({
+        fatalPort: testApplicationFatalPort, ...testAutonomousCompaction,
+        runtimeGate: gate, projectRoot: test.projectRoot, actorStore: test.cardStore,
+        provider: scriptedAdmissionProvider(async () => { throw new Error('Project provider must remain parked'); }),
+        conversations: { projectRoot: test.projectRoot },
+        retrieval: createObservedCollections(test.projectRoot),
+        freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
+        processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+        processIdentity: { pid: process.pid, startedAt: 'now' },
+        promptTemplates: createTestPromptTemplateRegistry(),
+      });
+      const runtime = new AnalystRuntime({ internalEnabled: true, createSession: () => test.session,
+        getAvailableToolNames: () => ['demo'], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }),
+        assertIngressAllowed: () => supervisor.assertWorkGcIngressAllowed() });
+      await supervisor.start();
+      await supervisor.startProject();
+      supervisor.pause();
+      for (let i = 0; i < 1000 && supervisor.getStatus().status === 'pausing'; i++)
+        await new Promise<void>(resolve => setImmediate(resolve));
+      expect(supervisor.getStatus().status).toBe('paused');
+      const turn = runtime.submit({ userContent: 'write late' });
+      const turnResult = turn.catch(error => { throw error; });
+      await entered.promise;
+      const abort = new AbortController();
+      const collect = jest.fn(async () => {
+        expect(completed).toBe(true);
+        expect(readConversation(test.projectRoot, 'agent:analyst:global').sourceRows.some(row => row.kind === 'tool_result')).toBe(true);
+        return 'marked';
+      });
+      const gc = supervisor.withWorkGcMaintenance({ signal: abort.signal,
+        assertEntryIdle() {}, settleAcceptedWork: () => runtime.awaitNaturalTurnCompletion(), assertReady() {}, collect });
+      const result = gc.then(value => ({ value }), error => ({ error }));
+      try {
+        await expect(runtime.submit({ userContent: 'new turn forbidden' })).rejects.toThrow('busy');
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(collect).not.toHaveBeenCalled();
+        let stopping: Promise<void> | undefined;
+        if (mode === 'disconnect') abort.abort(new Error('request disconnected'));
+        if (mode === 'stop') stopping = supervisor.stopProject().then(() => undefined);
+        if (mode === 'close') { supervisor.closeApplicationAdmission(); stopping = supervisor.cleanupForApplicationStop(); }
+        if (mode !== 'natural') {
+          expect(await result).toHaveProperty('error');
+          expect(toolSignal!.aborted).toBe(false);
+          expect(completed).toBe(false);
+          expect(collect).not.toHaveBeenCalled();
+        }
+        release.resolve();
+        await turnResult;
+        await runtime.awaitNaturalTurnCompletion();
+        if (mode === 'natural') expect(await result).toEqual({ value: { value: 'marked', restoredRunning: false } });
+        else expect(collect).not.toHaveBeenCalled();
+        await stopping;
+        expect(completed).toBe(true);
+        expect(toolSignal!.aborted).toBe(false);
+        if (mode === 'stop' || mode === 'close') expect(gate.isOpen).toBe(false);
+        else {
+          expect(supervisor.getStatus().status).toBe('paused');
+          await runtime.submit({ userContent: 'reuse after GC' });
+          await runtime.awaitNaturalTurnCompletion();
+        }
+      } finally {
+        release.resolve(); await turnResult; await result;
+        supervisor.closeApplicationAdmission(); await supervisor.cleanupForApplicationStop();
+      }
+    }, 75_000);
+  it('denies held ingress before session creation while preserving later ordinary admission', async () => {
+    const test = analyst('{"value":"ok"}', async () => executedToolOutcome('none', toolSucceeded('done')));
+    let held = true;
+    const createSession = jest.fn(() => test.session);
+    const runtime = new AnalystRuntime({ internalEnabled: true, createSession,
+      getAvailableToolNames: () => ['demo'], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }),
+      assertIngressAllowed() { if (held) throw new Error('maintenance busy'); } });
+    await expect(runtime.submit({ userContent: 'held' })).rejects.toThrow('maintenance busy');
+    await runtime.awaitNaturalTurnCompletion();
+    expect(createSession).not.toHaveBeenCalled();
+    held = false;
+    await runtime.submit({ userContent: 'later' });
+    await runtime.awaitNaturalTurnCompletion();
+    expect(createSession).toHaveBeenCalledTimes(1);
+  });
+  it('awaits tools, continuations and actual consumer delivery without closing the reusable session', async () => {
+    const entered = [deferred<void>(), deferred<void>()];
+    const release = [deferred<void>(), deferred<void>()];
+    let calls = 0;
+    let completed = false;
+    let idleProjection = false;
+    let test!: ReturnType<typeof analyst>;
+    const llmJoin = jest.spyOn(ConversationLLMActor.prototype, 'join');
+    const sessionJoin = jest.spyOn(AnalystSession.prototype, 'joinSession');
+    test = analyst('{"value":"ok"}', async (_args, signal) => {
+      const index = calls++;
+      entered[index]!.resolve();
+      await release[index]!.promise;
+      expect(signal.aborted).toBe(false);
+      return executedToolOutcome('none', toolSucceeded('done'));
+    }, {
+      toolCount: 2,
+      runtimeProjectionChanged() {
+        if (test && test.runtime.executingLlmSnapshot() === null) {
+          idleProjection = true;
+          expect(completed).toBe(false);
+        }
+      },
+    });
+    await test.runtime.awaitNaturalTurnCompletion();
+    expect(test.createSession).not.toHaveBeenCalled();
+    const caller = test.runtime.submit({ userContent: 'two tools' });
+    const completion = test.runtime.awaitNaturalTurnCompletion().then(() => { completed = true; });
+    for (let i = 0; i < 2; i += 1) {
+      await entered[i]!.promise;
+      expect(completed).toBe(false);
+      release[i]!.resolve();
+    }
+    await caller;
+    expect(idleProjection).toBe(true);
+    expect(completed).toBe(false);
+    await completion;
+    expect(readConversation(test.projectRoot, 'agent:analyst:global').sourceRows.filter(row => row.kind === 'tool_result')).toHaveLength(2);
+    expect(test.completeTurn).toHaveBeenCalledTimes(3);
+    expect(sessionJoin).not.toHaveBeenCalled();
+    expect(llmJoin).not.toHaveBeenCalled();
+    completed = false;
+    await test.runtime.submit({ userContent: 'normal later turn' });
+    await test.runtime.awaitNaturalTurnCompletion();
+    expect(test.createSession).toHaveBeenCalledTimes(1);
+    expect(test.completeTurn).toHaveBeenCalledTimes(4);
+  });
+
+  it('retains preparation rejection despite caller handling, then replaces it on a successful turn', async () => {
+    const failure = new Error('surface preparation failed');
+    let fail = true;
+    const test = analyst('{"value":"ok"}', async () => executedToolOutcome('none', toolSucceeded('done')), {
+      prepareSurface() { if (fail) throw failure; },
+    });
+    await expect(test.runtime.submit({ userContent: 'first' })).rejects.toBe(failure);
+    await expect(test.runtime.awaitNaturalTurnCompletion()).rejects.toThrow('Analyst pure preparation failed');
+    fail = false;
+    await test.runtime.submit({ userContent: 'next' });
+    await expect(test.runtime.awaitNaturalTurnCompletion()).resolves.toBeUndefined();
+    expect(test.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('rejects actual consumer projection failure (publication uncertainty: %s)', async (uncertain) => {
+    const failure = uncertain ? new PublicationOutcomeUnknownError(new Error('projection uncertain')) : new Error('projection failed');
+    const fatal = jest.fn((_error: PublicationOutcomeUnknownError) => undefined as never);
+    let test!: ReturnType<typeof analyst>;
+    test = analyst('{"value":"ok"}', async () => executedToolOutcome('none', toolSucceeded('done')), {
+      fatalPort: { publicationOutcomeUnknown: fatal },
+      runtimeProjectionChanged() {
+        if (test && test.runtime.executingLlmSnapshot() === null) throw failure;
+      },
+    });
+    await test.runtime.submit({ userContent: 'caller succeeds before consumer fails' });
+    await expect(test.runtime.awaitNaturalTurnCompletion()).rejects.toBe(failure);
+    if (uncertain) expect(fatal).toHaveBeenCalledWith(failure);
+    else expect(fatal).not.toHaveBeenCalled();
+  });
+
+  it.each(['rejected', 'abandoned'] as const)('refuses a %s closed-turn tracker outcome', async (outcome) => {
+    const failure = new Error('closed tracker failure');
+    jest.spyOn(ActivationOperationTracker.prototype, 'join').mockImplementation(async () => {
+      if (outcome === 'rejected') throw failure;
+      return { status: 'external_dependency_abandoned', abandonedCount: 1 };
+    });
+    const test = analyst('{"value":"ok"}', async () => executedToolOutcome('none', toolSucceeded('done')));
+    await test.runtime.submit({ userContent: 'finish' });
+    await expect(test.runtime.awaitNaturalTurnCompletion()).rejects.toThrow(outcome === 'rejected' ? 'closed tracker failure' : 'abandoned an external dependency');
+  });
+
   it('returns the registered catalog in unsupported-tool responses', async () => {
     const executor = jest.fn(async () => executedToolOutcome('none', toolSucceeded('unused')));
     const test = analyst('{}', executor, { requestedToolName: 'unknown' });
@@ -256,6 +449,7 @@ describe('Analyst parsed tool invocation', () => {
     }));
 
     await expect(test.runtime.submit({ userContent: 'perform once' })).rejects.toBe(failure);
+    await expect(test.runtime.awaitNaturalTurnCompletion()).rejects.toThrow('Analyst tool invocation escaped');
     const stranded = readConversation(test.projectRoot, 'agent:analyst:global');
     expect(stranded.unmatchedCall?.toolCallId).toBe('call-1');
     expect(stranded.sourceRows.filter((row) => row.kind === 'tool_result')).toHaveLength(0);
@@ -263,6 +457,7 @@ describe('Analyst parsed tool invocation', () => {
     expect(test.completeTurn).toHaveBeenCalledTimes(1);
 
     await expect(test.runtime.submit({ userContent: 'fresh request' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    await expect(test.runtime.awaitNaturalTurnCompletion()).resolves.toBeUndefined();
 
     const rows = readConversation(test.projectRoot, 'agent:analyst:global').sourceRows;
     const oldCallIndex = rows.findIndex((row) => row.kind === 'tool_call' && row.tool_call_id === 'call-1');

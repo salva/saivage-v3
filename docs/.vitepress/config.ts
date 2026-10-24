@@ -53,6 +53,7 @@ export default defineConfig({
           { text: 'Diagnosis', link: '/runbook/diagnosis' },
           { text: 'Inbound and outbound MCP', link: '/runbook/mcp' },
           { text: 'Evidence and provenance', link: '/runbook/evidence' },
+          { text: 'Explicit work garbage collection', link: '/runbook/work-gc' },
           { text: 'State adoption, repair and reset', link: '/runbook/state-adoption' },
         ],
       },

@@ -1,4 +1,9 @@
 export { looksLikeSecretPath } from './secret-paths.js';
+export {
+  inventoryWorkGarbage,
+  collectWorkGarbage,
+  WorkGcInterruptedError,
+} from './work-garbage-collector.js';
 export { inspectAgentReadPath } from './agent-read-path.js';
 export {
   hasParentPathSegment,

@@ -318,7 +318,7 @@ try {
     invokeTool() { return Promise.reject(new Error('Unexpected MCP invocation in compiled prompt smoke.')); },
   };
 
-  application = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
+  application = createRuntimeApplication({ assertWorkGcEntryIdle() {}, assertWorkGcReady() {}, analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
     projectRoot,
     processIdentity: { pid: process.pid, startedAt: new Date().toISOString() },
     config: typedTestConfig,

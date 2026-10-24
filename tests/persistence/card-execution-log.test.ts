@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import {
   appendCardExecutions,
   readCardExecutions,
+  inspectCardExecutions,
   type CardExecutionStart,
   type CardExecutionFinish,
 } from '../../src/persistence/card-execution-log.js';
@@ -67,6 +68,25 @@ function finish(source: CardExecutionStart): CardExecutionFinish {
   };
 }
 describe('lazy exact card execution evidence', () => {
+  it('pure inspection reports a torn suffix without truncation and keeps strict association validation', () => {
+    const root = project();
+    const path = cardExecutionFile(root, 'project');
+    expect(inspectCardExecutions(root, 'project').projection).toEqual([]);
+    expect(existsSync(path)).toBe(false);
+    const row = start();
+    appendCardExecutions(root, 'project', [row]);
+    const prefix = readFileSync(path);
+    appendFileSync(path, Buffer.from([0xe2, 0x82]));
+    const torn = readFileSync(path);
+    expect(inspectCardExecutions(root, 'project')).toMatchObject({
+      projection: [row], retainedLength: prefix.length, tornSuffixLength: 2,
+    });
+    expect(readFileSync(path)).toEqual(torn);
+    const invalid = Buffer.from(`${JSON.stringify({ version: 1, type: 'card-execution', rows: [finish(start())] })}\npartial`);
+    writeFileSync(path, invalid);
+    expect(() => inspectCardExecutions(root, 'project')).toThrow(/open invocation/);
+    expect(readFileSync(path)).toEqual(invalid);
+  });
   it('preserves incomplete invocations and ordered envelopes without inventing a closing', () => {
     const root = project();
     const path = cardExecutionFile(root, 'project');

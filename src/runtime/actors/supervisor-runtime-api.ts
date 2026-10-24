@@ -54,12 +54,15 @@ import { cardParentId } from '../../schemas/index.js';
 import { deferred } from './deferred.js';
 import {
   PublicationOutcomeUnknownError,
+  WorkGcBusyError,
+  WorkGcMaintenanceError,
   type ApplicationFatalPort,
 } from '../../contracts/index.js';
 import type { NotificationUrgency } from '../../contracts/index.js';
 import { CardInterruptedError } from './card-interrupted-error.js';
 
 interface SupervisorRuntimeApiOptions {
+  cancelWorkGc?(reason: Error): void;
   outboundHttp?: import('../../contracts/index.js').OutboundHttpEmitter;
   projectRoot: string;
   now?: () => string;
@@ -119,6 +122,14 @@ interface UrgentSelection {
 
 type SupervisorStatus = RuntimeStatus | 'uninitialized';
 
+interface WorkGcHold {
+  readonly runIdentity: object;
+  readonly abort: AbortController;
+  readonly parked: ReturnType<typeof deferred<void>>;
+  phase: 'settling' | 'collecting';
+  restoreRunning: boolean;
+}
+
 class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   private readonly behavior: Omit<
     SupervisorRuntimeApiOptions,
@@ -137,6 +148,110 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   private halt: RuntimeHalt | null = null;
   private applicationCleanupTask: Promise<void> | null = null;
   private inOwnershipTransition = false;
+  private workGcHold: WorkGcHold | null = null;
+
+  assertWorkGcIngressAllowed(): void {
+    if (this.workGcHold) throw new WorkGcBusyError();
+  }
+
+  private assertWorkGcNotCollecting(): void {
+    if (this.workGcHold?.phase === 'collecting')
+      throw new Error('Work garbage collection is collecting; mutation is unavailable.');
+  }
+
+  cancelWorkGc(reason: Error): void {
+    const hold = this.workGcHold;
+    if (hold) {
+      hold.restoreRunning = false;
+      hold.abort.abort(reason);
+    }
+    this.behavior.cancelWorkGc?.(reason);
+  }
+
+  async withWorkGcMaintenance<T>(input: {
+    signal: AbortSignal;
+    assertEntryIdle(): void;
+    settleAcceptedWork(): Promise<void>;
+    assertReady(): void;
+    collect(signal: AbortSignal): Promise<T>;
+  }): Promise<{ value: T; restoredRunning: boolean }> {
+    this.assertWorkGcIngressAllowed();
+    input.signal.throwIfAborted();
+    if (
+      !this.applicationAdmissionOpen ||
+      this.halt ||
+      !this.runIdentity ||
+      (this.status !== 'running' && this.status !== 'paused')
+    )
+      throw new Error('Work garbage collection requires an existing running or fully paused run.');
+    const hold: WorkGcHold = {
+      runIdentity: this.runIdentity,
+      abort: new AbortController(),
+      parked: deferred<void>(),
+      phase: 'settling',
+      restoreRunning: this.status === 'running',
+    };
+    this.workGcHold = hold;
+    const signal = AbortSignal.any([input.signal, hold.abort.signal, AbortSignal.timeout(60_000)]);
+    const cancelled = deferred<never>();
+    const onAbort = () => cancelled.reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void cancelled.promise.catch(() => undefined);
+    const finish = (): boolean => {
+      signal.removeEventListener('abort', onAbort);
+      const restore =
+        hold.restoreRunning &&
+        this.runIdentity === hold.runIdentity &&
+        this.applicationAdmissionOpen &&
+        !this.halt &&
+        (this.status === 'pausing' || this.status === 'paused');
+      this.workGcHold = null;
+      if (restore) {
+        this.runtimeGate.open();
+        this.ownershipTransition(true, () => {
+          this.status = 'running';
+        });
+      }
+      return restore;
+    };
+    try {
+      // Entry refusal happens under the hold, before requesting project pause.
+      input.assertEntryIdle();
+      if (this.status === 'running') this.requestPause();
+      else hold.parked.resolve();
+      const settling = Promise.all([hold.parked.promise, input.settleAcceptedWork()]);
+      // Keep fatal observation even when cancellation stops waiting for accepted work.
+      void settling.catch((error) => {
+        if (error instanceof PublicationOutcomeUnknownError)
+          this.behavior.fatalPort.publicationOutcomeUnknown(error);
+      });
+      await Promise.race([settling, cancelled.promise]);
+      signal.throwIfAborted();
+      if (
+        this.runIdentity !== hold.runIdentity ||
+        this.status !== 'paused' ||
+        !this.runtimeGate.isParked ||
+        this.halt ||
+        [...this.activationOwners.values()].some(
+          (owner) =>
+            owner.phase !== 'active' ||
+            owner.terminalWinner !== 'open' ||
+            owner.urgentSettlement !== null ||
+            owner.cancellationSettlement !== null,
+        )
+      )
+        throw new Error('Work garbage collection has no settled parked project frontier.');
+      input.assertReady();
+      hold.phase = 'collecting';
+      const value = await input.collect(signal);
+      signal.throwIfAborted();
+      return { value, restoredRunning: finish() };
+    } catch (error) {
+      if (error instanceof PublicationOutcomeUnknownError)
+        this.behavior.fatalPort.publicationOutcomeUnknown(error);
+      throw new WorkGcMaintenanceError(finish(), error, signal.aborted);
+    }
+  }
 
   constructor(options: SupervisorRuntimeApiOptions) {
     const { processRunner, runtimeProcessRootScope, ...behavior } = options;
@@ -206,6 +321,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   assertInterventionReady(): void {
+    this.assertWorkGcNotCollecting();
     const status = this.status;
     switch (status) {
       case 'stopped':
@@ -222,6 +338,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   closeApplicationAdmission(): void {
+    this.cancelWorkGc(new Error('Application closing.'));
     if (!this.applicationAdmissionOpen) return;
     if (!this.runIdentity && !this.halt) {
       this.applicationAdmissionOpen = false;
@@ -253,6 +370,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   stopProject(): Promise<StopProjectResult> {
+    this.cancelWorkGc(new Error('Project stopped.'));
     if (!this.runIdentity && !this.halt) {
       const status = this.publicRuntimeStatus();
       if (status !== 'stopped')
@@ -266,6 +384,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   async startProject(): Promise<StartProjectResult> {
+    this.assertWorkGcIngressAllowed();
     const prepared = await this.beginStartProject();
     if (!prepared.accepted) return prepared.result;
     const runtime = this.launchStartedProject(prepared.launch);
@@ -277,6 +396,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     | { accepted: true; launch: SupervisorLaunchPlan }
   > {
     await this.start();
+    this.assertWorkGcIngressAllowed();
     if (!this.applicationAdmissionOpen)
       return { accepted: false, result: this.startRejected('Application is closing.') };
     if (this.status !== 'stopped' || this.runIdentity || this.preparedLaunch)
@@ -337,6 +457,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   private launchStartedProject(launch: SupervisorLaunchPlan): RuntimeState {
+    this.assertWorkGcIngressAllowed();
     if (launch !== this.preparedLaunch)
       throw new Error('Runtime launch plan is foreign, stale, or already consumed.');
     const owner = launch.owner;
@@ -362,7 +483,19 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return this.runtimeState()!;
   }
 
+  hasWorkGcMaintenanceHold(): boolean {
+    return this.workGcHold !== null;
+  }
+
   pause(): void {
+    if (this.workGcHold) {
+      this.workGcHold.restoreRunning = false;
+      if (this.status === 'pausing' || this.status === 'paused') return;
+    }
+    this.requestPause();
+  }
+
+  private requestPause(): void {
     if (this.halt) throw this.halt.interruption;
     if (this.status !== 'running' || !this.runIdentity)
       throw new Error(`Cannot pause runtime from '${this.status}'.`);
@@ -381,10 +514,12 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       this.ownershipTransition(true, () => {
         this.status = 'paused';
       });
+      this.workGcHold?.parked.resolve();
     });
   }
 
   resume(): void {
+    this.assertWorkGcIngressAllowed();
     if (this.halt) throw this.halt.interruption;
     if (this.status !== 'paused' || !this.runIdentity)
       throw new Error(`Cannot resume runtime from '${this.status}'.`);
@@ -399,6 +534,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult {
+    this.assertWorkGcNotCollecting();
     const card = this.behavior.actorStore.read(cardId);
     if (!card) return { ok: false, reason: 'missing_card', cardId };
     if (!acceptsCardNotifications(card.lifecycle.status))
@@ -594,6 +730,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> {
+    this.assertWorkGcNotCollecting();
     return this.cancelOwnedOrStored(cardId, reason, null);
   }
   getStatus() {
@@ -703,6 +840,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     instructions: string,
     lease: ChildInvocationLease,
   ): Promise<import('../../contracts/tool-api.js').CardActivationOutcome> {
+    this.assertWorkGcNotCollecting();
     if (this.halt?.owners.includes(parent)) return this.rejectLease(lease, this.halt.interruption);
     this.requireOwnerAuthority(parent);
     if (cardParentId(childCardId) !== parent.cardId)
@@ -840,6 +978,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   private activateProcessor(owner: CardActivationOwner): void {
+    this.assertWorkGcNotCollecting();
     this.requireOwnerAuthority(owner);
     if (owner.phase !== 'active') return;
     const caller =
@@ -1026,6 +1165,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     this.requireOwnerAuthority(owner);
     if (this.status !== 'running' && this.status !== 'pausing' && this.status !== 'paused')
       throw new Error(`Root cannot naturally release from '${this.status}'.`);
+    this.cancelWorkGc(new Error('Project run settled naturally.'));
     this.ownershipTransition(true, () => {
       this.requireOwnerAuthority(owner);
       this.runtimeGate.completeRun();
@@ -1260,6 +1400,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     old: CardActivationOwner,
     settlement: Promise<void>,
   ): CardActivationOwner | null {
+    this.assertWorkGcNotCollecting();
     this.requireOwnerAuthority(old);
     const stopped = this.requireKnownCard(old);
     const replacement = this.createOwner(stopped, 'STOPPED', 'prepared_root');
@@ -1328,6 +1469,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     failureOwner?: CardActivationOwner,
     failure?: Error,
   ): Promise<void> {
+    this.cancelWorkGc(new Error(`Runtime halt: ${trigger}.`));
     if (this.halt) {
       if (trigger === 'application_close')
         this.ownershipTransition(false, () => {

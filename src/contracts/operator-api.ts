@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { workGcOperatorApiContracts } from './operator-api-work-gc.js';
 import { type OperatorRouteContract } from './operator-api-core.js';
 import { authOperatorApiContracts } from './operator-api-auth.js';
 import { agentOperatorApiContracts } from './operator-api-agents.js';
@@ -85,7 +86,8 @@ export type {
 } from './operator-api-runtime-cards.js';
 export { ProcessListResponseSchema, ProcessViewSchema } from './operator-api-processes.js';
 export type { ProcessView } from './operator-api-processes.js';
-export const operatorApiContracts: typeof workflowOperatorApiContracts &
+export const operatorApiContracts: typeof workGcOperatorApiContracts &
+  typeof workflowOperatorApiContracts &
   typeof executionOperatorApiContracts &
   typeof authOperatorApiContracts &
   typeof runtimeCardsOperatorApiContracts &
@@ -97,6 +99,7 @@ export const operatorApiContracts: typeof workflowOperatorApiContracts &
   typeof eventsOperatorApiContracts &
   typeof configOperatorApiContracts = {
   ...workflowOperatorApiContracts,
+  ...workGcOperatorApiContracts,
   ...executionOperatorApiContracts,
   ...authOperatorApiContracts,
   ...runtimeCardsOperatorApiContracts,

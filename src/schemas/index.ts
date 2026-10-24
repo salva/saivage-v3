@@ -189,6 +189,7 @@ export {
   type StreamableHttpMcpServerConfig,
 } from './saivage-config.js';
 export { cardParentId } from './card-id.js';
+export { genericRecordDefinition } from './record-definition.js';
 export type {
   CardTypeSource,
   RecordDeclaration,

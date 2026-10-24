@@ -83,6 +83,10 @@ offline migration requires an explicit identified-project request and its full g
 
 ## Documentation authorities
 
+Optional [explicit work reclamation](docs/runbook/work-gc.md) previews unreferenced
+scratch before a separate irreversible delete. It is not an installation/startup
+step, automatic cleanup or canonical-state repair.
+
 | Owner | Exact responsibility |
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | Repository engineering, safety and storage policy |

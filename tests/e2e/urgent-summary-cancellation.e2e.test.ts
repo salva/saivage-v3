@@ -106,7 +106,7 @@ describe('offline urgent cancellation through summary, Analyst and HTTP owners',
       );
       const cards = new CardService(projectRoot, workflows, NO_FRESHNESS_EFFECTS);
       const processes = new ManagedProcessGroupRegistry();
-      const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
+      const app = createRuntimeApplication({ assertWorkGcEntryIdle() {}, assertWorkGcReady() {}, analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
         projectRoot,
         config,
         workflows,

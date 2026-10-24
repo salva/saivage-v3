@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { cardIdSchema, uuidV4Schema } from '../schemas/index.js';
 import { cardExecutionFile } from './layout.js';
-import { appendEnvelope, consumeGrowingFile, readCanonicalBytesOrMissing } from './growing-file.js';
+import {
+  appendEnvelope,
+  consumeGrowingFile,
+  inspectGrowingFile,
+  readCanonicalBytesOrMissing,
+} from './growing-file.js';
 import { publishFreshFile } from './replace-file.js';
 
 const boundedText = z
@@ -253,6 +258,15 @@ export function readCardExecutions(projectRoot: string, cardId: string): CardExe
   const bytes = readCanonicalBytesOrMissing(path);
   if (bytes === null) return [];
   return consumeGrowingFile(path, bytes, (prefix) => parseRows(cardId, prefix));
+}
+
+/** Pure inspection shares the ordinary reader's complete prefix and association checks. */
+export function inspectCardExecutions(projectRoot: string, cardId: string) {
+  const path = cardExecutionFile(projectRoot, cardIdSchema.parse(cardId));
+  const bytes = readCanonicalBytesOrMissing(path);
+  return bytes === null
+    ? { projection: [] as CardExecutionRow[], retainedLength: 0, tornSuffixLength: 0 }
+    : inspectGrowingFile(path, bytes, (prefix) => parseRows(cardId, prefix));
 }
 
 /** Direct owner-local consumption; no retained admission or historical business decoder. */

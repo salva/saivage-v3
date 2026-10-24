@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import type { AuthPolicy } from './auth-policy.js';
 import type { EventLog } from '../observability/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { WorkGcBusyError, WORK_GC_BUSY_ERROR } from '../contracts/index.js';
 import {
   UNEXPECTED_INTERNAL_SERVER_ERROR,
   type OperatorRouteContract,
@@ -207,11 +208,15 @@ export class ContractRuntime {
           if (error instanceof PublicationOutcomeUnknownError)
             this.fatalPort.publicationOutcomeUnknown(error);
           throwIfPublicationOutcomeUnknown(error);
-          request.log.error(
-            { operation: contract.operationId, failureCode, ...safeIdentity },
-            'Operator contract operation failed',
-          );
-          final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
+          if (error instanceof WorkGcBusyError && contract.response[409]) {
+            final = { statusCode: 409, body: contract.response[409].parse(WORK_GC_BUSY_ERROR) };
+          } else {
+            request.log.error(
+              { operation: contract.operationId, failureCode, ...safeIdentity },
+              'Operator contract operation failed',
+            );
+            final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
+          }
         }
 
         if (contract.responseEncoding === 'binary' && final.statusCode === 200) {

@@ -341,7 +341,7 @@ function createFixture(options: {
     createInvocationSurface: () => surface,
     shutdownProcesses,
   });
-  const runtime = new AnalystRuntime({ internalEnabled: true, createSession: () => session, getAvailableToolNames: () => [], terminateRoot });
+  const runtime = new AnalystRuntime({ assertIngressAllowed() {}, internalEnabled: true, createSession: () => session, getAvailableToolNames: () => [], terminateRoot });
   let cleanup: Promise<void> | null = null;
   let joins: Promise<readonly InvocationJoinOutcome[]> | null = null;
   let disposalReason: unknown;

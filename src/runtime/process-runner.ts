@@ -435,6 +435,16 @@ export class ProcessRunner {
     return records;
   }
 
+  workGcProtection(): { retainAll: boolean; capturePaths: string[] } {
+    return {
+      retainAll: this.#registry.hasUncontainedGroups(),
+      capturePaths: [...this.presentations.values()].flatMap(({ record }) => [
+        record.stdout_path,
+        record.stderr_path,
+      ]),
+    };
+  }
+
   get(procId: string): ProcessRecord | null {
     const record = this.presentations.get(procId)?.record;
     return record ? snapshot(record) : null;

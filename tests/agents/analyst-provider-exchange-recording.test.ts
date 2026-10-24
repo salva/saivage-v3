@@ -116,7 +116,7 @@ describe('production-composed Analyst provider-exchange recording', () => {
       const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
       const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
       const cardStore = new CardService(projectRoot, workflows, hub);
-      const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
+      const app = createRuntimeApplication({ assertWorkGcEntryIdle() {}, assertWorkGcReady() {}, analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
         projectRoot,
         processIdentity: { pid: 42, startedAt: '2026-07-26T11:00:00.000Z' },
         config,

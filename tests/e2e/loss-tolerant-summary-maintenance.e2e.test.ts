@@ -825,7 +825,7 @@ describe('loss-tolerant maintenance through production invocation and persistenc
       sent.push(model);
       return refusal();
     });
-    const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
+    const app = createRuntimeApplication({ assertWorkGcEntryIdle() {}, assertWorkGcReady() {}, analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
       projectRoot,
       processIdentity: { pid: 42, startedAt: '2026-10-10T00:00:00.000Z' },
       config,

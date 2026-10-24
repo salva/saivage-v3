@@ -38,7 +38,13 @@ export interface ToolContext {
   sessionId?: string;
   runtime: Pick<
     RuntimeApi,
-    'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'
+    | 'startProject'
+    | 'pause'
+    | 'resume'
+    | 'stopProject'
+    | 'notifyCard'
+    | 'getStatus'
+    | 'hasWorkGcMaintenanceHold'
   >;
   mcpToolInvocation: McpToolInvocationPort;
   retrieval?: import('../contracts/observed-collections.js').RetrievalPort;

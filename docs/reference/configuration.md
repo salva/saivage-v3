@@ -69,7 +69,7 @@ restart required; it does not hot-load workflows/prompts.
 | --- | --- | --- |
 | `start` | `--project-root` → `SAIVAGE_PROJECT_ROOT` → cwd, canonicalized | `--config` → `SAIVAGE_CONFIG` → selected root's `.saivage/saivage.yaml` |
 | `init`, `reset`, `repair` | Exact cwd, canonicalized; no ancestor search | That root's `.saivage/saivage.yaml`, with the invoking process's interpolation environment; Start root/config selectors do not apply |
-| `status`, `pause`, `resume`, `stop`, `restart_server` | Nearest ancestor of cwd, including cwd, containing `.saivage/saivage.yaml` (`findProjectRoot`) | Only the selected project's verified live lock endpoint/auth; never endpoint rediscovery from YAML, flags, environment or defaults |
+| `status`, `pause`, `resume`, `stop`, `restart_server`, `gc-work` | Nearest ancestor of cwd, including cwd, containing `.saivage/saivage.yaml` (`findProjectRoot`) | Only the selected project's verified live lock endpoint/auth; never endpoint rediscovery from YAML, flags, environment or defaults |
 
 Offline commands do not accept `--project-root` or `--config`. Init alone may
 materialize an absent canonical YAML from its selected profile. Identical YAML text
@@ -80,6 +80,23 @@ Control commands retain their [five-way ownership outcomes](../runbook/runtime-c
 not offline runtime-state access.
 
 ## Top-level YAML
+
+### Explicit work GC inputs
+
+`saivage gc-work [--before <timestamp>] [--target-bytes <bytes>] [--dry-run | --delete]`
+has no YAML settings, scheduler or startup/environment aliases for its filters.
+Default and explicit dry-run select API mode `dry_run`; `--delete` selects `delete`.
+Both flags together are rejected before delegation. `before` is RFC3339 with an
+explicit zone and means mtime strictly earlier; `target_bytes` is an optional
+nonnegative safe integer for best-effort accounted logical bytes remaining. The
+strict `POST /api/runtime/gc-work` body requires `mode`, accepts only those two
+optional fields and rejects unknown keys. Operator-session authentication applies;
+CLI bearer delegation uses `SAIVAGE_API_TOKEN` only when the live lock publishes
+bearer mode. Missing/dead/unverifiable owners or null endpoints refuse without
+fallback. This is not an offline command. Follow the
+[preview-first procedure](../runbook/work-gc.md); each delete computes a new selection.
+
+### YAML keys
 
 | Key | Required/default | Contents |
 | --- | --- | --- |

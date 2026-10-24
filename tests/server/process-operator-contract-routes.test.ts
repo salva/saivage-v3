@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
+import { McpLifecycleIngress } from '../../src/server/composition/mcp-lifecycle-ingress.js';
 import {
   CardService,
   initProjectTree,
@@ -118,6 +119,7 @@ describe('contract-backed process routes', () => {
         projectRoot,
         cardStore,
         mcpManager,
+        mcpLifecycleIngress: new McpLifecycleIngress(mcpManager, () => {}, testApplicationFatalPort),
         serverAvailabilityProvider: () => ({
           generatedAt: '2026-01-01T00:00:00.000Z',
           components: {

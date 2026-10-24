@@ -60,7 +60,7 @@ if (receiptMode) {
   let operationEntered = false;
   const tool = defineTool({ name: 'settled', description: 'Synthetic settled operation', inputSchema: z.object({}).strict(), resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     executor: async () => { operationEntered = true; mark('entered'); return executedToolOutcome('none', toolSucceeded(null)); } });
-  const operations = new ExternalAnalystOperations({ projectRoot: root, projectIdentityDigest: 'a'.repeat(64), principal: 'fixture',
+  const operations = new ExternalAnalystOperations({ assertIngressAllowed() {}, projectRoot: root, projectIdentityDigest: 'a'.repeat(64), principal: 'fixture',
     surface: { agentName: 'analyst', tools: new Map([[tool.name, tool]]), providers: [] }, processRunner: processes.processRunner,
     directScope: processes.processRunner.createDirectScope(processes.registry.rootScope, 'external:fixture', 'operator_session'), fatalPort,
     onOwnerFailure: () => mark('followup-audit') });

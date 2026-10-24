@@ -121,9 +121,10 @@ export const chatOperatorApiContracts = {
       200: ChatSendResponseSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      409: z.union([AnalystTurnBusyErrorSchema, AnalystDisabledErrorSchema]),
+      409: z.union([AnalystTurnBusyErrorSchema, AnalystDisabledErrorSchema, WorkGcBusyErrorSchema]),
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,
   },
 } as const satisfies Record<string, OperatorRouteContract>;
+import { WorkGcBusyErrorSchema } from './work-gc.js';

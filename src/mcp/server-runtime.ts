@@ -125,6 +125,16 @@ export class McpServerRuntime {
   isReady(): boolean {
     return this.ready;
   }
+
+  hasWorkGcBlocker(): boolean {
+    return (
+      this.operations.size !== 0 ||
+      this.handle !== undefined ||
+      this.containmentFailed ||
+      this.observedCaptureError !== undefined ||
+      this.refreshing
+    );
+  }
   isContained(): boolean {
     return this.contained;
   }

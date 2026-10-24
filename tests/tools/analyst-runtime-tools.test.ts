@@ -34,6 +34,7 @@ describe('analyst runtime tools', () => {
       runtime: {
         startProject: jest.fn(async () => ({ runtime: null, status: 'stopped', started: true, stopped: false })),
         pause: jest.fn(),
+        hasWorkGcMaintenanceHold: jest.fn(() => false),
         resume: jest.fn(),
         stopProject: jest.fn(async () => ({ status: 'stopped', contained: true })),
         getStatus: jest.fn(() => ({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),

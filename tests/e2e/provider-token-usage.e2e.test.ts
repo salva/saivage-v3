@@ -48,7 +48,7 @@ describe('scripted provider token usage through real invocation/publication and 
       const registry = new ProviderRegistry(config);
       const workflows = bindRuntimeWorkflows(compileProjectWorkflows(config), new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
       const groups = new ManagedProcessGroupRegistry();
-      const app = createRuntimeApplication({ analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
+      const app = createRuntimeApplication({ assertWorkGcEntryIdle() {}, assertWorkGcReady() {}, analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null, onExternalAnalystOwnerFailure(error) { throw error; },
         projectRoot: root, processIdentity: { pid: 42, startedAt: '2026-10-06T00:00:00.000Z' }, config, workflows, providerRegistry: registry,
         configAuthority: createTestConfigAuthority(root), cardStore: new CardService(root, workflows, hub), freshness: hub,
         processRunner: new ProcessRunner(root, groups, testApplicationFatalPort),

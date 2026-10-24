@@ -63,7 +63,7 @@ const lifecycleContract = {
     400: ValidationErrorSchema,
     401: UnauthorizedErrorSchema,
     404: LifecycleErrorSchema,
-    409: LifecycleErrorSchema,
+    409: z.union([LifecycleErrorSchema, WorkGcBusyErrorSchema]),
     500: UnexpectedInternalServerErrorSchema,
   },
   ...operatorSessionContract,
@@ -101,3 +101,4 @@ export const mcpOperatorApiContracts = {
     ...operatorSessionContract,
   },
 } as const satisfies Record<string, OperatorRouteContract>;
+import { WorkGcBusyErrorSchema } from './work-gc.js';

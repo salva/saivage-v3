@@ -22,6 +22,15 @@ import { mcpOperatorApiContracts } from '../../src/contracts/operator-api-mcp.js
 import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
 import { replaceFile } from '../../src/persistence/replace-file.js';
+import { McpLifecycleIngress } from '../../src/server/composition/mcp-lifecycle-ingress.js';
+import { deferred } from '../../src/runtime/actors/deferred.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
+import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
+import { ProviderRegistry } from '../../src/agents/provider.js';
+import { ModelRouter } from '../../src/agents/model-router.js';
+import { bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { CardService } from '../../src/cards/card-service.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 
 const A = [
   { name: 'common', inputSchema: { type: 'object', properties: { value: { type: 'string' }, hold: { type: 'boolean' } }, required: ['value'], additionalProperties: false } },
@@ -40,7 +49,39 @@ function fixture() {
   const runner = new ProcessRunner(root, groups, testApplicationFatalPort);
   const events = { appendEventPrepared: jest.fn() };
   const manager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: events as never });
-  return { root, manager, events, async close() { await manager.cleanupForApplicationStop(); rmSync(root, { recursive: true }); } };
+  return { root, manager, events, runner, groups, async close() { await manager.cleanupForApplicationStop(); rmSync(root, { recursive: true }); } };
+}
+
+async function gcApplication(f: ReturnType<typeof fixture>, ingress: McpLifecycleIngress) {
+  initProjectTree(f.root);
+  const authority = testConfigAuthority(f.root), effective = authority.loadEffective();
+  const registry = new ProviderRegistry(effective.config);
+  const workflows = bindRuntimeWorkflows(effective.workflows, new ModelRouter(registry), registry,
+    effective.config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
+  const app = createRuntimeApplication({ projectRoot: f.root, config: effective.config, workflows,
+    configAuthority: authority, providerRegistry: registry, cardStore: new CardService(f.root, workflows, NO_FRESHNESS_EFFECTS),
+    freshness: NO_FRESHNESS_EFFECTS, processIdentity: { pid: process.pid, startedAt: '2026-10-24T00:00:00.000Z' },
+    processRunner: f.runner, runtimeProcessRootScope: f.groups.createContainerScope(f.groups.rootScope, 'runtime'),
+    analystProcessRootScope: f.groups.createContainerScope(f.groups.rootScope, 'analyst'),
+    analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null,
+    analystSessionId: 'agent:analyst:global', mcpToolInvocation: f.manager,
+    restartCapability: { available: false }, fatalPort: testApplicationFatalPort,
+    assertWorkGcEntryIdle() { if (ingress.hasActiveLifecycleCall() || f.manager.hasPendingReconciliation()) throw new Error('MCP entry active'); },
+    assertWorkGcReady() { if (ingress.hasActiveLifecycleCall() || f.manager.hasWorkGcBlocker()) throw new Error('MCP surviving footprint'); },
+    onExternalAnalystOwnerFailure(error) { throw error; }, onOversightOwnerFailure(error) { throw error; },
+  });
+  await app.runtimeApi.start(); await app.runtimeApi.startProject(); app.runtimeApi.pause();
+  await waitFor(() => app.runtimeApi.getStatus().status === 'paused', 'actual application parked frontier');
+  return { app, async refuse(message: string) {
+    const collect = jest.fn(async () => {});
+    await expect(app.runWorkGc({ signal: new AbortController().signal, inventory: async () => undefined, collect })).rejects.toThrow(message);
+    expect(collect).not.toHaveBeenCalled(); expect(app.runtimeApi.getStatus().status).toBe('paused');
+    expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+  }, async close() {
+    app.closeRuntimeAdmission(); app.closeAnalystAdmission(); app.closeOversightAdmission();
+    await app.cleanupWorkGc(); await app.cleanupRuntimeForApplicationStop();
+    await app.cleanupAnalystForApplicationStop(); await app.cleanupOversightForApplicationStop();
+  } };
 }
 
 function stdioPeer(root: string, name: string) {
@@ -58,7 +99,8 @@ rl.createInterface({input:process.stdin}).on('line',line=>{
  const r=JSON.parse(line);fs.appendFileSync(${JSON.stringify(wire)},line+'\\n');
  if(r.method==='initialize')return send(r.id,{});
  if(r.method==='notifications/initialized')return;
- if(r.method==='tools/call') {
+  if(r.method==='tools/call') {
+   if(r.params.arguments.value==='failed')return send(r.id,{isError:true,content:[{type:'text',text:'operation failed after unknown effects'}]});
   const done=()=>send(r.id,{content:[{type:'text',text:'known:'+r.params.arguments.value}]});
   if(!r.params.arguments.hold)return done();
   const timer=setInterval(()=>{if(control().release){clearInterval(timer);done();}},5);
@@ -84,6 +126,178 @@ async function discover(manager: McpManager, name: string) {
 }
 
 describe('explicit catalog refresh through real local peers', () => {
+  it('start replaces a reconciled never-started owner across its real stop await and GC refuses the whole ingress', async () => {
+    const f = fixture(), peer = stdioPeer(f.root, 'gc-dormant-replacement');
+    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const gc = await gcApplication(f, ingress);
+    const entered = deferred<void>(), release = deferred<void>();
+    const original = f.runner.closeAndTerminateDirectScope.bind(f.runner);
+    let pending: Promise<unknown> | undefined;
+    const containment = jest.spyOn(f.runner, 'closeAndTerminateDirectScope').mockImplementation(async input => {
+      const result = await original(input); entered.resolve(); await release.promise; return result;
+    });
+    try {
+      const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: { ...peer.connection, autostart: false } } };
+      writeFileSync(join(f.root, '.saivage/saivage.yaml'), YAML.stringify(config));
+      await f.manager.reconcilePersistedConfig();
+      expect(peer.calls()).toHaveLength(0);
+      config.mcpServers.one.args = [...peer.connection.args, 'replacement'];
+      writeFileSync(join(f.root, '.saivage/saivage.yaml'), YAML.stringify(config));
+      pending = ingress.startServer('one');
+      await entered.promise;
+      expect(ingress.hasActiveLifecycleCall()).toBe(true);
+      expect(peer.calls()).toHaveLength(0);
+      await gc.refuse('MCP entry active');
+      release.resolve(); await expect(pending).resolves.toMatchObject({ status: 'running' });
+      expect(peer.calls().filter(call => call.method === 'initialize')).toHaveLength(1);
+      expect(ingress.hasActiveLifecycleCall()).toBe(false);
+    } finally { release.resolve(); await pending?.catch(() => {}); containment.mockRestore(); await gc.close(); await f.close(); }
+  }, 20_000);
+
+  it('a settled failed accepted MCP tool does not certify the surviving service footprint for application GC', async () => {
+    const f = fixture(), peer = stdioPeer(f.root, 'gc-failed-tool');
+    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const gc = await gcApplication(f, ingress);
+    try {
+      f.manager.registerServer('one', peer.connection); await f.manager.startServer('one');
+      const catalog = f.manager.getServerCatalog('one')!;
+      const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_tool_call')]).bind({
+        scope: 'card', agentName: 'executor', projectRoot: f.root, mcpToolInvocation: f.manager } as never);
+      const result = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: catalog.bindingId,
+        catalogId: catalog.catalogId, toolName: 'common', args: { value: 'failed' } }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
+      expect(result).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'failed' } } });
+      expect(peer.calls().filter(call => call.method === 'tools/call')).toHaveLength(1);
+      expect(ingress.hasActiveLifecycleCall()).toBe(false);
+      expect(f.manager.hasPendingReconciliation()).toBe(false);
+      await gc.refuse('MCP surviving footprint');
+    } finally { await gc.close(); await f.close(); }
+  }, 20_000);
+
+  it.each([false, true])('failed real startup retains HTTP ingress through direct containment cleanup (disconnect=%s)', async disconnect => {
+    const f = fixture(), operator = Fastify({ logger: false });
+    const peer = stdioPeer(f.root, 'gc-start-failure'); peer.set('malformed');
+    const entered = deferred<void>(), release = deferred<void>();
+    const original = f.runner.closeAndTerminateDirectScope.bind(f.runner);
+    const containment = jest.spyOn(f.runner, 'closeAndTerminateDirectScope').mockImplementation(async input => {
+      const report = await original(input);
+      entered.resolve(); await release.promise;
+      return report;
+    });
+    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const gc = await gcApplication(f, ingress);
+    const start = f.manager.startServer.bind(f.manager);
+    let originalFailure: unknown;
+    const observedStart = jest.spyOn(f.manager, 'startServer').mockImplementation(async (...args) => {
+      try { return await start(...args); } catch (error) { originalFailure = error; throw error; }
+    });
+    const abort = new AbortController();
+    let request: Promise<Response | Error> | undefined;
+    try {
+      f.manager.registerServer('one', peer.connection);
+      new ContractRuntime({ authPolicy: new AuthPolicy({}), eventLogger: f.events as never, fatalPort: testApplicationFatalPort })
+        .mount(operator, mcpOperatorApiContracts, buildMcpOperatorContractHandlers({ mcpLifecycle: ingress, mcpToolsProvider: f.manager }));
+      const origin = await operator.listen({ host: '127.0.0.1', port: 0 });
+      request = fetch(`${origin}/api/mcp/servers/one/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', signal: abort.signal }).catch(error => error as Error);
+      await entered.promise;
+      expect(ingress.hasActiveLifecycleCall()).toBe(true);
+      expect(f.manager.hasWorkGcBlocker()).toBe(true);
+      await gc.refuse('MCP entry active');
+      if (disconnect) {
+        abort.abort(); expect(await request).toMatchObject({ name: 'AbortError' });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(ingress.hasActiveLifecycleCall()).toBe(true);
+      }
+      release.resolve();
+      if (!disconnect) {
+        const response = await request;
+        expect(response).toBeInstanceOf(Response);
+        expect((response as Response).status).toBeGreaterThanOrEqual(400);
+        expect(await (response as Response).json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+      }
+      await waitFor(() => !ingress.hasActiveLifecycleCall(), 'complete failed startup cleanup');
+      expect(originalFailure).toBeInstanceOf(Error);
+      expect(containment).toHaveBeenCalledTimes(1);
+      expect(f.manager.getServerCatalog('one')).toBeUndefined();
+      expect(peer.calls().some(call => call.method === 'tools/list')).toBe(true);
+    } finally {
+      release.resolve(); await request; containment.mockRestore(); observedStart.mockRestore();
+      await operator.close(); await gc.close(); await f.close();
+    }
+  }, 20_000);
+
+  it('refuses changed running configuration and observes independent reconciliation through real stop and replacement', async () => {
+    const f = fixture(); const peer = stdioPeer(f.root, 'gc-replacement');
+    const entered = deferred<void>(), release = deferred<void>();
+    let pending: Promise<unknown> | undefined;
+    const original = f.runner.closeAndTerminateDirectScope.bind(f.runner);
+    let containment: ReturnType<typeof jest.spyOn> | undefined;
+    const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: { ...peer.connection, autostart: true } } };
+    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const gc = await gcApplication(f, ingress);
+    try {
+      writeFileSync(join(f.root, '.saivage/saivage.yaml'), YAML.stringify(config));
+      await f.manager.startServer('one');
+      config.mcpServers.one.args = [...peer.connection.args, 'replacement'];
+      writeFileSync(join(f.root, '.saivage/saivage.yaml'), YAML.stringify(config));
+      containment = jest.spyOn(f.runner, 'closeAndTerminateDirectScope').mockImplementation(async input => {
+        const report = await original(input); entered.resolve(); await release.promise; return report;
+      });
+      await expect(ingress.startServer('one')).rejects.toThrow('Stop before starting changed configuration');
+      expect(ingress.hasActiveLifecycleCall()).toBe(false);
+      pending = f.manager.reconcilePersistedConfig();
+      void pending.catch(() => {});
+      await entered.promise;
+      expect(f.manager.hasPendingReconciliation()).toBe(true);
+      expect(f.manager.hasWorkGcBlocker()).toBe(true);
+      await gc.refuse('MCP entry active');
+      release.resolve(); await pending;
+      expect(f.manager.getServerStatus('one')).toMatchObject({ status: 'running' });
+      expect(peer.calls().filter(call => call.method === 'initialize')).toHaveLength(2);
+      containment.mockRestore();
+      const reconciling = f.manager.reconcilePersistedConfig();
+      expect(f.manager.hasPendingReconciliation()).toBe(true);
+      expect(f.manager.hasWorkGcBlocker()).toBe(true);
+      await reconciling;
+      expect(f.manager.hasPendingReconciliation()).toBe(false);
+      // Reconciliation success does not establish a safe footprint for a surviving service.
+      expect(f.manager.hasWorkGcBlocker()).toBe(true);
+      await gc.refuse('MCP surviving footprint');
+    } finally { release.resolve(); await pending?.catch(() => {}); containment?.mockRestore(); await gc.close(); await f.close(); }
+  }, 20_000);
+
+  it('keeps whole ingress active after real restart containment and permits only its accepted continuation under a GC hold', async () => {
+    const f = fixture();
+    const peer = stdioPeer(f.root, 'gc-restart');
+    const entered = deferred<void>(), release = deferred<void>();
+    let held = false;
+    let pending: Promise<unknown> | undefined;
+    try {
+      f.manager.registerServer('one', peer.connection);
+      await f.manager.startServer('one');
+      const originalStart = f.manager.startServer.bind(f.manager);
+      const continuation = jest.spyOn(f.manager, 'startServer').mockImplementation(async (...args) => {
+        // restartServer has awaited the actual runtime.stop before reaching this public method.
+        entered.resolve(); await release.promise;
+        return originalStart(...args);
+      });
+      const ingress = new McpLifecycleIngress(f.manager,
+        () => { if (held) throw new Error('GC held'); }, testApplicationFatalPort);
+      pending = ingress.restartServer('one');
+      await entered.promise;
+      expect(f.manager.getServerStatus('one')!.status).toBe('stopped');
+      expect(ingress.hasActiveLifecycleCall()).toBe(true);
+      held = true;
+      await expect(ingress.startServer('one')).rejects.toThrow('GC held');
+      await expect(ingress.stopServer('one')).rejects.toThrow('GC held');
+      expect(continuation).toHaveBeenCalledTimes(1);
+      release.resolve();
+      await expect(pending).resolves.toMatchObject({ status: 'running', toolCount: 2 });
+      expect(ingress.hasActiveLifecycleCall()).toBe(false);
+      expect(peer.calls().filter(call => call.method === 'initialize')).toHaveLength(2);
+      continuation.mockRestore();
+    } finally { release.resolve(); await pending?.catch(() => {}); await f.close(); }
+  }, 20_000);
+
   it('restarts a stdio owner with a distinct process, fences active/queued old calls and leaves the second server alone', async () => {
     const f = fixture(); const peer = stdioPeer(f.root, 'restart-one'); const other = stdioPeer(f.root, 'restart-other');
     try {

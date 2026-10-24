@@ -60,6 +60,13 @@ See the [shared presentation contract](operator-ui-contracts.md#shared-json-data
 
 ## Operator tasks
 
+Optional CLI/API [work GC](../runbook/work-gc.md) adds no collection button,
+dashboard or public maintenance status. During its private hold, new Analyst,
+mutation and MCP lifecycle actions can receive temporary busy refusals; operators
+must retain read-only inspection and project Stop. Start/Resume cannot bypass the
+hold. Existing pause observation remains truthful, not a claim that all filesystem
+writers are frozen; a separate ordinary Pause withdraws GC auto-resume intent.
+
 The operator observes autonomous engineering work lasting hours or days
 and steers it by asking the Analyst. They may
 leave and return, understand project intent better than every implementation detail,

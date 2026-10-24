@@ -143,6 +143,24 @@ function acceptedReport(f: ReturnType<typeof fixture>) {
 }
 const nodeCommand = (code: string) => `${JSON.stringify(process.execPath)} -e ${JSON.stringify(code)}`;
 
+it('actual action-only natural settlement cancels GC before any mark or late provider pause', async () => {
+  const entered = deferred(), release = deferred();
+  const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
+    async run() { entered.resolve(); await release.promise; return { outcome: 'finished', summary: 'Bounded action finished.', values: {} }; } };
+  const f = fixture(definition), owner = await launch(f); await entered.promise;
+  const collect = jest.fn(async () => {});
+  const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+    assertEntryIdle() {}, settleAcceptedWork: async () => {}, assertReady() {}, collect }).catch(error => error);
+  try {
+    expect(f.supervisor.getStatus().status).toBe('pausing'); expect(collect).not.toHaveBeenCalled();
+    release.resolve(); await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'blocked' });
+    expect(await gc).toBeInstanceOf(Error); expect(collect).not.toHaveBeenCalled();
+    expect(f.supervisor.getStatus().status).toBe('stopped'); expect(f.provider).not.toHaveBeenCalled();
+    expect(readCardExecutions(f.root, 'project').at(-1)).toMatchObject({ kind: 'invocation_finished', outcome: 'finished' });
+  } finally { release.resolve(); await gc; await f.supervisor.stopProject(); }
+});
+
 it('publishes independent exact stdout twice with new ordinary provenance and retained history', async () => {
   const content = '\uFEFFReport\r\nUnicode: λ 日本語\r\n \n';
   const f = stdoutFixture(nodeCommand(`process.stdout.write(${JSON.stringify(content)}); process.stderr.write('NOT THE REPORT');`));

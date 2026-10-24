@@ -370,3 +370,11 @@ export type {
   OutboundHttpObservation,
 } from './outbound-http.js';
 export * from './observed-collections.js';
+export {
+  WorkGcBusyError,
+  WorkGcMaintenanceError,
+  WorkGcRequestSchema,
+  WorkGcResponseSchema,
+  WORK_GC_BUSY_ERROR,
+} from './work-gc.js';
+export type { WorkGcRequest, WorkGcResponse, WorkGcResult } from './work-gc.js';

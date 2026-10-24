@@ -198,6 +198,8 @@ export function createAnalystMcpServer(input: {
         if (error instanceof PublicationOutcomeUnknownError)
           input.fatalPort.publicationOutcomeUnknown(error);
         if (error instanceof McpError) throw error;
+        if (error instanceof WorkGcBusyError)
+          throw new McpError(ErrorCode.InternalError, error.message);
         if (error instanceof ExternalAnalystClosedError)
           throw new McpError(ErrorCode.InternalError, 'External Analyst unavailable.');
         if (!(error instanceof ExternalAnalystExecutionError)) input.onOwnerFailure(error);
@@ -243,3 +245,4 @@ export function createAnalystMcpServer(input: {
     },
   };
 }
+import { WorkGcBusyError } from '../contracts/index.js';

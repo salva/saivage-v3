@@ -12,6 +12,7 @@ import type { ResolvedConfigAuthority } from '../../config/index.js';
 import type { EventLog } from '../../observability/index.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
+import type { McpLifecycleIngress } from './mcp-lifecycle-ingress.js';
 
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
@@ -19,6 +20,7 @@ export function registerServerRoutes(options: {
   cardStore: CardService;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
+  mcpLifecycleIngress: McpLifecycleIngress;
   configAuthority: ResolvedConfigAuthority;
   liveSyncSocket: LiveSyncSocket;
   restartCapability: RestartCapability;
@@ -41,6 +43,7 @@ export function registerServerRoutes(options: {
     runtimeApplication: options.runtimeApplication,
     mcpManager: options.mcpManager,
     serverAvailabilityProvider,
+    mcpLifecycleIngress: options.mcpLifecycleIngress,
     configAuthority: options.configAuthority,
     providerRoutingReadModelProvider: () =>
       options.runtimeApplication.getProviderRoutingReadModel(),

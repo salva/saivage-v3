@@ -76,6 +76,7 @@ async function createServer(options: CreateServerOptions): Promise<ServerInstanc
     cardStore: services.cardStore,
     runtimeApplication: services.runtimeApplication,
     mcpManager: services.mcpManager,
+    mcpLifecycleIngress: services.mcpLifecycleIngress,
     configAuthority: environment.configAuthority,
     liveSyncSocket: services.liveSyncSocket,
     restartCapability: services.restartCapability,

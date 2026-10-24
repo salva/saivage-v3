@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from '../../config/index.js';
 import type { AgentName } from '../../schemas/index.js';
-import { parseRecordName, type RecordName } from '../../schemas/index.js';
+import { genericRecordDefinition, parseRecordName, type RecordName } from '../../schemas/index.js';
 import type {
   CardTypeSource,
   RecordDeclaration,
@@ -277,7 +277,6 @@ const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/u;
 const ENTRY_PORTS = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const TERMINAL_PORTS = ['DONE', 'BLOCKED', 'FAILED'] as const;
-const GENERIC_RECORD_SCHEMA = 'authored-record.v1';
 export const EMIT_RESULT_SUMMARY_MAX_CHARS = 2000;
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> {
@@ -557,16 +556,6 @@ function compileRecordWritePattern(source: string): CompiledRecordWritePattern {
 }
 export function agentCanWriteRecord(agent: CompiledAgentContract, name: RecordName): boolean {
   return agent.recordWrites.some(({ matcher }) => matcher.test(name));
-}
-export function genericRecordDefinition(name: RecordName): CompiledRecordDefinition {
-  return Object.freeze({
-    name,
-    format: 'markdown',
-    schema: GENERIC_RECORD_SCHEMA,
-    bootstrap: false,
-    declared: false,
-    initialization: null,
-  });
 }
 function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAgentContract> {
   const result: Array<readonly [AgentName, CompiledAgentContract]> = [];

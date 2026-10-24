@@ -344,6 +344,71 @@ is identity with `signal.reason`, while returned results remain known facts.
 Unclassified I/O, canonical/invariant failures, missing MCP installation and
 publication uncertainty escape unchanged.
 
+Analyst natural-turn completion is distinct from caller delivery and shutdown.
+The session retains the actual tracked consumer promise, then awaits the original
+producer and joins that exact naturally closed turn tracker, accepting only a
+joined outcome. Consumer projection and delivery finish before this boundary;
+handled producer failures still reject it. The runtime's wait creates no absent
+session and does not cancel work or close the reusable LLM lifetime admission.
+The latest completion remains observable until the next accepted turn replaces it;
+publication uncertainty is observed through the fatal port even without a waiter.
+
+Work-GC maintenance uses one private Supervisor hold, not a new public runtime
+status or lifecycle lock. Entry requires the same existing running/paused run;
+independent HTTP MCP lifecycle or reconciliation activity refuses before pause.
+The hold denies new Analyst ingress and Start/Resume, while accepted tools finish
+under their existing owners. Collection awaits actual gate parking, Analyst
+consumer completion, external operations including receipts, and the cancelled
+Oversight check. Unresolved activation/interruption ownership refuses collection.
+The collecting phase denies activation and notification mutation; it never opens
+the gate. Cancellation stops waiting, not accepted Analyst work. Stop, close,
+restart and natural run settlement defeat restoration. An ordinary Pause, including
+an accepted Analyst tool's Pause, withdraws restoration even if already paused.
+Only the hold owner may restore its own pause on the same run; a cancelled pending
+pause cannot leave a late parking callback behind. Maintenance is bounded to one
+minute and collector loops must honor cancellation before further file effects.
+
+The application owns the single in-flight GC task across inventory and maintenance;
+application shutdown cancels and joins it within runtime cleanup. The server's MCP
+lifecycle ingress counts complete returned manager promises, including post-stop
+continuations and cleanup, and delivers publication uncertainty before decrement.
+Manager/runtime continuation admission is unchanged. Surviving MCP handles or
+unexplained activity refuse collection. Process protection observes the existing
+group registry independently of presentation retirement: any uncontained group
+requires retaining all work; remaining presentation capture directories are
+protected even when only stream drainage remains. These observations neither scan
+processes nor certify effects of external programs.
+
+Inner MCP runtime operation sets and reconciliation tails are settlement-only,
+not evidence of complete lifecycle success: restart may still start after its stop,
+and failed startup may still be doing final cleanup. The whole HTTP ingress count
+therefore remains active through the actual returned manager result, including
+disconnect; GC refuses that overlap before pause rather than joining the inner set.
+Accepted Analyst/card/external continuations remain allowed during settling and
+are covered by their enclosing owners. Residual activity refuses collection; a
+structured failed tool result does not prove containment or a safe write footprint.
+
+The collector in `src/workspace/work-garbage-collector.ts` performs yielding
+synchronous work-only inventory and one shared preview/delete selection loop. Under
+the hold, persistence owners inspect the fresh linked graph, all indexed segments,
+selected records (including baseline/draft and accepted predecessors), pending
+messages and execution evidence without initialization or torn-tail repair. Only
+GC may discover names one level deep in reached active-card record roots; exact
+head grammar/round-trip precedes strict owning reads. Previous slots, accepted
+siblings and reserved publication temporaries are not inspected. Exact alias
+metadata may protect work without outside-work discovery. Fresh candidate identity,
+size, timestamps and protection checks immediately precede the final effect switch:
+would-delete attribution or unlink plus directory durability. All directories stay.
+No persistent inventory/report, new durable family or format bump is introduced.
+
+`POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
+only the verified live lock endpoint/auth, with no offline/config fallback. Default
+and explicit preview require the same hold as deletion but no backup prerequisite
+or collector writes. Known effects and accounted estimates are bounded response
+data, not whole-work or physical-space guarantees. Deletion uncertainty reaches
+the nonreturning fatal boundary before report, cleanup or hold release. The
+[runbook](../runbook/work-gc.md) owns explicit preview-first adoption and cancellation.
+
 ### Structure and records
 
 Planner create/edit/cancel/activate/reopen/reorder is exact-parent scoped; Analyst
@@ -774,7 +839,8 @@ surfaces do not join that paging API. Bounded webfetch owns one reader; metadata
 discards bodies by awaited cancellation. Only successful no-save text overflow can
 retain normalized raw source to exact stash and return certified redacted head/count/
 pointer under final-envelope budget. Binary/non-2xx/save paths fail max bytes.
-No stash discovery/GC/retry. Write/edit admission distinguishes lexical tmp capability
+Webfetch itself performs no stash discovery/GC/retry; only explicit work GC may
+collect eligible unreferenced stashes. Write/edit admission distinguishes lexical tmp capability
 from normalized destination identity; a plain/system alias to protected .saivage
 does not acquire tmp authority. URLs redact userinfo/query/fragment before output.
 
@@ -1214,6 +1280,19 @@ the runbook; human configuration lookup belongs to the configuration documentati
 
 ### Operator routes
 
+Work reclamation uses the strict `runtime.gcWork` operation with required
+`mode: dry_run|delete`, optional RFC3339-zone `before` and nonnegative safe-integer
+`target_bytes`; unknown keys fail. The response carries `mode`,
+`disposition: completed|interrupted|refused`, a bounded `reason`,
+`restoration: not_acquired|resumed|not_resumed`, and nullable accounted `result`.
+Ordinary refusal/interruption can be a 200 response: inspect disposition, not HTTP
+status alone. Duplicate/held ingress uses 409
+`{error:'WorkGcBusy',message:'Work garbage collection is busy.'}`; existing validation,
+authentication and internal errors remain 400/401/500. The result separates
+would-delete from known-deleted counts/bytes, retained reasons and expected accounted
+remaining/target shortfall; `whole_work_size_known` is false. See
+[result interpretation](../runbook/work-gc.md#results-cancellation-and-restoration).
+
 <!-- saivage:operator-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
@@ -1263,9 +1342,10 @@ the runbook; human configuration lookup belongs to the configuration documentati
 | `GET /api/cards/:id/diff` | Projected card comparison. | `src/contracts/operator-api-runtime-cards.ts:757` |
 | `GET /api/runtime/status` | Supervisor runtime observation. | `src/contracts/operator-api-runtime-cards.ts:774` |
 | `POST /api/runtime/pause` | Bodyless cooperative Pause. | `src/contracts/operator-api-runtime-cards.ts:786` |
+| `POST /api/runtime/gc-work` | Explicit live-owner work preview or deletion. | `src/contracts/operator-api-work-gc.ts:7` |
 | `POST /api/runtime/resume` | Bodyless same-Run Resume. | `src/contracts/operator-api-runtime-cards.ts:799` |
-| `POST /api/runtime/stop-project` | Bodyless project containment. | `src/contracts/operator-api-runtime-cards.ts:812` |
-| `POST /api/runtime/restart-server` | Exact-confirmation authenticated restart. | `src/contracts/operator-api-runtime-cards.ts:825` |
+| `POST /api/runtime/stop-project` | Bodyless project containment. | `src/contracts/operator-api-runtime-cards.ts:813` |
+| `POST /api/runtime/restart-server` | Exact-confirmation authenticated restart. | `src/contracts/operator-api-runtime-cards.ts:826` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes

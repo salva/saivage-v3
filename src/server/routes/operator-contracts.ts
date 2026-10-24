@@ -25,6 +25,8 @@ import { buildRuntimeCardOperatorContractHandlers } from './operator-runtime-car
 import { ContractRuntime } from '../contract-runtime.js';
 import type { EventLog } from '../../observability/index.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
+import type { McpLifecycleIngress } from '../composition/mcp-lifecycle-ingress.js';
+import { buildWorkGcOperatorContractHandlers } from './operator-work-gc-handlers.js';
 
 interface OperatorContractRouteRegistrationOptions
   extends
@@ -37,6 +39,7 @@ interface OperatorContractRouteRegistrationOptions
   authPolicy: AuthPolicy;
   eventLogger: EventLog;
   mcpManager: McpManager;
+  mcpLifecycleIngress: McpLifecycleIngress;
   runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
   workflows: import('../../runtime/runtime-api.js').CompiledRuntimeWorkflows;
   fatalPort: ApplicationFatalPort;
@@ -52,6 +55,7 @@ export function registerOperatorContractRoutes(
     fatalPort: options.fatalPort,
   });
   const handlers = {
+    ...buildWorkGcOperatorContractHandlers(options.runtimeApplication),
     ...buildWorkflowOperatorContractHandlers(options.workflows),
     ...defineOperatorContractHandlers({
       'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
@@ -65,7 +69,7 @@ export function registerOperatorContractRoutes(
     }),
     ...buildMcpOperatorContractHandlers({
       mcpToolsProvider: options.mcpManager,
-      mcpLifecycle: options.mcpManager,
+      mcpLifecycle: options.mcpLifecycleIngress,
     }),
     ...buildAgentOperatorContractHandlers({
       projectRoot,

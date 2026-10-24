@@ -105,6 +105,10 @@ export class ProjectOversight {
     await this.#checkTask;
   }
 
+  async awaitCancelledCheck(): Promise<void> {
+    await this.#checkTask;
+  }
+
   executingLlmSnapshot() {
     return this.#check?.executingLlmSnapshot() ?? null;
   }
@@ -213,6 +217,7 @@ export class ProjectOversight {
         this.#check = null;
         this.#checkTask = null;
         this.#dispatchOwnerFailure(error);
+        throw error;
       },
     );
     this.#checkTask = task;

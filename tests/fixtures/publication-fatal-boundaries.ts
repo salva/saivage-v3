@@ -64,7 +64,7 @@ if (mode === 'external-analyst-publication' || mode === 'external-analyst-cleanu
       if(mode==='external-analyst-cleanup-publication')await new Promise<never>(()=>{});
       throw new PublicationOutcomeUnknownError();
     }});
-  const operations=new ExternalAnalystOperations({projectRoot:dirname(path),projectIdentityDigest:'a'.repeat(64),principal:'fixture',
+  const operations=new ExternalAnalystOperations({assertIngressAllowed() {},projectRoot:dirname(path),projectIdentityDigest:'a'.repeat(64),principal:'fixture',
     surface:{agentName:'analyst',tools:new Map([['fatal',tool]]),providers:[]},processRunner:processes.processRunner,
     directScope:processes.processRunner.createDirectScope(processes.registry.rootScope,'external:fixture','operator_session'),fatalPort,
     onOwnerFailure:()=>{mark('ordinary-failure');}});

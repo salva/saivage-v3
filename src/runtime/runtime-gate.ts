@@ -13,6 +13,10 @@ export class RuntimeGate {
     return this.#open && !this.#pauseRequested;
   }
 
+  get isParked(): boolean {
+    return this.#parked !== null;
+  }
+
   completeRun(): void {
     if (this.#parked) throw new Error('Cannot complete a RuntimeGate with a parked frontier.');
     this.#open = false;

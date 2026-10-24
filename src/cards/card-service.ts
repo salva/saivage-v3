@@ -58,7 +58,8 @@ import {
   type CanonicalReadInstrumentation,
   type ReplacementFileIo,
 } from '../persistence/index.js';
-import { genericRecordDefinition, type CompiledProjectWorkflows } from '../runtime/runtime-api.js';
+import type { CompiledProjectWorkflows } from '../runtime/runtime-api.js';
+import { genericRecordDefinition } from '../schemas/index.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../contracts/index.js';
 import type { LiveSyncCardRecordName } from '../contracts/index.js';
 import { CardIndex } from './card-index.js';

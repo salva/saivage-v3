@@ -29,6 +29,7 @@ import {
 } from './config/index.js';
 import { SAIVAGE_VERSION } from './version.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
+import { WorkGcRequestSchema, type WorkGcRequest } from './contracts/index.js';
 import { handleRepair, type RepairInputs } from './cli-repair.js';
 import { parseRepairTarget } from './persistence/index.js';
 import { cardTypeNameSchema } from './schemas/index.js';
@@ -64,14 +65,21 @@ type Command =
   | 'restart_server'
   | 'reset'
   | 'repair'
+  | 'gc-work'
   | 'observed-collections'
   | 'help';
 type ParsedCommand =
   | { readonly command: 'init'; readonly inputs: InitInputs }
   | { readonly command: 'start'; readonly inputs: StartInputs }
   | { readonly command: 'repair'; readonly inputs: RepairInputs }
+  | { readonly command: 'gc-work'; readonly inputs: WorkGcRequest }
   | { readonly command: 'observed-collections'; readonly inputs: PrepareObservedCollectionsInputs }
-  | { readonly command: Exclude<Command, 'init' | 'start' | 'repair' | 'observed-collections'> };
+  | {
+      readonly command: Exclude<
+        Command,
+        'init' | 'start' | 'repair' | 'observed-collections' | 'gc-work'
+      >;
+    };
 const USAGE = `Saivage v3 CLI
 
 Usage:
@@ -85,6 +93,12 @@ Usage:
   saivage resume
   saivage stop
   saivage restart_server
+  saivage gc-work [--before <RFC3339-with-zone>] [--target-bytes <bytes>] [--dry-run | --delete]
+      Preview first with --dry-run (also the default). Both modes pause the live
+      owner for fresh marking; busy mutations reject, Stop remains available.
+      --delete is a separate fresh invocation and irreversibly removes eligible
+      work files. Consider a separately preserved backup before deletion.
+      Reports accounted logical bytes only, never whole-work or physical savings.
   saivage reset
       Acquires .saivage/locks/runtime.lock before deletion and fails closed if
       that exact lock already exists. It removes exactly .saivage/cards,
@@ -138,6 +152,27 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
   const rawCommand = args[0] ?? 'help';
   const command = rawCommand === '--help' || rawCommand === '-h' ? 'help' : rawCommand;
   const rest = args.slice(1);
+  if (command === 'gc-work') {
+    const values = parseSingletonOptions(rest, {
+      before: { type: 'string' },
+      'target-bytes': { type: 'string' },
+      'dry-run': { type: 'boolean' },
+      delete: { type: 'boolean' },
+    });
+    if (values['dry-run'] && values.delete)
+      throw new Error('--dry-run and --delete are mutually exclusive.');
+    const bytes = values['target-bytes'];
+    if (bytes !== undefined && (typeof bytes !== 'string' || !/^(0|[1-9][0-9]*)$/u.test(bytes)))
+      throw new Error('--target-bytes must be a nonnegative safe integer.');
+    return {
+      command,
+      inputs: WorkGcRequestSchema.parse({
+        mode: values.delete ? 'delete' : 'dry_run',
+        before: values.before,
+        target_bytes: bytes === undefined ? undefined : Number(bytes),
+      }),
+    };
+  }
   if (command === 'observed-collections') {
     if (rest[0] !== 'prepare') throw new Error('Expected observed-collections prepare.');
     const values = parseSingletonOptions(rest.slice(1), {
@@ -259,7 +294,10 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
   if (!commandsWithoutOptions.has(command)) throw new Error(`Unknown command: ${command}`);
   parseSingletonOptions(rest, {});
   return {
-    command: command as Exclude<Command, 'init' | 'start' | 'repair' | 'observed-collections'>,
+    command: command as Exclude<
+      Command,
+      'init' | 'start' | 'repair' | 'observed-collections' | 'gc-work'
+    >,
   };
 }
 function materializePromptTree(sourceRoot: string, destinationRoot: string): void {
@@ -326,7 +364,7 @@ async function handleStart(inputs: StartInputs): Promise<void> {
     console.log(`Analyst MCP: ${app.server.analystMcpEndpoint}`);
 }
 async function handleRuntimeControl(
-  command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server',
+  command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server' | WorkGcRequest,
 ): Promise<void> {
   const projectRoot = findProjectRoot();
   if (projectRoot === null) throw new Error('Not in a Saivage project');
@@ -341,7 +379,9 @@ async function handleRuntimeControl(
     } else if (command === 'stop') {
       console.log(JSON.stringify({ status: 'stopped', contained: false }));
     } else {
-      throw new Error(`No live Saivage runtime owns this project; cannot ${command}.`);
+      throw new Error(
+        `No live Saivage runtime owns this project; cannot ${typeof command === 'string' ? command : 'gc-work'}.${lock.kind === 'dead' ? ` ${lock.repairInstruction}` : ''}`,
+      );
     }
     if (lock.kind === 'dead') console.log(lock.repairInstruction);
     return;
@@ -349,6 +389,12 @@ async function handleRuntimeControl(
   const endpoint = lock.record.control_endpoint;
   if (endpoint === null) throw new Error('active lifecycle owner; runtime control unavailable');
   const client = new OperatorRuntimeHttpClient();
+  if (typeof command !== 'string') {
+    const result = await client.gcWork(endpoint, command);
+    console.log(JSON.stringify(result));
+    if (result.disposition !== 'completed') process.exitCode = 1;
+    return;
+  }
   if (command === 'status') {
     console.log(JSON.stringify(await client.getRuntimeStatus(endpoint)));
     return;
@@ -404,6 +450,9 @@ function handleHelp(): void {
 export async function run(args: string[]): Promise<void> {
   const parsed = parseCommand(args);
   switch (parsed.command) {
+    case 'gc-work':
+      await handleRuntimeControl(parsed.inputs);
+      break;
     case 'observed-collections':
       prepareObservedCollections(parsed.inputs);
       console.log('Observed collection bundle prepared; not installed or started.');

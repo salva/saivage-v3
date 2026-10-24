@@ -206,6 +206,16 @@ Synthetic `runtime:repair` FAILED v1 is shown through ordinary canonical card an
 
 ## Runtime observation and the global strip
 
+Explicit [work GC](../runbook/work-gc.md) has no UI button or dashboard. Its private
+hold uses existing `pausing`/`paused` observations, not a new public runtime status.
+New Analyst submissions, mutations and independent MCP lifecycle actions can fail
+with temporary GC-busy; present the existing action error without claiming a queued
+submission or completed effect. HTTP held ingress uses 409 `WorkGcBusy` with
+`Work garbage collection is busy.` Read-only views and project Stop remain usable.
+Start/Resume rejection never releases the hold. An ordinary Pause withdraws GC's
+automatic-resume intent; Stop/close/restart cancels GC and defeats that restoration.
+No transcript, execution-evidence or historical-selection semantics change.
+
 Outstanding named-agent execution includes overload/backoff, not just wire
 consumption. Provider refresh shows advisory cooling/reason/deadline, not a send
 countdown. Compaction in-flight is one logical summary call; overload retries add

@@ -102,6 +102,42 @@ outcomes rather than dispatching children. Configured names remain identities.
 
 ## Analyst operations and external clients
 
+During explicit work-GC maintenance, new internal/external Analyst submissions
+receive a temporary busy refusal; already accepted work finishes naturally before
+collection. Project Pause still gates the provider frontier rather than freezing
+filesystem writers. The private maintenance hold also excludes Start/Resume from
+every caller, waits for actual parking and accepted owners, and conservatively
+refuses unresolved transitions or MCP activity. Read-only views remain available.
+Stop/server close/restart cancels maintenance and prevents automatic resume. An
+ordinary Pause removes GC's resume intent. Successful or ordinarily cancelled GC
+may restore only its own pause of the same existing run, never create another Run.
+Background processes of unknown footprint require retaining all affected work.
+
+Natural Analyst settlement includes the actual tracked consumer's final projection
+and delivery, the original producer result and the exact naturally closed turn
+tracker. Caller response or an idle snapshot alone is insufficient. GC does not
+close/join the reusable LLM session's lifetime admission or use shutdown disposal
+to finish an accepted turn; failures refuse collection rather than becoming success.
+
+Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
+while execution continues, then holds/parks and freshly marks complete canonical
+references before checking each candidate at use. Selected baseline/draft/accepted
+history, all indexed conversation originals and raw results, execution selections,
+pending messages, operational dependencies and exact aliases protect work. Strict
+invalid required evidence blocks collection; GC never repairs/truncates it. Unknown
+ownership or surviving writer effects cause retention/refusal, not guessed safety.
+Only eligible unreferenced regular files under work can be removed; directories,
+publication temporaries and canonical/attic/backup data remain untouched.
+
+Default and explicit dry-run use the same hold, fresh marking and selection as
+delete, but perform no collector file effects and require no backup. Preview
+reports hypothetical would-delete effects; delete reports only known removals.
+Remaining accounted logical bytes are estimates, never whole-root/physical/free-space
+claims. A separate delete always starts fresh, not from a preview report. First
+failure ends collection; outcome uncertainty is fatal before reporting, cleanup or
+resume. This optional operation introduces no public maintenance status, automatic
+schedule, saved job or durable GC event/report.
+
 Analyst tool composition separates the configured policy identity and effective
 selected tools from actual authorship. External credential holders are attributed
 as `{kind:'external-agent',principal}`; the bounded lowercase principal identifies

@@ -141,6 +141,17 @@ export class McpManager implements McpReconciliationPort {
   next(): number {
     return this.nextMsgId++;
   }
+
+  hasPendingReconciliation(): boolean {
+    return this.currentReconciliation !== null;
+  }
+
+  hasWorkGcBlocker(): boolean {
+    return (
+      this.currentReconciliation !== null ||
+      [...this.#runtimes.values()].some((runtime) => runtime.hasWorkGcBlocker())
+    );
+  }
   getInvocationStats(): Record<
     string,
     { total: number; success: number; error: number; lastInvokedAt?: string }

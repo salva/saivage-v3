@@ -308,14 +308,25 @@ export function listAuthoredRecordVersions(
   definition: RecordDefinition,
   instrumentation?: CanonicalReadInstrumentation,
 ) {
-  const versions: AuthoredRecordVersionArtifact[] = [];
+  const versions = [
+    ...iterateAuthoredRecordVersions(projectRoot, card, definition, instrumentation),
+  ];
+  return { cardId: card.id, filename: definition.filename, versions: versions.reverse() };
+}
+
+/** Exact selected predecessors, newest first; callers may yield between owning reads. */
+export function* iterateAuthoredRecordVersions(
+  projectRoot: string,
+  card: CardRecord,
+  definition: RecordDefinition,
+  instrumentation?: CanonicalReadInstrumentation,
+): Generator<AuthoredRecordVersionArtifact> {
   let selected = readHead(projectRoot, card.id, definition, instrumentation)?.accepted ?? null;
   while (selected) {
     const artifact = readAccepted(projectRoot, card.id, definition, selected, instrumentation);
-    versions.push(artifact);
+    yield artifact;
     selected = artifact.predecessor;
   }
-  return { cardId: card.id, filename: definition.filename, versions: versions.reverse() };
 }
 function identity(cardId: string, definition: RecordDefinition) {
   return {

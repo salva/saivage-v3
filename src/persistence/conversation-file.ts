@@ -170,7 +170,7 @@ function decodeIndex(path: string, bytes: Buffer): ConversationVersionIndex {
     throw new Error(`Conversation index '${path}' is malformed.`, { cause: error });
   }
 }
-/** Repair-only byte inspection; never consumes a growing file or changes a selector. */
+/** Pure selected-index inspection; never consumes a growing file or changes a selector. */
 export function inspectConversationIndex(
   projectRoot: string,
   sessionId: ConversationSessionId,

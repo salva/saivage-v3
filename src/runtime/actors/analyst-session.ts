@@ -194,6 +194,7 @@ export class AnalystSession {
   readonly #fatalPort: ApplicationFatalPort;
   readonly #cardTypeVocabulary: readonly CardTypeName[];
   #phase: AnalystSessionPhase = { kind: 'idle', restartConfirmation: null };
+  #lastTurnCompletion: Promise<void> = Promise.resolve();
   readonly #retiredOperationTrackers = new Set<ActivationOperationTracker>();
 
   constructor(input: {
@@ -273,9 +274,22 @@ export class AnalystSession {
     const wrapper = operation.tracker.run(operation.abort.signal, (signal) =>
       this.runAnalystTurn(operation, signal),
     );
-    void operation.tracker.trackConsumer(() => this.consumeTurn(operation, wrapper));
+    const consumer = operation.tracker.trackConsumer(() => this.consumeTurn(operation, wrapper));
+    this.#lastTurnCompletion = (async () => {
+      await consumer;
+      // The consumer handles caller errors; retain the producer's actual outcome.
+      await wrapper;
+      const outcome = await operation.tracker.join();
+      if (outcome.status !== 'joined')
+        throw new Error('Analyst turn completion abandoned an external dependency.');
+    })();
+    void this.#lastTurnCompletion.catch((error) => this.#deliverPublicationFatal(error));
     this.#runtimeProjectionChanged();
     return caller.promise;
+  }
+
+  awaitNaturalTurnCompletion(): Promise<void> {
+    return this.#lastTurnCompletion;
   }
 
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
@@ -861,22 +875,30 @@ export class AnalystRuntime {
   readonly #createSession: (input: AnalystTurnInput) => AnalystSession;
   readonly #getAvailableToolNames: () => string[];
   readonly #terminateRoot: (reason: string) => Promise<ProcessStopReport>;
+  readonly #assertIngressAllowed: () => void;
 
   constructor(input: {
     internalEnabled: boolean;
     createSession(input: AnalystTurnInput): AnalystSession;
     getAvailableToolNames(): string[];
     terminateRoot(reason: string): Promise<ProcessStopReport>;
+    assertIngressAllowed(): void;
   }) {
     this.#internalEnabled = input.internalEnabled;
     this.#createSession = input.createSession;
     this.#getAvailableToolNames = input.getAvailableToolNames;
     this.#terminateRoot = input.terminateRoot;
+    this.#assertIngressAllowed = input.assertIngressAllowed;
   }
 
   submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
     if (!this.#internalEnabled) return Promise.reject(new AnalystDisabledError());
     if (!this.#admissionOpen) return Promise.reject(new Error('Analyst admission is closed.'));
+    try {
+      this.#assertIngressAllowed();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.getOrCreateSession(input).submit(input);
   }
 
@@ -886,6 +908,10 @@ export class AnalystRuntime {
 
   getAvailableToolNames(): string[] {
     return this.#getAvailableToolNames();
+  }
+
+  awaitNaturalTurnCompletion(): Promise<void> {
+    return this.#session?.awaitNaturalTurnCompletion() ?? Promise.resolve();
   }
 
   closeAdmission(): void {

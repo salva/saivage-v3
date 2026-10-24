@@ -1,6 +1,12 @@
 import type { SaivageConfig } from '../schemas/index.js';
+import { runWorkGcOperation } from './work-gc-operation.js';
+import type { WorkGcRequest, WorkGcResponse } from '../contracts/index.js';
 import { createObservedCollections } from '../retrieval/index.js';
-import type { OutboundHttpEmitter } from '../contracts/index.js';
+import {
+  PublicationOutcomeUnknownError,
+  WorkGcBusyError,
+  type OutboundHttpEmitter,
+} from '../contracts/index.js';
 import {
   buildProviderRoutingReadModel,
   type ProviderRoutingReadModel,
@@ -65,6 +71,15 @@ import { createOversightNotificationPort } from './oversight-notification-port.j
 import { submitNotificationTool, type QueueNotificationToolInput } from '../tools/tool-api.js';
 
 export interface RuntimeApplication {
+  collectWorkGarbage(request: WorkGcRequest, signal: AbortSignal): Promise<WorkGcResponse>;
+  assertWorkGcIngressAllowed(): void;
+  cancelWorkGc(reason: Error): void;
+  runWorkGc<I, T>(input: {
+    signal: AbortSignal;
+    inventory(signal: AbortSignal): Promise<I>;
+    collect(inventory: I, signal: AbortSignal): Promise<T>;
+  }): Promise<{ value: T; restoredRunning: boolean }>;
+  cleanupWorkGc(): Promise<void>;
   readonly analystAvailability: Readonly<{
     mode: AnalystStartup['mode'];
     internal_enabled: boolean;
@@ -88,6 +103,8 @@ export interface RuntimeApplication {
 }
 
 interface RuntimeApplicationServices {
+  assertWorkGcEntryIdle(): void;
+  assertWorkGcReady(): void;
   analystStartup: AnalystStartup;
   externalProjectIdentityDigest: string | null;
   onExternalAnalystOwnerFailure(error: unknown): void;
@@ -221,7 +238,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const promptTemplates = createPromptTemplateRegistry(services.workflows);
   const workflows = services.workflows;
   const oversightBinding = runtimeAgentBinding(workflows, workflows.oversight.name);
+  let workGcTask: Promise<unknown> | null = null;
+  let workGcAbort: AbortController | null = null;
+  const cancelWorkGc = (reason: Error): void => {
+    workGcAbort?.abort(reason);
+  };
   const runtimeSupervisor = createSupervisorRuntimeApi({
+    cancelWorkGc,
     outboundHttp: services.outboundHttp,
     projectRoot,
     processIdentity: services.processIdentity,
@@ -280,6 +303,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           runtime: Object.freeze({
             startProject: runtimeApi.startProject.bind(runtimeApi),
             pause: runtimeApi.pause.bind(runtimeApi),
+            hasWorkGcMaintenanceHold: runtimeApi.hasWorkGcMaintenanceHold.bind(runtimeApi),
             resume: runtimeApi.resume.bind(runtimeApi),
             stopProject: runtimeApi.stopProject.bind(runtimeApi),
             notifyCard: runtimeApi.notifyCard.bind(runtimeApi),
@@ -442,6 +466,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       'operator_session',
     );
     externalAnalystOperations = new ExternalAnalystOperations({
+      assertIngressAllowed: () => runtimeSupervisor.assertWorkGcIngressAllowed(),
       projectRoot,
       principal: startup.principal,
       projectIdentityDigest: services.externalProjectIdentityDigest,
@@ -470,6 +495,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           runtime: {
             startProject: runtimeApi.startProject.bind(runtimeApi),
             pause: runtimeApi.pause.bind(runtimeApi),
+            hasWorkGcMaintenanceHold: runtimeApi.hasWorkGcMaintenanceHold.bind(runtimeApi),
             resume: runtimeApi.resume.bind(runtimeApi),
             stopProject: runtimeApi.stopProject.bind(runtimeApi),
             notifyCard: runtimeApi.notifyCard.bind(runtimeApi),
@@ -485,6 +511,59 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     });
   }
   return {
+    collectWorkGarbage(request, signal) {
+      return runWorkGcOperation({ ...services, request, signal, run: this.runWorkGc.bind(this) });
+    },
+    assertWorkGcIngressAllowed: () => runtimeSupervisor.assertWorkGcIngressAllowed(),
+    cancelWorkGc: (reason) => runtimeSupervisor.cancelWorkGc(reason),
+    runWorkGc(input) {
+      if (workGcTask) return Promise.reject(new WorkGcBusyError());
+      const abort = new AbortController();
+      workGcAbort = abort;
+      const signal = AbortSignal.any([input.signal, abort.signal]);
+      const task = Promise.resolve().then(async () => {
+        signal.throwIfAborted();
+        const inventory = await input.inventory(signal);
+        signal.throwIfAborted();
+        return runtimeSupervisor.withWorkGcMaintenance({
+          signal,
+          assertEntryIdle: services.assertWorkGcEntryIdle,
+          settleAcceptedWork: async () => {
+            await Promise.all([
+              analystRuntimeCache?.awaitNaturalTurnCompletion(),
+              externalAnalystOperations?.awaitAcceptedOperations(),
+              projectOversight.awaitCancelledCheck(),
+            ]);
+          },
+          assertReady: services.assertWorkGcReady,
+          collect: (heldSignal) => input.collect(inventory, heldSignal),
+        });
+      });
+      workGcTask = task;
+      void task.then(
+        () => {
+          workGcTask = null;
+          workGcAbort = null;
+        },
+        (error) => {
+          if (error instanceof PublicationOutcomeUnknownError)
+            services.fatalPort.publicationOutcomeUnknown(error);
+          workGcTask = null;
+          workGcAbort = null;
+        },
+      );
+      return task;
+    },
+    async cleanupWorkGc() {
+      cancelWorkGc(new Error('Application closing.'));
+      // Ordinary GC refusal/cancellation is not an application cleanup failure.
+      try {
+        await workGcTask;
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError)
+          services.fatalPort.publicationOutcomeUnknown(error);
+      }
+    },
     analystAvailability,
     externalAnalystOperations,
     runtimeApi,
@@ -495,6 +574,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     getOversightStatus: () => projectOversight.status(),
     get analystRuntime() {
       analystRuntimeCache ??= new AnalystRuntime({
+        assertIngressAllowed: () => runtimeSupervisor.assertWorkGcIngressAllowed(),
         internalEnabled: analystAvailability.internal_enabled,
         createSession: createAnalystSession,
         getAvailableToolNames: getAnalystToolNames,

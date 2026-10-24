@@ -102,6 +102,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       runtime: {
         startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }),
         pause() {},
+        hasWorkGcMaintenanceHold: () => false,
         resume() {},
         stopProject: async () => ({ status: 'stopped', contained: false }),
         notifyCard: (cardId) => ({ ok: false, reason: 'missing_card', cardId }),

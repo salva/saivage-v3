@@ -802,6 +802,7 @@ export const runtimeCardsOperatorApiContracts = {
       200: RuntimeStatusResponseSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
+      409: WorkGcBusyErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,
@@ -835,3 +836,4 @@ export const runtimeCardsOperatorApiContracts = {
     ...operatorSessionContract,
   },
 } as const satisfies Record<string, OperatorRouteContract>;
+import { WorkGcBusyErrorSchema } from './work-gc.js';

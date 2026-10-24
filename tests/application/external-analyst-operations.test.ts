@@ -1,4 +1,10 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
+import { z } from 'zod';
+import { ExternalAnalystOperations } from '../../src/application/external-analyst-operations.js';
+import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { toolSucceeded, WorkGcBusyError } from '../../src/contracts/index.js';
+import { deferred } from '../../src/runtime/actors/deferred.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { randomUUID } from 'node:crypto';
 import { createObservedCollections } from '../../src/retrieval/observed-collections.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -22,6 +28,43 @@ import { cardHeadFile, cardHistoryFile, cardAcceptedRecordFile, globalAgentConve
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, {recursive:true,force:true}); });
+
+it('waits for accepted external tool effects and receipts without cancelling or admitting another call', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'external-gc-settlement-'));
+  roots.push(root);
+  initProjectTree(root);
+  const entered = deferred<void>();
+  const release = deferred<void>();
+  let held = false;
+  const executor = jest.fn(async (_args: Record<string, never>, signal: AbortSignal) => {
+    entered.resolve();
+    await release.promise;
+    expect(signal.aborted).toBe(false);
+    return executedToolOutcome('none', toolSucceeded('effect settled'));
+  });
+  const tool = defineTool({ name: 'demo', description: 'Controlled effect.', inputSchema: z.object({}).strict(),
+    resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, executor });
+  const operations = new ExternalAnalystOperations({ projectRoot: root, projectIdentityDigest: 'a'.repeat(64),
+    principal: 'fixture', surface: { agentName: 'analyst', tools: new Map([['demo', tool]]), providers: [] },
+    processRunner: {} as never, directScope: {} as never, fatalPort: testApplicationFatalPort,
+    onOwnerFailure(error) { throw error; }, assertIngressAllowed() { if (held) throw new WorkGcBusyError(); } });
+  const call = operations.invoke('demo', {});
+  await entered.promise;
+  held = true;
+  let joined = false;
+  const wait = operations.awaitAcceptedOperations().then(() => {
+    joined = true;
+    expect(new EventQueryService(root).queryExternalToolCalls()).toHaveLength(1);
+  });
+  await expect(operations.invoke('demo', {})).rejects.toBeInstanceOf(WorkGcBusyError);
+  expect(joined).toBe(false);
+  release.resolve();
+  await call;
+  await wait;
+  held = false;
+  await operations.invoke('demo', {});
+  expect(executor).toHaveBeenCalledTimes(2);
+});
 function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvocation) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'external-analyst-'));
   roots.push(projectRoot); initProjectTree(projectRoot);
@@ -49,7 +92,7 @@ function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvoca
       processScope:{} as never, mcpToolInvocation,
       restartCapability:{available:false}, eventQueries:new EventQueryService(projectRoot),
       captureExecutingLlmSnapshots:()=>new Map(),
-      runtime:{notifyCard,startProject:async()=>{throw new Error('Unexpected Run.');},pause(){},resume(){},
+      runtime:{notifyCard,startProject:async()=>{throw new Error('Unexpected Run.');},pause(){},resume(){},hasWorkGcMaintenanceHold:()=>false,
         stopProject:async()=>({status:'stopped',contained:false}),
         getStatus:()=>({status:'stopped',currentCardId:null,pid:123,startedAt:'2026-10-20T00:00:00.000Z'})},
     },

@@ -2,10 +2,12 @@ import {
   operatorApiContracts,
   parseOperatorResponse,
   type OperatorApiSuccess,
+  type WorkGcRequest,
 } from '../contracts/index.js';
 import type { RuntimeControlEndpoint } from '../runtime/runtime-api.js';
 
 type RuntimeOperation =
+  | 'runtime.gcWork'
   | 'runtime.status'
   | 'runtime.pause'
   | 'runtime.resume'
@@ -14,6 +16,13 @@ type RuntimeOperation =
 
 export class OperatorRuntimeHttpClient {
   constructor(private readonly request: typeof fetch = fetch) {}
+
+  gcWork(
+    endpoint: RuntimeControlEndpoint,
+    body: WorkGcRequest,
+  ): Promise<OperatorApiSuccess<'runtime.gcWork'>> {
+    return this.call('runtime.gcWork', endpoint, body);
+  }
 
   getRuntimeStatus(
     endpoint: RuntimeControlEndpoint,

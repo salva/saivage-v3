@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { join, dirname } from 'node:path';
+import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { inventoryWorkGarbage, collectWorkGarbage } from '../../src/workspace/work-garbage-collector.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner as ProcessRunnerImplementation } from '../../src/runtime/process-runner.js';
@@ -150,6 +151,31 @@ describe('ProcessRunner managed process groups', () => {
     expect(new ProcessRunnerImplementation(root, new ManagedProcessGroupRegistry(), testApplicationFatalPort).list()).toEqual([]);
   });
 
+  it('actual GC retains all work for a live group and whole unconsumed capture directories after buffered output settles', async () => {
+    const scope = direct('operator_session', 'gc-live');
+    const record = launch(`${JSON.stringify(process.execPath)} -e 'console.log("first"); setTimeout(()=>console.log("last"),1000)'`, scope, 'operator_session');
+    const scratch = join(root, '.saivage/work/cards/project/tmp/free');
+    mkdirSync(dirname(scratch), { recursive: true }); writeFileSync(scratch, 'scratch');
+    const sibling = join(dirname(record.stdout_path), 'additional-capture'); writeFileSync(sibling, 'capture');
+    const collect = async () => collectWorkGarbage(await inventoryWorkGarbage(root, new AbortController().signal), { mode: 'delete' }, {
+      workflows: TEST_WORKFLOWS, operationalInputs: {}, protection: runner.workGcProtection(),
+      assertCollecting() {}, fatal: error => testApplicationFatalPort.publicationOutcomeUnknown(error),
+    });
+    expect(runner.workGcProtection().retainAll).toBe(true);
+    runner.retireSettled(record.id, scope);
+    expect(runner.get(record.id)).not.toBeNull();
+    expect((await collect()).deleted_count).toBe(0);
+    expect(existsSync(scratch)).toBe(true); expect(existsSync(sibling)).toBe(true);
+    await runner.waitForSettlement(record.id);
+    expect(readFileSync(record.stdout_path, 'utf8')).toBe('first\nlast\n');
+    expect(runner.workGcProtection()).toMatchObject({ retainAll: false, capturePaths: [record.stdout_path, record.stderr_path] });
+    expect((await collect()).deleted_count).toBe(1);
+    expect(existsSync(scratch)).toBe(false); expect(existsSync(sibling)).toBe(true);
+    expect(readFileSync(record.stdout_path, 'utf8')).toBe('first\nlast\n');
+    runner.retireSettled(record.id, scope);
+    expect(runner.workGcProtection()).toEqual({ retainAll: false, capturePaths: [] });
+  });
+
   it('projects redacted command text while executing the original command', async () => {
     const record = launch('token=synthetic-command-secret ; test "${#token}" -eq 24');
     expect(record.command).toBe('token=[REDACTED] ; test "${#token}" -eq 24');
@@ -232,11 +258,13 @@ describe('ProcessRunner managed process groups', () => {
     child.stdout = stdout; child.stderr = stderr;
     let absent: ((reason?: string) => void) | undefined;
     const report = { selected: ['proc'], stopped: ['proc'], failed: [] };
+    let groupPresent = true;
     const fakeRegistry = {
       launch(input: { groupId: string; onAbsent(reason?: string): void }) { report.selected[0] = input.groupId; report.stopped[0] = input.groupId; absent = input.onAbsent; return child; },
-      terminateGroup: async () => { absent?.(); return report; },
-      terminateScopeTree: async () => { absent?.(); return report; },
-      closeAndTerminateDirectScope: async () => { absent?.(); return report; },
+      hasUncontainedGroups: () => groupPresent,
+      terminateGroup: async () => { groupPresent = false; absent?.(); return report; },
+      terminateScopeTree: async () => { groupPresent = false; absent?.(); return report; },
+      closeAndTerminateDirectScope: async () => { groupPresent = false; absent?.(); return report; },
     };
     const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
     const syntheticScope = {} as ManagedProcessScope;
@@ -250,6 +278,17 @@ describe('ProcessRunner managed process groups', () => {
     expect(settled).toBe(false);
     expect(await synthetic.wait(record.id, 0)).toMatchObject({ status: 'running', timedOut: false });
     expect(await synthetic.wait(record.id, 1)).toMatchObject({ status: 'running', timedOut: true });
+    const garbage = join(syntheticRoot, '.saivage/work/cards/project/tmp/garbage');
+    mkdirSync(dirname(garbage), { recursive: true }); writeFileSync(garbage, 'scratch');
+    const protection = synthetic.workGcProtection();
+    expect(protection.retainAll).toBe(false);
+    expect(protection.capturePaths).toContain(record.stdout_path);
+    const gc = await collectWorkGarbage(await inventoryWorkGarbage(syntheticRoot, new AbortController().signal), { mode: 'delete' }, {
+      workflows: TEST_WORKFLOWS, operationalInputs: {}, protection, assertCollecting() {}, fatal(error) { throw error; },
+    });
+    expect(gc.deleted_count).toBe(1); expect(existsSync(garbage)).toBe(false);
+    expect(existsSync(record.stdout_path) && existsSync(record.stderr_path)).toBe(true);
+    expect(settled).toBe(false); // Group is absent, but real capture streams are still open.
     stdout.write('late-out'); stderr.write('late-err'); child.emit('exit', 0, null); stdout.end(); stderr.end();
     await terminal;
     await expect(heldWait).resolves.toMatchObject({ record: { id: record.id, exit_code: 0 }, status: expect.any(String) });

@@ -546,18 +546,25 @@ export function readCanonicalLinkedCardHistoryTree(
   projectRoot: string,
   instrumentation?: CanonicalReadInstrumentation,
 ): readonly CanonicalLinkedCardHistoryProjection[] {
+  return Object.freeze([...iterateCanonicalLinkedCardHistoryTree(projectRoot, instrumentation)]);
+}
+
+export function* iterateCanonicalLinkedCardHistoryTree(
+  projectRoot: string,
+  instrumentation?: CanonicalReadInstrumentation,
+): Generator<CanonicalLinkedCardHistoryProjection> {
   const realProjectRoot = resolve(projectRoot);
   const root = readRoot(realProjectRoot, instrumentation);
-  if (!root) return [];
-  const reached: CanonicalLinkedCardHistoryProjection[] = [];
-  const visit = (cardId: string, current: CurrentCardSelection): void => {
-    reached.push(
-      Object.freeze({
-        current: current.current.card,
-        tombstone: current.tombstone,
-        rows: readHistory(realProjectRoot, current, instrumentation),
-      }),
-    );
+  if (!root) return;
+  function* visit(
+    cardId: string,
+    current: CurrentCardSelection,
+  ): Generator<CanonicalLinkedCardHistoryProjection> {
+    yield Object.freeze({
+      current: current.current.card,
+      tombstone: current.tombstone,
+      rows: readHistory(realProjectRoot, current, instrumentation),
+    });
     if (current.tombstone) return;
     for (const child of readMembershipChildrenOfReached(
       realProjectRoot,
@@ -565,10 +572,9 @@ export function readCanonicalLinkedCardHistoryTree(
       current,
       instrumentation,
     ))
-      visit(child.current.card.id, child);
-  };
-  visit('project', root);
-  return Object.freeze(reached);
+      yield* visit(child.current.card.id, child);
+  }
+  yield* visit('project', root);
 }
 
 export function readCommittedCardArtifactCatalog(

@@ -60,6 +60,7 @@ export type NotificationSubmissionPort = (
 export interface RuntimeApi {
   start(): Promise<void>;
   pause(): void;
+  hasWorkGcMaintenanceHold(): boolean;
   resume(): void;
   stopProject(): Promise<StopProjectResult>;
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
@@ -114,7 +115,6 @@ export {
   bindRuntimeWorkflows,
   compileProjectWorkflows,
   describeNodeResultContract,
-  genericRecordDefinition,
   runtimeAgentBinding,
 } from './card-process/card-process-config.js';
 export type {

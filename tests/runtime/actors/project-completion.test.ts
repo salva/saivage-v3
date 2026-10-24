@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,6 +25,14 @@ import { compact, prepareCompaction } from '../../../src/runtime/actors/compacti
 import { buildPreparedInvocationContext, composedPreparedBlocks } from '../../../src/runtime/actors/context/context-blocks.js';
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import { noCompactionProgress } from '../../helpers/executing-llm-snapshot.js';
+import { deferred } from '../../../src/runtime/actors/deferred.js';
+import { inventoryWorkGarbage } from '../../../src/workspace/work-garbage-collector.js';
+import { ProjectOversight } from '../../../src/application/project-oversight.js';
+import { ExternalAnalystOperations } from '../../../src/application/external-analyst-operations.js';
+import { EventQueryService } from '../../../src/application/event-query-service.js';
+import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
+import { toolSucceeded, WorkGcBusyError } from '../../../src/contracts/index.js';
+import { z } from 'zod';
 
 const profiles = ['classic', 'classic-typed', 'paad-typed'] as const;
 type Profile = typeof profiles[number];
@@ -44,7 +52,7 @@ function nodeOf(input: PreparedLlmInvocationInput) {
   if (!block || !('block_identity' in block)) throw new Error('Missing actual current node block');
   return block.block_identity.slice('node-activation:project:'.length);
 }
-function fixture(profile: Profile, steps: Step[]) {
+function fixture(profile: Profile, steps: Step[], hooks: Partial<Pick<Parameters<typeof createSupervisorRuntimeApi>[0], 'compactor' | 'runtimeStatusChanged'>> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'project-completion-'));
   const template = resolveSystemTemplate(profile);
   const config = effectiveSaivageConfigSchema.parse({ ...structuredClone(template.config),
@@ -76,7 +84,7 @@ function fixture(profile: Profile, steps: Step[]) {
     return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `step-${cursor}`, type: 'function' as const,
       function: { name: step.tool, arguments: JSON.stringify(step.args) } }] }, provider_exchanges: [] };
   });
-  const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, workflows, projectRoot: root, actorStore: cards,
+  const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, ...hooks, workflows, projectRoot: root, actorStore: cards,
     retrieval: createObservedCollections(root),
     fatalPort: testApplicationFatalPort, runtimeGate: new RuntimeGate(), provider, conversations: { projectRoot: root },
     freshness: { runtimeChanged() {}, agentMembershipChanged() {} }, processRunner: processes.processRunner,
@@ -97,6 +105,155 @@ function fixture(profile: Profile, steps: Step[]) {
 }
 
 describe.each(profiles)('%s actual project objective reconciliation', profile => {
+  it('rechecks an already accepted Start after its awaited preparation while GC owns the existing run', async () => {
+    const providerEntered = deferred<void>(), releaseProvider = deferred<void>();
+    const f = fixture(profile, [{ ...write('plan', 'Continue after the same-run maintenance.'), before: async () => { providerEntered.resolve(); await releaseProvider.promise; } }]);
+    const owner = await f.launch(); await providerEntered.promise;
+    const startEntered = deferred<void>(), releaseStart = deferred<void>();
+    const originalStart = f.supervisor.start.bind(f.supervisor);
+    const start = jest.spyOn(f.supervisor, 'start').mockImplementation(async () => { startEntered.resolve(); await releaseStart.promise; return originalStart(); });
+    const acceptedStart = f.supervisor.startProject().catch(error => error);
+    await startEntered.promise;
+    const collecting = deferred<void>(), releaseCollection = deferred<void>();
+    const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+      assertEntryIdle() {}, settleAcceptedWork: async () => {}, assertReady() {},
+      collect: async () => { collecting.resolve(); await releaseCollection.promise; } });
+    try {
+      releaseProvider.resolve(); await collecting.promise;
+      releaseStart.resolve(); expect(await acceptedStart).toBeInstanceOf(WorkGcBusyError);
+      expect(f.requests).toHaveLength(1); expect(f.supervisor.getStatus().status).toBe('paused');
+      releaseCollection.resolve(); expect(await gc).toMatchObject({ restoredRunning: true }); await f.atEnd;
+    } finally {
+      releaseStart.resolve(); releaseProvider.resolve(); releaseCollection.resolve(); await acceptedStart; await gc.catch(() => {});
+      start.mockRestore(); await f.supervisor.stopProject(); await expect(owner.settlement.promise).rejects.toThrow('stopped');
+    }
+  });
+
+  it('waits for pre-frontier compaction, cancelled Oversight and a late external record plus receipt before marking', async () => {
+    const compacting = deferred<void>(), releaseCompaction = deferred<void>();
+    const checkStarted = deferred<void>(), checkCancelled = deferred<void>(), releaseCheck = deferred<'cancelled'>();
+    let tick: (() => void) | undefined;
+    let now = 0;
+    const oversight = new ProjectOversight({ enabled: true, intervalMs: 1000, agentName: 'oversight', sessionId: 'agent:oversight:global',
+      serviceEpoch: '2026-10-24T00:00:00.000Z', changed() {}, onOwnerFailure(error) { throw error; },
+      clock: { monotonicNow: () => now, wallNow: () => '2026-10-24T00:00:01.000Z', setTimeout(callback) { tick = callback; return 1; }, clearTimeout() { tick = undefined; } },
+      createCheck: () => ({ run() { checkStarted.resolve(); return releaseCheck.promise; }, cancel() { checkCancelled.resolve(); }, executingLlmSnapshot: () => null } as never) });
+    const f = fixture(profile, [], { runtimeStatusChanged: status => oversight.runtimeStatusChanged(status),
+      compactor: { shouldCompact: () => true, compact: async args => {
+        compacting.resolve(); await releaseCompaction.promise;
+        return { kind: 'compacted', summaryRefusal: null, providerConversation: args.input.providerConversation, estimatedProviderMessageTokens: 0 };
+      } } });
+    const externalStarted = deferred<void>(), releaseExternal = deferred<void>();
+    const tool = defineTool({ name: 'late_record', description: 'Synthetic delayed canonical write.', inputSchema: z.object({}).strict(),
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, executor: async (_args, signal) => {
+        externalStarted.resolve(); await releaseExternal.promise; expect(signal.aborted).toBe(false);
+        f.cards.acceptRecord('project', 'review-late.md', 'tmp:///project/late-evidence.txt', { kind: 'external-agent', principal: 'fixture' });
+        return executedToolOutcome('none', toolSucceeded('record settled'));
+      } });
+    const external = new ExternalAnalystOperations({ projectRoot: f.root, projectIdentityDigest: 'a'.repeat(64), principal: 'fixture',
+      surface: { agentName: 'analyst', tools: new Map([['late_record', tool]]), providers: [] }, processRunner: {} as never,
+      directScope: {} as never, fatalPort: testApplicationFatalPort, onOwnerFailure(error) { throw error; },
+      assertIngressAllowed: () => f.supervisor.assertWorkGcIngressAllowed() });
+    const owner = await f.launch(); await compacting.promise;
+    now = 1000; tick!(); await checkStarted.promise;
+    const call = external.invoke('late_record', {}); await externalStarted.promise;
+    let marked = false;
+    const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal, assertEntryIdle() {}, assertReady() {},
+      settleAcceptedWork: async () => { await Promise.all([oversight.awaitCancelledCheck(), external.awaitAcceptedOperations()]); },
+      collect: async () => {
+        marked = true; expect(f.requests).toHaveLength(0);
+        expect(f.supervisor.getStatus().status).toBe('paused');
+        expect(f.record('review-late.md')!.accepted!.content).toBe('tmp:///project/late-evidence.txt');
+        expect(new EventQueryService(f.root).queryExternalToolCalls()).toHaveLength(1);
+        expect(oversight.status().last_attempt?.outcome).toBe('cancelled');
+        expect(JSON.stringify(readConversation(f.root, 'agent:planner:project').sourceRows)).toContain('llm_turn_started');
+      } });
+    try {
+      await checkCancelled.promise;
+      expect(marked).toBe(false); expect(f.supervisor.getStatus().status).toBe('pausing');
+      await expect(external.invoke('late_record', {})).rejects.toThrow('busy');
+      releaseCompaction.resolve();
+      for (let i = 0; i < 1000 && f.supervisor.getStatus().status !== 'paused'; i++) await new Promise<void>(resolve => setImmediate(resolve));
+      expect(f.supervisor.getStatus().status).toBe('paused'); expect(marked).toBe(false);
+      releaseCheck.resolve('cancelled'); await oversight.awaitCancelledCheck(); expect(marked).toBe(false);
+      releaseExternal.resolve(); await call;
+      expect(await gc).toMatchObject({ restoredRunning: true }); await f.atEnd;
+      expect(marked).toBe(true); expect(oversight.status().state).toBe('waiting');
+    } finally {
+      releaseCompaction.resolve(); releaseCheck.resolve('cancelled'); releaseExternal.resolve();
+      await call; await gc.catch(() => {}); oversight.closeAdmission(); await oversight.cleanupForApplicationStop();
+      await f.supervisor.stopProject(); await expect(owner.settlement.promise).rejects.toThrow('stopped');
+    }
+  });
+
+  it('parks a real accepted child activation under GC and restores only the same run', async () => {
+    const entered = deferred<void>(), release = deferred<void>();
+    const f = fixture(profile, [{ node: 'plan', tool: 'activate_card', args: { card_id: 'card-a', instructions: 'Implement the bounded existing brief.' },
+      before: async () => { entered.resolve(); await release.promise; } }]);
+    f.cards.create({ type: 'code', parent: 'project', title: 'Existing child', bootstrap_content: 'Bounded implementation.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const owner = await f.launch(); await entered.promise;
+    const identity = (f.supervisor as unknown as { runIdentity: object }).runIdentity;
+    let marked = false;
+    const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+      assertEntryIdle() {}, settleAcceptedWork: async () => {}, assertReady() {},
+      collect: async () => {
+        marked = true;
+        expect(f.supervisor.getStatus().status).toBe('paused');
+        expect(f.supervisor.getRuntimeState()?.current_card_id).toBe('card-a');
+        expect(f.requests).toHaveLength(1); // Child reached its real gate, not provider.
+      } });
+    try {
+      expect(f.supervisor.getStatus().status).toBe('pausing');
+      expect(marked).toBe(false);
+      release.resolve();
+      expect(await gc).toMatchObject({ restoredRunning: true });
+      await f.atEnd;
+      expect(marked).toBe(true);
+      expect(f.requests).toHaveLength(2);
+      expect((f.supervisor as unknown as { runIdentity: object }).runIdentity).toBe(identity);
+    } finally { release.resolve(); await gc.catch(() => {}); await f.supervisor.stopProject(); await expect(owner.settlement.promise).rejects.toThrow('stopped'); }
+  });
+
+  it('allows actual provider continuation during background inventory before GC owns any hold', async () => {
+    const entered = deferred<void>(), release = deferred<void>();
+    const f = fixture(profile, [{ ...write('plan', 'A genuine accepted provider continuation.'),
+      before: async () => { entered.resolve(); await release.promise; } }]);
+    const owner = await f.launch(); await entered.promise;
+    const scratch = join(f.root, '.saivage/work/cards/project/tmp');
+    mkdirSync(scratch, { recursive: true });
+    for (let i = 0; i < 200; i++) writeFileSync(join(scratch, `candidate-${i}`), 'scratch');
+    let inventoried = false;
+    const inventory = inventoryWorkGarbage(f.root, new AbortController().signal).then(value => { inventoried = true; return value; });
+    release.resolve(); await f.atEnd;
+    expect(inventoried).toBe(false);
+    expect(f.requests).toHaveLength(2);
+    expect(f.record('status.md')!.draft!.content).toContain('genuine accepted provider continuation');
+    expect((await inventory).candidates).toHaveLength(200);
+    await f.supervisor.stopProject(); await expect(owner.settlement.promise).rejects.toThrow('stopped');
+  });
+
+  it('settles a real urgent replacement toward the held frontier without launching a provider early', async () => {
+    const entered = deferred<void>(), aborted = deferred<void>(), release = deferred<void>();
+    const f = fixture(profile, [{ ...write('plan', 'Never executed after interruption.'), before: async (_input, signal) => {
+      entered.resolve(); await new Promise<void>(resolve => signal.addEventListener('abort', () => { aborted.resolve(); resolve(); }, { once: true }));
+      await release.promise; throw signal.reason;
+    } }]);
+    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const owner = await f.launch(); await entered.promise;
+    const urgent = f.supervisor.submitNotification(child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent correction', created_at: new Date().toISOString() }, 'urgent');
+    await aborted.promise;
+    let marked = false;
+    const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+      assertEntryIdle() {}, settleAcceptedWork: async () => { await urgent; }, assertReady() {},
+      collect: async () => { marked = true; expect(f.supervisor.getStatus().status).toBe('paused'); expect(f.requests).toHaveLength(1); } });
+    try {
+      expect(marked).toBe(false); release.resolve(); await urgent;
+      expect(await gc).toMatchObject({ restoredRunning: true });
+      await f.atEnd; expect(marked).toBe(true);
+      expect(nodeOf(f.requests[1]!)).toBe('recover');
+    } finally { release.resolve(); await urgent.catch(() => {}); await gc.catch(() => {}); await f.supervisor.stopProject(); await expect(owner.settlement.promise).rejects.toThrow('stopped'); }
+  });
+
   it('compiles only reachable root closure routes while preserving goal handling, urgent recovery and leaf graphs', () => {
     const f = fixture(profile, []);
     const project = f.compiled.cardTypes.get('project')!;

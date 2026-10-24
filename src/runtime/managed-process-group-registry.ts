@@ -96,6 +96,10 @@ export class ManagedProcessGroupRegistry {
   private launchAdmissionOpen = true;
   readonly rootScope: ManagedProcessScope;
 
+  hasUncontainedGroups(): boolean {
+    return this.groups.size !== 0;
+  }
+
   constructor(private readonly platform: ManagedProcessPlatform = posixPlatform) {
     this.rootScope = this.allocateScope(null, 'container', 'managed-processes', null);
   }

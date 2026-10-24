@@ -24,6 +24,7 @@ import { globalAgentSessionId } from '../../schemas/index.js';
 import { bindOutboundHttpLogger } from './outbound-http-logger.js';
 import { createAnalystMcpServer } from '../analyst-mcp-server.js';
 import { readProjectIdentity, projectIdentityDigest } from '../../persistence/index.js';
+import { McpLifecycleIngress } from './mcp-lifecycle-ingress.js';
 
 interface ServerServices {
   analystMcpEndpoint: string | null;
@@ -34,6 +35,7 @@ interface ServerServices {
   cardStore: CardService;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
+  mcpLifecycleIngress: McpLifecycleIngress;
   liveSyncSocket: LiveSyncSocket;
   syncHub: SyncHub;
   authPolicy: AuthPolicy;
@@ -59,7 +61,16 @@ export async function createServerServices(input: {
   if (authPolicy.authEnabled) {
     if (!restartPort)
       throw new Error('Authenticated server requires an application-owned restart port.');
-    restartCapability = Object.freeze({ available: true, port: restartPort });
+    restartCapability = Object.freeze({
+      available: true,
+      port: {
+        schedule() {
+          runtimeApplication.cancelWorkGc(new Error('Server restart requested.'));
+          restartPort.schedule();
+        },
+        acknowledge: restartPort.acknowledge.bind(restartPort),
+      },
+    });
   } else {
     restartCapability = Object.freeze({ available: false });
   }
@@ -108,6 +119,16 @@ export async function createServerServices(input: {
   if (environment.analyst.mode !== 'internal' && externalProjectIdentity === null)
     throw new Error('External Analyst requires an established project identity.');
   const runtimeApplication = createRuntimeApplication({
+    assertWorkGcEntryIdle() {
+      if (mcpLifecycleIngress.hasActiveLifecycleCall() || mcpManager.hasPendingReconciliation())
+        throw new Error(
+          'MCP lifecycle or reconciliation is active; work garbage collection refused.',
+        );
+    },
+    assertWorkGcReady() {
+      if (mcpLifecycleIngress.hasActiveLifecycleCall() || mcpManager.hasWorkGcBlocker())
+        throw new Error('MCP activity or surviving service prevents work garbage collection.');
+    },
     analystStartup: environment.analyst,
     externalProjectIdentityDigest:
       externalProjectIdentity === null ? null : projectIdentityDigest(externalProjectIdentity),
@@ -137,9 +158,12 @@ export async function createServerServices(input: {
   );
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
   terminal.registerAdmissionCloser('oversight', () => runtimeApplication.closeOversightAdmission());
-  terminal.registerCleanupLeaf('runtime', () =>
-    runtimeApplication.cleanupRuntimeForApplicationStop(),
-  );
+  terminal.registerCleanupLeaf('runtime', async () => {
+    await Promise.all([
+      runtimeApplication.cleanupRuntimeForApplicationStop(),
+      runtimeApplication.cleanupWorkGc(),
+    ]);
+  });
   terminal.registerCleanupLeaf('analyst', () =>
     runtimeApplication.cleanupAnalystForApplicationStop(),
   );
@@ -191,6 +215,11 @@ export async function createServerServices(input: {
     mcpProcessRootScope,
     eventLogger,
   });
+  const mcpLifecycleIngress = new McpLifecycleIngress(
+    mcpManager,
+    runtimeApplication.assertWorkGcIngressAllowed,
+    input.fatalPort,
+  );
   terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
   terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
   terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
@@ -229,6 +258,7 @@ export async function createServerServices(input: {
     cardStore,
     runtimeApplication,
     mcpManager,
+    mcpLifecycleIngress,
     liveSyncSocket,
     syncHub,
     authPolicy,
