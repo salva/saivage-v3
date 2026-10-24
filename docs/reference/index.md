@@ -16,6 +16,7 @@ understand the model, and the runbook for an operating decision.
 | How do prompt references/tokens/retention work? | [Prompt handling](../architecture/prompts.md) |
 | Which current durable contract and historical change? | [Durable format reference](../architecture/durable-format-changes.md#current-source-baseline) |
 | Which validation gate/evidence? | [Validation](../validation.md) |
+| Which isolated native quality pins, licenses and qualification limits? | [Native quality prerequisites](quality-tool-qualification.md) |
 | How do I operate, diagnose or adopt state? | [Runbook decision map](../runbook/index.md#choose-the-safe-next-task) |
 
 The [configuration guide](../guides/configuration.md), [work tour](../guides/operating.md)

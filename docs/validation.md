@@ -1,5 +1,16 @@
 # Validation
 
+## Isolated native quality prerequisites
+
+The optional [native quality qualification reference](reference/quality-tool-qualification.md)
+owns exact isolated ESLint/typescript-eslint/TypeScript/Ruff inputs, license scope,
+provisioning and native fixtures. This is prerequisite work, not runtime analyzer
+availability or a replacement for root lint/tests. Native basics, refined
+no-cache and extra scope/source-write checks passed under manager qualification.
+The reference records the original failures and observed limits. These standalone
+checks are not yet included in ordinary Jest or CI profiles; no skipped native
+check counts as success.
+
 ## Optional native source observations
 
 Focused source tests cover strict input contracts, safe preparation, actual HTTP

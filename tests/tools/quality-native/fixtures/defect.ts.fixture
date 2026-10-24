@@ -1,0 +1,6 @@
+Promise.resolve(1);
+export async function wrongAwait(): Promise<void> {
+  await 42;
+}
+function consume(callback: () => void): void { callback(); }
+consume(async () => { await Promise.resolve(1); });

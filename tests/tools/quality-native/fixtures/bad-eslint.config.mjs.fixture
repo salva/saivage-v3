@@ -1,0 +1,1 @@
+export default [{ rules: { 'not-a-real-rule': 'error' } }];

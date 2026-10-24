@@ -1,0 +1,3 @@
+missingName();
+function unreachable() { return 1; missingName(); }
+unreachable();

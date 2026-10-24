@@ -1,0 +1,4 @@
+target-version = "py311"
+fix = true
+[lint]
+select = ["E", "F", "B"]

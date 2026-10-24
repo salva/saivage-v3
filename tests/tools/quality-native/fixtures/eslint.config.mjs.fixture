@@ -1,0 +1,15 @@
+import tseslint from 'typescript-eslint';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const here = dirname(fileURLToPath(import.meta.url));
+export default [
+  { files: ['**/*.js'], rules: { 'no-undef': 'error', 'no-unreachable': 'error' } },
+  { files: ['**/*.ts'], languageOptions: {
+    parser: tseslint.parser,
+    parserOptions: { project: './tsconfig.json', tsconfigRootDir: here },
+  }, plugins: { typed: tseslint.plugin }, rules: {
+    'typed/no-floating-promises': 'error',
+    'typed/no-misused-promises': 'error',
+    'typed/await-thenable': 'error',
+  } },
+];

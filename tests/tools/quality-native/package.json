@@ -1,0 +1,12 @@
+{
+  "name": "saivage-quality-m1-r3-qualification",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.22.0", "npm": "11.19.1" },
+  "dependencies": {
+    "eslint": "10.13.0",
+    "typescript-eslint": "8.72.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,2 @@
+/* eslint __coverage/observe: off */
+export const number = 42;
