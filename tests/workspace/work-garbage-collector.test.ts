@@ -7,6 +7,7 @@ import {
   renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { setImmediate } from 'node:timers/promises';
 import type { CardExecutionStart } from '../../src/persistence/card-execution-log.js';
 import { agentMessageSchema, type RecordDefinition } from '../../src/schemas/index.js';
@@ -42,7 +43,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture(): string {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/work-gc-test-');
+  const root = mkdtempSync(join(tmpdir(), 'work-gc-test-'));
   roots.push(root);
   initProjectTree(root);
   return root;

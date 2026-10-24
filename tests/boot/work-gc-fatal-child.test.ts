@@ -1,12 +1,13 @@
 import { afterEach, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 it('real MCP failed startup cleanup uncertainty exits at ingress before HTTP error or response', () => {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-gc-fatal-'); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'mcp-gc-fatal-')); roots.push(root);
   const child = spawnSync(process.execPath, ['--import', 'tsx', 'tests/fixtures/mcp-gc-fatal.ts', root],
     { cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' }, timeout: 20_000, killSignal: 'SIGKILL' });
   expect(child.error).toBeUndefined(); expect(child.signal).toBeNull(); expect(child.status).toBe(1);
@@ -15,7 +16,7 @@ it('real MCP failed startup cleanup uncertainty exits at ingress before HTTP err
   expect(readFileSync(join(root, 'marker'), 'utf8')).toBe('request\ncontainment\n');
 }, 25_000);
 it.each(['unlink', 'fsync'])('real HTTP GC %s uncertainty exits before response, descriptor cleanup or admission release', mode => {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/work-gc-fatal-'); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'work-gc-fatal-')); roots.push(root);
   const child = spawnSync(process.execPath, ['--import', 'tsx', 'tests/fixtures/work-gc-fatal.ts', root, mode],
     { cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' }, timeout: 20_000, killSignal: 'SIGKILL' });
   expect(child.error).toBeUndefined(); expect(child.signal).toBeNull(); expect(child.status).toBe(1);

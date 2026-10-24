@@ -2,6 +2,7 @@ import { afterEach, expect, it, jest } from '@jest/globals';
 import Fastify from 'fastify';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, rmSync, existsSync, utimesSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
@@ -59,7 +60,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
     return realFetch(url, init);
   });
   for (const flags of [[], ['--dry-run'], ['--delete']]) {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/gc-running-cli-');
+    const root = mkdtempSync(join(tmpdir(), 'gc-running-cli-'));
     initProjectTree(root);
     const authority = createTestConfigAuthority(root, { relativePath: '.saivage/saivage.yaml' });
     const effective = authority.loadEffective();

@@ -1,6 +1,7 @@
 import { expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
@@ -17,7 +18,7 @@ import { deferred } from '../../src/runtime/actors/deferred.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 it.each(['natural', 'close'] as const)('actual application GC joins accepted Analyst webfetch (%s) without a close cycle', async mode => {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/gc-app-close-');
+  const root = mkdtempSync(join(tmpdir(), 'gc-app-close-'));
   initProjectTree(root);
   const config = structuredClone(TEST_SAIVAGE_CONFIG);
   config.providers.test!.apiKey = 'synthetic'; config.providers.test!.baseUrl = 'https://provider.invalid/v1';
