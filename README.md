@@ -4,7 +4,10 @@ Give Saivage an objective, constraints and acceptance criteria, then explicitly
 start a Run. Configured Planners delegate and sequence work, Executors implement,
 investigate and test, and configured Reviewers assess evidence. Parents coordinate
 correction; the root Planner assesses remaining authorized work before completion.
-Workflows can also use non-LLM actions for finite commands.
+Workflows can also use non-LLM actions for finite commands. Output-capable actions
+can publish factual reports through the ordinary record owner using
+[`output_record`](docs/guides/configuration.md); command stdout and returned text
+retain distinct provenance, not automatic acceptance of the work.
 
 The goal is convergence from direction to useful coherent deliverables satisfying
 the objective, not activity volume or continual human dispatch. Use the web control

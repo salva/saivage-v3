@@ -91,7 +91,7 @@ A **Baseline0** starter is not authored approval. A **Draft** may be newer than 
 last **Accepted** document. Record history shows accepted documents; current head
 revision plus UUID identifies the mutable selection. Select an exact historical
 document/snapshot before comparing; never infer currentness from a number alone.
-Authorship labels identify agent, runtime, shell-stdout or external principal;
+Authorship labels identify agent, runtime, action output or external principal;
 none automatically supplies an independent review verdict.
 
 Use **Executions** for an action or postcommit hook, not a missing agent transcript.

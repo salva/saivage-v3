@@ -84,7 +84,7 @@ function authorLabel(author: RecordVersionContentResponse['artifact']['accepted'
     case 'agent': return `Agent · ${author.agent}`;
     case 'external-agent': return `External credential holder · ${author.principal}`;
     case 'runtime': return `Runtime · ${author.purpose}`;
-    case 'shell-stdout': return `Shell stdout · shell.run · ${author.node_id} · ${author.outcome}`;
+    case 'action-output': return `Action output · ${author.operation} · ${author.output.source} · ${author.node_id} · ${author.outcome}`;
   }
 }
 const initialLoadCompletedFor = ref<string | null>(null);

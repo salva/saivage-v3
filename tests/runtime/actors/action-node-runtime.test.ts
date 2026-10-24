@@ -30,7 +30,7 @@ import { cardExecutionFile } from '../../../src/persistence/layout.js';
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); jest.restoreAllMocks(); });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
-function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; args?: string[]; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }, retainedRoot?: string, stdoutRecord = false) {
+function fixture(definition?: OperationDefinition, script = 'printf "real action"; exit 0', typedHandoff = false, allowRecovery = false, requireAccepted = false, shellConfig: Record<string, unknown> = {}, attachment?: { definition?: OperationDefinition; script?: string; args?: string[]; child?: boolean; status?: 'done' | 'blocked' | 'failed'; requiredCheck?: boolean }, retainedRoot?: string, outputRecord = false) {
   const root = retainedRoot ?? mkdtempSync(join(tmpdir(), 'action-runtime-'));
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
   const workflow = config.card_types.project!.workflow;
@@ -53,8 +53,8 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
       if ('target' in edge && 'terminal' in edge.target) edge.target.export_records = ['status.md'];
     }
   }
-  if (stdoutRecord) {
-    workflow.nodes.check!.stdout_record = 'status.md';
+  if (outputRecord) {
+    workflow.nodes.check!.output_record = 'status.md';
     workflow.nodes.check!.records = { 'status.md': { mode: 'continue', gate: 'updated' } };
     for (const edge of Object.values(workflow.nodes.check!.edges))
       if ('target' in edge && 'terminal' in edge.target) edge.target.export_records = ['status.md'];
@@ -143,11 +143,31 @@ function acceptedReport(f: ReturnType<typeof fixture>) {
 }
 const nodeCommand = (code: string) => `${JSON.stringify(process.execPath)} -e ${JSON.stringify(code)}`;
 
+it('publishes returned text through the ordinary action record owner without inventing a process', async () => {
+  const content = '\uFEFFReturned report\r\n';
+  const definition: OperationDefinition = {
+    id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { findings: {} },
+    retainFields: [], output: 'returned-text', artifacts: () => [],
+    async run() { return { result: { outcome: 'findings', summary: 'Findings retained.', values: {} }, output: Buffer.from(content) }; },
+  };
+  const f = fixture(definition, '', false, false, false, {}, undefined, undefined, true);
+  const owner = await launch(f);
+  await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'blocked' });
+  expect(acceptedReport(f)!.accepted).toMatchObject({ content, author: {
+    kind: 'action-output', operation: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' },
+    process_id: null, leader_exit: null, outcome: 'findings',
+    output: { source: 'returned-text', size_bytes: Buffer.byteLength(content) },
+  } });
+  expect(f.provider).not.toHaveBeenCalled();
+});
+
 it('actual action-only natural settlement cancels GC before any mark or late provider pause', async () => {
   const entered = deferred(), release = deferred();
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
-    async run() { entered.resolve(); await release.promise; return { outcome: 'finished', summary: 'Bounded action finished.', values: {} }; } };
+    async run() { entered.resolve(); await release.promise; return { result: { outcome: 'finished', summary: 'Bounded action finished.', values: {} }, output: null }; } };
   const f = fixture(definition), owner = await launch(f); await entered.promise;
   const collect = jest.fn(async () => {});
   const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
@@ -170,7 +190,7 @@ it('publishes independent exact stdout twice with new ordinary provenance and re
   const before = acceptedReport(f)!;
   expect(before.accepted).toMatchObject({ content, source_version: 1,
     content_sha256: createHash('sha256').update(content).digest('hex'),
-    size_bytes: Buffer.byteLength(content), author: { kind: 'shell-stdout', node_id: 'check', outcome: 'passed', leader_exit: { exit_code: 0, signal: null } } });
+    size_bytes: Buffer.byteLength(content), author: { kind: 'action-output', node_id: 'check', outcome: 'passed', leader_exit: { exit_code: 0, signal: null } } });
   f.cards.setStatus('project', 'changed');
   const second = await launch(f);
   await expect(second.settlement.promise).resolves.toMatchObject({ status: 'blocked', result: { records: [{ version: 2 }] } });
@@ -203,7 +223,7 @@ it.each([
   const f = stdoutFixture(script);
   const owner = await launch(f);
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'blocked', result: { outcome } });
-  expect(acceptedReport(f)!.accepted).toMatchObject({ content: 'report', author: { kind: 'shell-stdout', outcome, leader_exit: leader } });
+  expect(acceptedReport(f)!.accepted).toMatchObject({ content: 'report', author: { kind: 'action-output', outcome, leader_exit: leader } });
   expect(readCardExecutions(f.root, 'project').at(-1)).toMatchObject({ outcome, leader_exit: leader });
 });
 
@@ -297,7 +317,7 @@ it('keeps the factual report when a later real descendant gate refuses DONE', as
   f.cards.create({ type: 'goal', parent: 'project', title: 'Incomplete child', bootstrap_content: 'Work remains', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
   const owner = await launch(f);
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'failed', result: { summary: expect.stringContaining('descendant') } });
-  expect(acceptedReport(f)!.accepted).toMatchObject({ content: 'report', source_version: 1, author: { kind: 'shell-stdout' } });
+  expect(acceptedReport(f)!.accepted).toMatchObject({ content: 'report', source_version: 1, author: { kind: 'action-output' } });
   expect(readCardExecutions(f.root, 'project')).toHaveLength(3);
 });
 
@@ -328,6 +348,7 @@ it.each([false, true])('Stop joins actual delayed raw plugin cleanup beyond comm
   const commandExited = deferred(); const finishCleanup = deferred(); const cleanupFailure = new Error('raw cleanup failed');
   let callbacks = 0;
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
     async run(_config, _inputs, capabilities, signal) {
       await capabilities.command!({ script: 'exit 0', args: [], cwd: '.', env: {}, timeoutMs: 1000, terminateGraceMs: 50 }, signal);
@@ -363,6 +384,7 @@ it.each([false, true])('cancelCard retains finite cleanup and exact root/child a
   const commandExited = deferred(); const aborted = deferred(); const finishCleanup = deferred(); const rawFinished = deferred();
   let interruption: unknown;
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
     async run(_config, _inputs, capabilities, signal) {
       await capabilities.command!({ script: 'exit 0', args: [], cwd: '.', env: {}, timeoutMs: 1000, terminateGraceMs: 50 }, signal);
@@ -426,6 +448,7 @@ it('cancelCard surfaces a distinct late finite cleanup failure instead of succes
   const cleanupFailure = new Error('distinct cancelCard finite cleanup failure');
   let interruption: unknown;
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
     async run(_config, _inputs, capabilities, signal) {
       await capabilities.command!({ script: 'exit 0', args: [], cwd: '.', env: {}, timeoutMs: 1000, terminateGraceMs: 50 }, signal);
@@ -573,6 +596,7 @@ it('cancelCard retains an urgent retiring action and its first interruption with
   const entered = deferred(); const aborted = deferred(); const finishCleanup = deferred(); const rawFinished = deferred();
   let interruption: unknown; let finalReason: unknown;
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
     async run(_config, _inputs, _capabilities, signal) {
       entered.resolve();
@@ -622,9 +646,10 @@ it('cancelCard retains an urgent retiring action and its first interruption with
 
 it.each([0, 3])('selects the typed plugin branch and feeds only declared factual inputs to the real agent: %i', async (count) => {
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {},
     outcomes: { finished: { count: { type: 'integer', min: 0, max: 1000, workflow: true }, private: { type: 'string', workflow: false } } }, retainFields: ['count'],
-    async run() { return { outcome: 'finished', summary: 'Analysis observed.', values: { count, private: 'PRIVATE-NOT-FED' } }; } };
+    async run() { return { result: { outcome: 'finished', summary: 'Analysis observed.', values: { count, private: 'PRIVATE-NOT-FED' } }, output: null }; } };
   const f = fixture(definition, '', true); const owner = await launch(f);
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'blocked', result: { executor: { kind: 'agent', agent: 'planner' }, node_id: count ? 'assess' : 'repair' } });
   expect(f.provider).toHaveBeenCalledTimes(1);
@@ -779,6 +804,7 @@ it.each([false, true])('Stop retains hook owner through finite raw cleanup after
   const exited = deferred(); let callbacks = 0;
   const cleanupError = new Error('hook raw cleanup failed');
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['after_activation_commit'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
     async run(_config, _inputs, capabilities, signal) {
       await capabilities.command!({ script: 'exit 0', args: [], cwd: '.', env: {}, timeoutMs: 1000, terminateGraceMs: 50 }, signal);
@@ -890,6 +916,7 @@ it('fresh startup preserves a fatal lost finish and explicit Run enters STOPPED,
     throw new Error('Lost invocation must not be replayed.');
   });
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [], run };
   const f = fixture(definition, '', false, true, false, {}, undefined, root);
   expect(f.cards.read('project')!.lifecycle.status).toBe('running');
@@ -950,8 +977,9 @@ it('known hook scope cleanup failure retains containment error without replacing
 it('invalid advisory return after a known plugin effect preserves DONE, with no retry', async () => {
   let effects = 0;
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['after_activation_commit'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
-    async run() { effects++; return { outcome: 'undeclared', summary: 'Not a valid verdict', values: {} }; } };
+    async run() { effects++; return { result: { outcome: 'undeclared', summary: 'Not a valid verdict', values: {} }, output: null }; } };
   const f = fixture(undefined, 'exit 0', false, false, false, {}, { definition });
   const owner = await launch(f);
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'done' });

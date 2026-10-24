@@ -239,6 +239,7 @@ export class CardProcessActor extends BaseActor {
             },
           );
           await invokeOperation({
+            collectOutput: false,
             ...this.#operationResources,
             cardId: this.cardId,
             execution: hook.execution,

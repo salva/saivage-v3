@@ -1,7 +1,7 @@
 import { z } from 'zod';
+import { operationIdSchema, operationKeySchema, operationNamespaceSchema } from '../../schemas/operation-id.js';
+import { operationOutputSourceSchema, type OperationOutputSource } from '../../schemas/action-output.js';
 
-export const operationIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/u);
-const componentSchema = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/u);
 const outcomeSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
 const fieldNameSchema = z.string().regex(/^[a-z][a-z0-9_]{0,47}$/u);
 const operationValueSchema = z.union([
@@ -26,8 +26,15 @@ export interface OperationReturn {
   readonly values: OperationValues;
 }
 
+/** Private completed bytes are not flat routing fields or publication authority. */
+interface OperationRunResult {
+  readonly result: OperationReturn;
+  readonly output: Uint8Array | null;
+}
+
 /** Capabilities are supplied explicitly by the invocation owner, never a service bag. */
 interface OperationCapabilities {
+  readonly invocationId: string;
   readonly readFile?: (projectRelativePath: string) => string;
   readonly command?: (
     input: {
@@ -50,12 +57,14 @@ export interface OperationDefinition<Config = unknown> {
   readonly inputs: OperationFields;
   readonly outcomes: Readonly<Record<string, OperationFields>>;
   readonly retainFields: readonly string[];
+  readonly output: OperationOutputSource | null;
+  artifacts(config: Config, invocationId: string): readonly string[];
   run(
     config: Config,
     input: OperationValues,
     capabilities: OperationCapabilities,
     signal: AbortSignal,
-  ): Promise<OperationReturn>;
+  ): Promise<OperationRunResult>;
 }
 export interface OperationPlugin {
   readonly namespace: string;
@@ -158,6 +167,7 @@ function freezeDefinition(definition: OperationDefinition): OperationDefinition 
   if (definition.contractVersion !== 1)
     throw new Error(`Unsupported operation contract for '${definition.id}'.`);
   if (!definition.provider.name) throw new Error('Operation provider must have an exact name.');
+  operationOutputSourceSchema.nullable().parse(definition.output);
   if (
     definition.bindings.length === 0 ||
     new Set(definition.bindings).size !== definition.bindings.length ||
@@ -212,6 +222,27 @@ function freezeDefinition(definition: OperationDefinition): OperationDefinition 
   });
 }
 
+export function validateOperationRunResult(
+  definition: OperationDefinition,
+  value: unknown,
+): OperationRunResult {
+  const completed = z.object({ result: z.unknown(), output: z.instanceof(Uint8Array).nullable() })
+    .strict().parse(value);
+  const result = validateOperationReturn(definition, completed.result);
+  if (definition.output === 'returned-text') {
+    if (completed.output === null) throw new Error('Returned-text operation omitted its output.');
+    if (completed.output.byteLength > 1024 * 1024) throw new Error('Operation output exceeds 1MiB.');
+    const bytes = Uint8Array.from(completed.output);
+    const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    if (!content.trim() || content.includes('\0'))
+      throw new Error('Operation output must be substantive text without NUL.');
+    return Object.freeze({ result, output: bytes });
+  }
+  if (completed.output !== null)
+    throw new Error('Only returned-text operations may supply output bytes.');
+  return Object.freeze({ result, output: null });
+}
+
 /** Explicit compiled declarations only. The mutable map never escapes this closure. */
 export function compileOperations(
   builtins: readonly OperationDefinition[],
@@ -228,17 +259,17 @@ export function compileOperations(
   };
   for (const definition of builtins) {
     const namespace = operationIdSchema.parse(definition.id).split('.')[0]!;
-    if (!reserved.has(namespace) || definition.provider.kind !== 'builtin')
+    if (!reserved.has(namespace) || definition.provider.kind !== 'builtin' || definition.provider.name !== namespace)
       throw new Error('Invalid builtin operation declaration.');
     add(definition);
   }
   for (const plugin of plugins) {
-    componentSchema.parse(plugin.namespace);
+    operationNamespaceSchema.parse(plugin.namespace);
     if (reserved.has(plugin.namespace) || namespaces.has(plugin.namespace))
       throw new Error(`Reserved or duplicate operation namespace '${plugin.namespace}'.`);
     namespaces.add(plugin.namespace);
     for (const [name, definition] of Object.entries(plugin.operations)) {
-      componentSchema.parse(name);
+      operationKeySchema.parse(name);
       if (
         definition.id !== `${plugin.namespace}.${name}` ||
         definition.provider.kind !== 'plugin' ||

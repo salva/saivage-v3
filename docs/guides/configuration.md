@@ -172,7 +172,7 @@ there is no image garbage-collection promise.
 
 ## Configure workflows and records
 
-A card type declares permitted children, records and `workflow.format_version: 3`.
+A card type declares permitted children, records and `workflow.format_version: 4`.
 For retained explicit workflow2 inputs, follow the
 [literal-key adoption boundary](../runbook/state-adoption.md#workflow3-literal-protection-keys),
 not an automatic version rewrite.
@@ -210,7 +210,7 @@ check:
       terminate_grace_ms: 2000
       artifacts: [reports/test-summary.txt]
     inputs: { args: { literal: [--runInBand] } }
-  stdout_record: check-report.md
+  output_record: check-report.md
   records:
     check-report.md: { mode: continue, gate: updated }
   edges:
@@ -227,13 +227,18 @@ Environment is sanitized plus root variables and explicit safe literals; no secr
 delivery or root-variable overrides. Artifacts are at most16 exact relative paths,
 not globs or captured historical contents.
 
-Omit `stdout_record` and use `records: {}` for capture-only execution. Binding
+Omit `output_record` and use `records: {}` for capture-only execution. Binding
 requires an exact declared nonbootstrap record and `continue/updated`. An open
 draft blocks launch/publication. Eligible complete stdout is substantive strict
 UTF-8 without NUL,≤1MiB, copied without trimming/truncation or stderr fallback.
-It is factual shell-stdout authorship, not a test verdict; equal text from a fresh
+It is factual `action-output` authorship with a command-stdout descriptor, not a test verdict; equal text from a fresh
 invocation can become another accepted document. Actions cannot initialize/clean/
 close records; other action requirements are accepted-only `continue/exists`.
+Compiled plugins declaring returned-text use the same binding and acceptance owner,
+with separately validated copied text rather than a plugin-selected capture path.
+No-output actions cannot bind a destination. See the
+[four-family cutover](../runbook/state-adoption.md#generalized-action-output) before
+adopting this workflow input against retained state.
 
 Typed routing supports action cases and predecessor output handoff, not arbitrary
 expressions. Agent inputs use declared flat `data_inputs`; every entry/route must

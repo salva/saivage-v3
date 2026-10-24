@@ -410,8 +410,8 @@ Safe record content remains inspectable. The Analyst may accept content under it
 ordinary admission before entry, but an open workflow draft, including an interrupted
 scaffold, conflicts. No UI draft takeover or creation-time scaffold preview exists.
 
-Show agent, external credential-holder, runtime bootstrap/repair and shell-stdout
-authorship distinctly. Shell reports retain node, operation and actual disposition,
+Show agent, external credential-holder, runtime bootstrap/repair and action-output
+authorship distinctly. Reports retain node, operation, declared output source and actual disposition,
 not an agent verdict, completed program work or workflow approval. Accepted versions,
 history and diffs retain their own author even for equal-content invocations; capture
 inspection is separate. Drafts/baselines never borrow backing attribution. Apply

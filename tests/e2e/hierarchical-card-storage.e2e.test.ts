@@ -62,7 +62,7 @@ describe('reset-only hierarchical card storage', () => {
     const catalog = readCommittedCardArtifactCatalog(root, goal.id);
     if (catalog.kind !== 'found') throw new Error('Expected goal history.');
     const parentRows = catalog.value.rows.filter((row) => row.kind === 'card-version');
-    expect(parentRows.every((artifact) => artifact.format_version === 4)).toBe(true);
+    expect(parentRows.every((artifact) => artifact.format_version === 5)).toBe(true);
     const linkRows = parentRows.filter((artifact) => artifact.change?.kind === 'child_link');
     expect(linkRows.map((artifact) => artifact.card.child_membership)).toEqual([
       [dependency.id], [dependency.id, dependent.id], [dependency.id, dependent.id, retainedTombstone.id],

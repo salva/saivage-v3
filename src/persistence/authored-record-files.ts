@@ -165,7 +165,7 @@ function readAccepted(
   if (
     definition.bootstrap &&
     artifact.predecessor === null &&
-    (artifact.version !== 1 || artifact.accepted.author.kind === 'shell-stdout')
+    (artifact.version !== 1 || artifact.accepted.author.kind === 'action-output')
   )
     throw new Error('Invalid bootstrap accepted origin.');
   if (
@@ -174,8 +174,8 @@ function readAccepted(
     (!definition.bootstrap || artifact.version !== 1 || artifact.predecessor !== null)
   )
     throw new Error('Invalid runtime bootstrap acceptance.');
-  if (definition.bootstrap && artifact.accepted.author.kind === 'shell-stdout')
-    throw new Error('Shell stdout cannot author a bootstrap record.');
+  if (definition.bootstrap && artifact.accepted.author.kind === 'action-output')
+    throw new Error('Action output cannot author a bootstrap record.');
   return artifact;
 }
 function project(
@@ -481,7 +481,7 @@ function publishAcceptance(
   const version = (prior?.accepted?.version ?? 0) + 1;
   const artifact = authoredRecordVersionArtifactSchema.parse({
     ...identity(cardId, definition),
-    format_version: 4,
+    format_version: 5,
     kind: 'accepted-record',
     entry_id: entryId,
     version,
@@ -533,12 +533,12 @@ export function acceptAuthoredRecord(
   temporary?: PublicationTemporaryIdFactory,
 ): CurrentRecordProjection {
   const cardId = projection.card.id;
-  if (definition.bootstrap && author.kind === 'shell-stdout')
-    throw new Error('Shell stdout cannot author a bootstrap record.');
+  if (definition.bootstrap && author.kind === 'action-output')
+    throw new Error('Action output cannot author a bootstrap record.');
   const prior = readHead(projectRoot, cardId, definition);
   if (prior?.draft) throw new Error('Record already has an open workflow draft.');
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
-  if (author.kind !== 'shell-stdout' && (prior?.baseline?.content ?? accepted?.content) === content)
+  if (author.kind !== 'action-output' && (prior?.baseline?.content ?? accepted?.content) === content)
     throw new Error('Record content is unchanged.');
   const observed = acceptanceCard(projection);
   return publishAcceptance(

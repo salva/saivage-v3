@@ -96,7 +96,7 @@ take over an open workflow draft.
 | `agent` | The configured named agent authored the acceptance; no independent correctness guarantee |
 | `external-agent` | The configured external credential-holder principal, not verified person/model identity |
 | `runtime:bootstrap` / `runtime:repair` | Procedure-owned structural bootstrap or visibly synthetic repair, not old work/approval |
-| `shell-stdout` | Exact shell.run contract, activation/invocation/node/ordinal/process, stdout stream, outcome and observed leader exit |
+| `action-output` | Exact operation/contract/provider, activation/invocation/node/ordinal, actual nullable process/leader facts, outcome and body-bound source/byte-size/SHA256; returned-text is not native stdout |
 
 Child creation and root bootstrap have their actual owner attribution; do not
 relabel every initial document as runtime work. External attribution lives in
@@ -202,13 +202,13 @@ Optional stdout binding (node excerpt, not complete config):
 ```yaml
 # Enclosing type declares nonbootstrap check-report.md:
 # {format: markdown, schema: check-report.v1, bootstrap: false}
-stdout_record: check-report.md
+output_record: check-report.md
 records:
   check-report.md: {mode: continue, gate: updated}
 ```
 
 Use a full shell node with all four configured outcomes/edges; capture-only omits
-stdout_record and uses `records: {}`. Only own declared nonbootstrap shell-node
+output_record and uses `records: {}`. Only own declared nonbootstrap shell-node
 destination qualifies, never agents/other actions/hooks. An open draft blocks launch
 or later publication. Completed stdout alone must be valid substantive UTF-8 <=1MiB.
 Nonregular/missing/unreadable/invalid/NUL/empty/whitespace/oversize output fails without

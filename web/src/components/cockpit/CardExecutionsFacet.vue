@@ -21,6 +21,9 @@
           <dt>Started</dt><dd>{{ detail.started_at }}</dd><dt>Finished</dt><dd>{{ detail.finished_at ?? 'No completion retained' }}</dd>
           <dt>Disposition / outcome</dt><dd>{{ detail.disposition ?? 'unknown' }} / {{ detail.outcome ?? 'none retained' }}</dd>
           <dt>Summary</dt><dd>{{ detail.summary ?? 'none retained' }}</dd>
+          <dt>Declared output source</dt><dd>{{ detail.output_source ?? 'none' }}</dd>
+          <dt>Completed output</dt><dd>{{ detail.output ? `${detail.output.source} · ${detail.output.size_bytes} bytes · SHA256 ${detail.output.sha256}` : 'none retained' }}</dd>
+          <dt>Declared artifacts</dt><dd>{{ detail.artifact_paths.length ? detail.artifact_paths.join(', ') : 'none' }}</dd>
           <dt>Leader exit</dt><dd>{{ detail.leader_exit ? JSON.stringify(detail.leader_exit) : 'not observed' }}</dd>
           <dt>Leader error</dt><dd>{{ detail.leader_error ? JSON.stringify(detail.leader_error) : 'not observed' }}</dd>
           <dt>Timeout</dt><dd>{{ detail.timeout_reason ?? 'none retained' }}</dd><dt>Interruption</dt><dd>{{ detail.interruption ?? 'none retained' }}</dd>

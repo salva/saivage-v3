@@ -180,7 +180,7 @@ agents:
 card_types:
   code:
     workflow:
-      format_version: 3
+      format_version: 4
       entries:
         STOPPED:
           node: red

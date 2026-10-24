@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { uuidV4Schema } from './uuid.js';
+import { operationIdSchema } from './operation-id.js';
 
 const workflowExecutorSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('agent'), agent: z.string().min(1) }).strict(),
   z
     .object({
       kind: z.literal('action'),
-      action: z.string().regex(/^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/u),
+      action: operationIdSchema,
       contract_version: z.number().int().positive(),
       provider: z.object({ kind: z.enum(['builtin', 'plugin']), name: z.string().min(1) }).strict(),
       invocation_id: uuidV4Schema,

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { operationIdSchema } from '../schemas/operation-id.js';
+import { actionOutputDescriptorSchema, operationOutputSourceSchema } from '../schemas/action-output.js';
 import { cardIdSchema, uuidV4Schema } from '../schemas/index.js';
 import { cardExecutionFile } from './layout.js';
 import {
@@ -12,7 +14,6 @@ import { publishFreshFile } from './replace-file.js';
 const boundedText = z
   .string()
   .refine((value) => Buffer.byteLength(value) <= 4096, 'Execution text exceeds 4096 bytes.');
-const operationId = z.string().regex(/^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/u);
 const positiveVersion = z.number().int().safe().positive();
 const identity = {
   row_id: uuidV4Schema,
@@ -81,7 +82,7 @@ const startSchema = z
   .object({
     ...identity,
     kind: z.literal('invocation_started'),
-    operation: operationId,
+    operation: operationIdSchema,
     contract_version: positiveVersion,
     provider: z
       .object({
@@ -89,6 +90,8 @@ const startSchema = z
         name: boundedText.refine((name) => name.length > 0),
       })
       .strict(),
+    output_source: operationOutputSourceSchema.nullable(),
+    artifact_paths: z.array(relativePath).max(16),
     binding: bindingSchema,
     input: z.array(observationSchema).max(32),
     config: z.array(observationSchema).max(32),
@@ -156,6 +159,7 @@ const finishSchema = z
       .nullable(),
     values: z.array(observationSchema).max(32),
     files: z.array(fileReference).max(18),
+    output: actionOutputDescriptorSchema.nullable(),
     absent_artifacts: z.array(relativePath).max(16),
     external_effects: z.literal('unknown'),
   })
@@ -173,7 +177,7 @@ export type CardExecutionFile = z.infer<typeof fileReference>;
 export type CardExecutionBinding = z.infer<typeof bindingSchema>;
 const envelopeSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     type: z.literal('card-execution'),
     rows: z.array(cardExecutionRowSchema).min(1),
   })
@@ -183,7 +187,7 @@ function validateRows(cardId: string, rows: readonly CardExecutionRow[]): void {
   const rowIds = new Set<string>();
   const invocations = new Map<
     string,
-    { started: CardExecutionStart; processes: Set<string>; finished: boolean }
+    { started: CardExecutionStart; processes: Map<string, CardExecutionFile[]>; finished: boolean }
   >();
   for (const row of rows) {
     if (row.card_id !== cardId || rowIds.has(row.row_id))
@@ -213,7 +217,11 @@ function validateRows(cardId: string, rows: readonly CardExecutionRow[]): void {
         throw new Error('Shell start needs actual command facts.');
       if (row.operation !== 'shell.run' && row.shell !== null)
         throw new Error('Non-shell start cannot claim shell facts.');
-      invocations.set(row.invocation_id, { started: row, processes: new Set(), finished: false });
+      if (row.operation === 'shell.run' && row.output_source !== 'command-stdout')
+        throw new Error('Shell start requires command-stdout output declaration.');
+      if (new Set(row.artifact_paths).size !== row.artifact_paths.length)
+        throw new Error('Execution artifact declaration contains duplicates.');
+      invocations.set(row.invocation_id, { started: row, processes: new Map(), finished: false });
       continue;
     }
     const invocation = invocations.get(row.invocation_id);
@@ -227,10 +235,24 @@ function validateRows(cardId: string, rows: readonly CardExecutionRow[]): void {
         new Set(row.files.map((file) => (file.kind === 'capture' ? file.stream : ''))).size !== 2
       )
         throw new Error('Process start needs exact stdout and stderr references.');
-      invocation.processes.add(row.process_id);
+      invocation.processes.set(row.process_id, row.files);
     } else {
       if (row.process && !invocation.processes.has(row.process.id) && row.leader_error === null)
         throw new Error('Execution process facts have no observed spawn or spawn error.');
+      const selectedCaptures = row.process ? invocation.processes.get(row.process.id) : undefined;
+      const finishedCaptures = row.files.filter((file) => file.kind === 'capture');
+      if (selectedCaptures && (finishedCaptures.length !== selectedCaptures.length ||
+        finishedCaptures.some((file) => !selectedCaptures.some((selected) =>
+          selected.kind === 'capture' && selected.stream === file.stream && selected.path === file.path))))
+        throw new Error('Execution finish capture references disagree with observed process start.');
+      const artifactPaths = [
+        ...row.files.flatMap((file) => file.kind === 'artifact' ? [file.path] : []),
+        ...row.absent_artifacts,
+      ];
+      if (artifactPaths.length !== invocation.started.artifact_paths.length ||
+        new Set(artifactPaths).size !== artifactPaths.length ||
+        artifactPaths.some((path) => !invocation.started.artifact_paths.includes(path)))
+        throw new Error('Execution artifact observations disagree with exact declared selection.');
       if (row.disposition === 'spawn_failed' && (row.leader_error === null || row.outcome !== null))
         throw new Error('Spawn failure needs observed error and no configured outcome.');
       if (row.disposition === 'cancelled' && (row.interruption === null || row.outcome !== null))
@@ -239,6 +261,14 @@ function validateRows(cardId: string, rows: readonly CardExecutionRow[]): void {
         throw new Error('Timeout needs an explicit reason.');
       if (row.disposition !== 'returned' && row.disposition !== 'timed_out' && row.outcome !== null)
         throw new Error('Unaccepted execution cannot claim a configured outcome.');
+      if (row.output) {
+        if (row.outcome === null || row.output.source !== invocation.started.output_source)
+          throw new Error('Execution output has no matching accepted source declaration.');
+        if (row.output.source === 'command-stdout' && (
+          !row.process || row.process.group !== 'absent' || row.process.stdout !== 'eof' ||
+          row.process.stdout_error !== null || !row.files.some((file) => file.kind === 'capture' && file.stream === 'stdout')
+        )) throw new Error('Execution stdout output lacks complete captured process facts.');
+      }
       invocation.finished = true;
     }
   }
@@ -276,7 +306,7 @@ export function appendCardExecutions(
   values: readonly CardExecutionRow[],
 ): void {
   const path = cardExecutionFile(projectRoot, cardIdSchema.parse(cardId));
-  const envelope = envelopeSchema.parse({ version: 1, type: 'card-execution', rows: values });
+  const envelope = envelopeSchema.parse({ version: 2, type: 'card-execution', rows: values });
   const prior = readCardExecutions(projectRoot, cardId);
   validateRows(cardId, [...prior, ...envelope.rows]);
   const bytes = Buffer.from(`${JSON.stringify(envelope)}\n`);

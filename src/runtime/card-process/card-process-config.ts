@@ -186,7 +186,7 @@ export type CompiledNodeContract = ProcessStateBase &
     kind: 'node';
     nodeId: string;
     execution: CompiledAgentExecution | CompiledActionExecution;
-    stdoutRecord: CompiledRecordDefinition | null;
+    outputRecord: CompiledRecordDefinition | null;
     recordPrompts: readonly CompiledRecordPrompt[];
     requirements: readonly CompiledRecordRequirement[];
     initializeRecords: readonly CompiledRecordDefinition[];
@@ -640,7 +640,7 @@ type ProcessEdgeDraft = Readonly<{
 type ProcessNodeDraft = Readonly<{
   nodeId: string;
   execution: CompiledAgentExecution | CompiledActionExecution;
-  stdoutRecord: CompiledRecordDefinition | null;
+  outputRecord: CompiledRecordDefinition | null;
   recordPrompts: readonly CompiledRecordPrompt[];
   requirements: readonly CompiledRecordRequirement[];
   initializeRecords: readonly CompiledRecordDefinition[];
@@ -736,15 +736,17 @@ function compileCardTypeInputs(
   for (const [rawNodeId, node] of Object.entries(source.workflow.nodes)) {
     const nodeId = identifier(rawNodeId, `${location}.workflow.nodes key`);
     const selection = node.execution;
-    const stdoutRecord = node.stdout_record === undefined ? null : records.get(node.stdout_record);
-    if (node.stdout_record !== undefined) {
-      if (selection.kind !== 'action' || selection.action !== 'shell.run')
-        throw new Error(`Node '${nodeId}' stdout_record requires shell.run action execution.`);
-      if (!stdoutRecord || stdoutRecord.bootstrap)
-        throw new Error(`Node '${nodeId}' stdout_record requires a declared nonbootstrap record.`);
-      const requirement = node.records[node.stdout_record];
+    const actionExecution = selection.kind === 'action'
+      ? compileActionExecution(selection, operations, 'node') : null;
+    const outputRecord = node.output_record === undefined ? null : records.get(node.output_record);
+    if (node.output_record !== undefined) {
+      if (!actionExecution || actionExecution.operation.output === null)
+        throw new Error(`Node '${nodeId}' output_record requires an action with declared output.`);
+      if (!outputRecord || outputRecord.bootstrap)
+        throw new Error(`Node '${nodeId}' output_record requires a declared nonbootstrap record.`);
+      const requirement = node.records[node.output_record];
       if (requirement?.mode !== 'continue' || requirement.gate !== 'updated')
-        throw new Error(`Node '${nodeId}' stdout_record requires continue/updated.`);
+        throw new Error(`Node '${nodeId}' output_record requires continue/updated.`);
     }
     const agent = selection.kind === 'agent' ? agents.get(selection.agent) : null;
     if (selection.kind === 'agent' && !agent)
@@ -784,7 +786,7 @@ function compileCardTypeInputs(
       const definition = records.get(name) ?? genericRecordDefinition(name);
       if (
         !agent &&
-        name !== stdoutRecord?.name &&
+        name !== outputRecord?.name &&
         (requirement.mode !== 'continue' || requirement.gate !== 'exists')
       )
         throw new Error(`Action '${nodeId}' records require continue/exists accepted records.`);
@@ -804,7 +806,7 @@ function compileCardTypeInputs(
     const edges = new Map<string, ProcessEdgeDraft>();
     const execution: CompiledAgentExecution | CompiledActionExecution =
       selection.kind === 'action'
-        ? compileActionExecution(selection, operations, 'node')
+        ? actionExecution!
         : Object.freeze({
             kind: 'agent',
             agent: agent!,
@@ -998,7 +1000,7 @@ function compileCardTypeInputs(
       Object.freeze({
         nodeId,
         execution,
-        stdoutRecord: stdoutRecord ?? null,
+        outputRecord: outputRecord ?? null,
         recordPrompts,
         requirements: Object.freeze(requirements),
         initializeRecords: Object.freeze(initializeRecords),
@@ -1319,7 +1321,7 @@ function buildCardTypeStateTable(
         recordPrompts: node.recordPrompts,
         requirements: node.requirements,
         initializeRecords: node.initializeRecords,
-        stdoutRecord: node.stdoutRecord,
+        outputRecord: node.outputRecord,
         descendantContext: node.descendantContext,
         childCreationTypes: node.childCreationTypes,
         childActivationTypes: node.childActivationTypes,

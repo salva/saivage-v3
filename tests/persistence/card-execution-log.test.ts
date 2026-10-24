@@ -19,6 +19,7 @@ import {
   type CardExecutionFinish,
 } from '../../src/persistence/card-execution-log.js';
 import { cardExecutionFile } from '../../src/persistence/layout.js';
+import { sha256Hex } from '../../src/schemas/sha256.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -40,6 +41,8 @@ function start(): CardExecutionStart {
     operation: 'acme-analysis.inspect',
     contract_version: 1,
     provider: { kind: 'plugin', name: 'acme-analysis' },
+    output_source: null,
+    artifact_paths: [],
     binding: { kind: 'node', activation_id: randomUUID(), node_id: 'inspect', ordinal: 0 },
     input: [],
     config: [],
@@ -63,6 +66,7 @@ function finish(source: CardExecutionStart): CardExecutionFinish {
     outcome: 'finished',
     values: [{ name: 'count', type: 'integer', value: 2 }],
     files: [],
+    output: null,
     absent_artifacts: [],
     external_effects: 'unknown',
   };
@@ -82,7 +86,7 @@ describe('lazy exact card execution evidence', () => {
       projection: [row], retainedLength: prefix.length, tornSuffixLength: 2,
     });
     expect(readFileSync(path)).toEqual(torn);
-    const invalid = Buffer.from(`${JSON.stringify({ version: 1, type: 'card-execution', rows: [finish(start())] })}\npartial`);
+    const invalid = Buffer.from(`${JSON.stringify({ version: 2, type: 'card-execution', rows: [finish(start())] })}\npartial`);
     writeFileSync(path, invalid);
     expect(() => inspectCardExecutions(root, 'project')).toThrow(/open invocation/);
     expect(readFileSync(path)).toEqual(invalid);
@@ -102,8 +106,8 @@ describe('lazy exact card execution evidence', () => {
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(envelopes.map(({ version, type, rows }) => [version, type, rows.length])).toEqual([
-      [1, 'card-execution', 1],
-      [1, 'card-execution', 2],
+      [2, 'card-execution', 1],
+      [2, 'card-execution', 2],
     ]);
   });
   it('validates the complete retained prefix before truncating only the torn final suffix', () => {
@@ -117,7 +121,7 @@ describe('lazy exact card execution evidence', () => {
     expect(readFileSync(path)).toEqual(prefix);
     appendFileSync(
       path,
-      `${JSON.stringify({ version: 1, type: 'card-execution', rows: [row] })}\npartial`,
+      `${JSON.stringify({ version: 2, type: 'card-execution', rows: [row] })}\npartial`,
     );
     const invalid = readFileSync(path);
     expect(() => readCardExecutions(root, 'project')).toThrow(/duplicate|Duplicate/);
@@ -142,11 +146,37 @@ describe('lazy exact card execution evidence', () => {
     );
     expect(readFileSync(path)).toEqual(bytes);
   });
-  it.each([0, 2, 'rows'])('rejects complete unsupported envelopes without rewriting %#', (bad) => {
+  it('rejects output without a matching declaration and undeclared artifact observations', () => {
+    const root = project();
+    const s = start();
+    const f = finish(s);
+    appendCardExecutions(root, 'project', [s]);
+    const before = readFileSync(cardExecutionFile(root, 'project'));
+    expect(() => appendCardExecutions(root, 'project', [{ ...f, output: {
+      source: 'returned-text', size_bytes: 6, sha256: sha256Hex('report'),
+    } }])).toThrow(/source declaration/);
+    expect(() => appendCardExecutions(root, 'project', [{ ...f, absent_artifacts: ['undeclared.txt'] }]))
+      .toThrow(/declared selection/);
+    expect(readFileSync(cardExecutionFile(root, 'project'))).toEqual(before);
+    appendCardExecutions(root, 'project', [f]);
+  });
+  it('retains returned-text descriptors without inventing a process, and refuses fake stdout', () => {
+    const root = project();
+    const s = { ...start(), output_source: 'returned-text' as const };
+    const f = { ...finish(s), output: { source: 'returned-text' as const, size_bytes: 6, sha256: sha256Hex('report') } };
+    appendCardExecutions(root, 'project', [s, f]);
+    expect(readCardExecutions(root, 'project').at(-1)).toMatchObject({ process: null, output: f.output });
+    const stdout = { ...start(), output_source: 'command-stdout' as const };
+    appendCardExecutions(root, 'project', [stdout]);
+    expect(() => appendCardExecutions(root, 'project', [{ ...finish(stdout), output: {
+      ...f.output, source: 'command-stdout',
+    } }])).toThrow(/complete captured process facts/);
+  });
+  it.each([0, 1, 3, 'rows'])('rejects complete unsupported envelopes without rewriting %#', (bad) => {
     const root = project();
     const path = cardExecutionFile(root, 'project');
     const bytes = Buffer.from(
-      `${JSON.stringify({ version: typeof bad === 'number' ? bad : 1, type: typeof bad === 'string' ? bad : 'card-execution', rows: [start()] })}\n`,
+      `${JSON.stringify({ version: typeof bad === 'number' ? bad : 2, type: typeof bad === 'string' ? bad : 'card-execution', rows: [start()] })}\n`,
     );
     writeFileSync(path, bytes);
     expect(() => readCardExecutions(root, 'project')).toThrow();

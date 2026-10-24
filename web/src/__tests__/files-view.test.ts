@@ -251,7 +251,7 @@ describe('FilesView', () => {
     const path = '.saivage/cards/card-a/card.json';
     vi.mocked(getFileContent).mockResolvedValue({
       path, size: 128, contentType: 'application/json', redacted: false, sensitivity: 'normal',
-      content: JSON.stringify({ format_version: 4, kind: 'card-version', entry_id: '00000000-0000-4000-8000-000000000001', card_id: 'card-a', version: 2, published_at: '2026-09-21T00:00:00.000Z', card: { lifecycle: { status: 'blocked' } }, change: { summary: 'lifecycle updated', changed_fields: ['lifecycle'], actor: null } }),
+      content: JSON.stringify({ format_version: 5, kind: 'card-version', entry_id: '00000000-0000-4000-8000-000000000001', card_id: 'card-a', version: 2, published_at: '2026-09-21T00:00:00.000Z', card: { lifecycle: { status: 'blocked' } }, change: { summary: 'lifecycle updated', changed_fields: ['lifecycle'], actor: null } }),
     });
     const { wrapper } = await mountFilesView({
       initialRoute: `/files?root=meta&path=${encodeURIComponent(path)}`,
@@ -262,7 +262,7 @@ describe('FilesView', () => {
           : { path: requested ?? '', files: [] };
       },
     });
-    expect(wrapper.text()).toContain('"format_version":4');
+    expect(wrapper.text()).toContain('"format_version":5');
     expect(wrapper.text()).not.toMatch(/refusal badge|policy evidence|evidence browser/i);
     wrapper.unmount();
   });

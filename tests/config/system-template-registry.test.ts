@@ -27,7 +27,7 @@ describe('system template registry',()=>{
   it('accepts the registered templates at load-time validation',()=>{
     expect(()=>validateSystemTemplates(SYSTEM_TEMPLATES)).not.toThrow();
     for (const template of SYSTEM_TEMPLATES) {
-      for (const type of Object.values(template.config.card_types!)) expect(type.workflow.format_version).toBe(3);
+      for (const type of Object.values(template.config.card_types!)) expect(type.workflow.format_version).toBe(4);
     }
   });
 

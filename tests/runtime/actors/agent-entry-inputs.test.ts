@@ -76,11 +76,12 @@ function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'acti
   };
   let operationValues: OperationValues | null = null;
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {},
     outcomes: { finished: { secret: { type: 'integer', workflow: true }, credential: { type: 'string', workflow: true },
       credentials: { type: 'strings', workflow: true }, private: { type: 'string', workflow: false } } }, retainFields: [],
     async run() { operationValues = { secret: 17, credential: ALPHA, credentials: [ALPHA, BETA], private: 'unselectedOpaquePrivate871' };
-      return { outcome: 'finished', summary: 'Observed Bearer abcdefghijklmnopqrstuvwxyz123456', values: operationValues }; } };
+      return { result: { outcome: 'finished', summary: 'Observed Bearer abcdefghijklmnopqrstuvwxyz123456', values: operationValues }, output: null }; } };
   if (route === 'action') {
     workflow.entries.BACKLOG = { node: 'source' };
     workflow.nodes.source = { execution: { kind: 'action', action: 'acme.inspect', contract_version: 1, config: {}, inputs: {} }, records: { 'status.md': { mode: 'continue', gate: 'exists' } },

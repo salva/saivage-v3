@@ -68,11 +68,13 @@ export const shellRunOperation: OperationDefinition<ShellOperationConfig> = {
     timed_out: { reason: { type: 'string', workflow: true } },
   },
   retainFields: ['exit_code', 'signal', 'reason'],
+  output: 'command-stdout',
+  artifacts: (config) => config.artifacts,
   async run(config, input, capabilities, signal) {
     if (!capabilities.command)
       throw new Error('shell.run requires the managed captured-command capability.');
     // The host constructs this capability with a fresh direct scope. Values never enter syntax.
-    return capabilities.command(
+    const result = await capabilities.command(
       {
         script: config.script,
         args: input.args as readonly string[],
@@ -83,5 +85,6 @@ export const shellRunOperation: OperationDefinition<ShellOperationConfig> = {
       },
       signal,
     );
+    return { result, output: null };
   },
 };

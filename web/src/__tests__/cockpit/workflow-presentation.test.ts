@@ -64,7 +64,7 @@ describe('cockpit workflow presentation ownership', () => {
     await flow.setProps({ detail: cardDetail('card-a', { type: 'goal' }) });
     old.resolve(cyclicCodePresentation()); await flushPromises();
     expect(flow.text()).not.toContain("executor's step");
-    current.resolve({ ...cyclicCodePresentation(), card_type: 'goal', nodes: [{ node_id: 'execute', stdout_record: null, initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }] }); await flushPromises();
+    current.resolve({ ...cyclicCodePresentation(), card_type: 'goal', nodes: [{ node_id: 'execute', output_record: null, initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }] }); await flushPromises();
     expect(flow.text()).toContain("planner's step");
     await flow.setProps({ detail: cardDetail('card-a', { type: 'code' }) });
     expect(flow.text()).toContain("executor's step"); expect(api.getWorkflowPresentation).toHaveBeenCalledTimes(2);

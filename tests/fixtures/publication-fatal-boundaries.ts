@@ -98,7 +98,7 @@ if (mode === 'action-node-publication' || mode === 'card-hook-publication' || mo
   if (isStdout) {
     workflow.nodes.check!.execution = { kind: 'action', action: 'shell.run', contract_version: 1,
       config: { script: 'printf "retained report"', timeout_ms: 1000, terminate_grace_ms: 50 }, inputs: { args: { literal: [] } } };
-    workflow.nodes.check!.stdout_record = 'status.md';
+    workflow.nodes.check!.output_record = 'status.md';
     workflow.nodes.check!.records = { 'status.md': { mode: 'continue', gate: 'updated' } };
     workflow.nodes.check!.edges = Object.fromEntries(['passed', 'failed', 'signalled', 'timed_out'].map((outcome) =>
       [outcome, { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } }]));
@@ -113,6 +113,7 @@ if (mode === 'action-node-publication' || mode === 'card-hook-publication' || mo
   const compiled = compileProjectWorkflows(config, { operationPlugins: [{ namespace: 'acme', operations: { inspect: {
     id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1, bindings: [isHook ? 'after_activation_commit' : 'node'],
     config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} }, retainFields: [],
+    output: null, artifacts: () => [],
     async run() {
       if (isHook) {
         processes.processRunner.closeAndTerminateDirectScope = async () => { mark('cleanup'); throw new Error('forbidden cleanup'); };

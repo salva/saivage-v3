@@ -1,11 +1,14 @@
 import { expect, it } from '@jest/globals';
 import { recordAuthorSchema } from '../../src/schemas/record-author.js';
+import { sha256Hex } from '../../src/schemas/sha256.js';
 
 const shell = {
-  kind: 'shell-stdout', action: 'shell.run', contract_version: 1,
+  kind: 'action-output', operation: 'shell.run', contract_version: 1,
+  provider: { kind: 'builtin', name: 'shell' },
   activation_id: '11111111-1111-4111-8111-111111111111',
   invocation_id: '22222222-2222-4222-8222-222222222222',
-  node_id: 'check', ordinal: 0, process_id: 'proc-123456789abc', stream: 'stdout',
+  node_id: 'check', ordinal: 0, process_id: 'proc-123456789abc',
+  output: { source: 'command-stdout', size_bytes: 6, sha256: sha256Hex('report') },
   outcome: 'passed', leader_exit: { exit_code: 0, signal: null },
 };
 it('accepts truthful observed shell dispositions, distinct agent/runtime authors and no legacy author strings', () => {

@@ -228,7 +228,7 @@ const DebugGraphNodeSchema = z
     child_activation_types: z.array(cardTypeSchema),
     readable_records: z.array(recordNameSchema),
     initialize_records: z.array(recordNameSchema),
-    stdout_record: recordNameSchema.nullable(),
+    output_record: recordNameSchema.nullable(),
     requirements: z.array(
       z
         .object({

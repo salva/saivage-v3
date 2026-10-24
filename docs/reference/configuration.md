@@ -240,7 +240,7 @@ is the precise tool lookup, not this field table.
 | Static: agent role, agent-node task | `reference`, `compactable` | Reference required; compactable defaults true |
 | Durable: correction, entry, edge, pending-notification or record prompt | `reference`, `compactable`, optional `compaction_key` | compactable true; a nonempty key is allowed only with compactable false |
 
-Under workflow3, a key is the exact parsed YAML string, not quote delimiters or
+Under workflow4, a key remains the exact parsed YAML string, not quote delimiters or
 escape spelling. `${POLICY_KEY}`, embedded substitutions, whitespace, case and
 Unicode remain literal whether variables exist or not; no key-only missing-variable
 warning is emitted. Empty is invalid; whitespace-only is nonempty and is not
@@ -303,7 +303,7 @@ Path `card_types.<type>`; `project` required in a supplied map:
 | --- | --- |
 | `permitted_child_types` | Required array; configured unique types, never `project`; empty means leaf |
 | `records` | Required name→record declaration map; exactly one bootstrap record |
-| `workflow` | Required workflow3 object below |
+| `workflow` | Required workflow4 object below |
 
 At resulting card depth12 creation requires a compiled leaf type. Child permission
 and card identity are runtime requirements, not configurable allocation scans.
@@ -327,7 +327,7 @@ and [baseline0/draft/accepted semantics](../runbook/evidence.md#baseline0-drafts
 
 | Field | Required/default | Constraint |
 | --- | --- | --- |
-| `format_version` | Required | Literal3, independent of operation/initializer versions |
+| `format_version` | Required | Literal4, independent of operation/initializer versions |
 | `notification_recipient` | Required | Existing card agent used by a workflow node |
 | `entries` | Required | Exactly BACKLOG, CHANGED, BLOCKED, STOPPED |
 | `entries.<entry>.node` | Required | Existing node; compiler validates identifier |
@@ -345,7 +345,7 @@ owned by the [workflow engine](../spec/system-specification.md#workflow-engine).
 | Field | Required/default | Constraint |
 | --- | --- | --- |
 | `execution` | Required | Discriminated agent/action below |
-| `stdout_record` | Optional | Declared own nonbootstrap record; shell.run only, requires exactly continue/updated |
+| `output_record` | Optional | Declared own nonbootstrap record; output-declaring action only, requires exactly continue/updated |
 | `initialize_records` | Optional unique ordered record list | Agent only; each declared initializer, matching write pattern and direct write tool |
 | `record_prompts` | Optional array | Agent only; each strict `{record, selection, presence, prompt}` |
 | `record_prompts[].selection` | Required | accepted/effective |
@@ -401,7 +401,7 @@ Owner: [`shellOperationConfigSchema`](https://github.com/salva/saivage-v3/blob/H
 
 Required input `args` is strings. Outcomes are exactly passed(exit_code0),
 failed(exit_code≥1), signalled(signal string), timed_out(reason string). Every outcome
-needs a route. `stdout_record` is on the **node**, not in this config or hook.
+needs a route. `output_record` is on the **node**, not in this config or hook.
 See the [action example](../guides/configuration.md#add-an-action-before-acceptance).
 
 ### Typed inputs and routes

@@ -1,10 +1,11 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { invokeOperation } from '../../../src/runtime/actors/operation-execution.js';
+import { executeFiniteOperation, resolveOperationReadablePath } from '../../../src/runtime/operation-execution.js';
 import { shellRunOperation } from '../../../src/runtime/card-process/shell-operation.js';
 import { compileActionExecution } from '../../../src/runtime/card-process/operation-routing.js';
 import { compileOperations, type OperationDefinition } from '../../../src/runtime/card-process/operation-contract.js';
@@ -23,7 +24,7 @@ function fixture(script: string, extra: Record<string, unknown> = {}) {
   const execution = compileActionExecution({ action: 'shell.run', contract_version: 1,
     config: { script, timeout_ms: 3000, terminate_grace_ms: 50, ...extra }, inputs: { args: { literal: [] } } }, compileOperations([shellRunOperation]), 'node');
   const controller = new AbortController();
-  const args = { projectRoot, cardId: 'project', execution, inputs: { args: [] },
+  const args = { projectRoot, cardId: 'project', execution, inputs: { args: [] }, collectOutput: false,
     binding: { kind: 'node' as const, activation_id: randomUUID(), node_id: 'check', ordinal: 0 },
     processRunner: runner, runtimeProcessRootScope: registry.rootScope, signal: controller.signal,
     retainSettlementFailure: jest.fn() };
@@ -88,10 +89,59 @@ it('treats launch failure as an engine error, not an exit or accepted outcome', 
 it('does not retry an invalid plugin return after its known effect', async () => {
   const f = fixture('exit 0'); let effects = 0;
   const definition: OperationDefinition = { id: 'acme.inspect', provider: { kind: 'plugin', name: 'acme' }, contractVersion: 1,
+    output: null, artifacts: () => [],
     bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: { count: { type: 'integer', workflow: true } } }, retainFields: ['count'],
-    async run() { effects++; return { outcome: 'finished', summary: 'Effect happened.', values: {} }; } };
+    async run() { effects++; return { result: { outcome: 'finished', summary: 'Effect happened.', values: {} }, output: null }; } };
   const execution = compileActionExecution({ action: 'acme.inspect', contract_version: 1, config: {}, inputs: {} }, compileOperations([], [{ namespace: 'acme', operations: { inspect: definition } }]), 'node');
   await expect(invokeOperation({ ...f.args, execution, inputs: {} })).rejects.toThrow();
   expect(effects).toBe(1);
   expect(readCardExecutions(f.projectRoot, 'project').at(-1)).toMatchObject({ disposition: 'unavailable', outcome: null, values: [] });
+});
+
+it('uses the same finite body without a card or card-log append for returned text', async () => {
+  const f = fixture('exit 0');
+  const invocationId = randomUUID();
+  const content = '\uFEFF' + 'literal report\r\n'.repeat(500);
+  const definition: OperationDefinition = {
+    id: 'example.analysis.report', provider: { kind: 'plugin', name: 'example' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { findings: {} },
+    retainFields: [], output: 'returned-text', artifacts: (_config, id) => {
+      expect(id).toBe(invocationId);
+      return [`report-${id}.txt`, `missing-${id}.txt`];
+    },
+    async run(_config, _inputs, capabilities) {
+      expect(capabilities.invocationId).toBe(invocationId);
+      writeFileSync(join(f.projectRoot, `report-${capabilities.invocationId}.txt`), content);
+      return { result: { outcome: 'findings', summary: 'Observed report.', values: {} }, output: Buffer.from(content) };
+    },
+  };
+  const completed = await executeFiniteOperation({
+    invocationId, projectRoot: f.projectRoot, operation: definition, config: {}, inputs: {},
+    collectOutput: true, processRunner: f.runner, parentScope: f.args.runtimeProcessRootScope,
+    attribution: { category: 'runtime_card', cardId: null, ownerId: invocationId, ownerKind: 'runtime' },
+    signal: f.controller.signal, retainSettlementFailure: f.args.retainSettlementFailure,
+    resolveReadablePath: (path) => resolveOperationReadablePath(f.projectRoot, path),
+  });
+  expect(completed.completedOutput).toMatchObject({ content, processId: null, leaderExit: null,
+    descriptor: { source: 'returned-text', size_bytes: Buffer.byteLength(content) } });
+  expect(completed.result).toEqual({ outcome: 'findings', summary: 'Observed report.', values: {} });
+  expect(completed.evidence.output).toEqual(completed.completedOutput!.descriptor);
+  expect(completed.evidence.files).toEqual([expect.objectContaining({
+    kind: 'artifact', path: `report-${invocationId}.txt`, size: Buffer.byteLength(content), source: 'current',
+  })]);
+  expect(completed.evidence.absent_artifacts).toEqual([`missing-${invocationId}.txt`]);
+  expect(readCardExecutions(f.projectRoot, 'project')).toEqual([]);
+});
+
+it('consumes literal shell output only when selected, without changing nonzero outcomes', async () => {
+  const f = fixture('printf "\\357\\273\\277report\\r\\n"; exit 7');
+  const completed = await invokeOperation({ ...f.args, collectOutput: true });
+  expect(completed.result.outcome).toBe('failed');
+  expect(completed.completedOutput).toMatchObject({ content: '\uFEFFreport\r\n',
+    descriptor: { source: 'command-stdout', size_bytes: 11 }, leaderExit: { exit_code: 7, signal: null } });
+  expect(readCardExecutions(f.projectRoot, 'project').at(-1)).toMatchObject({
+    outcome: 'failed', output: completed.completedOutput!.descriptor,
+  });
+  const captureOnly = fixture('printf "\\377\\000"');
+  expect((await invokeOperation(captureOnly.args)).completedOutput).toBeNull();
 });

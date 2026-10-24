@@ -50,6 +50,12 @@ const acceptedRecordSnapshotSchema = z
         code: z.ZodIssueCode.custom,
         message: 'Ordinary provenance exceeds observed card revision.',
       });
+    if (value.author.kind === 'action-output' && (
+      value.author.output.sha256 !== value.content_sha256 ||
+      value.author.output.size_bytes !== value.size_bytes ||
+      value.content.includes('\0')
+    ))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Action output descriptor disagrees with accepted content.' });
   });
 const openRecordDraftSchema = z
   .object({
@@ -123,7 +129,7 @@ export const recordHeadSchema = z
 export const authoredRecordVersionArtifactSchema = z
   .object({
     ...identity,
-    format_version: z.literal(4),
+    format_version: z.literal(5),
     kind: z.literal('accepted-record'),
     entry_id: uuidV4Schema,
     version: positiveSafeIntegerSchema,

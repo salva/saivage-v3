@@ -425,6 +425,7 @@ describe('work GC two-phase selection', () => {
     const start: CardExecutionStart = { kind: 'invocation_started', row_id: randomUUID(), invocation_id: randomUUID(),
       card_id: 'project', timestamp: '2026-10-24T00:00:00.000Z', operation: 'shell.run', contract_version: 1,
       provider: { kind: 'builtin', name: 'shell' }, binding: { kind: 'node', activation_id: randomUUID(), node_id: 'run', ordinal: 0 },
+      output_source: 'command-stdout', artifact_paths: [],
       input: [], config: [], shell: { script: 'echo hello', cwd: '/unrelated', argv: [], env: {} } };
     appendCardExecutions(root, 'project', [start, { kind: 'process_started', row_id: randomUUID(),
       invocation_id: start.invocation_id, card_id: 'project', timestamp: start.timestamp, process_id: 'proc',

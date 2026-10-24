@@ -97,7 +97,7 @@ it('uses ordinary opted-in card refresh with frozen gateways, retained observati
       config.agents.reviewer = { ...config.agents.reviewer!, tools: ['read', 'write'], skills: false };
       config.card_types.project = {
         permitted_child_types: [], records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-        workflow: { format_version: 3,
+        workflow: { format_version: 4,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: {

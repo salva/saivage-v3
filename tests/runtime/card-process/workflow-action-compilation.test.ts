@@ -39,11 +39,16 @@ const inspect: OperationDefinition = {
     },
   },
   retainFields: ['status', 'count'],
+  output: null,
+  artifacts: () => [],
   async run() {
     return {
-      outcome: 'finished',
-      summary: 'Inspected.',
-      values: { status: 'partial', count: 3, paths: ['private'] },
+      result: {
+        outcome: 'finished',
+        summary: 'Inspected.',
+        values: { status: 'partial', count: 3, paths: ['private'] },
+      },
+      output: null,
     };
   },
 };
@@ -100,7 +105,14 @@ function compile(config = fixture()) {
   return compileProjectWorkflows(config, { operationPlugins: [plugin] });
 }
 
-describe('workflow3 typed action compilation', () => {
+describe('workflow4 typed action compilation', () => {
+  it('rejects retained workflow3 rather than treating equal-looking inputs as current', () => {
+    const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
+    const old = { ...config, card_types: Object.fromEntries(Object.entries(config.card_types).map(
+      ([name, type]) => [name, { ...type, workflow: { ...type.workflow, format_version: 3 } }],
+    )) };
+    expect(effectiveSaivageConfigSchema.safeParse(old).success).toBe(false);
+  });
   function stdoutFixture() {
     const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
     const type = config.card_types.code!;
@@ -110,7 +122,7 @@ describe('workflow3 typed action compilation', () => {
     type.workflow.entries.STOPPED = { ...type.workflow.entries.STOPPED, node: 'assess' };
     type.workflow.nodes.execute = {
       execution: { kind: 'action', action: 'shell.run', contract_version: 1, config: { script: 'printf report' }, inputs: { args: { literal: [] } } },
-      stdout_record: 'check-report.md',
+      output_record: 'check-report.md',
       records: { 'check-report.md': { mode: 'continue', gate: 'updated' } },
       edges: Object.fromEntries(['passed', 'failed', 'signalled', 'timed_out'].map(outcome => [outcome, { target: { node: 'assess' } }])),
     };
@@ -121,15 +133,15 @@ describe('workflow3 typed action compilation', () => {
     const workflow = compile(config).cardTypes.get('code')!;
     const node = workflow.states.get('node:execute')!;
     if (node.kind !== 'node') throw new Error('Expected node');
-    expect(node.stdoutRecord).toMatchObject({ name: 'check-report.md', bootstrap: false, declared: true });
+    expect(node.outputRecord).toMatchObject({ name: 'check-report.md', bootstrap: false, declared: true });
     expect(node.requirements).toMatchObject([{ definition: { name: 'check-report.md' }, mode: 'continue', gate: 'updated' }]);
-    expect(projectWorkflowPresentation(workflow).nodes[0]).toMatchObject({ stdout_record: 'check-report.md' });
+    expect(projectWorkflowPresentation(workflow).nodes[0]).toMatchObject({ output_record: 'check-report.md' });
     expect(config.agents).toEqual(TEST_SAIVAGE_CONFIG.agents);
     expect(() => effectiveSaivageConfigSchema.parse({ ...config, card_types: { ...config.card_types, code: { ...config.card_types.code, workflow: { ...config.card_types.code!.workflow, format_version: 1 } } } })).toThrow();
   });
   it.each(['undeclared.md', 'brief.md', '*.md', 'record:///check-report.md?card=project', 'check-report'])('rejects invalid stdout destination %s', destination => {
     const config = stdoutFixture();
-    config.card_types.code!.workflow.nodes.execute!.stdout_record = destination;
+    config.card_types.code!.workflow.nodes.execute!.output_record = destination;
     expect(() => compile(effectiveSaivageConfigSchema.parse(config))).toThrow();
   });
   it.each(['missing', 'exists', 'clean', 'initialize'] as const)('requires exact continue/updated destination admission: %s', invalid => {
@@ -140,22 +152,35 @@ describe('workflow3 typed action compilation', () => {
     if (invalid === 'initialize') node.initialize_records = ['check-report.md'];
     expect(() => compile(config)).toThrow();
   });
-  it('rejects stdout authority on agents, plugins and hooks while leaving unbound requirements narrow', () => {
+  it('rejects output authority on agents, no-output plugins and hooks while leaving unbound requirements narrow', () => {
     const agent = stdoutFixture();
     agent.card_types.code!.workflow.nodes.execute!.execution = structuredClone(TEST_SAIVAGE_CONFIG.card_types.code!.workflow.nodes.execute!.execution);
-    expect(() => compile(agent)).toThrow(/requires shell.run/);
-    const other = fixture(); other.card_types.code!.workflow.nodes.inspect!.stdout_record = 'status.md';
-    expect(() => compile(other)).toThrow(/requires shell.run/);
+    expect(() => compile(agent)).toThrow(/requires an action with declared output/);
+    const other = fixture(); other.card_types.code!.workflow.nodes.inspect!.output_record = 'status.md';
+    expect(() => compile(other)).toThrow(/requires an action with declared output/);
     const hook = stdoutFixture();
     const node = hook.card_types.code!.workflow.nodes.execute!;
     hook.card_types.code!.workflow.after_activation_commit = { statuses: ['done'], execution: node.execution as Extract<typeof node.execution, { kind: 'action' }> };
     const raw = hook as unknown as { card_types: { code: { workflow: { after_activation_commit: Record<string, unknown> } } } };
-    raw.card_types.code.workflow.after_activation_commit.stdout_record = 'check-report.md';
+    raw.card_types.code.workflow.after_activation_commit.output_record = 'check-report.md';
     expect(() => effectiveSaivageConfigSchema.parse(hook)).toThrow();
-    const unbound = stdoutFixture(); delete unbound.card_types.code!.workflow.nodes.execute!.stdout_record;
+    const unbound = stdoutFixture(); delete unbound.card_types.code!.workflow.nodes.execute!.output_record;
     expect(() => compile(unbound)).toThrow(/continue\/exists/);
     unbound.card_types.code!.workflow.nodes.execute!.records['check-report.md']!.gate = 'exists';
     expect(() => compile(unbound)).not.toThrow();
+  });
+  it('admits a returned-text plugin through its declaration rather than a shell identity', () => {
+    const config = stdoutFixture();
+    const node = config.card_types.code!.workflow.nodes.execute!;
+    node.execution = { kind: 'action', action: inspect.id, contract_version: 1, config: {}, inputs: { scope: { literal: 'project' } } };
+    node.edges = { finished: { target: { node: 'assess' } } };
+    const definition: OperationDefinition = { ...inspect, output: 'returned-text',
+      async run() { return { result: { outcome: 'finished', summary: 'Reported.', values: { status: 'complete', count: 0, paths: [] } }, output: Buffer.from('report') }; },
+    };
+    const workflow = compileProjectWorkflows(config, { operationPlugins: [{ namespace: 'acme-analysis', operations: { inspect: definition } }] }).cardTypes.get('code')!;
+    const compiled = workflow.states.get('node:execute')!;
+    if (compiled.kind !== 'node') throw new Error('Expected node.');
+    expect(compiled.outputRecord?.name).toBe('check-report.md');
   });
   it('projects exact action identity and distinct typed branches without agent bindings or executable config disclosure', () => {
     const config = fixture(),

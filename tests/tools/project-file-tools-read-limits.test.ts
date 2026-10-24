@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { canonicalJson } from '../../src/schemas/index.js';
+import { canonicalJson, sha256Hex } from '../../src/schemas/index.js';
 import { globProject, grepProject, MAX_GREP_LINE_CHARS, MAX_READ_FILE_BYTES, readProject as readWithObservations } from '../../src/tools/project-file-tools.js';
 const readProject = async (...args: Parameters<typeof readWithObservations>): Promise<unknown> => (await readWithObservations(...args)).data;
 import { DISCOVERY_RESPONSE_MAX_BYTES } from '../../src/contracts/builtin-tool-inputs.js';
@@ -40,11 +40,14 @@ describe('project file tool read limits', () => {
     const path = 'record:///status.md?card=project';
     cards.initializeRecord('project', 'status.md', () => 'baseline report');
     expect(await readProject(context, { path })).toMatchObject({ content_author: null });
-    const author = { kind: 'shell-stdout' as const, action: 'shell.run' as const, contract_version: 1 as const,
+    const content = 'captured report';
+    const author = { kind: 'action-output' as const, operation: 'shell.run', contract_version: 1 as const,
+      provider: { kind: 'builtin' as const, name: 'shell' },
       activation_id: '11111111-1111-4111-8111-111111111111', invocation_id: '22222222-2222-4222-8222-222222222222',
-      node_id: 'check', ordinal: 0, process_id: 'proc-123456789abc', stream: 'stdout' as const, outcome: 'failed' as const,
+      node_id: 'check', ordinal: 0, process_id: 'proc-123456789abc', outcome: 'failed',
+      output: { source: 'command-stdout' as const, size_bytes: Buffer.byteLength(content), sha256: sha256Hex(content) },
       leader_exit: { exit_code: 9, signal: null } };
-    cards.acceptRecord('project', 'status.md', 'captured report', author);
+    cards.acceptRecord('project', 'status.md', content, author);
     for (const metadata_only of [false, true])
       expect(await readProject(context, { path, metadata_only })).toMatchObject({ content_author: author });
     cards.openRecord('project', 'status.md');

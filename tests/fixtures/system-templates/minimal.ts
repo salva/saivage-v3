@@ -10,7 +10,7 @@ function minimalCardTypes(nodeAgent: 'executor' | 'specialist', prompt: string):
         'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
       },
       workflow: {
-        format_version: 3,
+        format_version: 4,
         notification_recipient: nodeAgent,
         entries: {
           BACKLOG: { node: 'execute' },

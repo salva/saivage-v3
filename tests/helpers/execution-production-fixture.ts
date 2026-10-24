@@ -92,7 +92,7 @@ export async function executionProductionFixture(exitCode = 0, deadline = false)
           },
           inputs: { args: { literal: [] } },
         },
-        stdout_record: 'check-report.md',
+        output_record: 'check-report.md',
         records: { 'check-report.md': { mode: 'continue', gate: 'updated' } },
         edges: {
           passed: { target: { node: 'assess' } },

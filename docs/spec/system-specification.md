@@ -211,12 +211,15 @@ operator confirmation and cannot restart via MCP alone.
 
 Actions are non-LLM graph nodes; hooks are postcommit advice. Neither is an agent
 conversation or an alternative acceptance authority. They share the configured
-engine's routing and terminal gates, with the narrowly bound stdout publication below.
+engine's routing and terminal gates, with the exact declared action-output publication below.
 
 ### Action contract and cancellation
 
-Workflow input format3 selects `execution.kind:agent` or `action` per node.
-Actions name an exact `namespace.operation` and contract version; only explicitly
+Workflow input format4 selects `execution.kind:agent` or `action` per node.
+Actions name an exact qualified ID with two or more dot-separated components and
+a contract version; each component matches `[a-z][a-z0-9-]{0,47}`. The first
+component is the namespace; a plugin's relative key may contain multiple
+components. No aliases, case normalization or suffix dispatch exist. Only explicitly
 compiled operations exist. The builtin `shell.run` contract1 launches captured
 `bash --noprofile --norc -o pipefail -c <script> saivage-action <args...>`.
 Script and isolated argv remain separate; no implicit `set -e` is added.
@@ -240,7 +243,7 @@ Flat required typed values support ordered cases (first match, mandatory
 otherwise) and selected successor inputs. Private fields cannot route or feed
 successors. An invalid return after effects fails without retry. Agent result
 tools and their2000-character summary bound remain unchanged. Actions cannot
-initialize, clean or close authored records. Except for the exact shell stdout
+initialize, clean or close authored records. Except for the exact action output
 binding below, actions cannot write records; `continue/exists` requires
 fresh accepted authored content. Shared terminal/export/notification gates still
 apply. Workflow results identify the actual agent or action executor; actions
@@ -248,20 +251,24 @@ create no agent session. Their lazy execution log distinguishes entry, observed
 spawn and retained completion; absent completion means effects unknown, not live
 status or permission to replay.
 
-### Optional shell stdout record
+### Optional action output record
 
-A `shell.run` node may set `stdout_record: check-report.md`, naming one declared
+A node whose compiled action declares output may set `output_record: check-report.md`, naming one declared
 nonbootstrap own-card record required by that node as `continue/updated`. Agent
-nodes, other actions and hooks cannot select it. No wildcard, foreign record,
-initializer, clean mode, stderr source or transform is supported. This binding
+nodes, no-output actions and hooks cannot select it. Compiled declarations select
+`command-stdout` (including shell.run) or `returned-text`; no caller chooses a
+capture path or substitutes output for routing values. No wildcard, foreign record,
+initializer, clean mode or stderr source is supported. This binding
 alone grants exact action write authority; agent tools, writer globs and later
 assessment permissions are unchanged. See the [configuration example](../guides/configuration.md#add-an-action-before-acceptance).
 
 Node entry rejects any open destination draft before launch and captures the
-ordinary head identity/revision baseline. After actual completion, known group
+ordinary head identity/revision baseline. Command-stdout requires actual completion, known group
 absence, stdout EOF without capture error and settled cleanup, the node consumes
 the exact runner-selected stdout file once, closes it, then calls the normal
-record acceptance owner. Publication freshly rejects intervening drafts. Absent,
+record acceptance owner. Returned-text instead uses separately validated copied
+UTF-8 bytes from the operation's private result after cleanup, with actual nullable
+process facts. Publication freshly rejects intervening drafts. Absent,
 empty, baseline0 and closed accepted destinations are allowed without rendering
 an initializer. Only substantive UTF-8 text up to 1 MiB of raw bytes is accepted;
 invalid UTF-8, NUL, whitespace-only, missing/nonregular/unreadable or oversized
@@ -284,7 +291,7 @@ synchronous publication/acceptance section does not undo factual effects. Spawn,
 capture or cleanup failure publishes nothing. Publication uncertainty is fatal
 before follow-up reads, writes, logging, acknowledgement or cleanup.
 
-The existing publisher writes an immutable accepted4 artifact and fresh selecting
+The existing publisher writes an immutable accepted5 artifact and fresh selecting
 head, independent of capture retention. Each new invocation may publish equal
 text as a new positive document version; agent no-op rejection is unchanged.
 Normal updated-head, export, descendant and promotion gates still run. A later
@@ -292,15 +299,19 @@ gate failure leaves the factual report available but does not grant DONE. Action
 acceptance returns ordinary immutable record links, never closes a fake draft.
 
 Accepted `author` is agent (`agent`), external-agent (`principal`), runtime
-(`purpose:bootstrap|repair`) or shell-stdout. Shell provenance contains `shell.run`/contract1, actual activation,
-invocation, node, ordinal and process identities, stdout stream, outcome and
-nullable observed leader exit facts. It is not agent authorship or a verdict.
+(`purpose:bootstrap|repair`) or action-output. Action provenance contains the exact
+operation/contract/provider, activation, invocation, node and ordinal, actual
+nullable process/leader facts, output source/byte size/SHA256 and outcome. Strict
+accepted reads compare the descriptor to the literal body and enforce generic
+fact consistency plus shell-specific contract1/exit/outcome rules without today's operation
+map. Generic retained contract versions are positive safe integers. Returned text
+is not native stdout, agent authorship or a verdict.
 Current/history API and ordinary record read data expose this author; draft and
 baseline `content_author` are null, even over shell-authored accepted backing.
 Typed record observations remain selection/hash/exposure facts without authors;
 shell publication creates no synthetic conversation/tool observation. Retained
-opaque old observations are not normalized. See the [accepted2→3/workflow1→2
-cutover](../architecture/durable-format-changes.md#shell-stdout-record-authorship-2026-10-19)
+opaque old observations are not normalized. See the [generalized output
+cutover](../architecture/durable-format-changes.md#generalized-action-output-—-2026-10-24)
 for source applicability, unchanged conversation12 and separate adoption consent.
 
 ### Typed operation inputs and routing
@@ -738,7 +749,7 @@ At selected node entry, initialization precedes ordinary requirement preparation
 
 Creation, startup, reads, free writes and configuration replacement never initialize automatically. Complete card-type definitions select their own initializers without per-field overlay; compilation freezes templates and fragment closure for the process. Replacement affects only future absent-head entries. Existing-YAML init does not upgrade definitions. Bundled classic/classic-typed/paad-typed declarations explicitly select brief-relative status starters at responsible work nodes and neutral, unassessed review starters at review nodes, including both typed architecture reviews. Bootstrap briefs are excluded. Starters do not satisfy authored completion or acceptance; review still requires a fresh assessment. There are no mandatory headings or engine-special record behaviors. Creation-time scaffolds remain deferred.
 
-Record heads use strict `format_version:3`, including previous slots. A nullable baseline contains `version:0,created_at,content,content_sha256` and cannot coexist with a draft or acceptance. Opening consumes it into draft `version:0,target_version:1`; an ordinary changed nonempty edit advances the draft to its target. Untemplated drafts start directly at 1; clean after accepted n targets n+1. Integrity hashes remain, but no seed fingerprint or `unfilled` flag exists. Accepted artifacts use format 4 with discriminated author and consecutive document numbering independent of head revisions: first acceptance 1, next 2 regardless of intervening opens, edits or discards. Direct Analyst acceptance of changed baseline content creates accepted1; bootstrap and repair supplied content remain factual accepted1, never v0. A bound completed shell invocation may accept equal baseline or accepted text as new factual output, without relaxing agent no-op rejection.
+Record heads use strict `format_version:3`, including previous slots. A nullable baseline contains `version:0,created_at,content,content_sha256` and cannot coexist with a draft or acceptance. Opening consumes it into draft `version:0,target_version:1`; an ordinary changed nonempty edit advances the draft to its target. Untemplated drafts start directly at 1; clean after accepted n targets n+1. Integrity hashes remain, but no seed fingerprint or `unfilled` flag exists. Accepted artifacts use format 5 with discriminated author and consecutive document numbering independent of head revisions: first acceptance 1, next 2 regardless of intervening opens, edits or discards. Direct Analyst acceptance of changed baseline content creates accepted1; bootstrap and repair supplied content remain factual accepted1, never v0. A bound completed output-capable action may accept equal baseline or accepted text as new factual output, without relaxing agent no-op rejection.
 
 `exists` requires non-whitespace positive-version effective authored content; baseline0/draft0 cannot borrow eligibility from accepted backing. `updated` additionally requires a different head identity and mutable record revision above the baseline captured **after** initialization and explicit clean/open preparation. Initialization/opening alone satisfies neither gate. Ordinary A→B→A edits retain revision-based eligibility; no text fingerprint certifies authorship or adequacy. The same predicate governs required/free-draft finalization and close. Gate rejection uses ordinary corrective diagnostics; meaningful adequacy remains validation/review work.
 
@@ -883,7 +894,7 @@ Classic `project` adds objective assessment to the visible plan/review loop; `go
 These names are configuration values, not runtime classifications.
 Default Reviewer omits MCP, while default Analyst and Executor list unrestricted configured `mcp_tool_call`.
 
-Workflow input format3 preserves the exact parsed YAML `compaction_key` at every
+Workflow input format4 preserves the exact parsed YAML `compaction_key` at every
 durable declaration, including record prompts and conditional cases/defaults and
 their pending alternatives. Environment variables and body/fragment rendering do
 not alter that string. Empty fails; whitespace-only remains nonempty. History
@@ -2205,7 +2216,7 @@ format reference. Runtime remains strict: no converter, mixed versions or
 binary-only rollback. Source implementation authorizes no instance deployment,
 reset or external migration.
 
-Authenticated `GET /api/workflows/:cardType/presentation` (`workflows.presentation`) supplies compact structural facts for one installed card type from the immutable startup artifact, with no file reads or all-types projection. Its strict response is `{card_type,nodes:[{node_id,execution,initialize_records,stdout_record}],entries:[{entry,node_id}],edges:[{source_node_id,outcome,route_id,test,condition,target}],terminals:[{terminal}],records:[{name,bootstrap,initialization}]}`. Execution is `{kind:'agent',agent_name}` or `{kind:'action',action,contract_version,provider:{kind,name}}`; `stdout_record` is the exact bound name or null, tests are nullable typed route tests, initializer declarations nullable format1/template objects. Entry, condition, terminal enums and targets match Debug Graphs, including runtime-owned edges. Unknown installed type returns HTTP 404 `{error:'workflow_type_not_found',card_type}`. Prompt declarations/bodies/paths, globals, agent model/provider bindings, tools, capabilities, secrets and runtime position are absent. Action provenance identifies the compiled operation, not an agent route. This is presentation evidence, not another workflow authority; System retains richer Debug Graphs.
+Authenticated `GET /api/workflows/:cardType/presentation` (`workflows.presentation`) supplies compact structural facts for one installed card type from the immutable startup artifact, with no file reads or all-types projection. Its strict response is `{card_type,nodes:[{node_id,execution,initialize_records,output_record}],entries:[{entry,node_id}],edges:[{source_node_id,outcome,route_id,test,condition,target}],terminals:[{terminal}],records:[{name,bootstrap,initialization}]}`. Execution is `{kind:'agent',agent_name}` or `{kind:'action',action,contract_version,provider:{kind,name}}`; `output_record` is the exact bound name or null, tests are nullable typed route tests, initializer declarations nullable format1/template objects. Entry, condition, terminal enums and targets match Debug Graphs, including runtime-owned edges. Unknown installed type returns HTTP 404 `{error:'workflow_type_not_found',card_type}`. Prompt declarations/bodies/paths, globals, agent model/provider bindings, tools, capabilities, secrets and runtime position are absent. Action provenance identifies the compiled operation, not an agent route. This is presentation evidence, not another workflow authority; System retains richer Debug Graphs.
 
 Authenticated `GET /api/debug/graphs` returns one strict graph projection for each canonical card type in canonical order.
 Its sole source is the immutable runtime workflow artifact compiled and bound during startup: the handler reads no configuration, prompt file, or runtime-state file.
@@ -3044,7 +3055,7 @@ Explicit content is selector-bound and strict.
 `card.json` returns `{kind:'card-current',head_id,card_id,version_seq,history_version,updated_at,card}`,
 with exact current selection identity/revision/time and queue-free fields.
 `card.json?v=N` selects exact immutable ordinary revision N. Its wrapper is
-`{format_version:4,kind,entry_id,card_id,version,published_at,card,change}`;
+`{format_version:5,kind,entry_id,card_id,version,published_at,card,change}`;
 tombstones substitute `final_card` and retain `prior_card_version`. Historical
 wrappers retain publication identity/time and ordinary nullable change, never
 pending fields. Current retained tombstones return their terminal historical wrapper.

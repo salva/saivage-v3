@@ -58,7 +58,7 @@ describe('configured node-entry record initialization through production composi
           'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
           'assessment.md': { format: 'markdown', schema: 'assessment.v1', bootstrap: false, initialization: { format_version: 1, template: INITIAL } },
         },
-        workflow: { format_version: 3,
+        workflow: { format_version: 4,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: { execute: {

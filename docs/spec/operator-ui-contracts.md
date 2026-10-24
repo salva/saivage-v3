@@ -325,7 +325,11 @@ timestamp or inferred ordinal. List rows carry `row_id`, `invocation_id`,
 `timestamp`, `kind`, `operation`, `contract_version`, `binding` and nullable
 `disposition`; the detail response adds exact `provider`, `completion`, safe shell
 facts, selected input/retained fields, known settlement/process observations and
-file selections. `completion:"no completion retained; effects unknown"` is not
+file selections. Required `output_source` is nullable; `artifact_paths` lists
+exact declared mutable selections; nullable `output` contains completed output
+`source`, `size_bytes` and `sha256`, not the report body or a verdict. The detail
+view distinguishes command-stdout from returned-text and absent output evidence.
+`completion:"no completion retained; effects unknown"` is not
 a process status. Example authenticated requests (substitute actual returned IDs;
 never place tokens in URLs):
 
@@ -450,10 +454,11 @@ nothing. Runtime refresh-failure retention is unchanged.
 Accepted records expose the strict `author` union, not `writer_agent`.
 Records shows **Agent · name**, **External credential holder · principal**,
 **Runtime · bootstrap/repair**, or
-**Shell stdout · shell.run · node · disposition** for the selected accepted
+**Action output · operation · source · node · disposition** for the selected accepted
 content, alongside its positive accepted document version. An external
-credential-holder label is not proof of a particular person or model. Shell stdout is a
-captured command report, not an agent verdict or approval. `failed`, `signalled`
+credential-holder label is not proof of a particular person or model. The source
+distinguishes `command-stdout` from `returned-text`; neither is an agent verdict
+or approval. Shell `failed`, `signalled`
 and `timed_out` remain factual dispositions even when a complete capture was
 published; complete capture does not mean complete program work. Executions and
 its capture inspection remain separate from normal retained record content.
@@ -486,7 +491,7 @@ Compiled workflow `records[]` requires nullable `initialization:{format_version:
 through existing privacy filtering. These describe installed compiled configuration,
 not historical scaffold text, author evidence or hot-reload state. Nodes expose
 ordered `initialize_records` independently of record completion requirements.
-Workflow presentation and Debug Graphs also expose nullable `stdout_record`: the
+Workflow presentation and Debug Graphs also expose nullable `output_record`: the
 exact compiled own-card report name, or null for unbound nodes. This is structural
 configuration, not evidence that a report was published or a verdict accepted.
 

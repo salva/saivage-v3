@@ -12,6 +12,22 @@ merely by a source change, approved plan, successful build, backup or failed sta
 [AGENTS Storage Policy](https://github.com/salva/saivage-v3/blob/HEAD/AGENTS.md#storage-policy)
 is the policy authority.
 
+## Generalized action output
+
+The [2026-10-24 source cutover](../architecture/durable-format-changes.md#generalized-action-output-—-2026-10-24)
+changes workflow3→4, accepted-record4→5, ordinary/tombstone card4→5 and execution
+envelope1→2 together. Materialized workflow inputs must select `output_record`,
+not the removed shell-only spelling. Accepted output authors carry the actual
+operation/provider, source and body-bound size/hash; returned-text must not be
+relabeled as stdout. Nested retained action IDs use the qualified grammar.
+
+Old or mixed state remains a stopped blocker. This is not a startup converter,
+automatic reset or authorization to edit generated files. Deliberately adopt the
+matching release and inputs only through the separately authorized full offline
+migration or destructive reset procedure below. Do not roll back just the binary
+after new-format writes. No deployment or historical fidelity is inferred from
+source completion; unrelated family labels remain unchanged.
+
 ## Choose the operation
 
 | Situation | Appropriate decision |

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { operationIdSchema } from '../schemas/operation-id.js';
 import { agentNameSchema, cardTypeSchema, recordNameSchema } from '../schemas/index.js';
 import {
   operatorSessionContract,
@@ -11,7 +12,7 @@ import {
 export const WorkflowActionIdentitySchema = z
   .object({
     kind: z.literal('action'),
-    action: z.string().regex(/^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/u),
+    action: operationIdSchema,
     contract_version: z.literal(1),
     provider: z.object({ kind: z.enum(['builtin', 'plugin']), name: z.string().min(1) }).strict(),
   })
@@ -38,7 +39,7 @@ export const WorkflowPresentationSchema = z
             node_id: z.string().min(1),
             execution: WorkflowExecutionIdentitySchema,
             initialize_records: z.array(recordNameSchema),
-            stdout_record: recordNameSchema.nullable(),
+            output_record: recordNameSchema.nullable(),
           })
           .strict(),
       )

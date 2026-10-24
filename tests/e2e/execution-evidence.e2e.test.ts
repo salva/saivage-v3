@@ -111,11 +111,12 @@ it.each([['passed', 0, false], ['failed', 9, false], ['timed_out', 0, true]] as 
       const accepted = first.value.projection!.accepted!;
       expect(accepted).toMatchObject({ source_version: 1, content: executionReport,
         size_bytes: Buffer.byteLength(executionReport), content_sha256: createHash('sha256').update(executionReport).digest('hex'),
-        author: { kind: 'shell-stdout', action: 'shell.run', node_id: 'check', outcome } });
+        author: { kind: 'action-output', operation: 'shell.run', node_id: 'check', outcome,
+          output: { source: 'command-stdout', size_bytes: Buffer.byteLength(executionReport), sha256: createHash('sha256').update(executionReport).digest('hex') } } });
       expect(accepted.content).not.toContain('DISTINCT-STDERR-ONLY');
       const firstArtifact = authoredRecordVersionArtifactSchema.parse(JSON.parse(readFileSync(cardAcceptedRecordFile(fixture.root, 'project', accepted.source_entry_id), 'utf8')));
       expect(firstArtifact.predecessor).toBeNull();
-      if (accepted.author.kind !== 'shell-stdout') throw new Error('Expected stdout author');
+      if (accepted.author.kind !== 'action-output' || accepted.author.process_id === null) throw new Error('Expected actual shell output process');
       const capture = join(fixture.root, '.saivage/work/cards/project/processes', accepted.author.process_id, 'stdout.log');
       expect(readFileSync(capture)).toEqual(Buffer.from(executionReport));
       const current = await get(prefix);

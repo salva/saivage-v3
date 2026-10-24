@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { actionOutputDescriptorSchema, operationOutputSourceSchema } from '../schemas/action-output.js';
 import { cardIdSchema, uuidV4Schema } from '../schemas/index.js';
 import {
   operatorSessionContract,
@@ -66,6 +67,9 @@ const CardExecutionDetailSchema = z
     operation: text,
     contract_version: z.number().int().positive(),
     provider: z.object({ kind: z.enum(['builtin', 'plugin']), name: text }).strict(),
+    output_source: operationOutputSourceSchema.nullable(),
+    artifact_paths: z.array(text).max(16),
+    output: actionOutputDescriptorSchema.nullable(),
     binding,
     started_at: z.string(),
     finished_at: z.string().nullable(),

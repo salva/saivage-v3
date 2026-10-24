@@ -131,6 +131,8 @@ test('real production server: action and hook evidence, confidential file downlo
         operation: 'fixture.inspect',
         contract_version: 1,
         provider: { kind: 'plugin', name: 'fixture' },
+        output_source: null,
+        artifact_paths: [],
         binding: {
           kind: 'node',
           activation_id: randomUUID(),
@@ -155,7 +157,7 @@ test('real production server: action and hook evidence, confidential file downlo
     expect(fixture.counts().workflowCalls).toBe(2);
     await page.goto(`${fixture.origin}/cards/project?facet=records`);
     const report = page.getByTestId('facet-records').locator('.document-frame').filter({ hasText: 'check-report.md' });
-    await expect(report).toContainText('Shell stdout · shell.run · check · passed');
+    await expect(report).toContainText('Action output · shell.run · command-stdout · check · passed');
     await expect(report.getByRole('link', { name: 'Latest accepted v1' })).toBeVisible();
     await expect(report).not.toContainText('stdout-record-private-canary');
   } finally {
@@ -171,14 +173,14 @@ for (const [outcome, exitCode, deadline] of [['failed', 9, false], ['timed_out',
       await seedTokenBeforeNavigation(page, fixture.token);
       await page.goto(`${fixture.origin}/cards/project?facet=records`);
       const report = page.getByTestId('facet-records').locator('.document-frame').filter({ hasText: 'check-report.md' });
-      await expect(report).toContainText(`Shell stdout · shell.run · check · ${outcome}`);
+      await expect(report).toContainText(`Action output · shell.run · command-stdout · check · ${outcome}`);
       await expect(report).toContainText('ACTUAL-ACTION-OUTPUT');
       await expect(report).not.toContainText('stdout-record-private-canary');
       await expect(report).not.toContainText('DISTINCT-STDERR-ONLY');
       await expect(report.getByRole('link', { name: 'Latest accepted v1' })).toBeVisible();
       await report.getByRole('button', { name: 'History', exact: true }).click();
       await report.getByRole('button', { name: 'v1 · accepted', exact: true }).click();
-      await expect(report.locator('.selected-record')).toContainText(`Shell stdout · shell.run · check · ${outcome}`);
+      await expect(report.locator('.selected-record')).toContainText(`Action output · shell.run · command-stdout · check · ${outcome}`);
       await expect(report.locator('.record-diff')).toContainText('Current record revision');
       await page.screenshot({ path: testInfo.outputPath(`stdout-record-${outcome}.png`), fullPage: true });
       if (!deadline) {
@@ -198,9 +200,9 @@ for (const [outcome, exitCode, deadline] of [['failed', 9, false], ['timed_out',
       await page.reload();
       await expect(report).toContainText('Independent unfinished agent draft');
       await expect(report).toContainText(`Draft for v${deadline ? 2 : 3}`);
-      await expect(report.getByText(`Shell stdout · shell.run · check · ${outcome}`, { exact: true })).not.toBeVisible();
+      await expect(report.getByText(`Action output · shell.run · command-stdout · check · ${outcome}`, { exact: true })).not.toBeVisible();
       await report.getByText('Prior accepted content', { exact: true }).click();
-      await expect(report.getByText(`Shell stdout · shell.run · check · ${outcome}`, { exact: true })).toBeVisible();
+      await expect(report.getByText(`Action output · shell.run · command-stdout · check · ${outcome}`, { exact: true })).toBeVisible();
     } finally { await fixture.close(); }
   });
 }

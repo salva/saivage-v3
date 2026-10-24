@@ -901,7 +901,7 @@ export function publishCardVersion(
     card = cardRecordSchema.parse(card);
     validateInitialCard(card, path);
     const artifact = cardVersionArtifactSchema.parse({
-      format_version: 4,
+      format_version: 5,
       kind: 'card-version',
       entry_id: initialEntryId ?? randomUUID(),
       card_id: card.id,
@@ -979,7 +979,7 @@ export function publishCardVersion(
     return null;
   }
   const artifact = cardVersionArtifactSchema.parse({
-    format_version: 4,
+    format_version: 5,
     kind: 'card-version',
     entry_id: change.entry_id,
     card_id: card.id,
@@ -1029,7 +1029,7 @@ export function publishCardTombstone(
   if (!valuesEqual(fold.current.card, finalCard))
     throw new Error(`Card '${cardId}' tombstone final card must equal current.`);
   const artifact = cardTombstoneArtifactSchema.parse({
-    format_version: 4,
+    format_version: 5,
     kind: 'card-tombstone',
     entry_id: change.entry_id,
     card_id: cardId,

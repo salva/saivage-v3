@@ -58,11 +58,14 @@ function prompt(id: string, observed: RecordSelectionObservation, key?: string):
 describe('owning record observations', () => {
   it('retains actual stdout-author reads and old opaque writer facts through conversation12 history, public/provider projection and compaction', async () => {
     const ctx = project();
-    const author = { kind: 'shell-stdout' as const, action: 'shell.run' as const, contract_version: 1 as const,
+    const content = 'Factual captured output\napi_key: nested-private-canary';
+    const author = { kind: 'action-output' as const, operation: 'shell.run', contract_version: 1 as const,
+      provider: { kind: 'builtin' as const, name: 'shell' },
       activation_id: INPUT, invocation_id: randomUUID(), node_id: 'check', ordinal: 0,
-      process_id: 'proc-123456789abc', stream: 'stdout' as const, outcome: 'failed' as const,
+      process_id: 'proc-123456789abc', outcome: 'failed',
+      output: { source: 'command-stdout' as const, size_bytes: Buffer.byteLength(content), sha256: sha256Hex(content) },
       leader_exit: { exit_code: 9, signal: null } };
-    ctx.store.acceptRecord('project', 'status.md', 'Factual captured output\napi_key: nested-private-canary', author);
+    ctx.store.acceptRecord('project', 'status.md', content, author);
     // Publication is a record operation, not a synthetic conversation mutation.
     expect(readConversation(ctx.projectRoot, SESSION).physicalRows).toEqual([]);
     const binder = workspaceToolBinders.find(t => t.name === 'read')!.bind(ctx);

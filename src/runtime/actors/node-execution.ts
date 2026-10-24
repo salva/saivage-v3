@@ -1,4 +1,3 @@
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import type {
   RuntimeOwnedBlockedResult,
   WorkflowExecutor,
@@ -217,14 +216,14 @@ export class NodeExecution {
     this.host.assertCurrentActivation(input);
     this.host.selectLlm(null);
     const baseline = new Map<string, { revision: number; headId: string } | null>();
-    if (node.stdoutRecord) {
-      const current = this.deps.store.readRecordCurrent(this.deps.cardId, node.stdoutRecord.name);
+    if (node.outputRecord) {
+      const current = this.deps.store.readRecordCurrent(this.deps.cardId, node.outputRecord.name);
       if (current.kind !== 'found') throw new Error(`Card '${this.deps.cardId}' not found.`);
       const record = current.value.projection;
       if (record?.state === 'open')
-        throw new Error(`Stdout destination '${node.stdoutRecord.name}' has an open draft.`);
+        throw new Error(`Output destination '${node.outputRecord.name}' has an open draft.`);
       baseline.set(
-        node.stdoutRecord.name,
+        node.outputRecord.name,
         record ? { revision: record.revision, headId: record.headId } : null,
       );
     }
@@ -244,6 +243,7 @@ export class NodeExecution {
         cardId: this.deps.cardId,
         execution: node.execution,
         inputs,
+        collectOutput: node.outputRecord !== null,
         signal,
         processRunner: this.deps.processRunner,
         runtimeProcessRootScope: this.deps.runtimeProcessRootScope,
@@ -263,24 +263,24 @@ export class NodeExecution {
     }
     signal.throwIfAborted();
     this.host.assertCurrentActivation(input);
-    if (node.stdoutRecord) {
-      const stdout = invocation.completedStdout;
-      if (!stdout) throw new Error('Shell stdout capture is not complete.');
-      const content = readCompletedStdout(stdout.path);
+    if (node.outputRecord) {
+      const output = invocation.completedOutput;
+      if (!output) throw new Error('Action output is not complete.');
       const author: RecordAuthor = {
-        kind: 'shell-stdout',
-        action: 'shell.run',
-        contract_version: 1,
+        kind: 'action-output',
+        operation: node.execution.operation.id,
+        contract_version: node.execution.operation.contractVersion,
+        provider: node.execution.operation.provider,
         activation_id: input.activationId,
         invocation_id: invocation.invocationId,
         node_id: node.nodeId,
         ordinal: args.nodeOrdinal,
-        process_id: stdout.processId,
-        stream: 'stdout',
-        outcome: invocation.result.outcome as 'passed' | 'failed' | 'signalled' | 'timed_out',
-        leader_exit: stdout.leaderExit,
+        process_id: output.processId,
+        output: output.descriptor,
+        outcome: invocation.result.outcome,
+        leader_exit: output.leaderExit,
       };
-      this.deps.store.acceptRecord(this.deps.cardId, node.stdoutRecord.name, content, author);
+      this.deps.store.acceptRecord(this.deps.cardId, node.outputRecord.name, output.content, author);
     }
     const routes = [...node.on.values()].flatMap((route) =>
       route.semantic.kind === 'configured-outcome'
@@ -589,26 +589,6 @@ function readCandidate(
   const result = store.readRecordCurrent(cardId, filename);
   if (result.kind === 'card-not-found' || !result.value.projection) return null;
   return isEligibleRecordContent(result.value.projection) ? result.value.projection : null;
-}
-/** Consume the completed capture before entering the synchronous publication section. */
-function readCompletedStdout(path: string): string {
-  const fd = openSync(path, 'r');
-  let bytes: Buffer;
-  try {
-    const stat = fstatSync(fd);
-    if (!stat.isFile()) throw new Error('Shell stdout capture is not a regular file.');
-    const buffer = Buffer.alloc(1024 * 1024 + 1);
-    const size = readSync(fd, buffer, 0, buffer.length, 0);
-    if (size > 1024 * 1024) throw new Error('Shell stdout exceeds 1MiB.');
-    if (size < stat.size) throw new Error('Shell stdout capture read is incomplete.');
-    bytes = buffer.subarray(0, size);
-  } finally {
-    closeSync(fd);
-  }
-  const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
-  if (content.includes('\0')) throw new Error('Shell stdout contains NUL.');
-  if (!content.trim()) throw new Error('Shell stdout is empty or whitespace-only.');
-  return content;
 }
 function firstIncompleteDescendant(
   cardId: string,

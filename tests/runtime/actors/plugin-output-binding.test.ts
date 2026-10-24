@@ -40,10 +40,12 @@ it.each([0, 3, -1])(
       inputs: {},
       outcomes: { finished: { count: { type: 'integer', min: 0, max: 1000, workflow: true } } },
       retainFields: ['count'],
+      output: null,
+      artifacts: () => [],
       async run() {
         sourceCalls++;
         writeFileSync(join(root, 'known-effect.txt'), 'one known effect');
-        return { outcome: 'finished', summary: 'Observed fixture count.', values: { count } };
+        return { result: { outcome: 'finished', summary: 'Observed fixture count.', values: { count } }, output: null };
       },
     };
     const consume: OperationDefinition = {
@@ -55,9 +57,11 @@ it.each([0, 3, -1])(
       inputs: { findings: { type: 'integer', min: 0, max: 1000, workflow: true } },
       outcomes: { consumed: {} },
       retainFields: [],
+      output: null,
+      artifacts: () => [],
       async run(config, input) {
         selected.push({ label: (config as { label: string }).label, input });
-        return { outcome: 'consumed', summary: 'Consumed actual bound count.', values: {} };
+        return { result: { outcome: 'consumed', summary: 'Consumed actual bound count.', values: {} }, output: null };
       },
     };
     const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));

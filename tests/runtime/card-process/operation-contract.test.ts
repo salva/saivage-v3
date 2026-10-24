@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   compileOperations,
   validateOperationReturn,
+  validateOperationRunResult,
   validateOperationValues,
   type OperationDefinition,
 } from '../../../src/runtime/card-process/operation-contract.js';
@@ -26,16 +27,44 @@ const inspect: OperationDefinition = {
     },
   },
   retainFields: ['status', 'count'],
+  output: null,
+  artifacts: () => [],
   async run(_config, input) {
     return {
-      outcome: 'finished',
-      summary: `Inspected ${input.scope}`,
-      values: { status: 'complete', count: 2, paths: ['a.ts', 'b.ts'] },
+      result: {
+        outcome: 'finished',
+        summary: `Inspected ${input.scope}`,
+        values: { status: 'complete', count: 2, paths: ['a.ts', 'b.ts'] },
+      },
+      output: null,
     };
   },
 };
 
 describe('explicit compiled operation contracts', () => {
+  it('accepts exact multi-component plugin keys without aliases or normalization', () => {
+    const definition = { ...inspect, id: 'acme-analysis.typescript.inspect' };
+    const operations = compileOperations([], [{ namespace: 'acme-analysis', operations: { 'typescript.inspect': definition } }]);
+    expect(operations.get(definition.id)?.id).toBe(definition.id);
+    expect(operations.get('acme-analysis.inspect')).toBeUndefined();
+    for (const key of ['TypeScript.inspect', 'typescript..inspect', '.inspect', 'inspect.'])
+      expect(() => compileOperations([], [{ namespace: 'acme-analysis', operations: {
+        [key]: { ...definition, id: `acme-analysis.${key}` },
+      } }])).toThrow();
+    expect(() => compileOperations([], [{ namespace: 'acme.analysis', operations: {} }])).toThrow();
+  });
+  it('keeps copied private output separate from routable fields and rejects undeclared bytes', () => {
+    const result = { outcome: 'finished', summary: 'Observed', values: { status: 'complete', count: 1, paths: [] } };
+    const bytes = Buffer.from('\uFEFFreport\r\n');
+    const completed = validateOperationRunResult({ ...inspect, output: 'returned-text' }, { result, output: bytes });
+    bytes.fill(0);
+    expect(Buffer.from(completed.output!).toString()).toBe('\uFEFFreport\r\n');
+    expect(completed.result.values).toEqual(result.values);
+    expect(() => validateOperationRunResult(inspect, { result, output: Buffer.from('report') })).toThrow();
+    for (const output of [null, Buffer.from('  '), Buffer.from('a\0b'), Buffer.from([0xff]), Buffer.alloc(1024 * 1024 + 1, 65)])
+      expect(() => validateOperationRunResult({ ...inspect, output: 'returned-text' }, { result, output })).toThrow();
+    expect(() => validateOperationRunResult(inspect, result)).toThrow();
+  });
   it('declares four distinct shell outcomes and keeps script/argv literal through the concrete capability', async () => {
     const operations = compileOperations([shellRunOperation]);
     const definition = operations.get('shell.run')!;
@@ -51,6 +80,7 @@ describe('explicit compiled operation contracts', () => {
       config,
       { args: ['$(not-code)', 'a b'] },
       {
+        invocationId: '11111111-1111-4111-8111-111111111111',
         command: async (input) => {
           selected = input;
           return { outcome: 'passed', summary: 'Exited', values: { exit_code: 0 } };
@@ -66,7 +96,9 @@ describe('explicit compiled operation contracts', () => {
       timeoutMs: 120000,
       terminateGraceMs: 2000,
     });
-    expect(validateOperationReturn(definition, returned).values).toEqual({ exit_code: 0 });
+    expect(validateOperationRunResult(definition, returned)).toEqual({
+      result: { outcome: 'passed', summary: 'Exited', values: { exit_code: 0 } }, output: null,
+    });
     expect(() =>
       validateOperationReturn(definition, {
         outcome: 'signalled',
@@ -92,10 +124,10 @@ describe('explicit compiled operation contracts', () => {
     );
     const definition = operations.get('acme-analysis.inspect')!;
     const input = validateOperationValues(definition.inputs, { scope: 'project' });
-    const result = validateOperationReturn(
+    const result = validateOperationRunResult(
       definition,
-      await definition.run({}, input, {}, new AbortController().signal),
-    );
+      await definition.run({}, input, { invocationId: '11111111-1111-4111-8111-111111111111' }, new AbortController().signal),
+    ).result;
     expect(result).toEqual({
       outcome: 'finished',
       summary: 'Inspected project',

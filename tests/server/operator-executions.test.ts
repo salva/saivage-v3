@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { randomUUID } from 'node:crypto';
+import { sha256Hex } from '../../src/schemas/sha256.js';
 import {
   appendFileSync,
   existsSync,
@@ -48,7 +49,7 @@ describe('exact authenticated execution evidence APIs', () => {
   let server: FastifyInstance;
   let cards: CardService;
   const headers = { authorization: 'Bearer fixture-token' };
-  const start = (): CardExecutionStart => ({
+  const start = (paths: string[] = []): CardExecutionStart => ({
     kind: 'invocation_started',
     row_id: randomUUID(),
     invocation_id: randomUUID(),
@@ -57,6 +58,8 @@ describe('exact authenticated execution evidence APIs', () => {
     operation: 'shell.run',
     contract_version: 1,
     provider: { kind: 'builtin', name: 'shell' },
+    output_source: 'command-stdout',
+    artifact_paths: [...paths, 'absent.txt'],
     binding: { kind: 'node', activation_id: randomUUID(), node_id: 'check', ordinal: 2 },
     input: [],
     config: [{ name: 'private', type: 'string', value: 'PRIVATE-CONFIG-MARKER' }],
@@ -75,6 +78,7 @@ describe('exact authenticated execution evidence APIs', () => {
     interruption: null,
     timeout_reason: null,
     process: null,
+    output: null,
     outcome: 'passed',
     values: [{ name: 'exit_code', type: 'integer', value: 0 }],
     files: paths.map((path) => ({
@@ -195,7 +199,7 @@ describe('exact authenticated execution evidence APIs', () => {
   it('keeps ordinary outbound filtering on known list/detail text fields and preserves identities', async () => {
     const text = 'api_key: known-field-canary';
     const projected = redactTextForOutbound(text);
-    const s = start();
+    const s = start([text]);
     s.provider.name = text;
     s.binding = { kind: 'node', activation_id: randomUUID(), node_id: text, ordinal: 0 };
     s.shell = { script: text, cwd: text, argv: [text], env: { PRIVATE: 'PRIVATE-ENV-MARKER' } };
@@ -209,7 +213,8 @@ describe('exact authenticated execution evidence APIs', () => {
       id: randomUUID(), group: 'absent', group_diagnostic: text,
       stdout: 'eof', stderr: 'eof', stdout_error: text, stderr_error: text,
     };
-    f.absent_artifacts = [text];
+    f.absent_artifacts = [`${text}-absent`];
+    s.artifact_paths = [text, ...f.absent_artifacts];
     appendCardExecutions(root, 'project', [s, f]);
     const bytes = readFileSync(cardExecutionFile(root, 'project'));
     const response = await get(`/${s.invocation_id}`);
@@ -222,12 +227,14 @@ describe('exact authenticated execution evidence APIs', () => {
       started_at: s.timestamp, finished_at: f.timestamp,
       shell: { script: projected, cwd: projected, argv: [projected] },
       summary: projected,
+      output_source: 'command-stdout', output: null,
+      artifact_paths: s.artifact_paths.map(redactTextForOutbound),
       leader_exit: { ...f.leader_exit, signal: projected },
       leader_error: { ...f.leader_error, diagnostic: projected },
       interruption: projected, timeout_reason: projected,
       process: { ...f.process, group_diagnostic: projected, stdout_error: projected, stderr_error: projected },
       files: [{ key: `${f.row_id}:0`, label: projected, source: 'current' }],
-      absent_artifacts: [projected],
+      absent_artifacts: f.absent_artifacts.map(redactTextForOutbound),
     });
     const listResponse = await get();
     const list = parseOperatorResponse('cards.executions.list', 200, listResponse.json());
@@ -236,6 +243,21 @@ describe('exact authenticated execution evidence APIs', () => {
     ]);
     expect(response.body + listResponse.body).not.toMatch(/known-field-canary|PRIVATE-/u);
     expect(readFileSync(cardExecutionFile(root, 'project'))).toEqual(bytes);
+  });
+
+  it('projects generic completed output without a fabricated process or report body', async () => {
+    const s: CardExecutionStart = { ...start(), operation: 'example.analysis.report',
+      provider: { kind: 'plugin', name: 'example' }, output_source: 'returned-text', shell: null };
+    const f: CardExecutionFinish = { ...finish(s, []), outcome: 'findings', output: {
+      source: 'returned-text', size_bytes: 6, sha256: sha256Hex('report'),
+    } };
+    appendCardExecutions(root, 'project', [s, f]);
+    const response = await get(`/${s.invocation_id}`);
+    expect(response.statusCode).toBe(200);
+    const detail = parseOperatorResponse('cards.executions.get', 200, response.json());
+    expect(detail).toMatchObject({ operation: s.operation, output_source: 'returned-text',
+      output: f.output, process: null, shell: null, outcome: 'findings', artifact_paths: ['absent.txt'] });
+    expect(detail).not.toHaveProperty('content');
   });
 
   it('keeps lazy absence and incomplete evidence distinct, paginates by exact row, redacts private configuration', async () => {
@@ -273,7 +295,7 @@ describe('exact authenticated execution evidence APIs', () => {
   });
 
   it('strictly consumes the whole log for list/detail/files; only identifiable torn suffix is truncated', async () => {
-    const first = start();
+    const first = start(['safe.txt']);
     const closing = finish(first, ['safe.txt']);
     appendCardExecutions(root, 'project', [first, closing]);
     const path = cardExecutionFile(root, 'project');
@@ -283,7 +305,7 @@ describe('exact authenticated execution evidence APIs', () => {
     expect(readFileSync(path)).toEqual(prefix);
     appendFileSync(
       path,
-      `${JSON.stringify({ version: 1, type: 'card-execution', rows: [{ ...closing, row_id: randomUUID() }] })}\npartial`,
+      `${JSON.stringify({ version: 2, type: 'card-execution', rows: [{ ...closing, row_id: randomUUID() }] })}\npartial`,
     );
     const corrupt = readFileSync(path);
     for (const suffix of [
@@ -306,7 +328,7 @@ describe('exact authenticated execution evidence APIs', () => {
       join(root, 'safe.txt'),
       'safe output\nAuthorization: Bearer fixture-secret-token-123456789\n',
     );
-    const s = start();
+    const s = start(['safe.txt', 'gone.txt']);
     const f = finish(s, ['safe.txt', 'gone.txt']);
     appendCardExecutions(root, 'project', [s, f]);
     const detail = (await get(`/${s.invocation_id}`)).json();
@@ -360,7 +382,7 @@ describe('exact authenticated execution evidence APIs', () => {
     for (const testCase of cases) {
       if (testCase.bytes) writeFileSync(join(root, testCase.path), testCase.bytes);
     }
-    const s = start();
+    const s = start(cases.map(({ path }) => path));
     const f = finish(s, cases.map(({ path }) => path));
     appendCardExecutions(root, 'project', [s, f]);
     for (const [ordinal, testCase] of cases.entries()) {

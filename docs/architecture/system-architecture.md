@@ -291,29 +291,39 @@ Typed test coverage-ready routes to verify, the sole successful terminal owner.
 Other typed retries/research/data distinctions are selected instructions, not
 template-aware runtime branches or persisted phase machines.
 
-### Action path, stdout and advisory hooks
+### Action path, output and advisory hooks
 
 `operation-contract.ts` explicitly compiles builtins or declared plugins with
 qualified identity/contract version and reserved namespace checks. It is not a
-dynamic plugin service. `operation-routing.ts` resolves literal/factual/typed
+dynamic plugin service. The shared schema-level operation identity owns the same
+qualified grammar for compilation, lifecycle, execution evidence and API projections.
+Operation declarations select `null`, `command-stdout` or `returned-text` output
+and exact artifact paths from validated configuration plus host invocation UUID.
+The private run result separates completed bytes from flat routable values; it
+does not confer record-write authority. `operation-routing.ts` resolves literal/factual/typed
 predecessor inputs and validates strict bounded fields; first matching case owns
 routing. It does not evaluate expressions, merge sources or replay log values.
-`operation-execution.ts::invokeOperation` records entry before launch, joins its
-direct scope, validates one return and records only known settlement. Invalid
+The card `invokeOperation` wrapper appends entry/spawn/finish evidence. The shared
+finite execution body owns the direct scope, actual process attribution, path
+admission, return validation, exact declared artifact observations and completed
+output. It takes no workflow binding or required card identity; a non-card caller
+does not fabricate a card log or activation. Invalid
 post-effect results are engine failures, not retry/no-effect outcomes. Actions
 have no fake agent/session/tool call. Ordinary continue/exists uses accepted records.
 
-Only a compiled shell node's `stdout_record` grants direct acceptance into its
+Only a compiled output-declaring action node's `output_record` grants direct acceptance into its
 one declared nonbootstrap continue/updated record. Entry rejects drafts/captures
-head baseline; after direct cleanup, absent group+EOF+no stdout error permits one
-exact capture read (at most 1 MiB + 1 byte). Strict UTF-8 preserves BOM/CRLF/trailing bytes;
+head baseline; after direct cleanup, command-stdout requires absent group+EOF+no
+stdout error before one exact host-selected capture read (at most 1 MiB + 1 byte).
+Returned-text uses separately validated copied bytes, never a plugin-selected
+capture path or invented process. Strict UTF-8 preserves BOM/CRLF/trailing bytes;
 NUL, empty/whitespace, oversized/nonregular capture fails. Cancellation/currentness
 is checked before synchronous ordinary `acceptRecord`. Accepted format 4 embeds independent
-content and exact shell provenance; equal text may advance version. Nonzero,
+content and exact action/output provenance; equal text may advance version. Shell nonzero,
 signalled or timed-out complete captures can publish factual reports; later gate
 failure does not undo them or turn them into workflow approval. Current/history/VFS
 read the accepted artifact, not capture/log. The shared author union includes
-agent, external-agent, runtime bootstrap/repair and shell-stdout; typed observations
+agent, external-agent, runtime bootstrap/repair and action-output; typed observations
 remain author-free and draft/baseline `content_author` is null.
 
 `after_activation_commit` runs only after natural done/blocked/failed publication
@@ -689,11 +699,11 @@ consumed and ignored. Tombstones retain membership/order and terminate traversal
 | `conversation-file.ts` | Exact cumulative index selects self-contained ordinary/compacted segments; shared loader distinguishes growing current from immutable historical. |
 | `app-log.ts` | Complete strict event/control/external-receipt union and duplicate-ID validation before query filtering. |
 | `provider-exchange-log.ts` | One strict stream per canonical session across segments; validates primary/internal-summary IDs, then latest primary by time/attempt, earlier physical tie. |
-| `card-execution-log.ts` | Lazy execution format 1 entry/spawn/known finish associations and exact captures/artifacts; incomplete not live/replay state, no startup scan. |
+| `card-execution-log.ts` | Lazy execution format 2 entry/spawn/known finish/output associations and exact declared captures/artifacts; incomplete not live/replay state, no startup scan. |
 | `config-file.ts`, `auth-profile-file.ts`, `project-identity.ts` | Exact configuration/credentials/identity files under their owning contracts. |
 | `runtime/lock.ts` | Exceptional process exclusion, not durable application state coordination. |
 
-Current family labels are card ordinary/tombstone 4, head/mailbox 1, accepted 4,
+Current family labels are card ordinary/tombstone 5, head/mailbox 1, accepted 5,
 record-head 3, conversation 12 and shared app/provider rows 2. Versions are change
 labels, not revisions, segment ordinals, currentness or whole-project compatibility.
 The [format reference](./durable-format-changes.md#current-source-baseline) owns
@@ -1450,7 +1460,7 @@ map. These are field inventories, not defaults or permission grants.
 | `card_types.entry.workflow.entries.BLOCKED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.entries.STOPPED` | `node,prompt` | `src/schemas/saivage-config.ts:224` |
 | `card_types.entry.workflow.entries.STOPPED.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
-| `card_types.entry.workflow.nodes.entry` | `descendant_context,edges,execution,initialize_records,record_prompts,records,stdout_record` | `src/schemas/saivage-config.ts:321` |
+| `card_types.entry.workflow.nodes.entry` | `descendant_context,edges,execution,initialize_records,record_prompts,records,output_record` | `src/schemas/saivage-config.ts:321` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1` | `agent,correction_prompt,data_inputs,inputs,kind,prompt` | `src/schemas/saivage-config.ts:280` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:200` |
 | `card_types.entry.workflow.nodes.entry.execution.variant1.correction_prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |

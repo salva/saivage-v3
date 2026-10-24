@@ -41,6 +41,7 @@ import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js
 import { recordHeadSchema, authoredRecordVersionArtifactSchema, effectiveRecordContent } from '../../src/persistence/canonical-record-artifacts.js';
 import { observeRecordProjection } from '../../src/persistence/record-observation.js';
 import type { RecordAuthor } from '../../src/schemas/record-author.js';
+import { sha256Hex } from '../../src/schemas/sha256.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -90,9 +91,11 @@ const definition = {
 describe('exact record heads and accepted predecessor chains', () => {
   it('accepts new shell occurrences with equal baseline/accepted text while preserving agent no-op and draft admission', () => {
     const { root, cards, card } = setup();
-    const author = (): RecordAuthor => ({ kind: 'shell-stdout', action: 'shell.run', contract_version: 1,
+    const author = (): RecordAuthor => ({ kind: 'action-output', operation: 'shell.run', contract_version: 1,
+      provider: { kind: 'builtin', name: 'shell' },
       activation_id: randomUUID(), invocation_id: randomUUID(), node_id: 'check', ordinal: 0,
-      process_id: 'proc-123456789abc', stream: 'stdout', outcome: 'failed', leader_exit: { exit_code: 9, signal: null } });
+      process_id: 'proc-123456789abc', outcome: 'failed', leader_exit: { exit_code: 9, signal: null },
+      output: { source: 'command-stdout', size_bytes: Buffer.byteLength('same report\r\n'), sha256: sha256Hex('same report\r\n') } });
     const baseline = cards.initializeRecord(card.id, 'status.md', () => 'same report\r\n');
     expect(() => cards.acceptRecord(card.id, 'status.md', 'same report\r\n', { kind: 'agent', agent: 'analyst' })).toThrow(/unchanged/);
     const firstAuthor = author();
@@ -104,9 +107,9 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(first.headId).not.toBe(baseline.headId); expect(second.headId).not.toBe(first.headId);
     const selected = cards.readRecordVersion(card.id, 'status.md', 1);
     if (selected.kind !== 'found') throw new Error('Missing accepted record');
-    expect(selected.value.projection.artifact.format_version).toBe(4);
+    expect(selected.value.projection.artifact.format_version).toBe(5);
     expect(selected.value.projection.accepted?.author).toEqual(firstAuthor);
-    expect(() => authoredRecordVersionArtifactSchema.parse({ ...selected.value.projection.artifact, format_version: 2 })).toThrow();
+    expect(() => authoredRecordVersionArtifactSchema.parse({ ...selected.value.projection.artifact, format_version: 4 })).toThrow();
     expect(() => cards.acceptRecord(card.id, 'status.md', 'same report\r\n', { kind: 'agent', agent: 'analyst' })).toThrow(/unchanged/);
     cards.openRecord(card.id, 'status.md');
     expect(effectiveRecordContent(current(cards, card.id, 'status.md'))?.author).toBeNull();

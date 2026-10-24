@@ -31,14 +31,14 @@ source-era values; they must not be read as today's accepted-version list.
 | Durable family | Exact path/owner | Discriminator and selected meaning |
 | --- | --- | --- |
 | Card current head / previous slot | Card namespace `card-head.json`, `card-head.prev.json`; `persistence/canonical-card-artifacts.ts`, `card-files.ts` | `format_version:1`, `kind:card-head`; fresh head UUID, ordinary selection and ordered current-only mailbox UUIDs. Previous slot shares this selector contract, not separate numbering. |
-| Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:4`, `card-version` / `card-tombstone`; minimal ordinary/final payload, agent/action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
+| Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:5`, `card-version` / `card-tombstone`; minimal ordinary/final payload, qualified action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected by current head, not a queue log. |
 | Record head / previous slot | `records/record-<stem>.json` and injective `.prev.json` sibling; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; fresh UUID/mutation revision, current-only baseline0, explicit draft version/target and latest accepted reference. Baseline/draft0/empty is ineligible. |
-| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:4`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated agent/external/runtime/shell author and ordinary card provenance. Historical projection has null current head/revision. |
+| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:5`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated agent/external/runtime/action-output author with body-bound output descriptor and ordinary card provenance. Historical projection has null current head/revision. |
 | Record initialization input | Card-type YAML; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; no old content/trigger input reader. |
-| Workflow input | Card-type YAML `workflow`; same owners | `format_version:3`; literal authored durable prompt keys; agent/action execution, optional shell stdout record binding, typed fields/cases/inputs and advisory natural-postcommit attachment. |
+| Workflow input | Card-type YAML `workflow`; same owners | `format_version:4`; literal authored durable prompt keys; qualified action IDs, optional declared `output_record` binding, typed fields/cases/inputs and advisory natural-postcommit attachment. |
 | Operation selection | Explicit compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; retained in action results/execution observations, not package/shared-envelope version. |
-| Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, `runtime/actors/operation-execution.ts` | `version:1`, `type:card-execution`; strict entry/spawn/finish/file association. Incomplete is valid, not resumable state; declared artifacts select mutable source. |
+| Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, `runtime/actors/operation-execution.ts` | `version:2`, `type:card-execution`; qualified IDs, declared output source/exact artifact paths, nullable completed-output descriptor and strict entry/spawn/finish/file associations. Incomplete is valid, not resumable state; artifacts select mutable source. |
 | Conversation index / previous index and ordinary/compacted genesis | Session `index.json`, `index.prev.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/source/cutoff/continuation, baseline/draft/current/historical record facts, protected prompts, excerpts and declared structural omission. |
 | Conversation segment envelope / selected PNGs | Same versions and `images/<UUID>.png`; above owners plus `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; strict message/private-context/activation and ordered result-content selection. Raw PNGs use this identified owning descriptor contract, not an independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use **shared** `version:2`, `type:rows`, with distinct strict row owners. App log includes event/control/external-receipt rows; provider grammar is unchanged by the attribution bump. Not independently numbered envelopes. |
@@ -47,6 +47,34 @@ source-era values; they must not be read as today's accepted-version list.
 | Private observed native deployment | `.saivage/config/observed-collections-native.json`; same schema owner, `retrieval/xerj-deployment.ts` producer | New `format_version:1`, `type:xerj-observed-deployment`; loopback endpoint, exact native/model identities and root→prefix association. No concrete destinations/progress. Selects fixed raw `xerj.key` encoding and derived deployment bundle. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; exceptional lifecycle exclusion, outside generated-root replacement. |
 | Private failed-provider diagnostics | `.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`; `agents/failed-provider-request-diagnostics.ts` | `format_version:3`, `kind:failed-provider-request-diagnostic`, `privacy_policy:failed-provider-request-privacy-2`; opt-in finite private observation, no retained runtime reader/index. |
+
+### Generalized action output — 2026-10-24
+
+Source parent `5f52e186d386fb39549a88433766a88ec8cea348` has workflow3,
+accepted4, card4 and execution1. This source cutover freshly increments workflow
+**3→4**, accepted records **4→5**, ordinary/tombstone cards **4→5** and execution
+envelopes **1→2**. Deployment applicability is unknown; no unreleased-version reuse
+is assumed. Owners, producers, current/history readers, templates and fixtures
+change together.
+
+Workflow4 replaces `stdout_record` with `output_record` for declared output-capable
+actions. A shared qualified-ID grammar permits two or more components and widens
+retained lifecycle executor IDs in card5. Accepted5 replaces shell-only authorship
+with `action-output`: operation/contract/provider, actual activation/invocation/node/
+ordinal, nullable process/leader facts, outcome and source/byte-size/SHA256 matched
+against the literal accepted body. Returned text is not native stdout. Execution2
+retains the declared output source and exact artifact selection, completed-output
+descriptor and actual process/capture associations. Shell contract1 and its native
+outcomes/literal stdout semantics remain unchanged.
+
+No head/mailbox/initializer/conversation/shared-log/MCP/observed/lock/diagnostic
+family changes. Optional quality-tool bindings and actual analyzers are not part
+of this generic-output cutover. No installed adoption, migration or reset is
+performed or implied. Old/mixed input and retained state fail strict consumption;
+materialized workflows require deliberate matching adoption. Binary-only rollback
+after new writes is unsupported. External migration requires a separate explicit
+identified-project request and full offline gates; see
+[adoption](../runbook/state-adoption.md#generalized-action-output).
 
 ### Observed source input introduction
 
@@ -82,7 +110,7 @@ inputs are not retrofitted. Compare the actual selected source/target release's
 schemas **and semantic consumers**, including nested payload/provenance/layout.
 
 The [external-attribution entry](#external-analyst-operation-attribution-2026-10-20)
-records the latest card4/accepted4/shared2 source boundary; conversation12 and
+records the earlier card4/accepted4/shared2 source boundary; conversation12 and
 heads1/3 remain unchanged. The [literal-key entry](#literal-authored-protection-keys-workflow-2-to-3-2026-10-21)
 records the later workflow2→3 input change. Deployment applicability remains unknown.
 The earlier editorial reorganization changed no contract/discriminator and created

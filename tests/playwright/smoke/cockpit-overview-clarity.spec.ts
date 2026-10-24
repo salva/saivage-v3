@@ -85,7 +85,7 @@ function objectiveRecord() {
 function largeGraph() {
   const nodes = Array.from({ length: 42 }, (_, index) => {
     const ordinal = String(index + 1).padStart(2, '0');
-    return { node_id: `node-${ordinal}`, stdout_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: descriptors.map((record) => record.name), requirements: [], descendant_context: null, outcomes: [`continue-along-the-long-custom-cycle-${ordinal}`], execution: { kind: 'agent', agent_name: `custom-worker-${ordinal}`, session: { scope: 'card', identity_pattern: `agent:custom-worker-${ordinal}:<card-id>` }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read'], record_write_patterns: ['*.md'] } };
+    return { node_id: `node-${ordinal}`, output_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: descriptors.map((record) => record.name), requirements: [], descendant_context: null, outcomes: [`continue-along-the-long-custom-cycle-${ordinal}`], execution: { kind: 'agent', agent_name: `custom-worker-${ordinal}`, session: { scope: 'card', identity_pattern: `agent:custom-worker-${ordinal}:<card-id>` }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read'], record_write_patterns: ['*.md'] } };
   });
   const edges = nodes.map((node, index) => ({ route_id: node.outcomes[0], test: null,
     source_node_id: node.node_id,
@@ -192,7 +192,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
     }
     if (path === `/api/workflows/${graph.card_type}/presentation`) return json(route, parseOperatorResponse('workflows.presentation', 200, {
       card_type: graph.card_type,
-      nodes: graph.nodes.map(({ node_id, execution, initialize_records, stdout_record }) => ({ node_id, execution: { kind: 'agent', agent_name: execution.agent_name }, initialize_records, stdout_record })),
+      nodes: graph.nodes.map(({ node_id, execution, initialize_records, output_record }) => ({ node_id, execution: { kind: 'agent', agent_name: execution.agent_name }, initialize_records, output_record })),
       entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
       edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
       terminals: graph.terminals,

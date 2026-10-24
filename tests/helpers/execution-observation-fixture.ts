@@ -77,9 +77,11 @@ export async function invokeObservationPlugin(root: string) {
     inputs: fields,
     outcomes: { observed: fields },
     retainFields: Object.keys(fields),
+    output: null,
+    artifacts: () => [],
     async run(_config, input) {
       received.push(input);
-      return { outcome: 'observed', summary: 'Synthetic typed observation.', values: observationOutputs };
+      return { result: { outcome: 'observed', summary: 'Synthetic typed observation.', values: observationOutputs }, output: null };
     },
   };
   const operations = compileOperations([], [
@@ -103,6 +105,7 @@ export async function invokeObservationPlugin(root: string) {
       card_id: 'project', card_type: 'project', card_title: 'Observation fixture',
     });
     const invocation = await invokeOperation({
+      collectOutput: false,
       projectRoot: root,
       cardId: 'project',
       execution,

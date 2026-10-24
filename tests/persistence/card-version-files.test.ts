@@ -36,13 +36,13 @@ describe('card immutable history and pending-only mailbox', () => {
     const selected = head(root, child.id); expect(selected.format_version).toBe(1);
     const path = cardHistoryFile(root, child.id, selected.ordinary.entry_id);
     const artifact = JSON.parse(readFileSync(path, 'utf8'));
-    expect(artifact).toMatchObject({ format_version: 4, kind });
+    expect(artifact).toMatchObject({ format_version: 5, kind });
     const body = kind === 'card-version' ? artifact.card : artifact.final_card;
     expect(body).not.toHaveProperty('subtype'); expect(body).not.toHaveProperty('metadata');
     expect(cards.readCardVersion(child.id, artifact.version).kind).toBe('found');
     const files = new CanonicalCardFilesReadModel(() => cards).content(`.saivage/cards/project/children/a/card.json?v=${artifact.version}`);
     if (!('content' in files.body)) throw new Error('Expected historical Files body');
-    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 4, kind });
+    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 5, kind });
      for (const format_version of [1, 2]) {
        writeFileSync(path, JSON.stringify({ ...artifact, format_version }));
        expect(() => cards.read(child.id)).toThrow();
