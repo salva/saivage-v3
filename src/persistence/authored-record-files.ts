@@ -538,7 +538,10 @@ export function acceptAuthoredRecord(
   const prior = readHead(projectRoot, cardId, definition);
   if (prior?.draft) throw new Error('Record already has an open workflow draft.');
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
-  if (author.kind !== 'action-output' && (prior?.baseline?.content ?? accepted?.content) === content)
+  if (
+    author.kind !== 'action-output' &&
+    (prior?.baseline?.content ?? accepted?.content) === content
+  )
     throw new Error('Record content is unchanged.');
   const observed = acceptanceCard(projection);
   return publishAcceptance(

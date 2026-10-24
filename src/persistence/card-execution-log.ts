@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { operationIdSchema } from '../schemas/operation-id.js';
-import { actionOutputDescriptorSchema, operationOutputSourceSchema } from '../schemas/action-output.js';
+import { operationIdSchema } from '../schemas/index.js';
+import { actionOutputDescriptorSchema, operationOutputSourceSchema } from '../schemas/index.js';
 import { cardIdSchema, uuidV4Schema } from '../schemas/index.js';
 import { cardExecutionFile } from './layout.js';
 import {
@@ -241,17 +241,31 @@ function validateRows(cardId: string, rows: readonly CardExecutionRow[]): void {
         throw new Error('Execution process facts have no observed spawn or spawn error.');
       const selectedCaptures = row.process ? invocation.processes.get(row.process.id) : undefined;
       const finishedCaptures = row.files.filter((file) => file.kind === 'capture');
-      if (selectedCaptures && (finishedCaptures.length !== selectedCaptures.length ||
-        finishedCaptures.some((file) => !selectedCaptures.some((selected) =>
-          selected.kind === 'capture' && selected.stream === file.stream && selected.path === file.path))))
-        throw new Error('Execution finish capture references disagree with observed process start.');
+      if (
+        selectedCaptures &&
+        (finishedCaptures.length !== selectedCaptures.length ||
+          finishedCaptures.some(
+            (file) =>
+              !selectedCaptures.some(
+                (selected) =>
+                  selected.kind === 'capture' &&
+                  selected.stream === file.stream &&
+                  selected.path === file.path,
+              ),
+          ))
+      )
+        throw new Error(
+          'Execution finish capture references disagree with observed process start.',
+        );
       const artifactPaths = [
-        ...row.files.flatMap((file) => file.kind === 'artifact' ? [file.path] : []),
+        ...row.files.flatMap((file) => (file.kind === 'artifact' ? [file.path] : [])),
         ...row.absent_artifacts,
       ];
-      if (artifactPaths.length !== invocation.started.artifact_paths.length ||
+      if (
+        artifactPaths.length !== invocation.started.artifact_paths.length ||
         new Set(artifactPaths).size !== artifactPaths.length ||
-        artifactPaths.some((path) => !invocation.started.artifact_paths.includes(path)))
+        artifactPaths.some((path) => !invocation.started.artifact_paths.includes(path))
+      )
         throw new Error('Execution artifact observations disagree with exact declared selection.');
       if (row.disposition === 'spawn_failed' && (row.leader_error === null || row.outcome !== null))
         throw new Error('Spawn failure needs observed error and no configured outcome.');
@@ -264,10 +278,15 @@ function validateRows(cardId: string, rows: readonly CardExecutionRow[]): void {
       if (row.output) {
         if (row.outcome === null || row.output.source !== invocation.started.output_source)
           throw new Error('Execution output has no matching accepted source declaration.');
-        if (row.output.source === 'command-stdout' && (
-          !row.process || row.process.group !== 'absent' || row.process.stdout !== 'eof' ||
-          row.process.stdout_error !== null || !row.files.some((file) => file.kind === 'capture' && file.stream === 'stdout')
-        )) throw new Error('Execution stdout output lacks complete captured process facts.');
+        if (
+          row.output.source === 'command-stdout' &&
+          (!row.process ||
+            row.process.group !== 'absent' ||
+            row.process.stdout !== 'eof' ||
+            row.process.stdout_error !== null ||
+            !row.files.some((file) => file.kind === 'capture' && file.stream === 'stdout'))
+        )
+          throw new Error('Execution stdout output lacks complete captured process facts.');
       }
       invocation.finished = true;
     }

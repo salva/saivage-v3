@@ -5,7 +5,7 @@ import type {
   OperationValues,
   OperationReturn,
 } from './operation-contract.js';
-import { operationIdSchema } from '../../schemas/operation-id.js';
+import { operationIdSchema } from '../../schemas/index.js';
 import {
   validateOperationFields,
   validateOperationValues,

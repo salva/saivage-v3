@@ -1,5 +1,5 @@
 import { z, type ZodTypeAny } from 'zod';
-import { qualityToolInputSchema } from '../contracts/quality-tools.js';
+import { qualityToolInputSchema } from '../contracts/index.js';
 import {
   listObservedCollectionsInputSchema,
   queryObservedCollectionsInputSchema,

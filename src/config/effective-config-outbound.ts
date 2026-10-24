@@ -62,10 +62,12 @@ export function projectEffectiveConfigForOutbound(
         );
   return outboundEffectiveSaivageConfigSchema.parse({
     ...value,
-    agents: Object.fromEntries(Object.entries(value.agents).map(([name, agent]) => {
-      const { quality_tools: _qualityTools, ...publicAgent } = agent;
-      return [name, publicAgent];
-    })),
+    agents: Object.fromEntries(
+      Object.entries(value.agents).map(([name, agent]) => {
+        const { quality_tools: _qualityTools, ...publicAgent } = agent;
+        return [name, publicAgent];
+      }),
+    ),
     providers,
     mcpServers,
   });

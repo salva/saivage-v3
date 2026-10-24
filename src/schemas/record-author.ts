@@ -15,7 +15,9 @@ export const recordAuthorSchema = z
         kind: z.literal('action-output'),
         operation: operationIdSchema,
         contract_version: z.number().int().safe().positive(),
-        provider: z.object({ kind: z.enum(['builtin', 'plugin']), name: z.string().min(1) }).strict(),
+        provider: z
+          .object({ kind: z.enum(['builtin', 'plugin']), name: z.string().min(1) })
+          .strict(),
         activation_id: uuidV4Schema,
         invocation_id: uuidV4Schema,
         node_id: z.string().min(1),
@@ -40,9 +42,12 @@ export const recordAuthorSchema = z
       author.provider.name !== author.operation.split('.')[0] ||
       (author.process_id === null && leader !== null) ||
       (author.output.source === 'command-stdout' && author.process_id === null) ||
-      (leader !== null && ((leader.exit_code === null) === (leader.signal === null)))
+      (leader !== null && (leader.exit_code === null) === (leader.signal === null))
     )
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Action output provenance is contradictory.' });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Action output provenance is contradictory.',
+      });
     if (author.operation !== 'shell.run') return;
     const invalid =
       author.contract_version !== 1 ||

@@ -457,8 +457,11 @@ const agentDefinitionFieldsSchema = z
 const agentDefinitionSchema = agentDefinitionFieldsSchema.superRefine((agent, ctx) => {
   for (const name of qualityToolNames) {
     if (agent.tools.includes(name) !== (agent.quality_tools?.[name] !== undefined))
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['quality_tools', name],
-        message: `Quality tool '${name}' requires both its selected tool grant and operator binding.` });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['quality_tools', name],
+        message: `Quality tool '${name}' requires both its selected tool grant and operator binding.`,
+      });
   }
 });
 

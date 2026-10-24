@@ -748,12 +748,20 @@ export class AgentExecutor {
     // under the existing runtime container and with the invoking node's signal.
     // `scope` is only the optional command-tool scope, not a quality prerequisite.
     return new BoundAgentToolSet(references).bind({
-      ...(agent.qualityTools ? { quality: bindQualityToolExecution({
-        projectRoot: this.deps.projectRoot, bindings: agent.qualityTools,
-        operations: this.deps.workflows.operations, processRunner: this.deps.processRunner,
-        parentScope: this.deps.runtimeProcessRootScope, ownerId: `${input.activationId}:node:${nodeOrdinal}`,
-        cardId: input.card.id, sessionId,
-      }) } : {}),
+      ...(agent.qualityTools
+        ? {
+            quality: bindQualityToolExecution({
+              projectRoot: this.deps.projectRoot,
+              bindings: agent.qualityTools,
+              operations: this.deps.workflows.operations,
+              processRunner: this.deps.processRunner,
+              parentScope: this.deps.runtimeProcessRootScope,
+              ownerId: `${input.activationId}:node:${nodeOrdinal}`,
+              cardId: input.card.id,
+              sessionId,
+            }),
+          }
+        : {}),
       scope: 'card',
       agentName: requireAgentExecution(node).agent.name,
       projectRoot: this.deps.projectRoot,

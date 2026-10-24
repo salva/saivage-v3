@@ -1,6 +1,10 @@
 import { z } from 'zod';
-import { operationIdSchema, operationKeySchema, operationNamespaceSchema } from '../../schemas/operation-id.js';
-import { operationOutputSourceSchema, type OperationOutputSource } from '../../schemas/action-output.js';
+import {
+  operationIdSchema,
+  operationKeySchema,
+  operationNamespaceSchema,
+} from '../../schemas/index.js';
+import { operationOutputSourceSchema, type OperationOutputSource } from '../../schemas/index.js';
 
 const outcomeSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
 const fieldNameSchema = z.string().regex(/^[a-z][a-z0-9_]{0,47}$/u);
@@ -230,12 +234,15 @@ export function validateOperationRunResult(
   definition: OperationDefinition,
   value: unknown,
 ): OperationRunResult {
-  const completed = z.object({ result: z.unknown(), output: z.instanceof(Uint8Array).nullable() })
-    .strict().parse(value);
+  const completed = z
+    .object({ result: z.unknown(), output: z.instanceof(Uint8Array).nullable() })
+    .strict()
+    .parse(value);
   const result = validateOperationReturn(definition, completed.result);
   if (definition.output === 'returned-text') {
     if (completed.output === null) throw new Error('Returned-text operation omitted its output.');
-    if (completed.output.byteLength > 1024 * 1024) throw new Error('Operation output exceeds 1MiB.');
+    if (completed.output.byteLength > 1024 * 1024)
+      throw new Error('Operation output exceeds 1MiB.');
     const bytes = Uint8Array.from(completed.output);
     const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     if (!content.trim() || content.includes('\0'))
@@ -263,7 +270,11 @@ export function compileOperations(
   };
   for (const definition of builtins) {
     const namespace = operationIdSchema.parse(definition.id).split('.')[0]!;
-    if (!reserved.has(namespace) || definition.provider.kind !== 'builtin' || definition.provider.name !== namespace)
+    if (
+      !reserved.has(namespace) ||
+      definition.provider.kind !== 'builtin' ||
+      definition.provider.name !== namespace
+    )
       throw new Error('Invalid builtin operation declaration.');
     add(definition);
   }

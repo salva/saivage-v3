@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { actionOutputDescriptorSchema, operationOutputSourceSchema } from '../schemas/action-output.js';
+import { actionOutputDescriptorSchema, operationOutputSourceSchema } from '../schemas/index.js';
 import { cardIdSchema, uuidV4Schema } from '../schemas/index.js';
 import {
   operatorSessionContract,

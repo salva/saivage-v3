@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { operationIdSchema } from '../schemas/operation-id.js';
+import { operationIdSchema } from '../schemas/index.js';
 import { agentNameSchema, cardTypeSchema, recordNameSchema } from '../schemas/index.js';
 import {
   operatorSessionContract,

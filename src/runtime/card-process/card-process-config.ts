@@ -46,7 +46,7 @@ import {
 } from './operation-contract.js';
 import { shellRunOperation } from './shell-operation.js';
 import { qualityOperationPlugin } from './quality-operations.js';
-import { qualityToolNames, type QualityToolBindings } from '../../schemas/quality-operation-config.js';
+import { qualityToolNames, type QualityToolBindings } from '../../schemas/index.js';
 import {
   compileActionExecution,
   compileDataFields,
@@ -566,7 +566,9 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
     const name = rawName as AgentName;
     for (const tool of qualityToolNames)
       if (source.tools.includes(tool) !== (source.quality_tools?.[tool] !== undefined))
-        throw new Error(`agents.${name}: quality tool '${tool}' requires both its selected grant and binding.`);
+        throw new Error(
+          `agents.${name}: quality tool '${tool}' requires both its selected grant and binding.`,
+        );
     const duplicate = new Set<string>();
     const tools: CompiledToolReference[] = [];
     for (const tool of source.tools) {
@@ -590,7 +592,8 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
       }
     }
     const patternNames = new Set<string>();
-    const qualityTools = source.quality_tools === undefined ? undefined : structuredClone(source.quality_tools);
+    const qualityTools =
+      source.quality_tools === undefined ? undefined : structuredClone(source.quality_tools);
     if (qualityTools) {
       for (const tool of qualityToolNames) {
         const binding = qualityTools[tool];
@@ -754,8 +757,8 @@ function compileCardTypeInputs(
   for (const [rawNodeId, node] of Object.entries(source.workflow.nodes)) {
     const nodeId = identifier(rawNodeId, `${location}.workflow.nodes key`);
     const selection = node.execution;
-    const actionExecution = selection.kind === 'action'
-      ? compileActionExecution(selection, operations, 'node') : null;
+    const actionExecution =
+      selection.kind === 'action' ? compileActionExecution(selection, operations, 'node') : null;
     const outputRecord = node.output_record === undefined ? null : records.get(node.output_record);
     if (node.output_record !== undefined) {
       if (!actionExecution || actionExecution.operation.output === null)
@@ -1439,7 +1442,10 @@ export function compileProjectWorkflows(
   options: WorkflowCompileOptions = {},
 ): CompiledProjectWorkflows {
   const roots = promptRoots(options);
-  const operations = compileOperations([shellRunOperation], [qualityOperationPlugin, ...(options.operationPlugins ?? [])]);
+  const operations = compileOperations(
+    [shellRunOperation],
+    [qualityOperationPlugin, ...(options.operationPlugins ?? [])],
+  );
   const knownModels = new Set<string>();
   for (const routeName of Object.keys(config.models.routes))
     for (const model of resolveRoute(config, routeName)) knownModels.add(model);

@@ -198,4 +198,14 @@ export type {
   StaticPromptDeclaration,
 } from './saivage-config.js';
 export { sha256Hex } from './sha256.js';
+export { operationIdSchema, operationKeySchema, operationNamespaceSchema } from './operation-id.js';
+export { actionOutputDescriptorSchema, operationOutputSourceSchema } from './action-output.js';
+export type { ActionOutputDescriptor, OperationOutputSource } from './action-output.js';
+export {
+  javascriptQualityConfigSchema,
+  typescriptQualityConfigSchema,
+  pythonQualityConfigSchema,
+  qualityToolNames,
+} from './quality-operation-config.js';
+export type { QualityToolBindings, QualityToolName } from './quality-operation-config.js';
 export { canonicalValueSha256 } from './canonical-json.js';

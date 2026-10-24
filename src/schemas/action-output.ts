@@ -7,7 +7,12 @@ export type OperationOutputSource = z.infer<typeof operationOutputSourceSchema>;
 export const actionOutputDescriptorSchema = z
   .object({
     source: operationOutputSourceSchema,
-    size_bytes: z.number().int().safe().positive().max(1024 * 1024),
+    size_bytes: z
+      .number()
+      .int()
+      .safe()
+      .positive()
+      .max(1024 * 1024),
     sha256: z.string().regex(/^[0-9a-f]{64}$/u),
   })
   .strict();

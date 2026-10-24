@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { statSync, readFileSync, openSync, fstatSync, readSync, closeSync } from 'node:fs';
 import { relative } from 'node:path';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
-import { actionOutputDescriptorSchema, type ActionOutputDescriptor } from '../schemas/action-output.js';
-import { sha256Hex } from '../schemas/sha256.js';
+import {
+  actionOutputDescriptorSchema,
+  type ActionOutputDescriptor,
+  sha256Hex,
+} from '../schemas/index.js';
 import { z } from 'zod';
 import {
   type CardExecutionRow,
@@ -95,8 +98,7 @@ export async function executeFiniteOperation(
   signal.throwIfAborted();
   const inputs = validateOperationValues(operation.inputs, args.inputs);
   const config = operation.config.parse(args.config);
-  const shell =
-    operation.id === 'shell.run' ? shellOperationConfigSchema.parse(config) : null;
+  const shell = operation.id === 'shell.run' ? shellOperationConfigSchema.parse(config) : null;
   const invocationId = args.invocationId;
   const artifacts = exactArtifactPaths.parse(operation.artifacts(config, invocationId));
   const identity = () => ({
@@ -137,22 +139,20 @@ export async function executeFiniteOperation(
   if (shell && redactTextForOutbound(JSON.stringify(inputs.args)) !== JSON.stringify(inputs.args))
     throw new Error('Shell arguments are not a secret delivery channel.');
   const cwd = shell ? args.resolveReadablePath(shell.cwd) : null;
-  observe(
-    {
-      ...identity(),
-      kind: 'invocation_started',
-      operation: operation.id,
-      contract_version: operation.contractVersion,
-      provider: operation.provider,
-      output_source: operation.output,
-      artifact_paths: artifacts,
-      input: observations(safeInputs),
-      config: [],
-      shell: shell
-        ? { script: shell.script, cwd: cwd!, argv: ['bash', ...argv!], env: shell.env }
-        : null,
-    },
-  );
+  observe({
+    ...identity(),
+    kind: 'invocation_started',
+    operation: operation.id,
+    contract_version: operation.contractVersion,
+    provider: operation.provider,
+    output_source: operation.output,
+    artifact_paths: artifacts,
+    input: observations(safeInputs),
+    config: [],
+    shell: shell
+      ? { script: shell.script, cwd: cwd!, argv: ['bash', ...argv!], env: shell.env }
+      : null,
+  });
   const scope = runner.createDirectScope(
     args.parentScope,
     `operation:${invocationId}`,
@@ -178,8 +178,12 @@ export async function executeFiniteOperation(
         resolveReadablePath: args.resolveReadablePath,
         readCommandStdout: () => {
           const completed = record as ProcessRecord | null;
-          if (!completed || completed.evidence.group !== 'absent' ||
-              completed.evidence.stdout !== 'eof' || completed.evidence.stdout_error)
+          if (
+            !completed ||
+            completed.evidence.group !== 'absent' ||
+            completed.evidence.stdout !== 'eof' ||
+            completed.evidence.stdout_error
+          )
             throw new Error('Operation command stdout is not complete.');
           return readCompletedBytes(completed.stdout_path, 16 * 1024 * 1024);
         },
@@ -205,14 +209,12 @@ export async function executeFiniteOperation(
               ...attribution,
               onSpawn: (spawned) => {
                 try {
-                  observe(
-                    {
-                      ...identity(),
-                      kind: 'process_started',
-                      process_id: spawned.id,
-                      files: captures(spawned),
-                    },
-                  );
+                  observe({
+                    ...identity(),
+                    kind: 'process_started',
+                    process_id: spawned.id,
+                    files: captures(spawned),
+                  });
                 } catch (error) {
                   if (error instanceof PublicationOutcomeUnknownError) throw error;
                   logFailure = { error };
@@ -361,8 +363,12 @@ export async function executeFiniteOperation(
     try {
       let content: string;
       if (operation.output === 'command-stdout') {
-        if (!observed || observed.evidence.group !== 'absent' ||
-          observed.evidence.stdout !== 'eof' || observed.evidence.stdout_error)
+        if (
+          !observed ||
+          observed.evidence.group !== 'absent' ||
+          observed.evidence.stdout !== 'eof' ||
+          observed.evidence.stdout_error
+        )
           throw new Error('Operation stdout capture is not complete.');
         content = readCompletedOutput(observed.stdout_path);
       } else if (operation.output === 'returned-text') {
@@ -372,13 +378,17 @@ export async function executeFiniteOperation(
       completedOutput = {
         content,
         descriptor: actionOutputDescriptorSchema.parse({
-          source: operation.output, size_bytes: Buffer.byteLength(content), sha256: sha256Hex(content),
+          source: operation.output,
+          size_bytes: Buffer.byteLength(content),
+          sha256: sha256Hex(content),
         }),
         processId: observed?.id ?? null,
-        leaderExit: observed?.evidence.leader_exit ? {
-          exit_code: observed.evidence.leader_exit.exit_code,
-          signal: observed.evidence.leader_exit.signal,
-        } : null,
+        leaderExit: observed?.evidence.leader_exit
+          ? {
+              exit_code: observed.evidence.leader_exit.exit_code,
+              signal: observed.evidence.leader_exit.signal,
+            }
+          : null,
       };
     } catch (error) {
       if (error instanceof PublicationOutcomeUnknownError)
@@ -446,11 +456,21 @@ export async function executeFiniteOperation(
   };
 }
 
-const exactArtifactPaths = z.array(z.string().min(1).refine((path) =>
-  !path.startsWith('/') && !/[?*[\]{}]/u.test(path) &&
-  !path.split('/').some((part) => part === '' || part === '.' || part === '..'),
-  'Artifacts must be exact project-relative paths.',
-)).max(16).refine((paths) => new Set(paths).size === paths.length, 'Duplicate artifact path.');
+const exactArtifactPaths = z
+  .array(
+    z
+      .string()
+      .min(1)
+      .refine(
+        (path) =>
+          !path.startsWith('/') &&
+          !/[?*[\]{}]/u.test(path) &&
+          !path.split('/').some((part) => part === '' || part === '.' || part === '..'),
+        'Artifacts must be exact project-relative paths.',
+      ),
+  )
+  .max(16)
+  .refine((paths) => new Set(paths).size === paths.length, 'Duplicate artifact path.');
 
 function readCompletedOutput(path: string): string {
   const bytes = readCompletedBytes(path, 1024 * 1024);

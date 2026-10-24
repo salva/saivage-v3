@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { QualityToolName } from '../schemas/quality-operation-config.js';
+import type { QualityToolName } from '../schemas/index.js';
 
 export const qualityToolInputSchema = z.object({}).strict();
 export interface QualityToolResult {
@@ -14,6 +14,9 @@ export interface QualityToolResult {
 }
 /** Bound to one selected policy agent and its actual process owner, not request config. */
 export interface QualityToolPort {
-  invoke(name: QualityToolName, caller: { resolveReadablePath(path: string): string },
-    signal: AbortSignal): Promise<QualityToolResult>;
+  invoke(
+    name: QualityToolName,
+    caller: { resolveReadablePath(path: string): string },
+    signal: AbortSignal,
+  ): Promise<QualityToolResult>;
 }

@@ -21,7 +21,7 @@ jest.setTimeout(240_000);
 const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
 const PROCESS_PATHS = ['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
 const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
-const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
+const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
 const EXPECTED_CATALOG = {
   'constant.analyst-orientation-max-bytes': ['constants', ['src/application/read-models/analyst-orientation.ts']],
   'constant.analyst-title-preview-max-bytes': ['constants', ['src/application/read-models/analyst-orientation.ts']],
@@ -220,7 +220,9 @@ const SOURCE_MUTATIONS = [
   ['known projected tools', verifyToolContractDocs, 'src/tools/tool-invocation-outbound.ts', 'KNOWN_TOOL_INVOCATION_NAMES'],
   ['optional MCP registration identity', verifyToolContractDocs, 'src/tools/mcp-provider.ts', "name: 'mcp_server_register'"],
   ['optional quality identity', verifyToolContractDocs, 'src/schemas/quality-operation-config.ts', "'code_quality_javascript_eslint'"],
-  ['optional quality binder source', verifyToolContractDocs, 'src/tools/quality-provider.ts', 'qualityToolNames.map((name) => defineToolBinder({'],
+  ['optional quality binder source', verifyToolContractDocs, 'src/tools/quality-provider.ts', 'qualityToolNames.map((name) =>\n  defineToolBinder({'],
+  ['optional quality public import', verifyToolContractDocs, 'src/tools/quality-provider.ts', "import { qualityToolNames, type AgentName } from '../schemas/index.js';"],
+  ['optional quality public owner', verifyToolContractDocs, 'src/schemas/index.ts', "'./quality-operation-config.js'"],
   ['tool presenters', verifyToolContractDocs, 'web/src/utils/tool-presenters/presenters.ts', 'TOOL_PRESENTERS'],
   ['terminal result union member', verifyToolContractDocs, 'src/contracts/result-envelope.ts', 'TERMINAL_RESULT_TOOL_NAME'],
   ['first projector gate', verifyToolContractDocs, 'src/tools/tool-invocation-outbound.ts', 'knownToolNames.has(input.identity.toolName)', 0],

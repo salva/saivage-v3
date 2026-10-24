@@ -280,7 +280,12 @@ export class NodeExecution {
         outcome: invocation.result.outcome,
         leader_exit: output.leaderExit,
       };
-      this.deps.store.acceptRecord(this.deps.cardId, node.outputRecord.name, output.content, author);
+      this.deps.store.acceptRecord(
+        this.deps.cardId,
+        node.outputRecord.name,
+        output.content,
+        author,
+      );
     }
     const routes = [...node.on.values()].flatMap((route) =>
       route.semantic.kind === 'configured-outcome'
