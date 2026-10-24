@@ -209,8 +209,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_DISABLE_COMPILE_CACHE: '1'
-      SAIVAGE_QUALITY_NATIVE_ROOT: ${{ runner.temp }}/saivage-quality-native
-      SAIVAGE_QUALITY_TEST_SCRATCH: ${{ runner.temp }}
     needs: classify-changes
     if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
     steps:
@@ -238,6 +236,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.14.4'
+
+      - name: Set isolated quality paths
+        shell: bash
+        run: |
+          printf 'SAIVAGE_QUALITY_NATIVE_ROOT=%s/saivage-quality-native\nSAIVAGE_QUALITY_TEST_SCRATCH=%s\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Provision exact isolated quality prerequisites
         shell: bash
@@ -305,8 +308,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_DISABLE_COMPILE_CACHE: '1'
-      SAIVAGE_QUALITY_NATIVE_ROOT: ${{ runner.temp }}/saivage-quality-native
-      SAIVAGE_QUALITY_TEST_SCRATCH: ${{ runner.temp }}
     needs: classify-changes
     if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
     steps:
@@ -340,6 +341,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.14.4'
+
+      - name: Set isolated quality paths
+        shell: bash
+        run: |
+          printf 'SAIVAGE_QUALITY_NATIVE_ROOT=%s/saivage-quality-native\nSAIVAGE_QUALITY_TEST_SCRATCH=%s\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Provision exact isolated quality prerequisites
         shell: bash

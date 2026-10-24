@@ -241,6 +241,22 @@ function validFiles(overrides = {}) {
 }
 
 describe('validation cadence guard', () => {
+  it('sets isolated native paths at step runtime rather than unavailable job runner context', () => {
+    const { jobs } = parse(VALID_WORKFLOW);
+    for (const name of ['backend-jest-build', 'browser-smoke']) {
+      const job = jobs[name];
+      expect(job.env).toEqual({ NODE_DISABLE_COMPILE_CACHE: '1' });
+      const setupIndex = job.steps.findIndex((step) => step.name === 'Set isolated quality paths');
+      const provisionIndex = job.steps.findIndex((step) => step.name === 'Provision exact isolated quality prerequisites');
+      expect(setupIndex).toBeGreaterThanOrEqual(0);
+      expect(provisionIndex).toBeGreaterThan(setupIndex);
+      expect(job.steps[setupIndex].shell).toBe('bash');
+      expect(job.steps[setupIndex].run.trim()).toBe(
+        String.raw`printf 'SAIVAGE_QUALITY_NATIVE_ROOT=%s/saivage-quality-native\nSAIVAGE_QUALITY_TEST_SCRATCH=%s\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"`,
+      );
+    }
+  });
+
   it('accepts detailed cadence at its validation-reference owner without README duplication', () => {
     const files = validFiles();
     files['docs/validation.md'] = files['README.md'] + files['docs/architecture/system-architecture.md'];
@@ -723,7 +739,7 @@ describe('validation cadence guard', () => {
     ];
     for (const [job, prefix] of pathJobs) {
       const nativeEnvironment = ['backend-jest-build', 'browser-smoke'].includes(job)
-        ? "    env:\n      NODE_DISABLE_COMPILE_CACHE: '1'\n      SAIVAGE_QUALITY_NATIVE_ROOT: ${{ runner.temp }}/saivage-quality-native\n      SAIVAGE_QUALITY_TEST_SCRATCH: ${{ runner.temp }}\n"
+        ? "    env:\n      NODE_DISABLE_COMPILE_CACHE: '1'\n"
         : '';
       const header = `  ${job}:\n    name: ${job}\n    runs-on: ubuntu-latest\n${nativeEnvironment}    needs: classify-changes`;
       mutations.push(
@@ -764,6 +780,11 @@ describe('validation cadence guard', () => {
         uses: actions/setup-python@v5
         with:
           python-version: '3.14.4'
+
+      - name: Set isolated quality paths
+        shell: bash
+        run: |
+          printf 'SAIVAGE_QUALITY_NATIVE_ROOT=%s/saivage-quality-native\\nSAIVAGE_QUALITY_TEST_SCRATCH=%s\\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Provision exact isolated quality prerequisites
         shell: bash
