@@ -16,6 +16,30 @@ const SFC_VIRTUAL_SUFFIX = '.__export_consumer__.ts';
 const ALLOWLIST_KEYS = ['consumer', 'export', 'kind', 'module', 'reason'];
 const ALLOWLIST_KINDS = new Set(['unobservable-entrypoint', 'reflective-consumer']);
 
+// One operator-selected external native-package boundary, not an export consumer
+// in this repository. Match the complete owning function syntax, not a filename
+// exemption or a comment directive. Any changed loader requires explicit review;
+// other computed imports in the same file remain unsupported.
+const nativeLoaderSource = ts.createSourceFile('native-loader.ts', `
+async function loadModule(directory: string, entry: string): Promise<unknown> {
+  const root = realpathSync(directory);
+  const file = realpathSync(resolve(root, entry));
+  const within = relative(root, file);
+  if (isAbsolute(within) || within === '..' || within.startsWith(\`..\${sep}\`))
+    throw new Error('Native package entry escapes the selected package directory.');
+  const module: { default?: unknown } = await import(pathToFileURL(file).href);
+  return module.default ?? module;
+}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const boundaryPrinter = ts.createPrinter({ removeComments: true });
+const nativeLoaderSyntax = boundaryPrinter.printNode(ts.EmitHint.Unspecified, nativeLoaderSource.statements[0], nativeLoaderSource);
+function isNativePackageBoundary(root, sourceFile, node) {
+  if (canonical(root, sourceFile.fileName) !== 'src/quality/eslint-analysis.ts') return false;
+  let owner = node.parent;
+  while (owner && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
+  return !!owner && owner.parent === sourceFile &&
+    boundaryPrinter.printNode(ts.EmitHint.Unspecified, owner, sourceFile) === nativeLoaderSyntax;
+}
+
 function canonical(root, fileName) {
   return path.relative(root, path.resolve(fileName)).replaceAll(path.sep, '/');
 }
@@ -461,6 +485,7 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
           }
         }
         if (!ts.isStringLiteralLike(argument)) {
+          if (isNativePackageBoundary(root, sourceFile, node)) return;
           const item = { category: 'unsupported', module: '<computed-import>', export: '*', consumer: location(root, sourceFile, argument, virtualData), message: 'computed dynamic import is unsupported' };
           failures.push(item);
           unsupported.push(item);

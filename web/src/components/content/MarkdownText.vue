@@ -6,10 +6,19 @@
 import { computed } from 'vue';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { buildScopedPathUrl, parseScopedPathUrl } from '@saivage/contracts/scoped-path-url';
 
 const props = defineProps<{ source: string }>();
 
-const marked = new Marked({ gfm: true, breaks: false });
+const marked = new Marked({ gfm: true, breaks: false, walkTokens(token) {
+  if (token.type !== 'link' || !token.href.startsWith('work:///')) return;
+  let parsed;
+  try { parsed = parseScopedPathUrl(token.href, 'work'); } catch { return; }
+  if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== token.href) return;
+  // Translate only canonical work links to ordinary authenticated Files UI.
+  // Do not allow custom schemes through DOMPurify or bypass Files admission.
+  token.href = `/files?root=output&path=${encodeURIComponent(`.saivage/work/${parsed.segments.join('/')}`)}`;
+} });
 
 function escapeMarkdownLinkText(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/]/g, '\\]');

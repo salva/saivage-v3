@@ -212,7 +212,20 @@ function observedSourceMemberships(value: unknown): SemanticSection[] {
   }) }];
 }
 const queryKeys = ['position', 'response_bytes', 'section', 'version', 'from_version', 'to_version', 'byte_offset', 'limit', 'since', 'kind', 'status', 'cardId', 'session_id', 'last_n', 'record_name', 'rootId', 'depth', 'type', 'parent'] as const;
+const qualityPresenter: ToolPresenter = {
+  action: 'Analyze configured source',
+  call: request('quality analysis', [], () => textPart('Operator-bound scope')),
+  result: (ctx) => observed(str(ctx.dataRecord?.outcome), [
+    fields('Analysis identity', ctx.dataRecord, ['operation', 'contract_version', 'invocation_id', 'outcome', 'summary']),
+    ...content('Finding counts and coverage', ctx.dataRecord?.values),
+    ...content('Bounded report — omissions and scope limits', ctx.dataRecord?.report),
+    ...list('Mutable work artifacts — not accepted history', ctx.dataRecord?.artifacts, ['path', 'size_bytes']),
+  ], 'Analysis evidence · not acceptance'),
+};
 export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
+  code_quality_javascript_eslint: qualityPresenter,
+  code_quality_typescript_eslint: qualityPresenter,
+  code_quality_python_ruff: qualityPresenter,
   list_observed_collections: {
     action: 'Discover observed sources',
     call: request('observed collections', [], () => textPart('Configured source views')),

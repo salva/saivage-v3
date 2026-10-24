@@ -47,6 +47,21 @@ function record(result, module, name) {
 }
 
 describe('export consumer checker', () => {
+  it('recognizes only the exact native-package loader boundary, never its file or other computed imports', () => {
+    const ownerPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/quality/eslint-analysis.ts');
+    const source = readFileSync(ownerPath, 'utf8');
+    const loader = source.slice(source.indexOf('async function loadModule('), source.indexOf('\nfunction severity('));
+    expect(loader).toContain('await import(pathToFileURL(file).href)');
+    const computedFailures = (files) => runFixture(files).failures.filter((failure) => failure.module === '<computed-import>');
+    expect(computedFailures({ 'src/quality/eslint-analysis.ts': loader })).toEqual([]);
+    expect(computedFailures({ 'src/quality/other.ts': loader })).toHaveLength(1);
+    expect(computedFailures({ 'src/quality/eslint-analysis.ts': loader.replace('loadModule(directory: string, entry: string)', 'loadOther(directory: string, entry: string)') })).toHaveLength(1);
+    expect(computedFailures({ 'src/quality/eslint-analysis.ts': loader.replace('directory: string', 'directory: URL') })).toHaveLength(1);
+    expect(computedFailures({ 'src/quality/eslint-analysis.ts': loader.replace('realpathSync(resolve(root, entry))', 'resolve(root, entry)') })).toHaveLength(1);
+    expect(computedFailures({ 'src/quality/eslint-analysis.ts': loader.replace('pathToFileURL(file).href', 'entry') })).toHaveLength(1);
+    expect(computedFailures({ 'src/quality/eslint-analysis.ts': `${loader}\nasync function other(target: string) { return import(target); }` })).toHaveLength(1);
+  });
+
   it('exports only the fixed complete checker and rejects every CLI scope selector', () => {
     expect(Object.keys(exportConsumerModule)).toEqual(['checkExportConsumers']);
     const checkerPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/check-export-consumers.js');
@@ -700,7 +715,7 @@ describe('repository complete export boundary', () => {
     const assignedTs = ['root', 'web', 'docs'].flatMap((host) => result.ownership.hostAssignments[host]).filter((file) => !file.endsWith('.vue.__export_consumer__.ts')).sort();
     expect(assignedTs).toEqual(tsFamily);
     expect(new Set(assignedTs)).toHaveProperty('size', tsFamily.length);
-    expect(result.ownership.declarationFiles).toEqual(['scripts/verify-doc-routes.d.ts', 'web/env.d.ts']);
+    expect(result.ownership.declarationFiles).toEqual(['scripts/verify-doc-routes.d.ts', 'tests/playwright/smoke/fixtures/packaged-execution-fixture.d.ts', 'web/env.d.ts']);
     expect(result.ownership.typescriptOrdinaryFiles).toEqual(tsFamily.filter((file) => !declarations.includes(file)));
     const classifications = ['production-consumed', 'test-only', 'local-only', 'zero-use'];
     const directHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]));

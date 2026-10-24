@@ -1,5 +1,17 @@
 # Operator UI: Exact Contracts Register
 
+The three `code_quality_*` tools render as configured-source analysis with operation,
+contract/invocation identity, outcome, flat counts/coverage, bounded report and named
+work artifacts. Label these as analysis evidence, not acceptance; artifact references
+remain mutable Files resources with ordinary privacy/availability limits. Failure
+results may retain useful diagnostic evidence. No provisioning fields appear in
+public effective configuration. Report omission labels/full links must remain visible.
+Canonical `work:///` Markdown links in current and historical report bodies navigate
+to the ordinary Files output view. The renderer validates the scoped URL and maps
+it to a same-origin Files route before HTML sanitization; it does not allow custom
+schemes through the sanitizer. Files still owns authentication, path admission,
+redaction and availability. Invalid/noncanonical work links are not navigable.
+
 ## Observed collection Request/Result presentation
 
 The two named tool presenters show requested collections/query/intent/limit and

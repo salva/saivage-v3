@@ -1,6 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 
 import type { ToolInvocationProjectionInput } from '../../src/contracts/tool-invocation-projection.js';
+import type { ToolResult } from '../../src/contracts/index.js';
+import { toolSucceeded, toolFailed } from '../../src/contracts/index.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../src/contracts/result-envelope.js';
 import { parseConversationSessionId } from '../../src/schemas/index.js';
 import { buildRuntimeToolCatalog } from '../../src/tools/runtime-tool-catalog.js';
@@ -26,6 +29,9 @@ const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
 const validArguments: Record<KnownToolInvocationName, unknown> = {
+  code_quality_javascript_eslint: {},
+  code_quality_typescript_eslint: {},
+  code_quality_python_ruff: {},
   list_observed_collections: {},
   query_observed_collections: { collections: ['docs'], query: 'request cancellation', intent: 'balanced', limit: 20 },
   view_image: { path: 'screen.png' },
@@ -90,6 +96,47 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 };
 
 describe('projectToolInvocation exhaustive identity switch', () => {
+  it.each(['code_quality_javascript_eslint', 'code_quality_typescript_eslint', 'code_quality_python_ruff'] as const)(
+    'preserves empty %s requests and evidence links while filtering report/diagnostic secrets', (toolName) => {
+      const path = 'work:///quality/11111111-1111-4111-8111-111111111111/findings.json';
+      for (const success of [true, false]) {
+        const data = {
+          outcome: success ? 'findings' : 'analysis_failed',
+          report: `Shown findings:1; omitted findings:2. ${marker}`,
+          diagnostic: marker,
+          values: { finding_count: 3, coverage_complete: success },
+          artifacts: [{ path, size_bytes: 1200 }],
+        };
+        const result: ToolResult = success
+          ? { success: true, data }
+          : { success: false, error: marker, data };
+        const before = JSON.stringify(result);
+        const input = { shape: 'complete' as const, identity: identity(toolName), arguments: {}, result };
+        // AnalystSession supplies settled.providerResult to the live route.
+        // Exercise the owning redactor rather than feeding raw native data into
+        // a projection whose live input is already settled outbound evidence.
+        const settled = settleToolActionOutcome(success ? toolSucceeded(data) : toolFailed(marker, data));
+        expect(settled.settledResultBytes).not.toContain(OUTBOUND_RAW_MARKER);
+        expect(settled.settledResultBytes).toContain('omitted findings:2');
+        expect(settled.settledResultBytes).toContain(path);
+        for (const projected of [projectToolInvocation(input), projectLiveToolInvocation({ ...input, result: settled.providerResult })]) {
+          expect(projected).toMatchObject({ arguments: {}, result: { success, data: {
+            values: { finding_count: 3, coverage_complete: success }, artifacts: [{ path, size_bytes: 1200 }],
+          } } });
+          expect(JSON.stringify(projected)).not.toContain(OUTBOUND_RAW_MARKER);
+          expect(JSON.stringify(projected)).toContain('omitted findings:2');
+          expect(JSON.stringify(projected)).toContain('[REDACTED]');
+        }
+        const retained = projectToolInvocation({ shape: 'result-row', identity: identity(toolName), result });
+        expect(JSON.stringify(retained)).not.toContain(OUTBOUND_RAW_MARKER);
+        expect(JSON.stringify(retained)).toContain(path);
+        expect(JSON.stringify(result)).toBe(before);
+      }
+      const call = projectToolInvocation({ shape: 'call-row', identity: callIdentity(toolName), arguments: '{}' });
+      if (call.shape !== 'call-row') throw new Error('Unexpected call projection shape.');
+      expect(JSON.parse(call.arguments)).toEqual({});
+    },
+  );
   it('projects observed query canaries through live and retained argument surfaces without exposing private native facts', () => {
     const args={collections:['docs'],query:`Locate Authorization: Bearer ${OUTBOUND_RAW_MARKER}`,intent:'balanced',limit:20};
     const input={shape:'complete' as const,identity:identity('query_observed_collections'),arguments:args,result:{success:true as const,data:{collections:[],hits:[],coverage:{exhaustive:false}}}};

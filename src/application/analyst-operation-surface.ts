@@ -1,4 +1,5 @@
 import type { OperationAuthor } from '../schemas/index.js';
+import { bindQualityToolExecution } from '../runtime/runtime-api.js';
 import { operationActor } from '../schemas/index.js';
 import type { OutboundHttpEmitter } from '../contracts/index.js';
 import type {
@@ -40,7 +41,16 @@ export function createAnalystOperationSurface(input: {
       allowedTools,
     }),
   };
+  if (workflows.analyst.qualityTools && !context.qualityProcessParentScope)
+    throw new Error('Analyst quality tools require the owner container scope.');
   return new BoundAgentToolSet(selected).bind({
+    ...(workflows.analyst.qualityTools ? { quality: bindQualityToolExecution({
+      projectRoot: context.projectRoot, bindings: workflows.analyst.qualityTools,
+      operations: workflows.operations, processRunner: context.processRunner,
+      parentScope: context.qualityProcessParentScope!,
+      ownerId: operationActor(input.author),
+      sessionId: context.sessionId,
+    }) } : {}),
     outboundHttp: input.outboundHttp,
     scope: 'global',
     agentName: workflows.analyst.name,

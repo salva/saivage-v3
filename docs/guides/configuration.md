@@ -1,5 +1,54 @@
 # Configure an instance
 
+## Opt in to native quality evidence
+
+Preprovision the [qualified native tools](../reference/quality-tool-qualification.md)
+and an offline native configuration first. This partial YAML adds a JavaScript
+binding to an existing agent; preserve its other fields/tools. Paths are examples,
+not installed defaults. Do not place credentials in native configuration.
+
+```yaml
+tools: [code_quality_javascript_eslint]
+quality_tools:
+  format_version: 1
+  code_quality_javascript_eslint:
+    cwd: .
+    native_config: analysis/eslint.config.mjs
+    source_paths: [src]
+    exclusions: [src/generated]
+    node_binary: /opt/node/bin/node
+    eslint_module: analysis/node_modules/eslint
+    timeout_ms: 30000
+    terminate_grace_ms: 2000
+```
+
+The selected agent invokes `code_quality_javascript_eslint({})`. TS/Ruff use the
+corresponding named binding and the [same action config schemas](../reference/configuration.md#quality-actions).
+Requests cannot replace configuration or narrow/widen its scope. For an automated
+workflow alternative, use this node execution excerpt with that same config:
+
+```yaml
+execution:
+  kind: action
+  action: code-quality.javascript.eslint
+  contract_version: 1
+  config: # insert the same JavaScript config above
+    cwd: .
+    native_config: analysis/eslint.config.mjs
+    source_paths: [src]
+    exclusions: [src/generated]
+    node_binary: /opt/node/bin/node
+    eslint_module: analysis/node_modules/eslint
+    timeout_ms: 30000
+    terminate_grace_ms: 2000
+  inputs: {}
+```
+
+Complete the node with all five outcome routes, routing clean/findings to ordinary
+assessment and failures to diagnosis, not automatic DONE. An optional action
+`output_record` additionally requires the ordinary declared nonbootstrap record and
+updated-record gate. Tools do not borrow that publication authority.
+
 Optional [observed source definitions](../reference/configuration.md#optional-observed-source-inputs)
 select logical code/docs/skill views. The [prepare/adopt procedure](../runbook/observed-collections.md)
 generates private native deployment inputs without indexing or starting services.

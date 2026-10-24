@@ -1,5 +1,13 @@
 # Prompt handling
 
+Selected quality-tool descriptions own the concise direction to analyze the bound
+scope, inspect coverage/full work evidence and use ordinary assessment. They are
+absent from default agent selections and do not prescribe automatic fixes, record
+acceptance or duplicate action/tool runs. The strict generated empty request schema
+owns invocation arguments; provisioning stays operator input, not prompt data.
+Actual card/global/external compositions and action-assessment handoffs require
+the normal final composition/clean-room validation, not raw-description inspection.
+
 Observed collection guidance is owned by the two tool descriptions in
 `tools/retrieval-provider.ts`, delivered through the normal selected-tool provider
 composition. It directs useful discovery followed by original inspection, makes

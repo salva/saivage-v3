@@ -1,9 +1,39 @@
 # Native quality tooling: qualification inputs and limits
 
-This is a **development prerequisite reference**, not a currently available
-Saivage action/tool contract. The source unit adds isolated exact tooling and
-native witnesses only: no runtime integration, default grant, scheduler, durable
-format change, automatic install, project acceptance or deployment.
+Provisioning is explicit contributor/CI work via
+`bash tests/tools/quality-native/provision.sh /absolute/fresh/scratch-root` with the
+qualified Node/npm versions on PATH. Use an existing parent outside the checkout;
+the target must not exist. This installs only that isolated npm tree and Python
+venv with the tracked locks/hashes. Export its path as `SAIVAGE_QUALITY_NATIVE_ROOT`,
+set `NODE_DISABLE_COMPILE_CACHE=1` and `SAIVAGE_QUALITY_TEST_SCRATCH`, then build
+before `npm run test:quality:compiled`. Runtime tools never call provisioning.
+
+This is a **development prerequisite reference**, not deployment or product
+acceptance certification. Explicit compiled quality actions use these pins through
+one packaged isolated helper. They require operator-selected configuration and
+preprovisioned modules/binaries; nothing is installed on use or selected by default.
+Optional agent-tool binding selects the same compiled actions through a narrow
+runtime port; it adds no default grant or runtime installation.
+See [configuration](./configuration.md#quality-actions).
+
+Native engine development tests require that explicit provisioned root in
+`SAIVAGE_QUALITY_NATIVE_ROOT` and `NODE_DISABLE_COMPILE_CACHE=1`. They fail if the
+prerequisite is missing; they never use this repository's root ESLint as a fallback.
+Build the matching source before running `tests/quality/native-engines.test.ts`:
+that test launches `dist/tests/scripts/quality-native-engines.js` in standalone Node
+so native package imports use Node resolution rather than Jest's VM resolver. The
+standalone harness retains the real clean/defect/typed-coverage and negative assertions;
+a missing build or provisioned tool tree fails rather than skipping the witnesses.
+The pinned native loader consumes each selected package's evidenced public entry:
+ESLint `exports["."].default` (`./lib/api.js`), typescript-eslint
+`exports["."].default` (`./dist/index.js`), and TypeScript `main`
+(`./lib/typescript.js`). It checks package identity/version/entry metadata and
+resolved entry containment at use, then imports that exact file. Absolute-directory
+resolution is not equivalent to package-export resolution; there is no alternate
+installation search or fallback. Effective parser/plugin/rule identity checks still
+compare the actual loaded objects with the native configuration's objects.
+The manager runs them only after isolated provisioning and coherent integration;
+native engine tests do not establish ProcessRunner, publication or tool admission.
 
 ## Pins and isolated provisioning
 
@@ -160,9 +190,12 @@ For observational network/write evidence, trace each bounded command with
 `strace -f -qq -e trace=%file,network -o <fresh-trace>` where available. Fixture
 snapshots check names/bytes; inspect traces as well for cache/delete/write intents
 outside the expected harness output. Tracing is not a network sandbox or universal
-no-effects guarantee. These explicit checks are not yet wired into existing CI or
-ordinary Jest profiles; later runtime integration must make required native checks
-execute in applicable CI, not skip silently when dependencies are absent.
+no-effects guarantee. These standalone qualification/trace procedures remain
+separate from ordinary Jest. Product integration now runs required native checks
+through `test:quality:compiled` in release validation and applicable CI, with
+explicit isolated provisioning; see [validation](../validation.md). Missing
+prerequisites fail rather than silently skip. Those product checks do not imply
+that these separate trace procedures ran on CI.
 
 ## Bounded license qualification
 

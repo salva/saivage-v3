@@ -1,5 +1,5 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -13,6 +13,7 @@ import { ManagedProcessGroupRegistry } from '../../../src/runtime/managed-proces
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 import { readCardExecutions } from '../../../src/persistence/card-execution-log.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
+import { resolveAgentReadPath } from '../../../src/workspace/index.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -131,6 +132,44 @@ it('uses the same finite body without a card or card-log append for returned tex
   })]);
   expect(completed.evidence.absent_artifacts).toEqual([`missing-${invocationId}.txt`]);
   expect(readCardExecutions(f.projectRoot, 'project')).toEqual([]);
+});
+
+it.each(['missing', 'cancelled', 'blocked-alias'] as const)('preserves caller artifact admission for %s', async (mode) => {
+  const f = fixture('exit 0');
+  const reason = new Error('exact owner cancellation');
+  const blocked = new Error('caller read refused');
+  if (mode === 'blocked-alias') {
+    writeFileSync(join(f.projectRoot, '.saivage/private.txt'), 'private');
+    symlinkSync(join(f.projectRoot, '.saivage/private.txt'), join(f.projectRoot, 'selected.txt'));
+  }
+  const definition: OperationDefinition = {
+    id: 'example.artifact', provider: { kind: 'plugin', name: 'example' }, contractVersion: 1,
+    bindings: ['node'], config: z.object({}).strict(), inputs: {}, outcomes: { finished: {} },
+    retainFields: [], output: null, artifacts: () => ['selected.txt'],
+    async run() {
+      if (mode === 'cancelled') f.controller.abort(reason);
+      return { result: { outcome: 'finished', summary: 'Fixture settled.', values: {} }, output: null };
+    },
+  };
+  const invocation = executeFiniteOperation({
+    invocationId: randomUUID(), projectRoot: f.projectRoot, operation: definition, config: {}, inputs: {},
+    collectOutput: false, processRunner: f.runner, parentScope: f.args.runtimeProcessRootScope,
+    attribution: { category: 'runtime_card', cardId: null, ownerId: 'fixture', ownerKind: 'runtime' },
+    signal: f.controller.signal, retainSettlementFailure: f.args.retainSettlementFailure,
+    resolveReadablePath(path) {
+      const selected = resolveAgentReadPath({ projectRoot: f.projectRoot, fail: () => blocked }, path, 'read');
+      if (selected.kind === 'record') throw new Error('Unexpected record.');
+      return selected.absolutePath;
+    },
+  });
+  if (mode === 'missing') {
+    expect((await invocation).evidence.absent_artifacts).toEqual(['selected.txt']);
+    expect(f.args.retainSettlementFailure).not.toHaveBeenCalled();
+  } else {
+    await expect(invocation).rejects.toBe(mode === 'cancelled' ? reason : blocked);
+    if (mode === 'cancelled') expect(f.args.retainSettlementFailure).not.toHaveBeenCalled();
+    else expect(f.args.retainSettlementFailure).toHaveBeenCalledWith(blocked);
+  }
 });
 
 it('consumes literal shell output only when selected, without changing nonzero outcomes', async () => {

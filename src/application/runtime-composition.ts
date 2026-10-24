@@ -298,6 +298,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           interventionReadiness: runtimeSupervisor,
           processRunner,
           processScope: directScope,
+          qualityProcessParentScope: internalAnalystRootScope,
           store: cardStore,
           sessionId: analystSessionId,
           runtime: Object.freeze({
@@ -491,6 +492,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           interventionReadiness: runtimeSupervisor,
           processRunner,
           processScope: directScope,
+          qualityProcessParentScope: services.analystProcessRootScope,
           store: cardStore,
           runtime: {
             startProject: runtimeApi.startProject.bind(runtimeApi),

@@ -117,7 +117,9 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       captureExecutingLlmSnapshots: () => new Map(),
     };
     const retrieval = createObservedCollections(projectRoot);
+    const quality = { async invoke(): Promise<never> { throw new Error('Schema canary must not execute quality analysis.'); } };
     const globalContext: GlobalToolBindingContext = {
+      quality,
       retrieval,
       scope: 'global',
       agentName: 'analyst',
@@ -135,6 +137,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       cardTypeVocabulary: vocabulary,
     };
     const cardContext: CardToolBindingContext = {
+      quality,
       retrieval,
       scope: 'card',
       agentName: 'planner',

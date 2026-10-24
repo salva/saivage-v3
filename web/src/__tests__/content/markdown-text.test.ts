@@ -8,6 +8,14 @@ function mountMarkdownText(source: string) {
 }
 
 describe('MarkdownText', () => {
+  it('renders canonical work artifact links through Files without enabling unsafe schemes', () => {
+    const wrapper = mountMarkdownText('[findings.json](work:///quality/example/findings.json)\n\n[bad](work:///../private) [query](work:///quality/example/findings.json?x=1) [script](javascript:alert%281%29)\n\n`[code](work:///quality/example/findings.json)`');
+    const link = wrapper.get('a[href]');
+    expect(link.text()).toBe('findings.json');
+    expect(link.attributes('href')).toBe('/files?root=output&path=.saivage%2Fwork%2Fquality%2Fexample%2Ffindings.json');
+    expect(wrapper.findAll('a[href]')).toHaveLength(1);
+    expect(wrapper.get('code').text()).toBe('[code](work:///quality/example/findings.json)');
+  });
   it('renders empty output for empty input', () => {
     const wrapper = mountMarkdownText('');
     expect(wrapper.find('.markdown-text').html()).toContain('class="markdown-text"');

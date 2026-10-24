@@ -35,6 +35,10 @@ interface OperationRunResult {
 /** Capabilities are supplied explicitly by the invocation owner, never a service bag. */
 interface OperationCapabilities {
   readonly invocationId: string;
+  readonly projectRoot?: string;
+  readonly resolveReadablePath?: (projectRelativePath: string) => string;
+  /** Exact host-selected settled capture, not a caller-supplied file path. */
+  readonly readCommandStdout?: () => Uint8Array;
   readonly readFile?: (projectRelativePath: string) => string;
   readonly command?: (
     input: {

@@ -1,4 +1,5 @@
 import { z, type ZodTypeAny } from 'zod';
+import { qualityToolInputSchema } from '../contracts/quality-tools.js';
 import {
   listObservedCollectionsInputSchema,
   queryObservedCollectionsInputSchema,
@@ -73,6 +74,9 @@ import { projectHistoricalToolResultForOutbound } from './tool-result-settlement
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
 
 export const KNOWN_TOOL_INVOCATION_NAMES = [
+  'code_quality_javascript_eslint',
+  'code_quality_typescript_eslint',
+  'code_quality_python_ruff',
   'list_observed_collections',
   'query_observed_collections',
   'create_card',
@@ -281,6 +285,9 @@ function projectValidArguments(
       return typeof input['name'] === 'string'
         ? { ...input, name: redactSecretAssignmentsForOutbound(input['name']) }
         : structuredClone(input);
+    case 'code_quality_javascript_eslint':
+    case 'code_quality_typescript_eslint':
+    case 'code_quality_python_ruff':
     case 'list_observed_collections':
     case 'query_observed_collections':
       return projectDynamicForOutbound(input);
@@ -468,6 +475,10 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return WebfetchInvocationSchema;
     case 'skill':
       return skillInputSchema;
+    case 'code_quality_javascript_eslint':
+    case 'code_quality_typescript_eslint':
+    case 'code_quality_python_ruff':
+      return qualityToolInputSchema;
     case 'list_observed_collections':
       return listObservedCollectionsInputSchema;
     case 'query_observed_collections':

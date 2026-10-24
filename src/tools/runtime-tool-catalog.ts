@@ -1,4 +1,6 @@
 import type { CardService } from '../cards/store-api.js';
+import type { QualityToolPort } from '../contracts/quality-tools.js';
+import { qualityToolBinders, type QualityProviderContext } from './quality-provider.js';
 import type { RetrievalPort } from '../contracts/index.js';
 import { retrievalToolBinders, type RetrievalProviderContext } from './retrieval-provider.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
@@ -58,6 +60,7 @@ import {
 type RuntimeToolScope = 'global' | 'card';
 
 export interface CardToolBindingContext {
+  readonly quality?: QualityToolPort;
   readonly retrieval?: RetrievalPort;
   readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
   readonly scope: 'card';
@@ -79,6 +82,7 @@ export interface CardToolBindingContext {
 }
 
 export interface GlobalToolBindingContext {
+  readonly quality?: QualityToolPort;
   readonly retrieval?: RetrievalPort;
   readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
   readonly scope: 'global';
@@ -171,6 +175,15 @@ let defaultGroups: readonly AnyProviderGroup[] | null = null;
 function runtimeToolGroups(): readonly AnyProviderGroup[] {
   if (defaultGroups) return defaultGroups;
   const source: AnyProviderGroup[] = [
+    ...(['card', 'global'] as const).map((scope) => ({
+      key: `${scope}:quality`, providerName: 'quality', scope, binders: qualityToolBinders,
+      context(runtime: RuntimeToolBindingContext): QualityProviderContext {
+        if (!runtime.quality) throw new Error('Selected quality tool requires bound runtime authority.');
+        return { projectRoot: runtime.projectRoot, agentName: runtime.agentName,
+          store: runtime.store, quality: runtime.quality,
+          ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) };
+      },
+    })),
     {
       key: 'global:observation',
       providerName: 'observation',

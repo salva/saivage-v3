@@ -8,6 +8,10 @@ Workflows can also use non-LLM actions for finite commands. Output-capable actio
 can publish factual reports through the ordinary record owner using
 [`output_record`](docs/guides/configuration.md); command stdout and returned text
 retain distinct provenance, not automatic acceptance of the work.
+Explicit [JS/typed-TS/Python quality actions](docs/reference/configuration.md#quality-actions)
+require preprovisioned pinned native tools; they are not enabled by default.
+Optional per-agent quality tools use the same engines with strict empty requests
+and operator-bound scope; they do not accept records or inherit action publication.
 
 The goal is convergence from direction to useful coherent deliverables satisfying
 the objective, not activity volume or continual human dispatch. Use the web control

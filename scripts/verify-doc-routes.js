@@ -820,7 +820,7 @@ const PATHS = Object.freeze({
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
   shippedTools: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
-  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/tools/mcp-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
+  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
   uiDiff: sourcePathSet(['web/src/api/client.ts', 'web/src/stores/cards.ts']),
 });
 
@@ -1134,14 +1134,21 @@ function selectToolEquality(projectRoot) {
     if (!declaration || !ts.isObjectLiteralExpression(declaration)) throw new Error('MCP binder must use an object literal');
     roleUnion.add(stringLiteralText(propertyAssignment(declaration, 'name', 'MCP binder'), 'MCP binder name'));
   }
+  // Quality binders map this exact schema-owned optional name inventory; these
+  // require presenters but must not be added to shipped role grants.
+  requireSourceFragments(projectRoot, 'src/tools/quality-provider.ts', [
+    "import { qualityToolNames } from '../schemas/quality-operation-config.js';",
+    'qualityToolNames.map((name) => defineToolBinder({', '  name,',
+  ], 'optional quality binder inventory');
+  for (const name of constStringArray(projectRoot, 'src/schemas/quality-operation-config.ts', 'qualityToolNames')) roleUnion.add(name);
   const sets = [names, presenters, [...roleUnion]].map((values) => mathematicalSet(values, 'tool equality set'));
-  if (!sets.every((value) => canonicalJson(value) === canonicalJson(sets[0]))) throw new Error('Known tools, presenters, and shipped/optional MCP tool union differ');
+  if (!sets.every((value) => canonicalJson(value) === canonicalJson(sets[0]))) throw new Error('Known tools, presenters, and shipped/optional MCP/quality tool union differ');
   const { ast } = sourceAst(projectRoot, invocationPath);
   const initializer = unwrapExpression(requiredInitializer(constInitializers(ast), 'knownToolNames', invocationPath));
   if (!ts.isNewExpression(initializer) || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'Set' || initializer.arguments?.length !== 1 || identifierText(initializer.arguments[0], 'knownToolNames source') !== 'KNOWN_TOOL_INVOCATION_NAMES') throw new Error('knownToolNames must directly construct Set from KNOWN_TOOL_INVOCATION_NAMES');
   const gates = ast.statements.filter((statement) => ts.isFunctionDeclaration(statement) && statement.name && statement.body && descendants(statement.body, (node) => ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'knownToolNames' && node.expression.name.text === 'has').length > 0).map((statement) => statement.name.text);
   if (gates.length === 0) throw new Error('No projector gate directly consumes knownToolNames');
-  return { names: sets[0], sources: ['KNOWN_TOOL_INVOCATION_NAMES', 'TOOL_PRESENTERS', 'shipped-role-union-plus-terminal-and-optional-mcp'], gates: mathematicalSet(gates, 'projector gates') };
+  return { names: sets[0], sources: ['KNOWN_TOOL_INVOCATION_NAMES', 'TOOL_PRESENTERS', 'shipped-role-union-plus-terminal-and-optional-mcp-and-quality'], gates: mathematicalSet(gates, 'projector gates') };
 }
 function stringInitializer(projectRoot, path, name) {
   const { ast } = sourceAst(projectRoot, path);

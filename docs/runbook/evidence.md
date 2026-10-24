@@ -1,5 +1,12 @@
 # Find evidence and interpret its limits
 
+For optional native quality analysis, read outcome and coverage before counts.
+Missing typed observation, ignored/unmatched scope or native/config errors cannot
+be clean. The bounded report links full native findings and metadata through normal
+work Files resources; those files can change/disappear and are not immutable history.
+Only an explicitly configured action output binding creates accepted action-output
+evidence. Optional tools never do. See [configuration](../reference/configuration.md#quality-actions).
+
 Start with the selected card and question, not a search for a universal audit.
 Saivage retains particular observations and accepted artifacts; it does not promise
 every command, file change, delivery or decision is recorded. Interruption can lose

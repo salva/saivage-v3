@@ -1,5 +1,10 @@
 # Operator runbook
 
+Native quality analysis is explicitly configured, never installed on invocation.
+Use [qualification](../reference/quality-tool-qualification.md),
+[opt-in configuration](../guides/configuration.md#opt-in-to-native-quality-evidence)
+and [evidence limits](./evidence.md) before enabling its optional actions/tools.
+
 For the normal objective → work → outcome journey, start with the
 [overview](../overview.md) and [work tour](../guides/operating.md). Use this runbook
 when commissioning, deliberate control or a problem calls for an operation—not

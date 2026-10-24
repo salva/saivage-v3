@@ -1,5 +1,11 @@
 # Follow the work
 
+Quality tool/action results are scoped evidence. Inspect incomplete coverage and
+diagnostics even when findings are few; clean lint does not establish product
+correctness or replace typecheck/tests/review. Use the report's exact work links for
+full findings, recognizing that work files are mutable. Do not run both an action
+and an optional tool merely to repeat the same configured analysis.
+
 Use this tour to understand what an autonomous Run is doing and what it has
 delivered. Start with the objective and results; open detailed evidence for a
 question, or use the Analyst when work needs new context or intervention. You do

@@ -1,4 +1,5 @@
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/index.js';
+import { bindQualityToolExecution } from '../quality-tool-execution.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../contracts/index.js';
 import {
   canonicalJson,
@@ -742,7 +743,17 @@ export class AgentExecutor {
       requireAgentExecution(node).agent.tools,
       node.childCreationTypes,
     );
+    const agent = requireAgentExecution(node).agent;
+    // Quality invocation allocates and joins its own finite direct scope at use,
+    // under the existing runtime container and with the invoking node's signal.
+    // `scope` is only the optional command-tool scope, not a quality prerequisite.
     return new BoundAgentToolSet(references).bind({
+      ...(agent.qualityTools ? { quality: bindQualityToolExecution({
+        projectRoot: this.deps.projectRoot, bindings: agent.qualityTools,
+        operations: this.deps.workflows.operations, processRunner: this.deps.processRunner,
+        parentScope: this.deps.runtimeProcessRootScope, ownerId: `${input.activationId}:node:${nodeOrdinal}`,
+        cardId: input.card.id, sessionId,
+      }) } : {}),
       scope: 'card',
       agentName: requireAgentExecution(node).agent.name,
       projectRoot: this.deps.projectRoot,

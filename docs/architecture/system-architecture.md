@@ -1,5 +1,13 @@
 # System architecture
 
+Quality tool binders depend on the contract-layer `QualityToolPort`, not runtime
+implementation. Runtime/application composition binds the selected agent's frozen
+configuration and actual owner process scope to `executeFiniteOperation`, using the
+same compiled definitions as actions. The external Analyst surface uses the configured
+Analyst policy, independent of credential attribution. It supplies no card binding,
+execution-log observer or record publisher. Shared cleanup completes before private
+report bytes become a tool result. Outbound configuration excludes provisioning.
+
 ## Observed source query ownership
 
 `contracts/observed-collections.ts` declares the backend-neutral two-operation
@@ -292,6 +300,15 @@ Other typed retries/research/data distinctions are selected instructions, not
 template-aware runtime branches or persisted phase machines.
 
 ### Action path, output and advisory hooks
+
+The explicit code-quality plugin supplies three contract1 actions through the same
+finite owner. One packaged child imports native analyzer/config code; it emits
+complete JSON to the host-owned capture and writes no artifact files. The owner
+admits source paths for the actual caller, consumes only the settled host-selected
+capture, then publishes fresh exact invocation artifacts synchronously. Publication
+uncertainty reaches the existing fatal boundary; no child-side publication protocol,
+registry or cleanup is added. Returned-text report bytes remain private until normal
+NodeExecution output acceptance. Native tool grants are not implied by registration.
 
 `operation-contract.ts` explicitly compiles builtins or declared plugins with
 qualified identity/contract version and reserved namespace checks. It is not a
@@ -1395,7 +1412,7 @@ separate claims, not a second executable catalog.
 <!-- saivage:value-contract:tool-identities:start -->
 ```text
 tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"executor","tools":["read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"oversight","tools":["get_status","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","glob","grep","read_runtime_events","read_runtime_errors","list_processes_tool","list_agent_sessions","read_agent_session","queue_notification"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","list_observed_collections","query_observed_collections"]},{"name":"reviewer","tools":["read","view_image","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections"]}],"templates":["classic","classic-typed","paad-typed"]}
-tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_observed_collections","list_processes_tool","mcp_catalog_refresh","mcp_server_control","mcp_server_register","mcp_server_replace","mcp_server_unregister","mcp_servers","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","query_observed_collections","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal-and-optional-mcp"]}
+tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","code_quality_javascript_eslint","code_quality_python_ruff","code_quality_typescript_eslint","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_observed_collections","list_processes_tool","mcp_catalog_refresh","mcp_server_control","mcp_server_register","mcp_server_replace","mcp_server_unregister","mcp_servers","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","query_observed_collections","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal-and-optional-mcp-and-quality"]}
 tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_back","navigate_workspace","pause_runtime","read_control_actions","reconfigure","restart_server","resume_runtime","show_config","start_project","stop_project"],"plannerOnly":["activate_card","edit_card"]}
 ```
 <!-- saivage:value-contract:tool-identities:end -->
@@ -1426,7 +1443,7 @@ map. These are field inventories, not defaults or permission grants.
 | Section | Fields | Source |
 |---|---|---|
 | `top-level` | `agents,analyst_agent,card_types,compaction,mcpServers,models,oversight,providers,server` | `src/schemas/saivage-config.ts:500` |
-| `agents.entry` | `can_create_children,model_route,prompt,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:443` |
+| `agents.entry` | `can_create_children,model_route,prompt,quality_tools,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:443` |
 | `agents.entry.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:200` |
 | `models` | `equivalents,failover,profiles,routes` | `src/schemas/saivage-config.ts:42` |
 | `models.routes.entry` | `candidates,max_tokens,profile,temperature` | `src/schemas/saivage-config.ts:27` |

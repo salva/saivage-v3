@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { qualityToolBindingsSchema, qualityToolNames } from './quality-operation-config.js';
 import { agentNameSchema } from './agent-name.js';
 import { recordNameSchema, type RecordName } from './record-name.js';
 import { cardTypeNameSchema } from './card-type-name.js';
@@ -440,7 +441,7 @@ const cardTypesSchema = z
     }
   });
 
-const agentDefinitionSchema = z
+const agentDefinitionFieldsSchema = z
   .object({
     prompt: staticPromptDeclarationSchema,
     tools: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u)),
@@ -449,8 +450,17 @@ const agentDefinitionSchema = z
     session: z.enum(['global', 'card']),
     can_create_children: z.boolean(),
     record_writes: z.array(recordWritePatternSchema),
+    quality_tools: qualityToolBindingsSchema.optional(),
   })
   .strict();
+
+const agentDefinitionSchema = agentDefinitionFieldsSchema.superRefine((agent, ctx) => {
+  for (const name of qualityToolNames) {
+    if (agent.tools.includes(name) !== (agent.quality_tools?.[name] !== undefined))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['quality_tools', name],
+        message: `Quality tool '${name}' requires both its selected tool grant and operator binding.` });
+  }
+});
 
 const effectiveRoutingProfileSchema = z
   .object({
@@ -528,6 +538,7 @@ export const effectiveSaivageConfigSchema = z.object(effectiveSaivageConfigShape
 export const outboundEffectiveSaivageConfigSchema = z
   .object({
     ...effectiveSaivageConfigShape,
+    agents: z.record(agentNameSchema, agentDefinitionFieldsSchema.omit({ quality_tools: true })),
     providers: z.record(z.string(), outboundEffectiveProviderEntrySchema),
   })
   .strict();

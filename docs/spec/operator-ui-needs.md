@@ -1,5 +1,10 @@
 # Operator UI: Functional Needs Specification
 
+Quality evidence must distinguish scoped clean/findings from incomplete analysis,
+execution failure and product acceptance. Operators need counts, coverage limits,
+omission disclosure and links to full mutable work artifacts without exposure of
+code-bearing provisioning. A tool result is not an accepted action-output record.
+
 ## Observed source evidence
 
 Operators need to distinguish advisory references from source completeness or

@@ -1,5 +1,12 @@
 # Saivage v3 System Specification
 
+Optional quality tools bind each selected policy agent to operator-provisioned
+JavaScript ESLint, typed TypeScript ESLint or Python Ruff configuration. Strict
+empty requests cannot replace code or scope. Card, global and externally authorized
+Analyst callers share the compiled action interpreter and ordinary process ownership;
+tool calls create no card execution history or accepted action-output records.
+Findings are successful analysis evidence, not transport failure or acceptance.
+
 ## Advisory observed source collections
 
 Optional strict logical definitions expose `list_observed_collections({})` and
@@ -252,6 +259,12 @@ spawn and retained completion; absent completion means effects unknown, not live
 status or permission to replay.
 
 ### Optional action output record
+
+Three explicitly configured quality actions cover JavaScript ESLint, type-aware
+TypeScript ESLint and Python Ruff. They share the ordinary finite action/output
+owner, use preprovisioned exact native pins, and are absent from default workflows.
+Findings are analysis evidence, not workflow/product acceptance; incomplete coverage
+or native/configuration failure is never clean. See [quality configuration](../reference/configuration.md#quality-actions).
 
 A node whose compiled action declares output may set `output_record: check-report.md`, naming one declared
 nonbootstrap own-card record required by that node as `continue/updated`. Agent

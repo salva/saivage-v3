@@ -1,5 +1,75 @@
 # Configuration field reference
 
+## Quality actions
+
+### Optional tool binding input
+
+The source/effective agent input accepts optional `quality_tools` with explicit
+`format_version: 1`. It requires at least one of `code_quality_javascript_eslint`,
+`code_quality_typescript_eslint`, `code_quality_python_ruff`, whose values use the
+same strict action configs described below. Each binding requires that exact tool
+name in the agent's `tools` list, and a selected quality tool requires its binding.
+Unknown entries/versions fail. Omission configures and grants nothing. Outbound
+effective configuration omits the entire provisioning section, including paths and
+scope, while ordinary selected tool names remain visible.
+
+Selected tools accept strict empty `{}` requests. They use only the configured
+policy agent's frozen bindings; requests cannot supply paths, executable/module
+names, operation IDs, scope, arguments or an output record. Card/global/internal
+Analyst and external Analyst calls use the same compiled operation and interpreter.
+External calls retain authentication and the configured Analyst/tool-subset policy;
+credential attribution does not select a different agent. Tool calls produce work
+evidence only, never a card execution entry or accepted action-output record.
+Action and tool configuration are alternatives, not a requirement to run both.
+The existing Oversight allowed-tool restriction is unchanged; this integration
+does not grant it command-capable quality tools.
+
+Explicit contract1 operations are `code-quality.javascript.eslint`,
+`code-quality.typescript.eslint` and `code-quality.python.ruff`. No default workflow
+selects them and no agent tool grant is implied. Use `execution.kind: action`,
+`inputs: {}`, and optionally the ordinary `output_record` binding. See exact
+[native prerequisites/licenses](./quality-tool-qualification.md).
+
+All three strict configs require `cwd`, `native_config`, nonempty `source_paths`,
+`exclusions`, `timeout_ms` (1–600000) and `terminate_grace_ms` (0–10000).
+Source/exclusion entries are exact files or directory roots, not globs. Paths are
+project-root-relative except executables; `cwd: .` is allowed. Runtime/private
+roots, credentials, blocked resolved aliases and containment escapes are refused.
+Unsupported/unmatched/ignored scope is incomplete analysis, not clean; explicit
+exclusions stay visible. Source traversal never inventories canonical state.
+
+JS requires absolute `node_binary` and contained `eslint_module` package directory.
+TS additionally requires `typescript_eslint_module`, `typescript_module` package
+directories and exact `tsconfig`. Python requires absolute `ruff_binary`. Native
+configuration/imports/plugins are operator-authorized code, not request data or a
+sandbox. Exact consumed pins are ESLint10.13.0, typescript-eslint/parser8.72.0,
+TS5.9.3 and Ruff0.17.2. No PATH discovery, runtime installation or default grants.
+
+Required outcomes: `clean`, `findings`, `analysis_failed`, `timed_out`, `signalled`.
+Each exposes `finding_count`, `error_count`, `warning_count`, `analyzed_files`,
+`coverage_complete`. Clean/findings lead to ordinary assessment, not automatic
+DONE. Cancellation is not an outcome. Warning-only ESLint exit0 can be findings;
+empty/incomplete scope, native failure and malformed output cannot be clean.
+
+TS requires each file's effective pinned parser object, explicit single bound
+project/tsconfigRootDir, enabled actual pinned typed-rule object through its plugin
+alias, and Program/source/checker/maps/config identity observed during traversal.
+No projectService, injected programs or syntax-only fallback. Missing/suppressed
+observation or mixed typed/untyped scope fails. Inline suppressions remain disclosed
+policy; lint is not `tsc` or complete correctness.
+
+One managed helper owns metadata/analyzer children. Node compile cache is disabled;
+ESLint uses fix:false/cache:false and an invocation-owned unused cache location;
+Ruff forces no-fix/no-fix-only/no-cache/force-exclude. Host publication selects exact
+UUID work artifacts `request.json`, `native.json`, `findings.json`, `metadata.json`,
+`report.md`. Native and normalized findings retain full supported detail. Bounded
+reports disclose omitted counts and full mutable artifact references, never a
+lossless/native-output or product-acceptance claim. Limits are2000 selected files,
+10000 visited source entries,16MiB complete helper transport,32MiB per complete
+artifact and48000-byte report display. Full-resource overflow fails, not truncates.
+Observed Git HEAD/dirty status, config/tsconfig/root lock hashes and scope metadata
+do not freeze inputs or certify native-config dependency closure. Non-Git is valid.
+
 ## Optional observed source inputs
 
 `src/retrieval/collection-definitions.ts` owns two strict version1 JSON contracts.

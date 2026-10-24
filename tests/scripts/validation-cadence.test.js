@@ -722,7 +722,10 @@ describe('validation cadence guard', () => {
       ['obsolete event state', '          CLASSIFIER_RESULT:', '          EVENT_NAME: pull_request\n          CLASSIFIER_RESULT:', 'obsolete event/backstop token pull_request'],
     ];
     for (const [job, prefix] of pathJobs) {
-      const header = `  ${job}:\n    name: ${job}\n    runs-on: ubuntu-latest\n    needs: classify-changes`;
+      const nativeEnvironment = ['backend-jest-build', 'browser-smoke'].includes(job)
+        ? "    env:\n      NODE_DISABLE_COMPILE_CACHE: '1'\n      SAIVAGE_QUALITY_NATIVE_ROOT: ${{ runner.temp }}/saivage-quality-native\n      SAIVAGE_QUALITY_TEST_SCRATCH: ${{ runner.temp }}\n"
+        : '';
+      const header = `  ${job}:\n    name: ${job}\n    runs-on: ubuntu-latest\n${nativeEnvironment}    needs: classify-changes`;
       mutations.push(
         [`${job} classifier dependency`, header, header.replace('needs: classify-changes', 'needs: routine-docs'), 'must depend exactly'],
         [`${job} job applicability`, `${header}\n    if:`, `${header}\n    if: \${{ false }} #`, 'must use exact push path applicability'],
@@ -752,9 +755,25 @@ describe('validation cadence guard', () => {
   });
 
   describe('backend, browser, artifact, and Playwright ownership mutations', () => {
+    const nativeProvisioning = `      - name: Set up qualified native-test Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+
+      - name: Set up isolated native-test Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.4'
+
+      - name: Provision exact isolated quality prerequisites
+        shell: bash
+        run: |
+          /usr/bin/timeout -k 10s 600s bash -c 'bash tests/tools/quality-native/provision.sh "$SAIVAGE_QUALITY_NATIVE_ROOT"'
+
+`;
     const workflowMutations = [
-      ['omitted backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project', '      - name: Build project', 'backend-jest-build must run cd web && npm ci'],
-      ['misordered backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project\n        run: npm run build', '      - name: Build project\n        run: npm run build\n\n      - name: Install web dependencies\n        run: cd web && npm ci', 'backend-jest-build must run cd web && npm ci before npm run build'],
+      ['omitted backend web install', `      - name: Install web dependencies\n        run: cd web && npm ci\n\n${nativeProvisioning}      - name: Build project`, `${nativeProvisioning}      - name: Build project`, 'backend-jest-build must run cd web && npm ci'],
+      ['misordered backend web install', `      - name: Install web dependencies\n        run: cd web && npm ci\n\n${nativeProvisioning}      - name: Build project\n        run: npm run build`, `${nativeProvisioning}      - name: Build project\n        run: npm run build\n\n      - name: Install web dependencies\n        run: cd web && npm ci`, 'backend-jest-build must run cd web && npm ci before npm run build'],
       ['omitted backend E2E command', '      - name: Backend E2E suite\n        run: npm run test:e2e\n', '', 'backend-e2e must run npm run test:e2e'],
       ['changed browser install command', '        run: npm run web:test:e2e:install', '        run: playwright install chromium', 'browser-smoke must run npm run web:test:e2e:install'],
       ['live suite enters CI', '        run: npm run web:test:e2e:smoke', '        run: npm run web:test:e2e:smoke && npm run web:test:live-getrich-v2', 'must exclude the external live GetRich v2 suite'],

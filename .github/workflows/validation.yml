@@ -207,6 +207,10 @@ jobs:
   backend-jest-build:
     name: backend-jest-build
     runs-on: ubuntu-latest
+    env:
+      NODE_DISABLE_COMPILE_CACHE: '1'
+      SAIVAGE_QUALITY_NATIVE_ROOT: ${{ runner.temp }}/saivage-quality-native
+      SAIVAGE_QUALITY_TEST_SCRATCH: ${{ runner.temp }}
     needs: classify-changes
     if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
     steps:
@@ -225,11 +229,31 @@ jobs:
       - name: Install web dependencies
         run: cd web && npm ci
 
+      - name: Set up qualified native-test Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+
+      - name: Set up isolated native-test Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.4'
+
+      - name: Provision exact isolated quality prerequisites
+        shell: bash
+        run: |
+          /usr/bin/timeout -k 10s 600s bash -c 'bash tests/tools/quality-native/provision.sh "$SAIVAGE_QUALITY_NATIVE_ROOT"'
+
       - name: Build project
         run: npm run build
 
       - name: Default Jest suite
         run: npm test
+
+      - name: Compiled native quality production witnesses
+        shell: bash
+        run: |
+          /usr/bin/timeout -k 10s 900s bash -c 'npm run test:quality:compiled'
 
   backend-e2e:
     name: backend-e2e
@@ -279,6 +303,10 @@ jobs:
   browser-smoke:
     name: browser-smoke
     runs-on: ubuntu-latest
+    env:
+      NODE_DISABLE_COMPILE_CACHE: '1'
+      SAIVAGE_QUALITY_NATIVE_ROOT: ${{ runner.temp }}/saivage-quality-native
+      SAIVAGE_QUALITY_TEST_SCRATCH: ${{ runner.temp }}
     needs: classify-changes
     if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
     steps:
@@ -302,6 +330,24 @@ jobs:
 
       - name: Install Chromium host dependencies
         run: npx playwright install-deps chromium
+
+      - name: Set up qualified native-test Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+
+      - name: Set up isolated native-test Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.4'
+
+      - name: Provision exact isolated quality prerequisites
+        shell: bash
+        run: |
+          /usr/bin/timeout -k 10s 600s bash -c 'bash tests/tools/quality-native/provision.sh "$SAIVAGE_QUALITY_NATIVE_ROOT"'
+
+      - name: Build matching packaged quality runtime
+        run: npm run build
 
       - name: Browser smoke validation profile
         run: npm run web:test:e2e:smoke

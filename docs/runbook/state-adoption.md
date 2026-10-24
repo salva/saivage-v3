@@ -1,5 +1,11 @@
 # State adoption, repair and reset
 
+Adopting optional `agents.<name>.quality_tools` requires a matching release supporting
+its initial format1 input, paired tool grant and preprovisioned pinned dependencies.
+Old binaries reject this section. Source completion is not installation adoption,
+migration consent, reset consent or permission to start/Run. No runtime probing,
+download or fallback converts an older configuration.
+
 Optional observed source inputs use a distinct
 [native prepare/adopt procedure](./observed-collections.md). Definitions, private
 deployment descriptor and fixed key are operator inputs preserved by generated-state

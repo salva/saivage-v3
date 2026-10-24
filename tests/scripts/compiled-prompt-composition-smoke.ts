@@ -90,6 +90,10 @@ function assertGuidanceComposition(text: string, promptRoot: string, role: Shipp
 }
 
 for (const template of SYSTEM_TEMPLATES) {
+  for (const agent of Object.values(template.config.agents)) {
+    if (agent.tools.some((name) => name.startsWith('code_quality_')) || agent.quality_tools)
+      throw new Error(`Template '${template.name}' must not grant optional quality analysis by default.`);
+  }
   const packagedRoot = join(distRoot, 'src', 'config', 'system-templates', template.name, 'prompts');
   if (resolve(template.promptRoot) !== resolve(packagedRoot)) {
     throw new Error(`Template '${template.name}' must resolve its prompt root at its own packaged tree: ${template.promptRoot}`);

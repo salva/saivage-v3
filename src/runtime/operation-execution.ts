@@ -174,6 +174,15 @@ export async function executeFiniteOperation(
       inputs,
       {
         invocationId,
+        projectRoot,
+        resolveReadablePath: args.resolveReadablePath,
+        readCommandStdout: () => {
+          const completed = record as ProcessRecord | null;
+          if (!completed || completed.evidence.group !== 'absent' ||
+              completed.evidence.stdout !== 'eof' || completed.evidence.stdout_error)
+            throw new Error('Operation command stdout is not complete.');
+          return readCompletedBytes(completed.stdout_path, 16 * 1024 * 1024);
+        },
         readFile: (path) => readFileSync(args.resolveReadablePath(path), 'utf8'),
         command: async (command, commandSignal): Promise<OperationReturn> => {
           try {
@@ -320,10 +329,12 @@ export async function executeFiniteOperation(
   const absent: string[] = [];
   try {
     for (const path of artifacts) {
-      const absolute = args.resolveReadablePath(path);
       let stat;
       try {
-        stat = statSync(absolute);
+        // Caller admission may itself consume filesystem identity (realpath).
+        // An unpublished selected artifact is absent at either read boundary;
+        // never bypass admission or turn any other refusal into absence.
+        stat = statSync(args.resolveReadablePath(path));
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         absent.push(path);
@@ -442,21 +453,26 @@ const exactArtifactPaths = z.array(z.string().min(1).refine((path) =>
 )).max(16).refine((paths) => new Set(paths).size === paths.length, 'Duplicate artifact path.');
 
 function readCompletedOutput(path: string): string {
+  const bytes = readCompletedBytes(path, 1024 * 1024);
+  const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  if (content.includes('\0')) throw new Error('Operation stdout contains NUL.');
+  if (!content.trim()) throw new Error('Operation stdout is empty or whitespace-only.');
+  return content;
+}
+
+function readCompletedBytes(path: string, limit: number): Uint8Array {
   const fd = openSync(path, 'r');
   let bytes: Buffer;
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile()) throw new Error('Operation stdout capture is not a regular file.');
-    const buffer = Buffer.alloc(1024 * 1024 + 1);
+    const buffer = Buffer.alloc(limit + 1);
     const size = readSync(fd, buffer, 0, buffer.length, 0);
-    if (size > 1024 * 1024) throw new Error('Operation stdout exceeds 1MiB.');
+    if (size > limit) throw new Error(`Operation stdout exceeds ${limit} bytes.`);
     if (size < stat.size) throw new Error('Operation stdout capture read is incomplete.');
     bytes = buffer.subarray(0, size);
   } finally {
     closeSync(fd);
   }
-  const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
-  if (content.includes('\0')) throw new Error('Operation stdout contains NUL.');
-  if (!content.trim()) throw new Error('Operation stdout is empty or whitespace-only.');
-  return content;
+  return bytes;
 }

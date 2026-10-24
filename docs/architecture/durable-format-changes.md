@@ -76,6 +76,36 @@ after new writes is unsupported. External migration requires a separate explicit
 identified-project request and full offline gates; see
 [adoption](../runbook/state-adoption.md#generalized-action-output).
 
+### Quality operation initial contracts
+
+The subsequent quality-action integration registers three new explicit contract1
+operations (`code-quality.javascript.eslint`, `code-quality.typescript.eslint`,
+`code-quality.python.ruff`) under the existing qualified operation owner. Raw UUID
+work files are selected by execution2 descriptors and their exact operation contract;
+they are not a new canonical family or a global artifact registry. Generic accepted5
+output authorship and workflow4 remain unchanged. Optional per-agent quality-tool
+binding inputs have their own initial contract below, not execution-family numbering.
+
+### Quality tool binding input introduction
+
+Source parent `82a582d544b320d6ed4f0b8a4362556b3402c87b` had no per-agent quality
+binding family. The owning `qualityToolBindingsSchema` introduces optional
+`agents.<name>.quality_tools` with required `format_version: 1` and at least one of
+`code_quality_javascript_eslint`, `code_quality_typescript_eslint`,
+`code_quality_python_ruff`. Each value uses its corresponding strict action config
+schema. Unknown keys/versions fail. Each entry requires its matching selected
+`tools` name and vice versa; absence grants nothing. The source and effective input
+schemas share this contract. Outbound effective configuration omits the entire
+section and retains only ordinary selected tool names.
+
+This is a new embedded input, not a retrofit of the unversioned outer config or a
+workflow/execution bump. Old binaries reject adopted inputs; adoption requires a
+matching release and explicit operator provisioning. No installed adoption,
+migration/probing or deployment is implied. Compiled bindings are frozen and used
+only by the selected policy agent's optional tools through the shared finite owner.
+Tool results remain ordinary opaque conversation data; no new conversation family
+or discriminator is introduced.
+
 ### Observed source input introduction
 
 Source parent `8bcd8acedecb449ffd9b186afa23358940953a6f` contained neither family.

@@ -30,7 +30,9 @@ describe('verify-doc-routes.d.ts declaration parity', () => {
       'src/contracts/index.ts',
       'src/contracts/oversight-tool-policy.ts',
       'src/contracts/result-envelope.ts',
+      'src/schemas/quality-operation-config.ts',
       'src/tools/mcp-provider.ts',
+      'src/tools/quality-provider.ts',
       'src/tools/tool-invocation-outbound.ts',
       'web/src/utils/tool-presenters/presenters.ts',
     ]);

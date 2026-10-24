@@ -1,4 +1,5 @@
 import type { RuntimeState, RuntimeStatus } from '../schemas/index.js';
+export { bindQualityToolExecution } from './quality-tool-execution.js';
 import type { ActorRuntimeReadModel } from '../application/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { CardCancellationResult } from './actors/card-activation-owner.js';

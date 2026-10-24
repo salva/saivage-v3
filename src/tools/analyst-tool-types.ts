@@ -34,6 +34,8 @@ export interface ToolContext {
   interventionReadiness: InterventionReadinessFacet;
   processRunner: ProcessRunner;
   processScope: ManagedProcessScope;
+  /** Existing owner container for finite invocations, distinct from command direct scope. */
+  qualityProcessParentScope?: ManagedProcessScope;
   store: CardService;
   sessionId?: string;
   runtime: Pick<

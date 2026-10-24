@@ -45,6 +45,8 @@ import {
   type OperationFields,
 } from './operation-contract.js';
 import { shellRunOperation } from './shell-operation.js';
+import { qualityOperationPlugin } from './quality-operations.js';
+import { qualityToolNames, type QualityToolBindings } from '../../schemas/quality-operation-config.js';
 import {
   compileActionExecution,
   compileDataFields,
@@ -115,6 +117,7 @@ type CompiledAgentContract = Readonly<{
   name: AgentName;
   prompt: StaticPromptDeclaration;
   tools: readonly CompiledToolReference[];
+  qualityTools?: Readonly<QualityToolBindings>;
   recordWrites: readonly CompiledRecordWritePattern[];
   modelRoute: string;
   model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>;
@@ -561,6 +564,9 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
   const result: Array<readonly [AgentName, CompiledAgentContract]> = [];
   for (const [rawName, source] of Object.entries(config.agents)) {
     const name = rawName as AgentName;
+    for (const tool of qualityToolNames)
+      if (source.tools.includes(tool) !== (source.quality_tools?.[tool] !== undefined))
+        throw new Error(`agents.${name}: quality tool '${tool}' requires both its selected grant and binding.`);
     const duplicate = new Set<string>();
     const tools: CompiledToolReference[] = [];
     for (const tool of source.tools) {
@@ -584,6 +590,17 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
       }
     }
     const patternNames = new Set<string>();
+    const qualityTools = source.quality_tools === undefined ? undefined : structuredClone(source.quality_tools);
+    if (qualityTools) {
+      for (const tool of qualityToolNames) {
+        const binding = qualityTools[tool];
+        if (!binding) continue;
+        Object.freeze(binding.source_paths);
+        Object.freeze(binding.exclusions);
+        Object.freeze(binding);
+      }
+      Object.freeze(qualityTools);
+    }
     const recordWrites = source.record_writes.map((pattern) => {
       if (patternNames.has(pattern))
         throw new Error(`agents.${name}.record_writes contains duplicate '${pattern}'.`);
@@ -605,6 +622,7 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
         name,
         prompt: source.prompt,
         tools: Object.freeze(tools),
+        ...(qualityTools ? { qualityTools } : {}),
         recordWrites: Object.freeze(recordWrites),
         modelRoute: source.model_route,
         model: Object.freeze({
@@ -1421,7 +1439,7 @@ export function compileProjectWorkflows(
   options: WorkflowCompileOptions = {},
 ): CompiledProjectWorkflows {
   const roots = promptRoots(options);
-  const operations = compileOperations([shellRunOperation], options.operationPlugins);
+  const operations = compileOperations([shellRunOperation], [qualityOperationPlugin, ...(options.operationPlugins ?? [])]);
   const knownModels = new Set<string>();
   for (const routeName of Object.keys(config.models.routes))
     for (const model of resolveRoute(config, routeName)) knownModels.add(model);

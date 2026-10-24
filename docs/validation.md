@@ -1,5 +1,68 @@
 # Validation
 
+Native quality witnesses require explicit `SAIVAGE_QUALITY_NATIVE_ROOT` provisioned
+from the tracked exact qualification inputs, `NODE_DISABLE_COMPILE_CACHE=1`, and a
+matching build before `tests/quality/native-engines.test.ts`. The Jest test launches
+the built standalone Node harness; missing prerequisites fail rather than skip.
+Run `node dist/tests/scripts/quality-actions-smoke.js` with that root and explicit
+`SAIVAGE_QUALITY_TEST_SCRATCH` to exercise all three real compiled actions and
+optional global tools through the same finite owner without providers. See the
+[qualification limits](./reference/quality-tool-qualification.md); this smoke alone
+does not certify record acceptance, browser navigation or external authentication.
+
+`validate:release` additionally requires `npm run test:quality:compiled` after the
+matching build. It runs the standalone native semantic tests, actual actions and
+selected external-tool surface, then nine production NodeExecution cases (clean,
+findings, native-config error for each language). The latter holds deterministic
+local assessment before completion and inspects accepted current/history evidence,
+ordinary assessment input, authenticated operator API and exact Files artifacts.
+No paid provider or substituted positive analyzer is used. Set
+`SAIVAGE_QUALITY_TEST_SCRATCH` to an existing absolute scratch directory as well.
+
+The browser smoke suite includes real typed-quality clean/findings record/history,
+execution and work-link navigation using the built runtime. A matching build and
+the same explicit native environment are required; absence fails, never skips.
+These tests do not by themselves prove full MCP authentication, process-edge fault
+handling or independent reviewer quality.
+
+The compiled suite also runs `quality-global-smoke` against real authenticated MCP
+and internal Analyst HTTP ingress, including strict-empty/subset rejection before
+any launch, distinct configured policy scopes, body-free receipts and no global
+card-log/record authority. Client disconnect retains accepted external work; owner
+shutdown cancels and joins it. A card-agent tool call in the production fixture
+analyzes a different bound scope from the following action.
+`quality-process-edges` uses actual native-helper process groups for timeout and
+cancellation with a deliberately slow native config/descendant, and deterministic
+fault injection only at spawn/capture/cleanup/fatal boundaries. The separate
+production interruption witness checks timeout report acceptance versus cancelled
+no-acceptance and no assessment. These are executable checks, not promises of a
+passing run or independent model review quality.
+
+The positive quality production fixtures additionally enter a separate configured
+Reviewer node after assessment. A premature approval is rejected by the ordinary
+updated-review-record gate; the deterministic provider then reads the accepted
+native report, writes its own scoped review and submits approval. A held point
+after that read proves that native clean/findings and Planner assessment cannot
+complete the fixture before Reviewer acceptance. This is runtime gate evidence,
+not a claim of independent human-quality judgment. Set
+`SAIVAGE_TEST_COMPOSITION_EVIDENCE` to a task-local directory to retain actual
+quality card/assessment/Reviewer and internal Analyst provider requests plus the
+authenticated external MCP tool schema for the separate composition review.
+After building, `npm run test:quality:reentry` additionally requires that evidence
+directory and the same native prerequisites. It exercises one real typed-findings
+case through completed/stopped execution, supported Analyst reopen, separate Run,
+new action output and held assessment, then ordinary Reviewer acceptance. It checks
+fresh invocation/activation identity and version-2 context while immutable version-1
+evidence stays unchanged. This is distinct from correcting a premature result in
+one activation; actual captured wires still require a separate final review.
+
+The existing backend Jest/build and browser CI jobs explicitly provision a fresh
+isolated native tree outside the checkout with Node24.22.0/npm11.19.1 and Python3.14.4,
+the tracked npm lock and hash-checked Ruff wheel. Provisioning is contributor/CI
+setup, never a runtime dependency download. CI uses Ubuntu GNU `/usr/bin/timeout`
+for finite provisioning/native runs; local workspace operations use the verified
+GNU `/usr/bin/gnutimeout` path. Local validation never implicitly installs tools.
+
 ## Isolated native quality prerequisites
 
 The optional [native quality qualification reference](reference/quality-tool-qualification.md)
@@ -7,9 +70,10 @@ owns exact isolated ESLint/typescript-eslint/TypeScript/Ruff inputs, license sco
 provisioning and native fixtures. This is prerequisite work, not runtime analyzer
 availability or a replacement for root lint/tests. Native basics, refined
 no-cache and extra scope/source-write checks passed under manager qualification.
-The reference records the original failures and observed limits. These standalone
-checks are not yet included in ordinary Jest or CI profiles; no skipped native
-check counts as success.
+The reference records the original failures and observed limits. The standalone
+qualification/trace procedures remain separate from routine Jest. Product native
+checks run through `test:quality:compiled` in release validation and the applicable
+CI jobs described above; no skipped native check counts as success.
 
 ## Optional native source observations
 
@@ -167,6 +231,17 @@ Reported classes are production-consumed, test-only, local-only and zero-use.
 Local-only/zero-use, stale/unresolved edges and unsupported forms fail. The strict
 `scripts/export-consumer-allowlist.json` remains empty. For sorted test-only output:
 `node scripts/check-export-consumers.js --report-test-only`.
+
+Computed imports remain unsupported except the exact source-owned `loadModule`
+function in `src/quality/eslint-analysis.ts`: it loads operator-provisioned native
+packages outside the repository export graph. The checker matches that complete
+function's normalized syntax, including resolved entry containment, not the file
+as a whole or an arbitrary suppression comment. Changes to the loader require
+reviewing this explicit boundary; changed expressions, other locations and sibling
+computed imports remain failures. This models export visibility, not certification
+of operator code or package safety. Browser quality fixtures use a literal packaged
+module import in a test-local JavaScript loader with source-owned declaration types,
+so building TypeScript does not ingest its own emitted declarations.
 
 ```bash
 npm run test:direct -- --runInBand --runTestsByPath tests/scripts/export-consumers.test.js
