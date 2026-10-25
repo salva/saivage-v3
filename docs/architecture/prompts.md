@@ -512,12 +512,27 @@ Legitimate role-authorized builds, tests, Git, generators and pipelines still us
 `run_command`. Analyst gains no delivery/source-shell/deployment/build authority.
 Failure/conflict grants no bypass of tools, paths, records or confidentiality.
 
-Executor's Git-delivery guidance favors standard high-level operations and simple
-permitted isolation, synchronizing delivered paths and the actual index/revision,
-checking the real combined input and preserving unrelated dirty/staged work. Ref
-advancement or an isolated passing commit alone is not usable combined delivery.
-This creates no Git permission, universal commit obligation or new BLOCKED reason;
-read-only plumbing/vetted tooling and applicable unchanged evidence remain valid.
+Executor's Git-delivery guidance selects serial work in the shared checkout on its
+checked-out branch using ordinary high-level operations, not custom alternate-index
+integration. Executor observes actual status, staged/unstaged differences and
+relevant history on entry or resumption; lifecycle outcomes do not clean Git, and a
+missing report is not evidence that a change needs replaying. Preserve unrelated
+files and staged intent without requiring global cleanliness; path selection does
+not isolate prior hunks in the same file. Planner uses fresh Executor findings to
+coordinate authorized adoption, repair or reassignment of overlapping or unclear
+residual work, or preserve it and seek the missing decision—not perform delivery
+mutation itself. Later adoption does not rewrite earlier acceptance.
+
+Delivery includes additions in the branch, real index and working files with
+applicable checks of the combined candidate. Mixed-worktree checks alone do not
+validate the committed candidate; ref advancement or an isolated passing commit is
+not usable combined delivery. This creates no Git permission, universal commit
+obligation, new BLOCKED reason, external-writer exclusion guarantee or follow-up
+authority after outcome uncertainty. Read-only plumbing, vetted tooling,
+task-justified external installation checks, applicable unchanged evidence and
+independent assessment remain valid. The shared roles remain prepared context on
+entry and re-entry through continuations and compaction, not init-only transcript
+memory; installed/customized hosts still require separate authorized adoption.
 
 The same shared Executor owns versioned-work selection: meaningful source, compact
 faithful fixtures/goldens, pinned deterministic generators and concise reproducible
