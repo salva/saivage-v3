@@ -512,27 +512,11 @@ Legitimate role-authorized builds, tests, Git, generators and pipelines still us
 `run_command`. Analyst gains no delivery/source-shell/deployment/build authority.
 Failure/conflict grants no bypass of tools, paths, records or confidentiality.
 
-Executor's Git-delivery guidance selects serial work in the shared checkout on its
-checked-out branch using ordinary high-level operations, not custom alternate-index
-integration. Executor observes actual status, staged/unstaged differences and
-relevant history on entry or resumption; lifecycle outcomes do not clean Git, and a
-missing report is not evidence that a change needs replaying. Preserve unrelated
-files and staged intent without requiring global cleanliness; path selection does
-not isolate prior hunks in the same file. Planner uses fresh Executor findings to
-coordinate authorized adoption, repair or reassignment of overlapping or unclear
-residual work, or preserve it and seek the missing decision—not perform delivery
-mutation itself. Later adoption does not rewrite earlier acceptance.
-
-Delivery includes additions in the branch, real index and working files with
-applicable checks of the combined candidate. Mixed-worktree checks alone do not
-validate the committed candidate; ref advancement or an isolated passing commit is
-not usable combined delivery. This creates no Git permission, universal commit
-obligation, new BLOCKED reason, external-writer exclusion guarantee or follow-up
-authority after outcome uncertainty. Read-only plumbing, vetted tooling,
-task-justified external installation checks, applicable unchanged evidence and
-independent assessment remain valid. The shared roles remain prepared context on
-entry and re-entry through continuations and compaction, not init-only transcript
-memory; installed/customized hosts still require separate authorized adoption.
+Shared Executor guidance prefers ordinary high-level operations for authorized Git
+work: preserve unrelated files and staged work, avoid destructive cleanup or history
+rewriting without authorization, and avoid ad-hoc advancement of a checked-out branch
+ref that leaves its actual checkout and index out of sync. This is instruction
+guidance, not runtime enforcement, new Git authority or a universal commit requirement.
 
 The same shared Executor owns versioned-work selection: meaningful source, compact
 faithful fixtures/goldens, pinned deterministic generators and concise reproducible
