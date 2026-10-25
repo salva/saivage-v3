@@ -97,7 +97,7 @@ reference share applicable overrides. Independent content needs independent
 references. An independently named agent selecting `planner` receives that host's
 includes; a custom `project-planner` reference receives only includes it contains.
 
-Within workflow input format 3, agent-node `execution` contains `agent`, static `prompt`
+Within workflow input format 4, agent-node `execution` contains `agent`, static `prompt`
 and durable `correction_prompt`. Action execution has neither. Process references
 remain on declarations; the compiled workflow's `processPrompts` map owns bodies.
 There is no runtime workflow-family lookup or prompt manifest.
