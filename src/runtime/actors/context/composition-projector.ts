@@ -149,25 +149,13 @@ export function composeContextProjection(args: {
         source: { messageId: row.id, timestamp: row.timestamp },
       });
     }
-  if (records.size) {
-    const content = recordObservationFactsText([...records.values()]);
-    primary.push({
-      origin: 'dynamic',
-      block: {
-        id: 'latest-record-observations',
-        role: 'system',
-        content,
-        storage: 'activation_local',
-        replacement: { kind: 'retain' },
-        audience: 'primary_and_summarizer',
-        evidence: { kind: 'none' },
-      },
-    });
+  const recordFacts = records.size ? recordObservationFactsText([...records.values()]) : null;
+  if (recordFacts !== null) {
     summarizer.push({
       kind: 'message',
       sourceId: 'latest-record-observations',
       role: 'system',
-      content,
+      content: recordFacts,
       semantic: 'direct',
       responsesPrivateMessageId: null,
     });
@@ -326,6 +314,21 @@ export function composeContextProjection(args: {
         semantic: 'direct',
         responsesPrivateMessageId: row.provider_projection?.private_message_id ?? null,
       });
+  }
+
+  if (recordFacts !== null) {
+    primary.push({
+      origin: 'dynamic',
+      block: {
+        id: 'latest-record-observations',
+        role: 'system',
+        content: recordFacts,
+        storage: 'activation_local',
+        replacement: { kind: 'retain' },
+        audience: 'primary_and_summarizer',
+        evidence: { kind: 'none' },
+      },
+    });
   }
 
   return Object.freeze({

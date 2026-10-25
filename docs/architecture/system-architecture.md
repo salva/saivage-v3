@@ -879,9 +879,13 @@ does not acquire tmp authority. URLs redact userinfo/query/fragment before outpu
 Contracts own pure provider/context/request/failure/validation declarations; runtime
 owns source selection and context; agents own actual request/admission/attempts;
 persistence owns successor publication. `composeContextProjection` orders stable and
-fresh record blocks plus latest record descriptor facts, one provenance boundary,
+fresh record blocks, one provenance boundary when non-dynamic context exists,
 accumulated history, newest recovery/refusal facts, retained instructions and uncovered
-suffix. Structural preparation snapshots never reenter context.
+suffix, then the nonempty latest record descriptor snapshot as a final system block.
+Its provenance remains observational, not present freshness or write authority;
+ordinary refreshed reads do not change the preceding retained history. The separately
+labeled summarizer source retains facts before history. Structural preparation
+snapshots never reenter context.
 Summary source is validated then projected one-way; transformed range text is not a
 durable row. [Prompt handling](./prompts.md#composition-compaction-and-evidence)
 explains retention and prepared/current/historical distinction.

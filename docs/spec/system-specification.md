@@ -1241,6 +1241,12 @@ conversation/card/record/view, including inherited facts and retained suffix.
 The surviving latest occurrences determine array order: A1, B1, A2 yields B1,
 A2, including when A1 and B1 are inherited and A2 is in the suffix. Primary and
 summarizer descriptor facts preserve that order, not revision or timestamp order.
+The primary request places its nonempty descriptor snapshot last, after retained
+history and the uncovered suffix; prepared context remains first. The summarizer's
+separate source keeps its existing facts-before-history placement. This projection
+order changes no retained contract or observation meaning: the final system facts
+neither supersede current instructions nor confer present freshness, acceptance or
+write authority.
 Descriptors retain provenance/coordinates/time, not bodies, templates, delivery or
 recall claims. Actual `record_prompt` text uses existing declaration-based keyed or
 anonymous protection independently; structural `record_observation` descriptors

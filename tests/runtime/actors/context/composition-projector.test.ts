@@ -298,6 +298,8 @@ describe('latest record observation source order', () => {
     const summaryFact = composed.summarizer.find((item) => item.kind === 'message' && item.sourceId === 'latest-record-observations');
     if (!primaryFact || !summaryFact || summaryFact.kind !== 'message') throw new Error('Missing production descriptor projections.');
     expect(primaryFact.content).toBe(summaryFact.content);
+    expect(primary.messages.at(-1)).toBe(primaryFact);
+    expect(composed.summarizer[0]).toBe(summaryFact);
     const payload = JSON.parse(primaryFact.content.slice(primaryFact.content.indexOf('\n') + 1));
     expect(payload).toEqual(facts.map((fact) => ({
       source: compacted && fact.source.messageId === 'B1' ? fact.source : { messageId: fact.source.messageId, timestamp: fact.source.timestamp },
@@ -309,6 +311,26 @@ describe('latest record observation source order', () => {
     expect(primaryFact.content).not.toContain('Historical body');
     expect(primaryFact.content).not.toContain(instruction.content);
     expect(primary.messages.some((item) => item.content === instruction.content)).toBe(true);
+    // Re-entry with only genuinely derived compacted facts: no body reconstruction,
+    // and recovery/refusal/protected instructions all precede the final snapshot.
+    const inheritedRefusal = refusalRow(INPUT_A);
+    const inherited = compose([], { effectiveHistory: {
+      ...history, historyMessageId: 'reentry-history', sourceVersion: 1,
+      coveredThroughMessageId: prefix.at(-1)!.id,
+      requiredModelFacts: { ...history.requiredModelFacts,
+        latestRecovery: { sourceMessageId: `${INPUT_A}:model-recovered`, activationInputId: INPUT_A },
+        latestContentPolicyRefusal: { markerId: inheritedRefusal.id, activationInputId: INPUT_A },
+      },
+    }, dynamicBlocks: [dynamicBlock('reentry-node', { role: 'system', content: 'Current task: inspect, not approve.' })] });
+    const inheritedProvider = providerConversationFromComposedContext(inherited);
+    expect(inheritedProvider.messages.map(item => item.kind === 'synthetic_context' ? item.origin : item.kind)).toEqual([
+      'dynamic', 'context_boundary', 'history_summary', 'recovery_notice', 'refusal_notice', 'retained_instruction', 'dynamic',
+    ]);
+    expect(inheritedProvider.messages.at(-1)).toMatchObject({ role: 'system', block_identity: 'latest-record-observations', content: inherited.summarizer[0]!.kind === 'message' ? inherited.summarizer[0]!.content : '' });
+    expect(inherited.summarizer.map(item => item.kind === 'message' ? item.sourceId : item.kind)).toEqual([
+      'latest-record-observations', 'inherited_summary', `${INPUT_A}:model-recovered`, inheritedRefusal.id,
+    ]);
+    expect(inheritedProvider.messages.at(-1)!.content).not.toContain(instruction.content);
     expect({ prefix, suffix, history }).toEqual(original);
   });
 });

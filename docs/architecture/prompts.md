@@ -279,10 +279,16 @@ and the [configuration guide](../guides/configuration.md) own examples and use.
 
 ## Composition, compaction and evidence
 
-The composition projector places prepared dynamic blocks and latest record
-descriptor facts first, then one system provenance boundary, accumulated-summary
+The primary composition projector places prepared dynamic blocks first, then one
+system provenance boundary when non-dynamic context exists, accumulated-summary
 context with exact source segment/cutoff, newest recovery/refusal facts, retained
-instructions and uncovered suffix. Summary coordinates
+instructions and uncovered suffix, and finally the latest record descriptor facts
+when nonempty. This final system snapshot preserves actual observation provenance
+without changing earlier history on ordinary read continuations; it neither
+reconstructs omitted bodies nor grants present freshness, acceptance or write
+authority. It does not supersede current-node instructions or user requirements.
+The summarizer source keeps its existing facts-before-history placement; it is not
+the primary conversation. Summary coordinates
 delimit a historical prefix, not all origins or a cutoff date. Later continuation
 may supersede old status/authorization claims; still-applicable requirements and
 one-time accepted handoff obligations do not expire. Summary/replay grants no

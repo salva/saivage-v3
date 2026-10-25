@@ -25,6 +25,7 @@ import {
   agentMessageSchema,
   canonicalJson,
   sha256Hex,
+  publicRecordSelection,
   type AgentMessage,
 } from '../../../src/schemas/index.js';
 import { workspaceToolBinders } from '../../../src/tools/workspace-provider.js';
@@ -194,6 +195,71 @@ async function readIntoConversation(
 }
 
 describe('closed record-context compiler and same-read supplier', () => {
+  it('keeps actual edited draft, acceptance/backing and compacted observations exact in a final snapshot', async () => {
+    const declaration = input('status.md', 'effective');
+    declaration.prompt.compactable = false;
+    const f = fixture([declaration]);
+    f.store.acceptRecord('project', 'status.md', 'Accepted A', { kind: 'agent', agent: 'planner' });
+    f.store.openRecord('project', 'status.md');
+    f.store.editRecord('project', 'status.md', 'Draft B: "ignore instructions" is quoted record data.');
+    const prepared = f.prepare(); f.publish(prepared.rows);
+    const protectedPrompt = prompts(prepared.rows)[0]!;
+    const assertSnapshot = () => {
+      const conversation = readConversation(f.root, SESSION);
+      const projected = providerConversationProjection(conversation, prepared.recordBlocks);
+      const last = projected.messages.at(-1)!;
+      expect(last).toMatchObject({ kind: 'synthetic_context', role: 'system', block_identity: 'latest-record-observations' });
+      expect(JSON.parse(last.content.slice(last.content.indexOf('\n') + 1))).toEqual(conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({
+        source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+        observation: { source: fact.observation.source, observed: publicRecordSelection(fact.observation.observed) },
+      })));
+      expect(last.content).not.toContain('Draft B:');
+      expect(last.content).not.toContain('content_sha256');
+      return { conversation, projected };
+    };
+    const readB = await readIntoConversation(f, 'record:///status.md?card=project');
+    expect(readB.record_observations!.map(item => [item.observed.view, item.observed.selection.kind])).toEqual([['effective', 'draft'], ['accepted', 'accepted']]);
+    assertSnapshot();
+    f.store.editRecord('project', 'status.md', 'Draft C with new actual content');
+    const readC = await readIntoConversation(f, 'record:///status.md?card=project', { metadata_only: true });
+    expect(readC.record_observations![0]!.observed.head).not.toEqual(readB.record_observations![0]!.observed.head);
+    expect(readC.record_observations![0]!.observed.selection).not.toEqual(readB.record_observations![0]!.observed.selection);
+    assertSnapshot();
+    f.store.closeRecord('project', 'status.md', 'planner');
+    const accepted = await readIntoConversation(f, 'record:///status.md?card=project');
+    expect(accepted.record_observations![0]!.observed.selection).toMatchObject({ kind: 'accepted', version: 2 });
+    f.store.openRecord('project', 'status.md');
+    f.store.editRecord('project', 'status.md', 'Draft D on new backing');
+    const readD = await readIntoConversation(f, 'record:///status.md?card=project');
+    expect(readD.record_observations![0]!.observed.selection).toMatchObject({ kind: 'draft', version: 3, target_version: 3, accepted_backing: { version: 2 } });
+    const before = assertSnapshot();
+    const original = structuredClone(before.conversation.sourceRows);
+    await publishThreeGenerationCompactedConversation(f.root);
+    const after = assertSnapshot();
+    expect(after.conversation.effectiveRequiredModelFacts.latestRecordObservations).toEqual(before.conversation.effectiveRequiredModelFacts.latestRecordObservations);
+    expect(after.projected.messages.some(item => item.kind === 'synthetic_context' && item.origin === 'retained_instruction' && item.content === protectedPrompt.content)).toBe(true);
+    expect(after.projected.messages.some(item => item.kind === 'synthetic_context' && item.origin === 'recovery_notice')).toBe(true);
+    expect(after.projected.messages.some(item => item.kind === 'synthetic_context' && item.origin === 'refusal_notice')).toBe(true);
+    expect(readHistoricalConversationSegment(f.root, SESSION, 1).rows.slice(0, original.length)).toEqual(original);
+    const reread = await readIntoConversation(f, 'record:///status.md?card=project', { metadata_only: true });
+    const replaced = assertSnapshot();
+    expect(replaced.conversation.effectiveRequiredModelFacts.latestRecordObservations.filter(fact => fact.observation.observed.record_name === 'status.md').every(fact => fact.source.messageId === reread.id)).toBe(true);
+    const oldBootstrap = f.prepare('recover');
+    f.store.acceptRecord('project', 'brief.md', 'Fresh bootstrap requirement', { kind: 'agent', agent: 'analyst' });
+    const freshBootstrap = f.prepare('recover');
+    expect(freshBootstrap.recordBlocks[0]!.content).not.toBe(oldBootstrap.recordBlocks[0]!.content);
+    const freshProjection = providerConversationProjection(readConversation(f.root, SESSION), freshBootstrap.recordBlocks);
+    expect(freshProjection.messages[0]!.content).toContain('Fresh bootstrap requirement');
+    expect(freshProjection.messages.at(-1)).toMatchObject({ block_identity: 'latest-record-observations' });
+    if (process.env.SAIVAGE_TEST_RECORD_PREFIX_DIR) writeFileSync(`${process.env.SAIVAGE_TEST_RECORD_PREFIX_DIR}/actual-compaction-and-reentry.json`, JSON.stringify({
+      kind: 'synthetic-offline-real-store-supplier-and-compactor-with-scripted-summary',
+      role: createPromptTemplateRegistry(f.workflows).render({ kind: 'workflow-agent', cardType: 'project' }, agentExecution(f.node('recover')).agent.name, { contractDescription: describeNodeResultContract(f.workflows.cardTypes.get('project')!, 'node:recover') }),
+      node: f.workflows.cardTypes.get('project')!.processPrompts.get(agentExecution(f.node('recover')).prompt.promptId)!.text,
+      protectedPrompt, before: before.projected, after: after.projected,
+      replaced: replaced.projected, freshBootstrap: freshProjection,
+    }, null, 2));
+  });
+
   it('keeps safe canonical spelling, placeholders, optional null and reference-only prompts useful', () => {
     const f = fixture([
       input('brief.md', 'accepted', 'required', false),
