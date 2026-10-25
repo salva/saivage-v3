@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
@@ -19,6 +19,7 @@ import {
 import { providerExchangeFile } from '../../src/persistence/layout.js';
 import { readCommittedCardCurrent } from '../../src/persistence/card-files.js';
 import { CardService } from '../helpers/canonical-project.js';
+import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 
 const CLI = join(process.cwd(), 'src', 'cli.ts');
 const TSX = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -45,6 +46,22 @@ type ChatRequest = {
 
 function toolNames(request: ChatRequest): string[] {
   return request.tools?.map((tool) => tool.function.name) ?? [];
+}
+
+function expectedSettlement(body: ChatRequest, root: string, session: Parameters<typeof readConversation>[1], id: string, name: string, args: object) {
+  const calls = body.messages.filter(message => message.tool_calls?.some(call => call.id === id));
+  const results = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === id);
+  expect(calls).toHaveLength(1); expect(results).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+  expect(calls[0]!.tool_calls).toHaveLength(1);
+  const index = body.messages.indexOf(results[0]!);
+  expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
+  const conversation = readConversation(root, session);
+  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
+    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+  }));
+  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  return results[0]!;
 }
 
 function toolCall(response: ServerResponse, id: number, name: string, args: object): void {
@@ -847,6 +864,19 @@ describe('disposable production-composition smoke', () => {
     const sourceA = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(20_000)}`;
     const sourceB = `Refreshed unresolved task from the second observation. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`;
     const sourceC = `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(20_000)}`;
+    const evidence = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+    const traceFile = evidence ? join(evidence, 'r3-disposable-diagnostic.jsonl') : null;
+    if (traceFile) writeFileSync(traceFile, '');
+    const trace = (phase: string, detail = '') => { if (traceFile) appendFileSync(traceFile, JSON.stringify({ time: Date.now(), phase, analystPlan, oldPlannerCalls, recoveryPlannerCalls, executorCalls, reviewerCalls, detail }) + '\n'); };
+    let pendingAnalyst: { id: string; name: string; args: object } | null = null;
+    const submitAnalystStep = async (step: number, content: string) => {
+      expect(analystPlan).toBe(step - 1); expect(pendingAnalyst).toBeNull();
+      trace('chat begin', String(step));
+      const result = await chat(app!, content);
+      expect(analystPlan).toBe(step); expect(pendingAnalyst).toBeNull();
+      trace('chat settled', String(step));
+      return result;
+    };
     const incompleteSummary = 'INCOMPLETE SUMMARY MUST NEVER CONTINUE';
     const correctedSummary = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(30_000)}`;
     const finalSummary =
@@ -950,12 +980,20 @@ describe('disposable production-composition smoke', () => {
       requestedMaxTokens.set(agent, body.max_tokens);
 
       if (isAnalyst) {
-        if (last?.role === 'tool') {
+        trace('Analyst provider request', `last=${last?.role}`);
+        response.once('finish', () => trace('Analyst provider response finished', String(response.statusCode)));
+        if (pendingAnalyst) {
+          expectedSettlement(body, root, 'agent:analyst:global', pendingAnalyst.id, pendingAnalyst.name, pendingAnalyst.args);
+          trace('Analyst settlement consumed', pendingAnalyst.id);
+          if (process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE) writeFileSync(join(process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE, `r3-disposable-${pendingAnalyst.id}-request.json`), JSON.stringify(body, null, 2));
+          pendingAnalyst = null;
           finalMessage(response);
           return;
         }
         const planned = analystTools[analystPlan++];
-        if (!planned) throw new Error('Unexpected Analyst provider request.');
+        if (!planned) { trace('fixture failure', 'Unexpected Analyst provider request.'); throw new Error('Unexpected Analyst provider request.'); }
+        trace('emit Analyst call', `call-${analystPlan}:${planned.name}`);
+        pendingAnalyst = { id: `call-${analystPlan}`, ...planned };
         toolCall(response, analystPlan, planned.name, planned.args);
         return;
       }
@@ -989,7 +1027,9 @@ describe('disposable production-composition smoke', () => {
             card_id: 'card-a',
           });
         } else if (recoveryPlannerCalls === 3) {
-          activationToolResult = last?.content ?? '';
+          activationToolResult = expectedSettlement(body, root, 'agent:planner:project', 'call-201', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: 'card-a' }).content;
+          trace('activation settlement consumed', 'call-201');
+          if (process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE) writeFileSync(join(process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE, 'r3-disposable-activation-request.json'), JSON.stringify(body, null, 2));
           if (activationToolResult.includes('"outcome":"failed"'))
             throw new Error(
               `Child failed before parent review: ${activationToolResult.slice(0, 1000)}`,
@@ -1124,7 +1164,9 @@ describe('disposable production-composition smoke', () => {
         projectGraph.nodes.find((node: any) => node.execution.agent_name === 'reviewer').execution.tools,
       ).not.toContain('mcp_tool_call');
 
-      const edited = await chat(app, 'Edit the root bootstrap record.');
+      trace('bootstrap chat begin');
+      const edited = await submitAnalystStep(1, 'Edit the root bootstrap record.');
+      trace('bootstrap chat settled');
       if (!edited.toolInvocations?.[0]) {
         const conversation = await api(app, '/api/chat');
         throw new Error(
@@ -1138,25 +1180,25 @@ describe('disposable production-composition smoke', () => {
         kind: 'found',
         value: { projection: { accepted: { content: 'Disposable Analyst bootstrap edit.' } } },
       });
-      await chat(app, 'Create the permitted code child under project.');
+      await submitAnalystStep(2, 'Create the permitted code child under project.');
       expect(app.server.runtimeApplication.cardStore.read('card-a')).toMatchObject({
         type: 'code',
         lifecycle: { status: 'backlog' },
       });
-      const narrowed = await chat(
-        app,
+      const narrowed = await submitAnalystStep(
+        3,
         'Attempt a goal under the code parent; it must be narrowed away.',
       );
       expect(narrowed.toolInvocations[0].result.error).toContain(
         "child type 'goal' is not permitted under 'code'",
       );
 
-      const changed = await chat(
-        app,
+      const changed = await submitAnalystStep(
+        4,
         'Change Planner to the Executor model route for the next restart.',
       );
       expect(changed.toolInvocations[0].result.data.requires_restart).toBe(true);
-      const shown = await chat(app, 'Show the next-start configuration.');
+      const shown = await submitAnalystStep(5, 'Show the next-start configuration.');
       expect(shown.toolInvocations[0].result.data.config.agents.planner.model_route).toBe(
         'executor',
       );
@@ -1167,7 +1209,7 @@ describe('disposable production-composition smoke', () => {
           .nodes.find((node: any) => node.node_id === 'plan').execution.model.route,
       ).toBe('planner');
 
-      const started = await chat(app, 'Start the project with the current startup artifact.');
+      const started = await submitAnalystStep(6, 'Start the project with the current startup artifact.');
       expect(started.toolInvocations[0].result).toMatchObject({ success: true });
       try {
         await waitUntil(() => oldPlannerBlocked, 'the current Planner invocation');
@@ -1198,7 +1240,7 @@ describe('disposable production-composition smoke', () => {
           .find((graph: any) => graph.card_type === 'project')
           .nodes.find((node: any) => node.node_id === 'recover').execution.model.route,
       ).toBe('executor');
-      await chat(app, 'Recover and start the stopped project.');
+      await submitAnalystStep(7, 'Recover and start the stopped project.');
       await waitUntil(
         () => app!.server.runtimeApplication.runtimeApi.getStatus().status === 'stopped',
         'recovered workflow completion',
@@ -1473,8 +1515,11 @@ describe('disposable production-composition smoke', () => {
         value: { projection: { accepted: { author: { kind: 'runtime', purpose: 'bootstrap' } } } },
       });
     } finally {
+      trace('teardown app begin');
       if (app) await stop(app);
+      trace('teardown provider begin');
       await new Promise<void>((resolve) => provider.close(() => resolve()));
+      trace('teardown complete');
     }
   }, 90_000);
 });

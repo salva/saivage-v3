@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../../src/schemas/message-identity.js';
 import {
   appOrigin, closeServer, createServer, initializeProject, listen, offeredToolNames,
@@ -13,6 +14,21 @@ import {
 } from '../helpers/production-composition-e2e.js';
 
 const TOKEN = 'record-url-production-e2e-token';
+function expectedSettlement(body: ChatCompletionRequest, root: string, session: Parameters<typeof readConversation>[1], id: string, name: string, args: object) {
+  const calls = body.messages.filter(message => message.tool_calls?.some(call => (call as { id: string }).id === id));
+  const results = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === id);
+  expect(calls).toHaveLength(1); expect(results).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+  expect(calls[0]!.tool_calls).toHaveLength(1);
+  const index = body.messages.indexOf(results[0]!);
+  expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
+  const conversation = readConversation(root, session);
+  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
+    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+  }));
+  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  return results[0]!;
+}
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
@@ -43,7 +59,12 @@ describe('record URL failures in production composition', () => {
           beforeBadWrite = cards.readRecordCurrent('project', 'status.md');
           sendToolCall(response, 'bad-write', 'write', { path: 'record:///status.md', content: 'must not be written' });
         } else {
-          const last = body.messages.at(-1)!;
+          const expected = [
+            { id: 'bad-write', name: 'write', args: { path: 'record:///status.md', content: 'must not be written' } },
+            { id: 'good-write', name: 'write', args: { path: currentUrl, content } },
+            { id: 'bad-edit', name: 'edit', args: { path: `${currentUrl}&v=1`, old_string: 'Corrected', new_string: 'must not change' } },
+          ][cardCalls - 2]!;
+          const last = expectedSettlement(body, root, 'agent:executor:project', expected.id, expected.name, expected.args);
           expect(last.role).toBe('tool');
           const result = JSON.parse(last.content);
           if (cardCalls === 2) {

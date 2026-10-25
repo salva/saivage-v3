@@ -16,6 +16,7 @@ import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import type { App } from '../../src/boot/app.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 import {
   appOrigin, closeServer, createServer, initializeProject, listen, offeredToolNames,
   postStartProject, productionTestConfig, readJsonRequest, sendFinalMessage,
@@ -24,6 +25,21 @@ import {
 } from '../helpers/production-composition-e2e.js';
 
 const TOKEN = 'mcp-production-e2e-token';
+function expectedSettlement(body: ChatCompletionRequest, root: string, session: Parameters<typeof readConversation>[1], id: string, name: string, args: object) {
+  const calls = body.messages.filter(message => message.tool_calls?.some(call => (call as { id: string }).id === id));
+  const results = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === id);
+  expect(calls).toHaveLength(1); expect(results).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+  expect(calls[0]!.tool_calls).toHaveLength(1);
+  const index = body.messages.indexOf(results[0]!);
+  expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
+  const conversation = readConversation(root, session);
+  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
+    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+  }));
+  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  return results[0]!;
+}
 const SERVER_NAME = 'marker-server';
 const MARKER = 'mcp-production-composition-marker';
 const roots: string[] = [];
@@ -710,17 +726,18 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     let analystCalls = 0;
     let rootCalls = 0;
     let markerResultSeenByProvider: unknown = null;
+    let expectedMcpArgs: object;
     const provider = createServer(async (request, response) => {
       try {
         if (request.url !== '/v1/chat/completions') throw new Error(`Unexpected provider URL '${request.url}'.`);
         const body = await readJsonRequest(request) as ChatCompletionRequest;
         const tools = offeredToolNames(body);
-        const last = body.messages.at(-1);
         if (tools.includes('start_project')) {
           analystCalls += 1;
           if (analystCalls === 1) sendToolCall(response, 'analyst-start', 'start_project', {});
           else if (analystCalls === 2) {
-            const settled = JSON.parse(last?.content ?? 'null');
+            const last = expectedSettlement(body, projectRoot, 'agent:analyst:global', 'analyst-start', 'start_project', {});
+            const settled = JSON.parse(last.content);
             if (last?.role !== 'tool' || settled.success !== true) throw new Error('Analyst continuation did not receive the successful start_project settlement.');
             sendFinalMessage(response, 'Project started.');
           } else throw new Error(`Unexpected Analyst request ${analystCalls}.`);
@@ -729,10 +746,12 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         if (!tools.includes('mcp_tool_call') || !tools.includes('emit_result')) throw new Error(`Unexpected card-agent tool set: ${tools.join(',')}.`);
         rootCalls += 1;
         if (rootCalls === 1) {
-          sendToolCall(response, 'mcp-call', 'mcp_tool_call', { serverName: SERVER_NAME,
-              bindingId: app!.server.mcpManager.getServerStatus(SERVER_NAME)!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog(SERVER_NAME)!.catalogId, toolName: 'echo_marker', args: { marker: MARKER } });
+          expectedMcpArgs = { serverName: SERVER_NAME,
+              bindingId: app!.server.mcpManager.getServerStatus(SERVER_NAME)!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog(SERVER_NAME)!.catalogId, toolName: 'echo_marker', args: { marker: MARKER } };
+          sendToolCall(response, 'mcp-call', 'mcp_tool_call', expectedMcpArgs);
         } else if (rootCalls === 2) {
-          markerResultSeenByProvider = JSON.parse(last?.content ?? 'null');
+          const last = expectedSettlement(body, projectRoot, 'agent:executor:project', 'mcp-call', 'mcp_tool_call', expectedMcpArgs);
+          markerResultSeenByProvider = JSON.parse(last.content);
           if (last?.role !== 'tool' || JSON.stringify(markerResultSeenByProvider).includes(MARKER) === false) throw new Error('Root continuation did not receive the marker-bearing MCP settlement.');
           sendToolCall(response, 'root-terminal', 'emit_result', { outcome: 'done', summary: 'MCP marker completed.' });
         } else throw new Error(`Unexpected root request ${rootCalls}.`);

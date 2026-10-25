@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 import { cardConversationVersionIndexFile } from '../../src/persistence/layout.js';
 import { loggedToolCallIdentity, loggedToolCallKey, loggedToolResultIdentity } from '../../src/schemas/message-identity.js';
 import {
@@ -14,6 +15,21 @@ import {
 } from '../helpers/production-composition-e2e.js';
 
 const TOKEN = 'card-inspection-id-production-e2e-token';
+function expectedSettlement(body: ChatCompletionRequest, root: string, session: Parameters<typeof readConversation>[1], id: string, name: string, args: object) {
+  const calls = body.messages.filter(message => message.tool_calls?.some(call => (call as { id: string }).id === id));
+  const results = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === id);
+  expect(calls).toHaveLength(1); expect(results).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+  expect(calls[0]!.tool_calls).toHaveLength(1);
+  const index = body.messages.indexOf(results[0]!);
+  expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
+  const conversation = readConversation(root, session);
+  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
+    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+  }));
+  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  return results[0]!;
+}
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
@@ -41,7 +57,7 @@ describe('card-inspection ID admission in production composition', () => {
         cardCalls++;
         if (cardCalls === 1) sendToolCall(response, 'bad-inspection', 'get_card', badArgs);
         else {
-          const last = body.messages.at(-1)!;
+          const last = expectedSettlement(body, root, 'agent:executor:project', cardCalls === 2 ? 'bad-inspection' : 'good-inspection', 'get_card', cardCalls === 2 ? badArgs : goodArgs);
           expect(last.role).toBe('tool');
           const result = JSON.parse(last.content);
           if (cardCalls === 2) {

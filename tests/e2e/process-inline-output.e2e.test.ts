@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
 import type { App } from '../../src/boot/app.js';
+import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 import { quoteBashWord } from '../helpers/bash-word.js';
 import { readConversation, readCurrentConversationSegment, readHistoricalConversationSegment, publishCompactedConversationSegment } from '../../src/persistence/conversation-file.js';
 import { versionFilename } from '../../src/persistence/canonical-conversation-artifacts.js';
@@ -21,6 +22,21 @@ import {
 } from '../helpers/production-composition-e2e.js';
 
 const TOKEN = 'process-inline-production-e2e-token';
+function expectedSettlement(body: ChatCompletionRequest, root: string, session: Parameters<typeof readConversation>[1], id: string, name: string, args: object) {
+  const calls = body.messages.filter(message => message.tool_calls?.some(call => (call as { id: string }).id === id));
+  const results = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === id);
+  expect(calls).toHaveLength(1); expect(results).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+  expect(calls[0]!.tool_calls).toHaveLength(1);
+  const index = body.messages.indexOf(results[0]!);
+  expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
+  const conversation = readConversation(root, session);
+  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
+    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+  }));
+  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  return results[0]!;
+}
 const roots: string[] = [];
 const apps = new Set<App>();
 
@@ -31,9 +47,7 @@ afterEach(async () => {
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
-function toolResult(request: ChatCompletionRequest): { success: true; data: Record<string, unknown> } {
-  const last = request.messages.at(-1);
-  if (last?.role !== 'tool') throw new Error('Expected the provider continuation to end in a tool result.');
+function toolResult(last: { content: string }): { success: true; data: Record<string, unknown> } {
   const parsed = JSON.parse(last.content) as { success?: boolean; data?: unknown };
   if (parsed.success !== true || !parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data))
     throw new Error(`Expected a successful object tool result, received ${last.content.slice(0, 500)}.`);
@@ -64,11 +78,14 @@ describe('process inline output production composition', () => {
     let waitProcessId = '';
     let waitStdoutUrl = '';
     let killProcessId = '';
+    const emitted = new Map<string, { name: string; args: object }>();
 
     const provider = createServer(async (request, response) => {
       try {
         if (request.url !== '/v1/chat/completions') throw new Error(`Unexpected provider URL '${request.url}'.`);
         const body = await readJsonRequest(request) as ChatCompletionRequest;
+        const call = (id: string, name: string, args: object) => { emitted.set(id, { name, args }); sendToolCall(response, id, name, args); };
+        const resultFor = (id: string) => { const expected = emitted.get(id)!; return toolResult(expectedSettlement(body, projectRoot, 'agent:executor:project', id, expected.name, expected.args)); };
         providerRequests.push(body);
         const tools = offeredToolNames(body);
         if (tools.includes('start_project')) {
@@ -84,17 +101,17 @@ describe('process inline output production composition', () => {
         executorCalls += 1;
         if (executorCalls === 1) {
           const script = 'process.stdout.write("short-out");process.stderr.write(Buffer.from([0xf0,0x9f]));';
-          sendToolCall(response, 'foreground-mixed', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, timeout_ms: 2_000 });
+          call('foreground-mixed', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, timeout_ms: 2_000 });
         } else if (executorCalls === 2) {
-          const result = toolResult(body).data;
+          const result = resultFor('foreground-mixed').data;
           observedPrimaryResults.push(result);
           expect(result).toMatchObject({ status: 'exited', stdout: 'short-out', stderr: '', stdout_complete: true, stderr_complete: false });
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).toHaveProperty('stderr_url');
           const script = `const fs=require('node:fs');process.stdout.write("wait-start");const timer=setInterval(()=>{try{fs.accessSync(${JSON.stringify(releasePath)});}catch(error){if(error.code==='ENOENT')return;throw error;}clearInterval(timer);process.stdout.write("-wait-end");},10);`;
-          sendToolCall(response, 'background-wait', 'run_command', { command: `timeout --kill-after=1s 10s ${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
+          call('background-wait', 'run_command', { command: `timeout --kill-after=1s 10s ${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
         } else if (executorCalls === 3) {
-          const result = toolResult(body).data;
+          const result = resultFor('background-wait').data;
           observedPrimaryResults.push(result);
           expect(result.status).toBe('running');
           expect(result).toHaveProperty('stdout_url');
@@ -103,44 +120,44 @@ describe('process inline output production composition', () => {
           waitStdoutUrl = String(result.stdout_url);
           // Observe through another provider turn beyond the former 150 ms lifetime.
           await new Promise((resolve) => setTimeout(resolve, 750));
-          sendToolCall(response, 'background-observe', 'wait_process', { process_id: waitProcessId, timeout_ms: 0 });
+          call('background-observe', 'wait_process', { process_id: waitProcessId, timeout_ms: 0 });
         } else if (executorCalls === 4) {
-          const result = toolResult(body).data;
+          const result = resultFor('background-observe').data;
           observedPrimaryResults.push(result);
           expect(result.status).toBe('running');
           expect(result).toHaveProperty('stdout_url');
           expect(result).toHaveProperty('stderr_url');
           writeFileSync(releasePath, 'release');
-          sendToolCall(response, 'background-terminal-wait', 'wait_process', { process_id: waitProcessId, timeout_ms: 2_000 });
+          call('background-terminal-wait', 'wait_process', { process_id: waitProcessId, timeout_ms: 2_000 });
         } else if (executorCalls === 5) {
-          const result = toolResult(body).data;
+          const result = resultFor('background-terminal-wait').data;
           observedPrimaryResults.push(result);
           expect(result).toMatchObject({ process_id: waitProcessId, status: 'exited', exit_code: 0, stdout: 'wait-start-wait-end', stdout_complete: true, stderr_complete: true });
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).not.toHaveProperty('stderr_url');
-          sendToolCall(response, 'read-retired-log', 'read', { path: waitStdoutUrl });
+          call('read-retired-log', 'read', { path: waitStdoutUrl });
         } else if (executorCalls === 6) {
-          const result = toolResult(body).data;
+          const result = resultFor('read-retired-log').data;
           expect(JSON.stringify(result)).toContain('wait-start-wait-end');
           const script = 'process.stdout.write("kill-start");setInterval(()=>{},1000);';
-          sendToolCall(response, 'background-kill', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
+          call('background-kill', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
         } else if (executorCalls === 7) {
-          const result = toolResult(body).data;
+          const result = resultFor('background-kill').data;
           observedPrimaryResults.push(result);
           expect(result.status).toBe('running');
           expect(result).toHaveProperty('stdout_url');
           expect(result).toHaveProperty('stderr_url');
           killProcessId = String(result.process_id);
-          sendToolCall(response, 'kill-terminal', 'kill_process', { process_id: killProcessId });
+          call('kill-terminal', 'kill_process', { process_id: killProcessId });
         } else if (executorCalls === 8) {
-          const result = toolResult(body).data;
+          const result = resultFor('kill-terminal').data;
           observedPrimaryResults.push(result);
           expect(result).toMatchObject({ process_id: killProcessId, status: 'killed', stdout_complete: true, stderr_complete: true });
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).not.toHaveProperty('stderr_url');
-          sendToolCall(response, 'outside-project-pwd', 'run_command', { command: 'timeout --kill-after=1s 5s pwd', cwd: sibling, timeout_ms: 10_000 });
+          call('outside-project-pwd', 'run_command', { command: 'timeout --kill-after=1s 5s pwd', cwd: sibling, timeout_ms: 10_000 });
         } else if (executorCalls === 9) {
-          const result = toolResult(body).data;
+          const result = resultFor('outside-project-pwd').data;
           observedPrimaryResults.push(result);
           expect(result).toMatchObject({ status: 'exited', exit_code: 0, stdout: `${sibling}\n`, stderr: '', stdout_complete: true, stderr_complete: true });
           expect(result).not.toHaveProperty('stdout_url');

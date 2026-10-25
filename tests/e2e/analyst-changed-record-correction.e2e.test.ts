@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../../src/schemas/message-identity.js';
 import {
   appOrigin, closeServer, createServer, initializeProject, listen, offeredToolNames,
@@ -13,6 +14,21 @@ import {
 } from '../helpers/production-composition-e2e.js';
 
 const TOKEN = 'changed-record-production-e2e-token';
+function expectedSettlement(body: ChatCompletionRequest, root: string, session: Parameters<typeof readConversation>[1], id: string, name: string, args: object) {
+  const calls = body.messages.filter(message => message.tool_calls?.some(call => (call as { id: string }).id === id));
+  const results = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === id);
+  expect(calls).toHaveLength(1); expect(results).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+  expect(calls[0]!.tool_calls).toHaveLength(1);
+  const index = body.messages.indexOf(results[0]!);
+  expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
+  const conversation = readConversation(root, session);
+  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
+    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+  }));
+  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  return results[0]!;
+}
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 const briefUrl = 'record:///brief.md?card=project';
@@ -33,18 +49,27 @@ describe('Analyst corrections on CHANGED in production composition', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-changed-record-e2e-')); roots.push(root);
     let app: App | null = null; let fixtureFailure: unknown;
     let analystCalls = 0; let cardCalls = 0; let correcting = false; let correctionTurns = 0;
+    const evidence = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+    const traceFile = evidence ? join(evidence, 'r3-analyst-diagnostic.jsonl') : null;
+    if (traceFile) writeFileSync(traceFile, '');
+    const trace = (phase: string, detail = '') => { if (traceFile) appendFileSync(traceFile, JSON.stringify({ time: Date.now(), phase, analystCalls, cardCalls, correcting, correctionTurns, detail }) + '\n'); };
     const acceptedHeads: number[] = [];
     const acceptedVersions: number[] = [];
     const provider = createServer(async (request, response) => {
       try {
         const body = await readJsonRequest(request) as ChatCompletionRequest;
         const tools = offeredToolNames(body);
+        trace('provider request', `${tools.includes('start_project') ? 'Analyst' : 'card'} last=${body.messages.at(-1)?.role}`);
+        response.once('finish', () => trace('provider response finished', String(response.statusCode)));
         if (tools.includes('start_project')) {
           analystCalls++;
           if (!correcting) {
             if (analystCalls === 1) sendToolCall(response, 'seed-brief', 'write', { path: briefUrl, content: initial });
             else if (analystCalls === 2) {
-              expect(JSON.parse(body.messages.at(-1)!.content)).toMatchObject({ success: true });
+              const settled = expectedSettlement(body, root, 'agent:analyst:global', 'seed-brief', 'write', { path: briefUrl, content: initial });
+              trace('settlement consumed', 'seed-brief:write');
+              expect(JSON.parse(settled.content)).toMatchObject({ success: true });
+              if (process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE) writeFileSync(join(process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE, 'r3-analyst-seed-request.json'), JSON.stringify(body, null, 2));
               sendToolCall(response, 'start', 'start_project', {});
             } else if (analystCalls === 3) sendFinalMessage(response, 'Started.');
             else throw new Error('Unexpected setup Analyst turn.');
@@ -54,7 +79,9 @@ describe('Analyst corrections on CHANGED in production composition', () => {
           expect(app!.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
           expect(cardCalls).toBe(2);
           if (correctionTurns > 0) {
-            const previous = corrections[correctionTurns - 1]!; const last = body.messages.at(-1)!;
+            const previous = corrections[correctionTurns - 1]!;
+            const last = expectedSettlement(body, root, 'agent:analyst:global', previous.id, previous.name, previous.args);
+            trace('settlement consumed', `${previous.id}:${previous.name}`);
             expect(last.tool_call_id).toBe(previous.id);
             const result = JSON.parse(last.content);
             expect(result).toMatchObject({ success: true, data: { state: 'closed', propagation: { ok: true } } });
@@ -80,10 +107,13 @@ describe('Analyst corrections on CHANGED in production composition', () => {
         cardCalls++;
         if (cardCalls === 1) sendToolCall(response, 'blocked-status', 'write', { path: 'record:///status.md?card=project', content: '# Status\nBlocked pending objective correction.' });
         else if (cardCalls === 2) {
-          expect(JSON.parse(body.messages.at(-1)!.content)).toMatchObject({ success: true });
+          const settled = expectedSettlement(body, root, 'agent:executor:project', 'blocked-status', 'write', { path: 'record:///status.md?card=project', content: '# Status\nBlocked pending objective correction.' });
+          trace('settlement consumed', 'blocked-status:write');
+          expect(JSON.parse(settled.content)).toMatchObject({ success: true });
+          if (process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE) writeFileSync(join(process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE, 'r3-card-blocked-request.json'), JSON.stringify(body, null, 2));
           sendToolCall(response, 'blocked-result', 'emit_result', { outcome: 'blocked', summary: 'Objective needs correction.' });
         } else throw new Error('Unexpected card provider work.');
-      } catch (error) { fixtureFailure = error; response.statusCode = 500; response.end(); }
+      } catch (error) { fixtureFailure = error; trace('fixture failure', String(error)); response.statusCode = 500; response.end(); }
     });
     const port = await listen(provider);
     try {
@@ -100,7 +130,9 @@ describe('Analyst corrections on CHANGED in production composition', () => {
         };
       });
       writeProductionConfig(root, config); initializeProject(root); app = await startProductionApp(root, TOKEN);
+      trace('postStartProject begin');
       expect((await postStartProject(appOrigin(app), TOKEN)).status).toBe(200);
+      trace('postStartProject settled');
       const cards = app.server.runtimeApplication.cardStore;
       await waitFor(() => fixtureFailure !== undefined || (cards.read('project')?.lifecycle.status === 'blocked' && app!.server.runtimeApplication.runtimeApi.getStatus().status === 'stopped'), 'ordinary blocked settlement');
       if (fixtureFailure) throw fixtureFailure;
@@ -108,7 +140,7 @@ describe('Analyst corrections on CHANGED in production composition', () => {
       expect(activationRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open'))).toHaveLength(1);
       correcting = true;
       const response = await fetch(`${appOrigin(app)}/api/chat`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ content: 'Correct the objective, remove the stale restriction, replace the brief and update status. Do not Run.' }) });
-      expect(response.status).toBe(200); await response.json();
+      expect(response.status).toBe(200); await response.json(); trace('correction chat settled');
       if (fixtureFailure) throw fixtureFailure;
       expect(correctionTurns).toBe(5); expect(cardCalls).toBe(2); expect(analystCalls).toBe(8);
       expect(acceptedHeads).toHaveLength(3); expect(acceptedHeads[1]).toBeGreaterThan(acceptedHeads[0]!); expect(acceptedHeads[2]).toBeGreaterThan(acceptedHeads[1]!);
@@ -129,6 +161,6 @@ describe('Analyst corrections on CHANGED in production composition', () => {
         expect(JSON.parse(results[0]!.content)).toMatchObject({ success: true, data: { propagation: { ok: true } } });
         expect(rows.indexOf(results[0]!)).toBeGreaterThan(rows.indexOf(calls[0]!));
       }
-    } finally { if (app) await app.stop(); await closeServer(provider); }
+    } finally { trace('teardown app begin'); if (app) await app.stop(); trace('teardown provider begin'); await closeServer(provider); trace('teardown complete'); }
   }, 60_000);
 });

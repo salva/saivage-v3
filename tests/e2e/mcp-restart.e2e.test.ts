@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
@@ -17,6 +18,22 @@ import {
   sendToolCall, startProductionApp, waitFor, writeProductionConfig,
   type ChatCompletionRequest,
 } from '../helpers/production-composition-e2e.js';
+
+function expectedSettlement(body: ChatCompletionRequest, root: string, session: Parameters<typeof readConversation>[1], id: string, name: string, args: object) {
+  const calls = body.messages.filter(message => message.tool_calls?.some(call => (call as { id: string }).id === id));
+  const results = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === id);
+  expect(calls).toHaveLength(1); expect(results).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+  expect(calls[0]!.tool_calls).toHaveLength(1);
+  const index = body.messages.indexOf(results[0]!);
+  expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
+  const conversation = readConversation(root, session);
+  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
+    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
+  }));
+  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  return results[0]!;
+}
 
 it.each([true, false])('restarts through ordinary production card composition (Executor control selected=%s), retaining old native facts and independent role authority', async executorControls => {
   const root = mkdtempSync(join(tmpdir(), 'mcp-restart-production-'));
@@ -41,16 +58,19 @@ it.each([true, false])('restarts through ordinary production card composition (E
   let nativeA: unknown;
   const gateways = new Map<string, unknown>();
   const compositions = new Map<string, ChatCompletionRequest>();
+  const pending = new Map<string, { id: string; name: string; args: object }>();
   const provider = createServer(async (req, res) => {
     try {
       const body = await readJsonRequest(req) as ChatCompletionRequest;
-      const names = offeredToolNames(body); const last = body.messages.at(-1);
-      const result = last?.role === 'tool' ? JSON.parse(last.content) : null;
+      const names = offeredToolNames(body);
       const role = names.includes('start_project') ? 'analyst' : names.includes('write') && !names.includes('edit') ? 'executor' : 'reviewer';
+      const expected = pending.get(role);
+      const result = expected ? JSON.parse(expectedSettlement(body, root, role === 'analyst' ? 'agent:analyst:global' : `agent:${role}:project`, expected.id, expected.name, expected.args).content) : null;
+      pending.delete(role);
       if (!gateways.has(role)) gateways.set(role, body.tools);
       else expect(body.tools).toEqual(gateways.get(role));
       compositions.set(role, body);
-      const call = (id: string, tool: string, args: object) => sendToolCall(res, id, tool, args);
+      const call = (id: string, tool: string, args: object) => { pending.set(role, { id, name: tool, args }); sendToolCall(res, id, tool, args); };
       const control = (id: string) => call(id, 'mcp_server_control', { serverName: 'local', action: 'restart' });
       const discover = () => call('discover-B', 'mcp_tools', { serverName: 'local' });
       const stale = () => call('stale-A', 'mcp_tool_call', preparedOldCall);
