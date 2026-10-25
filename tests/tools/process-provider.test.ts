@@ -457,6 +457,60 @@ describe('process provider', () => {
     expect(processRunner.processRunner.list()).toEqual([]);
   }));
 
+  it.each(['native', 'system'] as const)('runs an isolated external installation via %s cwd with project-owned captures', async (cwdKind) => {
+    const parent = mkdtempSync(join(tmpdir(), 'saivage-external-install-'));
+    const root = join(parent, 'project');
+    const source = join(root, 'package-fixture');
+    const install = join(parent, 'clean-install-check');
+    const sentinel = join(parent, 'unrelated.txt');
+    mkdirSync(join(source, 'node_modules', 'fixture-dependency'), { recursive: true });
+    mkdirSync(install);
+    writeFileSync(sentinel, 'unrelated work stays intact\n');
+    writeFileSync(join(source, 'node_modules', 'fixture-dependency', 'index.js'), "module.exports = { answer: 42 };\n");
+    writeFileSync(join(source, 'check.cjs'), [
+      "const { answer } = require('fixture-dependency');",
+      "console.log(JSON.stringify({ cwd: process.cwd(), dependency: require.resolve('fixture-dependency'), answer, workRoot: process.env.SAIVAGE_CARD_WORK_ROOT }));",
+    ].join('\n'));
+    const processes = createTestProcessRunner(root);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
+    const cwd = cwdKind === 'native' ? install : buildScopedPathUrl('system', install.split('/').filter(Boolean));
+    const command = [
+      'set -eu',
+      `test "$(command -v node)" = ${quoteBashWord(process.execPath)}`,
+      `test "$(node --version)" = ${quoteBashWord(process.version)}`,
+      `cp -R ${quoteBashWord(`${source}/.`)} .`,
+      `${quoteBashWord(process.execPath)} check.cjs`,
+    ].join('; ');
+
+    try {
+      const result = await invokeTestTool(surface, 'run_command', {
+        command: `/usr/bin/timeout -k 1s 5s bash -c ${quoteBashWord(command)}`,
+        cwd,
+        timeout_ms: 10_000,
+      });
+      expect(result).toMatchObject({ success: true, data: { status: 'exited', exit_code: 0, stderr: '', stdout_complete: true, stderr_complete: true } });
+      if (!result.success) throw new Error(result.error);
+      const data = result.data as { process_id: string; stdout: string; stdout_url: string; stderr_url: string };
+      expect(JSON.parse(data.stdout)).toEqual({
+        cwd: install,
+        dependency: join(install, 'node_modules', 'fixture-dependency', 'index.js'),
+        answer: 42,
+        workRoot: cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      });
+      expect(readFileSync(sentinel, 'utf8')).toBe('unrelated work stays intact\n');
+      expect(data.stdout_url).toBe(`work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${data.process_id}/stdout.log`);
+      expect(data.stderr_url).toBe(`work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${data.process_id}/stderr.log`);
+      const outputRoot = cardProcessOutputRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', data.process_id);
+      expect(readFileSync(join(outputRoot, 'stdout.log'), 'utf8')).toBe(data.stdout);
+      expect(readFileSync(join(outputRoot, 'stderr.log'), 'utf8')).toBe('');
+      expect(processes.processRunner.get(data.process_id)).toBeNull();
+      expect(processes.processRunner.list()).toEqual([]);
+    } finally {
+      await cleanupTestProcessRunners(root);
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it('completes pwd for native, relative and scoped cwd without moving ownership or capture', async () => {
     const parent = mkdtempSync(join(tmpdir(), 'saivage-command-cwd-'));
     const root = join(parent, 'project');

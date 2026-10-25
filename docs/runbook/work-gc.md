@@ -9,6 +9,10 @@ before destructive use. Preview requires no backup. This live operation does not
 replace the stopped/excluded/complete-backup gates for
 [offline operations](./state-adoption.md).
 
+Task-justified external command directories are outside `gc-work` coverage. Their
+task owner handles owned cleanup and keeps needed evidence and its location clear
+before disposal; this operation neither inventories nor collects those directories.
+
 ## Preview first, delete separately
 
 From the identified project root, using the matching release:

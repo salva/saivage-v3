@@ -835,8 +835,11 @@ four Git author/committer variables; no default identity or arbitrary credential
 Stdio MCP applies explicit configured env afterward. Ordinary run_command sends one
 unchanged bash -c argument; shell.run has its own compiled script/argv/env/time/artifact
 contract. Card tools alone derive `SAIVAGE_CARD_WORK_ROOT`; globals/MCP receive none.
-Native absolute cwd is direct, relative/project paths contained; scoped schemes have
-their own admission. Captures remain project-owned regardless cwd.
+Native absolute/system cwd selects system destinations; relative/project paths stay
+contained and scoped schemes retain their own admission. The card work root is the
+organizational default for disposable command work, not a ban on task-justified
+external clean-install, relocation or dependency-isolation checks within authorized
+scope. Captures remain project-owned regardless cwd.
 
 Process result owner reads captures once, normalizes valid UTF-8 prefix/redacts then
 selects certified 2048-byte/30-line heads, raw counts/completeness and fallback URLs.
