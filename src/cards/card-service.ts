@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { cardGitFactsSchema } from '../schemas/git-source.js';
+import { cardGitFactsSchema } from '../schemas/index.js';
 
 import {
   CARD_RECORD_FIELDS,
@@ -990,10 +990,18 @@ export class CardService {
     const existing = this.read(id);
     if (!existing) throw new Error(`Card '${id}' not found.`);
     if (valuesEqual(existing.git, facts)) return existing;
-    return this.publishVersion(existing, {
-      ...existing, git: facts, updated_at: new Date().toISOString(),
-      version_seq: existing.version_seq + 1,
-    }, 'git_source', ['git'], 'native source facts published');
+    return this.publishVersion(
+      existing,
+      {
+        ...existing,
+        git: facts,
+        updated_at: new Date().toISOString(),
+        version_seq: existing.version_seq + 1,
+      },
+      'git_source',
+      ['git'],
+      'native source facts published',
+    );
   }
 
   setStatus(id: string, status: SetStatusTarget): CardRecord {

@@ -20,7 +20,10 @@ import {
 } from '../runtime/runtime-api.js';
 import { startServer, type ServerInstance } from '../server/server-api.js';
 import { createRestartPort } from './restart-port.js';
-import { publishInitialProjectRuntime, assertInitialProjectPolicy } from './project-runtime-bootstrap.js';
+import {
+  publishInitialProjectRuntime,
+  assertInitialProjectPolicy,
+} from './project-runtime-bootstrap.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../contracts/index.js';
 import type {
   ShutdownComponent,
@@ -139,10 +142,12 @@ interface StartAppOptions extends StartInputs {
 export async function startApp(options: StartAppOptions): Promise<App> {
   const processFatalPort = createApplicationFatalPort();
   let fatal = false;
-  const fatalPort = { publicationOutcomeUnknown(error: PublicationOutcomeUnknownError): never {
-    fatal = true;
-    return processFatalPort.publicationOutcomeUnknown(error);
-  } };
+  const fatalPort = {
+    publicationOutcomeUnknown(error: PublicationOutcomeUnknownError): never {
+      fatal = true;
+      return processFatalPort.publicationOutcomeUnknown(error);
+    },
+  };
   const env = options.env ?? process.env;
   const projectRoot = resolveStartupProjectRoot(options, env);
   const terminal = createAppTerminalCoordinator();
@@ -157,23 +162,32 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
   const processRegistry = new ManagedProcessGroupRegistry();
   const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
-  const bootstrapScope = processRegistry.createContainerScope(processRegistry.rootScope, 'initial-project');
+  const bootstrapScope = processRegistry.createContainerScope(
+    processRegistry.rootScope,
+    'initial-project',
+  );
   const startupController = new AbortController();
   let starting = true;
   const assertInitializerCurrent = () => {
     startupController.signal.throwIfAborted();
-    if (!starting || fatal || terminal.isApplicationClosing()) throw new Error('Startup initializer no longer owns publication.');
+    if (!starting || fatal || terminal.isApplicationClosing())
+      throw new Error('Startup initializer no longer owns publication.');
     runtimeProcessIdentity(lifecycleLock);
   };
   terminal.registerAdmissionCloser('process-admission', () => processRunner.closeLaunchAdmission());
   const containProcesses = async () => {
     try {
-      const report = await processRunner.terminateScopeTree({ rootScope: processRegistry.rootScope,
-        categories: ['runtime_card', 'operator_session', 'service_infrastructure'], reason: 'Application stopped', graceMs: 1000 });
+      const report = await processRunner.terminateScopeTree({
+        rootScope: processRegistry.rootScope,
+        categories: ['runtime_card', 'operator_session', 'service_infrastructure'],
+        reason: 'Application stopped',
+        graceMs: 1000,
+      });
       if (report.failed.length > 0) throw new Error('Application process containment unconfirmed.');
     } catch (error) {
       if (fatal) throw error;
-      if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
+      if (error instanceof PublicationOutcomeUnknownError)
+        fatalPort.publicationOutcomeUnknown(error);
       console.error('Application process containment failed; lifecycle lock retained.');
       process.exit(1);
     }
@@ -184,7 +198,10 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       startupController.abort(new Error('Startup initialization interrupted.'));
       return;
     }
-    void terminal.stop().then((report) => { logShutdownWarnings(report); process.exit(0); });
+    void terminal.stop().then((report) => {
+      logShutdownWarnings(report);
+      process.exit(0);
+    });
   };
   process.once('SIGINT', stopForSignal);
   process.once('SIGTERM', stopForSignal);
@@ -204,7 +221,9 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       readProjectCardOrAssertInitialPublicationAllowed(projectRoot) === null
     ) {
       await publishInitialProjectRuntime(projectRoot, environment.workflows, {
-        runner: processRunner, parentScope: bootstrapScope, signal: startupController.signal,
+        runner: processRunner,
+        parentScope: bootstrapScope,
+        signal: startupController.signal,
         assertCurrent: assertInitializerCurrent,
       });
     }

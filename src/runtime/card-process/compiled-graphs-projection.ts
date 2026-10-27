@@ -186,10 +186,12 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
             promotion: null,
           };
         }
-        if (route.semantic.kind !== 'runtime-terminal' &&
-            route.semantic.kind !== 'native-correction-entry' &&
-            route.semantic.kind !== 'native-correction-return' &&
-            route.semantic.kind !== 'native-correction-outcome')
+        if (
+          route.semantic.kind !== 'runtime-terminal' &&
+          route.semantic.kind !== 'native-correction-entry' &&
+          route.semantic.kind !== 'native-correction-return' &&
+          route.semantic.kind !== 'native-correction-outcome'
+        )
           throw new Error(
             `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid runtime target.`,
           );

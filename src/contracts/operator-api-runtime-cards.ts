@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { cardGitFactsSchema } from '../schemas/git-source.js';
+import { cardGitFactsSchema } from '../schemas/index.js';
 import { uuidV4Schema, recordAuthorSchema } from '../schemas/index.js';
 import {
   outboundCardRecordSchema,
@@ -138,7 +138,9 @@ const CardDetailLifecycleSchema = cardLifecycleStateSchema;
 export const CardDetailSchema = z
   .object({
     id: cardIdSchema,
-    source: z.object({ mode: z.enum(['native', 'off']), facts: cardGitFactsSchema.nullable() }).strict(),
+    source: z
+      .object({ mode: z.enum(['native', 'off']), facts: cardGitFactsSchema.nullable() })
+      .strict(),
     title: z.string().min(1),
     type: cardTypeSchema,
     lifecycle: CardDetailLifecycleSchema,

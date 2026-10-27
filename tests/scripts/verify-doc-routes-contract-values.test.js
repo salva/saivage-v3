@@ -344,6 +344,39 @@ function replaceOccurrence(root, path, token, occurrence) {
 }
 
 describe('documentation value contracts', () => {
+  it('extracts native classic inventory through formatting while rejecting changed construction', () => {
+    withProject((root) => {
+      const path = join(root, 'src/config/system-templates/classic-git/template.ts');
+      const source = readFileSync(path, 'utf8');
+      const initializer = source.match(/const config = structuredClone\([\s\S]*?;/u)?.[0];
+      expect(initializer).toBeDefined();
+      const original = 'structuredClone(createClassicConfig(structuredClone(CLASSIC_TEMPLATE.config.card_types!)))';
+      for (const expression of [original,
+        'structuredClone(\n createClassicConfig( /* source owner */ structuredClone(\n CLASSIC_TEMPLATE.config.card_types!,\n ),\n ),\n )']) {
+        writeFileSync(path, source.replace(initializer, `const config = ${expression};`));
+        expect(verifyToolContractDocs({ projectRoot: root }).failures).toEqual([]);
+      }
+      for (const expression of [
+        original.replace('createClassicConfig', 'otherConfig'),
+        original.replace('CLASSIC_TEMPLATE', 'OTHER_TEMPLATE'),
+        original.replace('card_types!', 'agents!'),
+        original.replace('card_types!', 'card_types!, extra'),
+        'createClassicConfig(structuredClone(CLASSIC_TEMPLATE.config.card_types!))',
+      ]) {
+        writeFileSync(path, source.replace(initializer, `const config = ${expression};`));
+        const result = verifyToolContractDocs({ projectRoot: root });
+        expect(result.ok).toBe(false);
+        expect(JSON.stringify(result.failures)).toContain('native classic selected inventory');
+      }
+      for (const predicate of ['(name) => nativeGlobalExcludedTools.includes(name)',
+        '(name) => !nativeGlobalExcludedTools.includes("other")']) {
+        expect(source).toContain('(name) => !nativeGlobalExcludedTools.includes(name)');
+        writeFileSync(path, source.replace('(name) => !nativeGlobalExcludedTools.includes(name)', predicate));
+        expect(verifyToolContractDocs({ projectRoot: root }).ok).toBe(false);
+      }
+    });
+  });
+
   it('publishes a closed, total fifteen-block catalog', () => {
     expect(VALUE_CONTRACT_MANIFEST.map(({ key, family, file, heading, claims }) => [key, family, file, heading, claims])).toEqual(EXPECTED_MANIFEST);
     const uses = VALUE_CONTRACT_MANIFEST.flatMap((entry) => entry.claims).sort();

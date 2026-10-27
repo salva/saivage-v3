@@ -247,12 +247,19 @@ export function validateInitialCard(card: CardRecord, path: string): void {
     card.status_text_updated_at === null &&
     card.pending_notifications.length === 0;
   if (!common) fail(path, 'has an invalid initial card');
-  if (card.git !== null && (
-    card.id !== 'project' || card.created_by !== 'runtime:bootstrap' || card.git.kind !== 'root' ||
-    card.git.branch_ref === card.git.parent.branch_ref ||
-    card.git.base_oid !== card.git.parent.observed_tip || card.git.observed_tip !== card.git.base_oid ||
-    card.git.candidate !== null || card.git.correction !== null || card.git.last_delivery !== null
-  )) fail(path, 'has invalid initial commissioned root facts');
+  if (
+    card.git !== null &&
+    (card.id !== 'project' ||
+      card.created_by !== 'runtime:bootstrap' ||
+      card.git.kind !== 'root' ||
+      card.git.branch_ref === card.git.parent.branch_ref ||
+      card.git.base_oid !== card.git.parent.observed_tip ||
+      card.git.observed_tip !== card.git.base_oid ||
+      card.git.candidate !== null ||
+      card.git.correction !== null ||
+      card.git.last_delivery !== null)
+  )
+    fail(path, 'has invalid initial commissioned root facts');
   if (card.created_by === 'runtime:repair') {
     if (
       card.title !== `Recovered card ${card.id} — data discarded` ||
@@ -372,9 +379,14 @@ export function validateCardTransition(
       requireChange(path, change, ['git'], 'native source facts published');
       if (!next.git) fail(path, 'clears established native source facts');
       if (prior.git) {
-        if (prior.git.kind !== next.git.kind || prior.git.branch_ref !== next.git.branch_ref ||
+        if (
+          prior.git.kind !== next.git.kind ||
+          prior.git.branch_ref !== next.git.branch_ref ||
           prior.git.parent.branch_ref !== next.git.parent.branch_ref ||
-          (prior.git.kind === 'root' && next.git.kind === 'root' && prior.git.policy_digest !== next.git.policy_digest))
+          (prior.git.kind === 'root' &&
+            next.git.kind === 'root' &&
+            prior.git.policy_digest !== next.git.policy_digest)
+        )
           fail(path, 'changes native source ownership or commissioned policy');
         if (prior.git.correction && next.git.correction) {
           for (const field of ['base_oid', 'original_tip', 'retained_original_ref'] as const)

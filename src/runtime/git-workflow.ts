@@ -20,15 +20,16 @@ import {
   type CardExecutionFile,
   type CardNativeExecutionBinding,
   type CardNativeExecutionFinish,
-} from '../persistence/card-execution-log.js';
+} from '../persistence/index.js';
 import {
-  nativeGitEffectSchema as effect,
   gitOidSchema as oid,
   gitSelectionSchema as selection,
   gitCorrectionTaskSchema as correctionTask,
   nativeGitExecutionBindingSchema,
   gitPreservedSourceSchema as preservedSource,
-} from '../schemas/git-source.js';
+} from '../schemas/index.js';
+import type { nativeGitEffectSchema } from '../schemas/index.js';
+type NativeGitEffect = z.infer<typeof nativeGitEffectSchema>;
 
 // Call-local observations, never a durable resume token or source authority.
 const rebaseObservation = z.object({ starting_tip: oid, head_tip: oid }).strict();
@@ -45,8 +46,15 @@ const common = {
   timeout_ms: z.number().int().min(1).max(120_000),
 };
 const nativeGitRequestSchema = z.discriminatedUnion('step', [
-  z.object({ ...common, step: z.literal('commission'), expected: selection,
-    owner: privateOwner, invocation_id: z.string().uuid() }).strict(),
+  z
+    .object({
+      ...common,
+      step: z.literal('commission'),
+      expected: selection,
+      owner: privateOwner,
+      invocation_id: z.string().uuid(),
+    })
+    .strict(),
   z
     .object({ ...common, step: z.literal('deliver'), expected: selection, parent: selection })
     .strict(),
@@ -138,92 +146,52 @@ const observation = selection
   })
   .strict();
 type NativeGitObservation = z.infer<typeof observation>;
-const nativeGitResultSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('commissioned'), source: selection, parent: selection,
-    effects: z.array(effect) }).strict(),
-  z
-    .object({
-      kind: z.literal('delivered'),
-      observation,
-      child: selection,
-      parent_before: oid,
-      parent_after: oid,
-      effects: z.array(effect),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('returned'),
-      observation,
-      source: selection,
-      task: correctionTask.nullable(),
-      preserved_source: preservedSource.nullable(),
-      artifacts: z.array(z.string()),
-      effects: z.array(effect),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('captured'),
-      rebase_observation: rebaseObservation,
-      task: correctionTask,
-      preserved_source: preservedSource,
-      artifacts: z.array(z.string()),
-      effects: z.array(effect),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('entered'),
-      observation,
-      base_oid: oid,
-      retained_original_ref: z.string().nullable(),
-      effects: z.array(effect),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('candidate'),
-      observation,
-      base_oid: oid,
-      parent: selection,
-      effects: z.array(effect),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('correction-required'),
-      observation,
-      task: correctionTask,
-      effects: z.array(effect),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('correction-verified'),
-      observation,
-      base_oid: oid,
-      effects: z.array(effect),
-    })
-    .strict(),
-  z.object({ kind: z.literal('completed'), observation, effects: z.array(effect) }).strict(),
-  z
-    .object({
-      kind: z.literal('refused'),
-      reason: z.string().min(1).max(512),
-      effects: z.array(effect),
-      untouched_parent: selection.optional(),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('uncertain'),
-      reason: z.string().min(1).max(512),
-      effects: z.array(effect),
-    })
-    .strict(),
-]);
-export type NativeGitResult = z.infer<typeof nativeGitResultSchema>;
+export type NativeGitResult = { effects: NativeGitEffect[] } & (
+  | { kind: 'commissioned'; source: z.infer<typeof selection>; parent: z.infer<typeof selection> }
+  | {
+      kind: 'delivered';
+      observation: NativeGitObservation;
+      child: z.infer<typeof selection>;
+      parent_before: string;
+      parent_after: string;
+    }
+  | {
+      kind: 'returned';
+      observation: NativeGitObservation;
+      source: z.infer<typeof selection>;
+      task: z.infer<typeof correctionTask> | null;
+      preserved_source: z.infer<typeof preservedSource> | null;
+      artifacts: string[];
+    }
+  | {
+      kind: 'captured';
+      rebase_observation: z.infer<typeof rebaseObservation>;
+      task: z.infer<typeof correctionTask>;
+      preserved_source: z.infer<typeof preservedSource>;
+      artifacts: string[];
+    }
+  | {
+      kind: 'entered';
+      observation: NativeGitObservation;
+      base_oid: string;
+      retained_original_ref: string | null;
+    }
+  | {
+      kind: 'candidate';
+      observation: NativeGitObservation;
+      base_oid: string;
+      parent: z.infer<typeof selection>;
+    }
+  | {
+      kind: 'correction-required';
+      observation: NativeGitObservation;
+      task: z.infer<typeof correctionTask>;
+    }
+  | { kind: 'correction-verified'; observation: NativeGitObservation; base_oid: string }
+  | { kind: 'completed'; observation: NativeGitObservation }
+  | { kind: 'refused'; reason: string; untouched_parent?: z.infer<typeof selection> }
+  | { kind: 'uncertain'; reason: string }
+);
 
 class NativeRefusal extends Error {}
 class NativeUncertainty extends Error {}
@@ -239,7 +207,7 @@ interface GitCommandOptions {
 
 /** Call-local domain sequencing; each command is owned by the existing runner. */
 class GitWorkflow {
-  readonly effects: z.infer<typeof effect>[] = [];
+  readonly effects: NativeGitEffect[] = [];
   private mutating = false;
   private readonly root: string;
   private lastStatus = 0;
@@ -1098,15 +1066,27 @@ class GitWorkflow {
         if (before.dirty) throw new NativeRefusal('Commissioning requires clean delivery source.');
         const branch = nativeGitRefs(input.owner, input.invocation_id).branch_ref;
         this.current(await this.git(['check-ref-format', branch]));
-        this.current(await this.git(['show-ref', '--verify', '--quiet', branch], { accepted: [0, 1] }));
-        if (this.lastStatus !== 1) throw new NativeRefusal('Commissioning private ref already exists.');
-        this.current(await this.git(['update-ref', branch, input.expected.observed_tip, ''], { mutation: true }));
+        this.current(
+          await this.git(['show-ref', '--verify', '--quiet', branch], { accepted: [0, 1] }),
+        );
+        if (this.lastStatus !== 1)
+          throw new NativeRefusal('Commissioning private ref already exists.');
+        this.current(
+          await this.git(['update-ref', branch, input.expected.observed_tip, ''], {
+            mutation: true,
+          }),
+        );
         this.effects.push('branch-created');
         const selected = { branch_ref: branch, observed_tip: input.expected.observed_tip };
         this.current(await this.exactSelection(selected));
         const after = this.current(await this.inspect(input.expected, false));
         if (after.dirty) throw new NativeRefusal('Commissioning hooks changed delivery source.');
-        return { kind: 'commissioned', source: selected, parent: input.expected, effects: [...this.effects] };
+        return {
+          kind: 'commissioned',
+          source: selected,
+          parent: input.expected,
+          effects: [...this.effects],
+        };
       }
       if (input.step === 'deliver') {
         if (before.dirty)
@@ -1315,20 +1295,31 @@ function readonlyGitQueries(root: string) {
   };
 }
 
-export function qualifyInitialGitDelivery(projectRoot: string, policy: {
-  readonly delivery_branch: string;
-  readonly private_ref_namespace: string;
-  readonly source_roots: readonly string[];
-  readonly excluded_paths: readonly string[];
-}): z.infer<typeof selection> {
+export function qualifyInitialGitDelivery(
+  projectRoot: string,
+  policy: {
+    readonly delivery_branch: string;
+    readonly private_ref_namespace: string;
+    readonly source_roots: readonly string[];
+    readonly excluded_paths: readonly string[];
+  },
+): z.infer<typeof selection> {
   const root = realpathSync(projectRoot);
   const query = readonlyGitQueries(root);
-  const delivery = selection.parse({ branch_ref: `refs/heads/${policy.delivery_branch}`,
-    observed_tip: query(['rev-parse', '--verify', `refs/heads/${policy.delivery_branch}^{commit}`]).trim() });
+  const delivery = selection.parse({
+    branch_ref: `refs/heads/${policy.delivery_branch}`,
+    observed_tip: query([
+      'rev-parse',
+      '--verify',
+      `refs/heads/${policy.delivery_branch}^{commit}`,
+    ]).trim(),
+  });
   assertCleanGitDelivery(root, delivery, policy);
   const branch = nativeGitBranch({ namespace: policy.private_ref_namespace, card_id: 'project' });
   if (query(['rev-parse', '--verify', '--quiet', branch], [0, 1]).trim())
-    throw new Error('Initial Git private ref already exists; use separately configured fresh provisioning. No ref is adopted or removed.');
+    throw new Error(
+      'Initial Git private ref already exists; use separately configured fresh provisioning. No ref is adopted or removed.',
+    );
   return delivery;
 }
 
@@ -1503,9 +1494,13 @@ export async function runGitWorkflow(input: {
   current();
   const request = nativeGitRequestSchema.parse(input.request);
   const binding = nativeGitExecutionBindingSchema.parse(input.binding);
-  if ((request.step === 'commission') !== (binding.origin === 'bootstrap') ||
-      (binding.origin === 'bootstrap' && input.cardId !== 'project'))
-    throw new Error('Commissioning requires root bootstrap origin; other native steps require activation origin.');
+  if (
+    (request.step === 'commission') !== (binding.origin === 'bootstrap') ||
+    (binding.origin === 'bootstrap' && input.cardId !== 'project')
+  )
+    throw new Error(
+      'Commissioning requires root bootstrap origin; other native steps require activation origin.',
+    );
   if ('invocation_id' in request && request.invocation_id !== input.invocationId)
     throw new Error('Native invocation identity mismatch.');
   if ('owner' in request && request.owner.card_id !== input.cardId)
@@ -1733,11 +1728,13 @@ export async function runGitWorkflow(input: {
               ? result.task.onto
               : null,
       base_oid:
-        result.kind === 'commissioned' ? result.parent.observed_tip : 'base_oid' in result
-          ? result.base_oid
-          : 'task' in result && result.task
-            ? result.task.base_oid
-            : null,
+        result.kind === 'commissioned'
+          ? result.parent.observed_tip
+          : 'base_oid' in result
+            ? result.base_oid
+            : 'task' in result && result.task
+              ? result.task.base_oid
+              : null,
       original_tip: 'task' in result && result.task ? result.task.original_tip : null,
       retained_original_ref:
         'task' in result && result.task

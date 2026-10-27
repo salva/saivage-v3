@@ -265,9 +265,8 @@ export function createResolvedConfigAuthority(input: {
   projectRoot?: string;
   defaultPromptRoot?: string;
 }): ResolvedConfigAuthority {
-  return new ResolvedConfigAuthorityImpl(
-    input.path,
-    input.interpolationEnvironment,
-    { projectRoot: input.projectRoot, defaultPromptRoot: input.defaultPromptRoot },
-  );
+  return new ResolvedConfigAuthorityImpl(input.path, input.interpolationEnvironment, {
+    projectRoot: input.projectRoot,
+    defaultPromptRoot: input.defaultPromptRoot,
+  });
 }

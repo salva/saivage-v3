@@ -1,6 +1,11 @@
 import { z } from 'zod';
-import { gitNativeStepSchema, nativeGitEffectSchema, nativeGitOutcomeSchema,
-  nativeGitEvidenceFactsSchema, nativeGitExecutionBindingSchema } from '../schemas/git-source.js';
+import {
+  gitNativeStepSchema,
+  nativeGitEffectSchema,
+  nativeGitOutcomeSchema,
+  nativeGitEvidenceFactsSchema,
+  nativeGitExecutionBindingSchema,
+} from '../schemas/index.js';
 import { actionOutputDescriptorSchema, operationOutputSourceSchema } from '../schemas/index.js';
 import { cardIdSchema, uuidV4Schema } from '../schemas/index.js';
 import {
@@ -62,12 +67,36 @@ const row = z
   })
   .strict();
 const CardExecutionListSchema = z
-  .object({ rows: z.array(z.discriminatedUnion('family', [row,
-    row.omit({ operation: true, contract_version: true, binding: true, kind: true, family: true }).extend({
-      family: z.literal('native'), kind: z.enum(['native_started', 'native_process_started', 'native_process_finished', 'native_finished']),
-      step: gitNativeStepSchema, binding: nativeGitExecutionBindingSchema,
-    }).strict(),
-  ])).max(100), next_cursor: uuidV4Schema.nullable() })
+  .object({
+    rows: z
+      .array(
+        z.discriminatedUnion('family', [
+          row,
+          row
+            .omit({
+              operation: true,
+              contract_version: true,
+              binding: true,
+              kind: true,
+              family: true,
+            })
+            .extend({
+              family: z.literal('native'),
+              kind: z.enum([
+                'native_started',
+                'native_process_started',
+                'native_process_finished',
+                'native_finished',
+              ]),
+              step: gitNativeStepSchema,
+              binding: nativeGitExecutionBindingSchema,
+            })
+            .strict(),
+        ]),
+      )
+      .max(100),
+    next_cursor: uuidV4Schema.nullable(),
+  })
   .strict();
 const ActionExecutionDetailSchema = z
   .object({
@@ -123,23 +152,55 @@ const ActionExecutionDetailSchema = z
   })
   .strict();
 const NativeExecutionDetailSchema = ActionExecutionDetailSchema.omit({
-  family: true, operation: true, contract_version: true, provider: true, output_source: true,
-  output: true, binding: true, shell: true, input: true, values: true, outcome: true,
-  leader_exit: true, leader_error: true, process: true, processes: true,
-}).extend({ family: z.literal('native'), step: gitNativeStepSchema,
-  binding: nativeGitExecutionBindingSchema, outcome: nativeGitOutcomeSchema.nullable(),
-  effects: z.array(nativeGitEffectSchema).max(32), facts: nativeGitEvidenceFactsSchema.nullable(),
-  source_return: z.enum(['returned', 'not_returned', 'unknown']),
-  commands: z.array(z.object({ process_id: text, timestamp: z.string(), allowed_exit_codes: z.array(z.number().int()).min(1).max(4),
-    finished_at: z.string().nullable(), status: z.enum(['running','exited','failed','killed','unavailable']).nullable(),
-    disposition: ActionExecutionDetailSchema.shape.disposition,
-    leader_exit: ActionExecutionDetailSchema.shape.leader_exit,
-    leader_error: ActionExecutionDetailSchema.shape.leader_error,
-    process: ActionExecutionDetailSchema.shape.process,
-    interruption: text.nullable(), timeout_reason: text.nullable(),
-  }).strict()).max(100),
-}).strict();
-const CardExecutionDetailSchema = z.discriminatedUnion('family', [ActionExecutionDetailSchema, NativeExecutionDetailSchema]);
+  family: true,
+  operation: true,
+  contract_version: true,
+  provider: true,
+  output_source: true,
+  output: true,
+  binding: true,
+  shell: true,
+  input: true,
+  values: true,
+  outcome: true,
+  leader_exit: true,
+  leader_error: true,
+  process: true,
+  processes: true,
+})
+  .extend({
+    family: z.literal('native'),
+    step: gitNativeStepSchema,
+    binding: nativeGitExecutionBindingSchema,
+    outcome: nativeGitOutcomeSchema.nullable(),
+    effects: z.array(nativeGitEffectSchema).max(32),
+    facts: nativeGitEvidenceFactsSchema.nullable(),
+    source_return: z.enum(['returned', 'not_returned', 'unknown']),
+    commands: z
+      .array(
+        z
+          .object({
+            process_id: text,
+            timestamp: z.string(),
+            allowed_exit_codes: z.array(z.number().int()).min(1).max(4),
+            finished_at: z.string().nullable(),
+            status: z.enum(['running', 'exited', 'failed', 'killed', 'unavailable']).nullable(),
+            disposition: ActionExecutionDetailSchema.shape.disposition,
+            leader_exit: ActionExecutionDetailSchema.shape.leader_exit,
+            leader_error: ActionExecutionDetailSchema.shape.leader_error,
+            process: ActionExecutionDetailSchema.shape.process,
+            interruption: text.nullable(),
+            timeout_reason: text.nullable(),
+          })
+          .strict(),
+      )
+      .max(100),
+  })
+  .strict();
+const CardExecutionDetailSchema = z.discriminatedUnion('family', [
+  ActionExecutionDetailSchema,
+  NativeExecutionDetailSchema,
+]);
 const failure = z.object({ error: z.string() }).strict();
 const params = z.object({ id: cardIdSchema }).strict();
 const invocationParams = params.extend({ invocationId: uuidV4Schema }).strict();

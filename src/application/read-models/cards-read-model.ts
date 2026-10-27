@@ -152,7 +152,11 @@ export class CardsReadModelService {
       return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     return {
       body: CardDetailResponseSchema.parse({
-        card: detail(result.value.card, result.value.headId, this.store.workflows.gitPolicy !== null),
+        card: detail(
+          result.value.card,
+          result.value.headId,
+          this.store.workflows.gitPolicy !== null,
+        ),
       }),
     };
   }

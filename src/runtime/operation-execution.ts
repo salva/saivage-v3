@@ -33,7 +33,12 @@ import {
 import { shellOperationConfigSchema } from './card-process/shell-operation.js';
 
 type WithoutCard<T> = T extends unknown ? Omit<T, 'card_id' | 'binding'> : never;
-type OperationEvidenceRow = WithoutCard<Extract<CardExecutionRow, { kind: 'invocation_started' | 'process_started' | 'invocation_finished' }>>;
+type OperationEvidenceRow = WithoutCard<
+  Extract<
+    CardExecutionRow,
+    { kind: 'invocation_started' | 'process_started' | 'invocation_finished' }
+  >
+>;
 interface FiniteOperationInvocation {
   invocationId: string;
   projectRoot: string;

@@ -232,7 +232,8 @@ const gitSourcePathSchema = z
   .refine(
     (value) =>
       value === '.' ||
-      (!/[\x00-\x1f\x7f\\:*?\[\]]/u.test(value) &&
+      (![...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) &&
+        !/[\\:*?[\]]/u.test(value) &&
         value.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..')),
     'Expected a project-relative source path or dot, not a URL or glob.',
   );
@@ -285,18 +286,32 @@ export const gitWorkflowSchema = z.discriminatedUnion('enabled', [
 ]);
 export type GitWorkflowInput = z.infer<typeof gitWorkflowSchema>;
 /** Exact project provisioning, using the native policy's owning field schemas. */
-export const gitProvisioningSchema = gitWorkflowSchema.options[1].pick({
-  delivery_branch: true,
-  private_ref_namespace: true,
-  source_roots: true,
-  excluded_paths: true,
-}).superRefine((input, ctx) => {
-  if (!input.excluded_paths.includes('.git') || !input.excluded_paths.includes('.saivage'))
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['excluded_paths'], message: 'Explicit exclusions must include .git and .saivage.' });
-  for (const root of input.source_roots)
-    if (input.excluded_paths.some(excluded => excluded === '.' || root === excluded || root.startsWith(`${excluded}/`)))
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source_roots'], message: `Git source root '${root}' is excluded.` });
-});
+export const gitProvisioningSchema = gitWorkflowSchema.options[1]
+  .pick({
+    delivery_branch: true,
+    private_ref_namespace: true,
+    source_roots: true,
+    excluded_paths: true,
+  })
+  .superRefine((input, ctx) => {
+    if (!input.excluded_paths.includes('.git') || !input.excluded_paths.includes('.saivage'))
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['excluded_paths'],
+        message: 'Explicit exclusions must include .git and .saivage.',
+      });
+    for (const root of input.source_roots)
+      if (
+        input.excluded_paths.some(
+          (excluded) => excluded === '.' || root === excluded || root.startsWith(`${excluded}/`),
+        )
+      )
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['source_roots'],
+          message: `Git source root '${root}' is excluded.`,
+        });
+  });
 const stoppedProcessEntrySchema = z
   .object({
     node: z.string(),

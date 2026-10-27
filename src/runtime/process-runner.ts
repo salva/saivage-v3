@@ -458,7 +458,11 @@ export class ProcessRunner {
     stdio: SpawnOptions['stdio'],
     captureOutput: boolean,
     childEnv: NodeJS.ProcessEnv,
-    captured?: { onSpawn(record: ProcessRecord): void; settlementDeadlineMs: number; stdin?: Uint8Array },
+    captured?: {
+      onSpawn(record: ProcessRecord): void;
+      settlementDeadlineMs: number;
+      stdin?: Uint8Array;
+    },
   ): InteractiveProcessLaunch {
     if (!spec.command) throw new Error('command must not be empty');
     if (!spec.ownerId || !spec.ownerKind)
@@ -590,20 +594,34 @@ export class ProcessRunner {
       : Promise.resolve();
     // Own one exact input write/end alongside capture settlement. A broken pipe
     // rejects evidence; never resend bytes or expose source bodies in argv/logs.
-    const inputDrain = captured?.stdin === undefined ? Promise.resolve() : new Promise<void>((done) => {
-      const input = child.stdin!;
-      let finished = false;
-      input.on('error', (error: Error) => {
-        recordCaptureFailure(new ProcessEvidenceUnavailableError(id, `Captured stdin failed: ${error.message}`));
-        done();
-      });
-      input.once('finish', () => { finished = true; done(); });
-      input.once('close', () => {
-        if (!finished) recordCaptureFailure(new ProcessEvidenceUnavailableError(id, 'Captured stdin closed before completion.'));
-        done();
-      });
-      input.end(captured.stdin);
-    });
+    const inputDrain =
+      captured?.stdin === undefined
+        ? Promise.resolve()
+        : new Promise<void>((done) => {
+            const input = child.stdin!;
+            let finished = false;
+            input.on('error', (error: Error) => {
+              recordCaptureFailure(
+                new ProcessEvidenceUnavailableError(id, `Captured stdin failed: ${error.message}`),
+              );
+              done();
+            });
+            input.once('finish', () => {
+              finished = true;
+              done();
+            });
+            input.once('close', () => {
+              if (!finished)
+                recordCaptureFailure(
+                  new ProcessEvidenceUnavailableError(
+                    id,
+                    'Captured stdin closed before completion.',
+                  ),
+                );
+              done();
+            });
+            input.end(captured.stdin);
+          });
     void Promise.all([stdoutDrain, stderrDrain, inputDrain]).then(() => {
       captureSettled = true;
       if (settlementTimer !== null) clearTimeout(settlementTimer);

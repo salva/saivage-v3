@@ -18,9 +18,13 @@ export interface SystemTemplateDefinition {
 
 export type RegisteredSystemTemplate = SystemTemplateDefinition | typeof CLASSIC_GIT_TEMPLATE;
 
-export function materializeSystemTemplate(template: RegisteredSystemTemplate, provisioning?: GitProvisioning): SaivageConfigSource {
+export function materializeSystemTemplate(
+  template: RegisteredSystemTemplate,
+  provisioning?: GitProvisioning,
+): SaivageConfigSource {
   if ('provisioning' in template) {
-    if (!provisioning) throw new Error('classic-git requires all four --git-* provisioning options.');
+    if (!provisioning)
+      throw new Error('classic-git requires all four --git-* provisioning options.');
     return template.materialize(provisioning);
   }
   if (provisioning) throw new Error('Native provisioning options cannot select an OFF profile.');
@@ -48,7 +52,9 @@ export function validateSystemTemplates(templates: readonly RegisteredSystemTemp
 
 validateSystemTemplates(SYSTEM_TEMPLATES);
 
-export function resolveSystemTemplate(name: 'classic' | 'classic-typed' | 'paad-typed'): SystemTemplateDefinition;
+export function resolveSystemTemplate(
+  name: 'classic' | 'classic-typed' | 'paad-typed',
+): SystemTemplateDefinition;
 export function resolveSystemTemplate(name: string): RegisteredSystemTemplate;
 export function resolveSystemTemplate(name: string): RegisteredSystemTemplate {
   const template = SYSTEM_TEMPLATES.find((candidate) => candidate.name === name);

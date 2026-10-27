@@ -1,12 +1,20 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import * as YAML from 'yaml';
-import { gitProvisioningSchema } from './schemas/saivage-config.js';
-import { materializeSystemTemplate } from './config/system-templates/registry.js';
+import { gitProvisioningSchema } from './schemas/index.js';
+import { materializeSystemTemplate } from './config/index.js';
 import { createInterface } from 'node:readline/promises';
 import {
   publishInitialProjectRuntime,
@@ -261,22 +269,33 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
     };
   }
   if (command === 'init') {
-    const values = parseSingletonOptions(rest, { profile: { type: 'string' },
-      'git-delivery-branch': { type: 'string' }, 'git-private-ref-namespace': { type: 'string' },
-      'git-source-roots': { type: 'string' }, 'git-excluded-paths': { type: 'string' },
+    const values = parseSingletonOptions(rest, {
+      profile: { type: 'string' },
+      'git-delivery-branch': { type: 'string' },
+      'git-private-ref-namespace': { type: 'string' },
+      'git-source-roots': { type: 'string' },
+      'git-excluded-paths': { type: 'string' },
     });
-    const names = ['git-delivery-branch', 'git-private-ref-namespace', 'git-source-roots', 'git-excluded-paths'];
-    const supplied = names.filter(name => values[name] !== undefined);
+    const names = [
+      'git-delivery-branch',
+      'git-private-ref-namespace',
+      'git-source-roots',
+      'git-excluded-paths',
+    ];
+    const supplied = names.filter((name) => values[name] !== undefined);
     if (supplied.length !== 0 && supplied.length !== names.length)
       throw new Error('Native provisioning requires all four --git-* options or none.');
     const profile = values.profile as string | undefined;
     if (supplied.length && profile !== undefined && profile !== 'classic-git')
       throw new Error('Native provisioning options cannot select an OFF profile.');
-    const gitProvisioning = supplied.length ? gitProvisioningSchema.parse({
-      delivery_branch: values['git-delivery-branch'], private_ref_namespace: values['git-private-ref-namespace'],
-      source_roots: JSON.parse(values['git-source-roots'] as string),
-      excluded_paths: JSON.parse(values['git-excluded-paths'] as string),
-    }) : undefined;
+    const gitProvisioning = supplied.length
+      ? gitProvisioningSchema.parse({
+          delivery_branch: values['git-delivery-branch'],
+          private_ref_namespace: values['git-private-ref-namespace'],
+          source_roots: JSON.parse(values['git-source-roots'] as string),
+          excluded_paths: JSON.parse(values['git-excluded-paths'] as string),
+        })
+      : undefined;
     return { command, inputs: { profile, gitProvisioning } };
   }
   if (command === 'start') {
@@ -353,13 +372,18 @@ async function handleInit(options: InitInputs): Promise<void> {
       if (options.gitProvisioning && profile !== 'classic-git')
         throw new Error('Fresh native provisioning requires explicit --profile classic-git.');
       if (profile === 'classic-git' && !options.gitProvisioning)
-        throw new Error('Fresh classic-git configuration requires all four --git-* provisioning options.');
+        throw new Error(
+          'Fresh classic-git configuration requires all four --git-* provisioning options.',
+        );
       const template = resolveSystemTemplate(profile);
       const candidate = materializeSystemTemplate(template, options.gitProvisioning);
       // Resolve inputs and the actual selected prompt root before materializing
       // configuration or prompts. Canonical reload below remains authoritative.
-      createResolvedConfigAuthority({ path: configPath, projectRoot: canonicalProjectRoot,
-        defaultPromptRoot: template.promptRoot, interpolationEnvironment: process.env,
+      createResolvedConfigAuthority({
+        path: configPath,
+        projectRoot: canonicalProjectRoot,
+        defaultPromptRoot: template.promptRoot,
+        interpolationEnvironment: process.env,
       }).validateDocument(YAML.parseDocument(YAML.stringify(candidate)));
       materializePromptTree(
         template.promptRoot,
@@ -378,21 +402,32 @@ async function handleInit(options: InitInputs): Promise<void> {
         resolveSystemTemplate(options.profile);
         const metadataPath = join(canonicalProjectRoot, '.saivage', 'config', 'template.json');
         if (!existsSync(metadataPath))
-          throw new Error('Explicit --profile cannot match an existing configuration without template selection metadata.');
-        const selected = z.object({ template: z.string().min(1), saivage_version: z.string().min(1) }).strict()
+          throw new Error(
+            'Explicit --profile cannot match an existing configuration without template selection metadata.',
+          );
+        const selected = z
+          .object({ template: z.string().min(1), saivage_version: z.string().min(1) })
+          .strict()
           .parse(JSON.parse(readFileSync(metadataPath, 'utf8')));
         if (selected.template !== options.profile)
           throw new Error('Explicit --profile conflicts with the existing template selection.');
       }
-      const effective = createResolvedConfigAuthority({ path: configPath, projectRoot: canonicalProjectRoot,
-        interpolationEnvironment: process.env }).loadEffective();
+      const effective = createResolvedConfigAuthority({
+        path: configPath,
+        projectRoot: canonicalProjectRoot,
+        interpolationEnvironment: process.env,
+      }).loadEffective();
       for (const warning of effective.warnings) console.error(formatConfigWarning(warning));
       if (options.gitProvisioning) {
         const policy = effective.config.git_workflow;
-        if (!policy?.enabled) throw new Error('Native provisioning cannot override an existing OFF configuration.');
-        const selected = gitProvisioningSchema.parse({ delivery_branch: policy.delivery_branch,
-          private_ref_namespace: policy.private_ref_namespace, source_roots: policy.source_roots,
-          excluded_paths: policy.excluded_paths });
+        if (!policy?.enabled)
+          throw new Error('Native provisioning cannot override an existing OFF configuration.');
+        const selected = gitProvisioningSchema.parse({
+          delivery_branch: policy.delivery_branch,
+          private_ref_namespace: policy.private_ref_namespace,
+          source_roots: policy.source_roots,
+          excluded_paths: policy.excluded_paths,
+        });
         if (JSON.stringify(selected) !== JSON.stringify(options.gitProvisioning))
           throw new Error('Native provisioning conflicts with the existing source policy.');
       }

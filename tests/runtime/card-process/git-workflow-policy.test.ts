@@ -29,6 +29,20 @@ import {
 } from '../../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet } from '../../../src/tools/runtime-tool-catalog.js';
 import { createAnalystOperationSurface } from '../../../src/application/analyst-operation-surface.js';
+import { gitRefNameSchema } from '../../../src/schemas/git-source.js';
+import { gitProvisioningSchema } from '../../../src/schemas/saivage-config.js';
+
+test('native ref and source path admission preserves exact control and punctuation rejection', () => {
+  for (let code = 0; code < 128; code += 1) {
+    const char = String.fromCharCode(code);
+    expect(gitRefNameSchema.safeParse(`refs/heads/a${char}b`).success)
+      .toBe(code > 32 && code !== 127 && !'~^:?*[\\'.includes(char));
+    expect(gitProvisioningSchema.safeParse({
+      delivery_branch: 'main', private_ref_namespace: 'refs/saivage/test',
+      source_roots: [`a${char}b`], excluded_paths: ['.git', '.saivage'],
+    }).success).toBe(code >= 32 && code !== 127 && !'\\:*?[]'.includes(char));
+  }
+});
 
 function configured(): SaivageConfig {
   const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);

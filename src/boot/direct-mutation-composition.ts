@@ -76,6 +76,23 @@ export async function withDirectMutationComposition<T>(
       return project;
     },
   });
+  async function settle(): Promise<void> {
+    if (!fatal) {
+      active = false;
+      runner.closeLaunchAdmission();
+      const report = await runner.terminateScopeTree({
+        rootScope: registry.rootScope,
+        categories: ['runtime_card', 'operator_session', 'service_infrastructure'],
+        reason: 'Initializer settled',
+        graceMs: 1000,
+      });
+      if (report.failed.length > 0)
+        throw new Error('Initializer process containment failed; lifecycle lock retained.');
+      process.removeListener('SIGINT', cancel);
+      process.removeListener('SIGTERM', cancel);
+      releaseRuntimeLifecycleLock(lifecycleLock);
+    }
+  }
   try {
     const result = await operation(composition);
     composition.assertCurrent();
@@ -86,17 +103,6 @@ export async function withDirectMutationComposition<T>(
     }
     throw error;
   } finally {
-    if (!fatal) {
-      active = false;
-      runner.closeLaunchAdmission();
-      const report = await runner.terminateScopeTree({ rootScope: registry.rootScope,
-        categories: ['runtime_card', 'operator_session', 'service_infrastructure'],
-        reason: 'Initializer settled', graceMs: 1000 });
-      if (report.failed.length > 0)
-        throw new Error('Initializer process containment failed; lifecycle lock retained.');
-      process.removeListener('SIGINT', cancel);
-      process.removeListener('SIGTERM', cancel);
-      releaseRuntimeLifecycleLock(lifecycleLock);
-    }
+    await settle();
   }
 }

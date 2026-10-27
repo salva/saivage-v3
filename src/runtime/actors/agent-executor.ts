@@ -779,7 +779,9 @@ export class AgentExecutor {
           }
         : {}),
       scope: 'card',
-      ...(input.nativeSource ? { checkpointSource: () => input.nativeSource!.checkpoint(nodeOrdinal) } : {}),
+      ...(input.nativeSource
+        ? { checkpointSource: () => input.nativeSource!.checkpoint(nodeOrdinal) }
+        : {}),
       agentName: requireAgentExecution(node).agent.name,
       projectRoot: this.deps.projectRoot,
       cardId: input.card.id,

@@ -47,7 +47,7 @@ import {
 import { shellRunOperation } from './shell-operation.js';
 import { qualityOperationPlugin } from './quality-operations.js';
 import { qualityToolNames, type QualityToolBindings } from '../../schemas/index.js';
-import { gitWorkflowSchema, type GitWorkflowInput } from '../../schemas/saivage-config.js';
+import { gitWorkflowSchema, type GitWorkflowInput } from '../../schemas/index.js';
 import {
   compileActionExecution,
   compileDataFields,
@@ -366,7 +366,11 @@ function defaultSystemTemplatePromptRoot(): string {
 function promptRoots(options: WorkflowCompileOptions, nativeGit: boolean): PromptRoots {
   return {
     nativeGit,
-    defaultRoot: options.defaultPromptRoot ?? (nativeGit ? resolveSystemTemplate('classic-git').promptRoot : defaultSystemTemplatePromptRoot()),
+    defaultRoot:
+      options.defaultPromptRoot ??
+      (nativeGit
+        ? resolveSystemTemplate('classic-git').promptRoot
+        : defaultSystemTemplatePromptRoot()),
     overrideRoot: options.projectRoot
       ? join(options.projectRoot, '.saivage', 'config', 'prompts')
       : undefined,
@@ -456,7 +460,9 @@ function compileSelected(
     },
   });
   if (roots.nativeGit && !selectedNativeCapability)
-    throw new Error(`Native Git agent '${name}' must include the '${requiredFragment}' capability fragment.`);
+    throw new Error(
+      `Native Git agent '${name}' must include the '${requiredFragment}' capability fragment.`,
+    );
   const artifact = Object.freeze({
     source: selected.source,
     reference,
@@ -1704,7 +1710,10 @@ export function compileProjectWorkflowDeclarations(
   options: WorkflowCompileOptions = {},
 ): CompiledProjectWorkflows {
   const gitPolicy = compileGitWorkflowPolicy(config);
-  if (!gitPolicy && Object.values(config.agents).some(agent => agent.tools.includes('checkpoint_source')))
+  if (
+    !gitPolicy &&
+    Object.values(config.agents).some((agent) => agent.tools.includes('checkpoint_source'))
+  )
     throw new Error('checkpoint_source requires an enabled native Git policy.');
   const roots = promptRoots(options, gitPolicy !== null);
   const operations = compileOperations(

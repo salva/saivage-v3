@@ -13,9 +13,13 @@ import {
   initializeAndValidateCurrentGeneratedState,
 } from '../persistence/index.js';
 import { globalAgentSessionId, canonicalValueSha256 } from '../schemas/index.js';
-import { runGitWorkflow, nativeGitBranch, qualifyInitialGitDelivery } from '../runtime/git-workflow.js';
+import {
+  runGitWorkflow,
+  nativeGitBranch,
+  qualifyInitialGitDelivery,
+} from '../runtime/runtime-api.js';
 import type { ProcessRunner, ManagedProcessScope } from '../runtime/runtime-api.js';
-import type { CardGitFacts } from '../schemas/git-source.js';
+import type { CardGitFacts } from '../schemas/index.js';
 
 interface InitialProjectOwner {
   readonly runner: ProcessRunner;
@@ -24,21 +28,33 @@ interface InitialProjectOwner {
   assertCurrent(): void;
 }
 
-export function assertInitialProjectPolicy(projectRoot: string, workflows: Environment['workflows']): void {
+export function assertInitialProjectPolicy(
+  projectRoot: string,
+  workflows: Environment['workflows'],
+): void {
   const root = readProjectCardOrAssertInitialPublicationAllowed(projectRoot);
   if (!root) return;
   const policy = workflows.gitPolicy;
   if (policy === null) {
-    if (root.git !== null) throw new Error('Retained native root cannot be admitted with Git workflow OFF.');
+    if (root.git !== null)
+      throw new Error('Retained native root cannot be admitted with Git workflow OFF.');
     return;
   }
   const branch = nativeGitBranch({ namespace: policy.private_ref_namespace, card_id: 'project' });
-  if (!root.git || root.git.kind !== 'root' || root.git.policy_digest !== canonicalValueSha256(policy) ||
-      root.git.branch_ref !== branch || root.git.parent.branch_ref !== `refs/heads/${policy.delivery_branch}`)
+  if (
+    !root.git ||
+    root.git.kind !== 'root' ||
+    root.git.policy_digest !== canonicalValueSha256(policy) ||
+    root.git.branch_ref !== branch ||
+    root.git.parent.branch_ref !== `refs/heads/${policy.delivery_branch}`
+  )
     throw new Error('Retained root source policy does not match commissioned native Git facts.');
 }
 
-export function preflightInitialProjectSource(projectRoot: string, workflows: Environment['workflows']): void {
+export function preflightInitialProjectSource(
+  projectRoot: string,
+  workflows: Environment['workflows'],
+): void {
   if (workflows.gitPolicy) qualifyInitialGitDelivery(projectRoot, workflows.gitPolicy);
 }
 
@@ -66,15 +82,42 @@ export async function publishInitialProjectRuntime(
   let git: CardGitFacts | null = null;
   if (policy && delivery) {
     const invocationId = randomUUID();
-    const result = await runGitWorkflow({ runner: owner.runner, parentScope: owner.parentScope,
-      signal: owner.signal, assertCurrent: () => owner.assertCurrent(), invocationId, cardId: 'project',
-      binding: { origin: 'bootstrap' }, request: { step: 'commission', project_root: projectRoot,
-        timeout_ms: 120000, source: { source_roots: [...policy.source_roots], excluded_paths: [...policy.excluded_paths] },
-        expected: delivery, owner: { namespace: policy.private_ref_namespace, card_id: 'project' }, invocation_id: invocationId } });
+    const result = await runGitWorkflow({
+      runner: owner.runner,
+      parentScope: owner.parentScope,
+      signal: owner.signal,
+      assertCurrent: () => owner.assertCurrent(),
+      invocationId,
+      cardId: 'project',
+      binding: { origin: 'bootstrap' },
+      request: {
+        step: 'commission',
+        project_root: projectRoot,
+        timeout_ms: 120000,
+        source: {
+          source_roots: [...policy.source_roots],
+          excluded_paths: [...policy.excluded_paths],
+        },
+        expected: delivery,
+        owner: { namespace: policy.private_ref_namespace, card_id: 'project' },
+        invocation_id: invocationId,
+      },
+    });
     owner.assertCurrent();
-    if (result.kind !== 'commissioned') throw new Error(`Initial Git commissioning ${result.kind}; partial initialization is not resumable.`);
-    git = { kind: 'root', policy_digest: canonicalValueSha256(policy), ...result.source,
-      parent: result.parent, base_oid: result.parent.observed_tip, candidate: null, last_delivery: null, correction: null };
+    if (result.kind !== 'commissioned')
+      throw new Error(
+        `Initial Git commissioning ${result.kind}; partial initialization is not resumable.`,
+      );
+    git = {
+      kind: 'root',
+      policy_digest: canonicalValueSha256(policy),
+      ...result.source,
+      parent: result.parent,
+      base_oid: result.parent.observed_tip,
+      candidate: null,
+      last_delivery: null,
+      correction: null,
+    };
   }
   owner.assertCurrent();
   publishInitialProjectCard(

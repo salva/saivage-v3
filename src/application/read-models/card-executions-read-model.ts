@@ -9,18 +9,25 @@ import {
 import { isSecretKey, neutralSecretValue, redactTextForOutbound } from '../../redaction/index.js';
 import type { OperatorApiHandlerResult, OperatorApiSuccess } from '../../contracts/index.js';
 import type { WorkspaceFileReadModelService } from './workspace-file-read-model.js';
-import type { CardNativeExecutionStart } from '../../persistence/card-execution-log.js';
+import type { CardNativeExecutionStart } from '../../persistence/index.js';
 
 type ExecutionDetail = Extract<OperatorApiSuccess<'cards.executions.get'>, { family: 'action' }>;
 type NativeDetail = Extract<OperatorApiSuccess<'cards.executions.get'>, { family: 'native' }>;
 
 function projectNativeFacts(facts: NativeDetail['facts']): NativeDetail['facts'] {
   if (!facts) return null;
-  return { ...facts,
-    source: facts.source ? { ...facts.source, branch_ref: redactTextForOutbound(facts.source.branch_ref) } : null,
-    parent: facts.parent ? { ...facts.parent, branch_ref: redactTextForOutbound(facts.parent.branch_ref) } : null,
+  return {
+    ...facts,
+    source: facts.source
+      ? { ...facts.source, branch_ref: redactTextForOutbound(facts.source.branch_ref) }
+      : null,
+    parent: facts.parent
+      ? { ...facts.parent, branch_ref: redactTextForOutbound(facts.parent.branch_ref) }
+      : null,
     retained_original_ref: redactNullable(facts.retained_original_ref),
-    preserved_source: facts.preserved_source ? { ...facts.preserved_source, ref: redactTextForOutbound(facts.preserved_source.ref) } : null,
+    preserved_source: facts.preserved_source
+      ? { ...facts.preserved_source, ref: redactTextForOutbound(facts.preserved_source.ref) }
+      : null,
   };
 }
 
@@ -98,7 +105,10 @@ export class CardExecutionsReadModel {
       return { statusCode: 400, body: { error: 'Unknown execution row cursor.' } };
     const starts = new Map(
       rows
-        .filter((row): row is CardExecutionStart | CardNativeExecutionStart => row.kind === 'invocation_started' || row.kind === 'native_started')
+        .filter(
+          (row): row is CardExecutionStart | CardNativeExecutionStart =>
+            row.kind === 'invocation_started' || row.kind === 'native_started',
+        )
         .map((row) => [row.invocation_id, row]),
     );
     const selected = rows.slice(index + 1, index + 1 + limit);
@@ -107,13 +117,32 @@ export class CardExecutionsReadModel {
         rows: selected.map((row) => {
           const start = starts.get(row.invocation_id)!; // Strict owning read validates every association.
           if (start.kind === 'native_started') {
-            if (row.kind !== 'native_started' && row.kind !== 'native_process_started' && row.kind !== 'native_process_finished' && row.kind !== 'native_finished')
+            if (
+              row.kind !== 'native_started' &&
+              row.kind !== 'native_process_started' &&
+              row.kind !== 'native_process_finished' &&
+              row.kind !== 'native_finished'
+            )
               throw new Error('Native execution family mismatch.');
-            return { family: 'native' as const, row_id: row.row_id, invocation_id: row.invocation_id,
-              timestamp: row.timestamp, kind: row.kind, step: start.step, binding: start.binding,
-              disposition: row.kind === 'native_finished' || row.kind === 'native_process_finished' ? row.disposition : null };
+            return {
+              family: 'native' as const,
+              row_id: row.row_id,
+              invocation_id: row.invocation_id,
+              timestamp: row.timestamp,
+              kind: row.kind,
+              step: start.step,
+              binding: start.binding,
+              disposition:
+                row.kind === 'native_finished' || row.kind === 'native_process_finished'
+                  ? row.disposition
+                  : null,
+            };
           }
-          if (row.kind !== 'invocation_started' && row.kind !== 'process_started' && row.kind !== 'invocation_finished')
+          if (
+            row.kind !== 'invocation_started' &&
+            row.kind !== 'process_started' &&
+            row.kind !== 'invocation_finished'
+          )
             throw new Error('Action execution family mismatch.');
           return {
             family: 'action',
@@ -208,38 +237,80 @@ export class CardExecutionsReadModel {
     };
   }
 
-  private nativeDetail(rows: CardExecutionRow[], start: CardNativeExecutionStart): OperatorApiHandlerResult<'cards.executions.get'> {
-    const finish = rows.find(row => row.kind === 'native_finished');
-    const processes = rows.filter(row => row.kind === 'native_process_started');
+  private nativeDetail(
+    rows: CardExecutionRow[],
+    start: CardNativeExecutionStart,
+  ): OperatorApiHandlerResult<'cards.executions.get'> {
+    const finish = rows.find((row) => row.kind === 'native_finished');
+    const processes = rows.filter((row) => row.kind === 'native_process_started');
     const visible = processes.slice(0, 100);
     const selectedRows = [...visible, ...(finish ? [finish] : [])];
-    return { body: {
-      family: 'native', invocation_id: start.invocation_id, step: start.step, binding: start.binding,
-      artifact_paths: start.artifact_paths.map(redactTextForOutbound),
-      started_at: start.timestamp, finished_at: finish?.timestamp ?? null,
-      completion: finish ? 'retained' : 'no completion retained; effects unknown',
-      disposition: finish?.disposition ?? null, summary: redactNullable(finish?.summary ?? null),
-      outcome: finish?.outcome ?? null, effects: finish?.effects ?? [],
-      facts: projectNativeFacts(finish?.facts ?? null), source_return: finish?.source_return ?? 'unknown',
-      interruption: redactNullable(finish?.interruption ?? null), timeout_reason: redactNullable(finish?.timeout_reason ?? null),
-      commands: visible.map(row => {
-        const end = rows.find(item => item.kind === 'native_process_finished' && item.process_id === row.process_id);
-        if (end && end.kind !== 'native_process_finished') throw new Error('Native command selection mismatch.');
-        return { process_id: row.process_id, timestamp: row.timestamp, allowed_exit_codes: row.allowed_exit_codes,
-          finished_at: end?.timestamp ?? null, status: end?.status ?? null, disposition: end?.disposition ?? null,
-          leader_exit: end?.leader_exit ? { ...end.leader_exit, signal: redactNullable(end.leader_exit.signal) } : null,
-          leader_error: end?.leader_error ? { ...end.leader_error, diagnostic: redactTextForOutbound(end.leader_error.diagnostic) } : null,
-          process: end?.process ? { ...end.process, group_diagnostic: redactNullable(end.process.group_diagnostic),
-            stdout_error: redactNullable(end.process.stdout_error), stderr_error: redactNullable(end.process.stderr_error) } : null,
-          interruption: redactNullable(end?.interruption ?? null), timeout_reason: redactNullable(end?.timeout_reason ?? null) };
-      }),
-      processes_truncated: processes.length > visible.length,
-      files: selectedRows.flatMap(row => row.files.map((file, ordinal) => ({
-        key: `${row.row_id}:${ordinal}`, label: file.kind === 'capture' ? file.stream : redactTextForOutbound(file.path),
-        source: file.kind === 'capture' ? 'capture' as const : 'current' as const,
-        observed_at: file.kind === 'artifact' ? file.observed_at : null, size: file.kind === 'artifact' ? file.size : null,
-      }))), absent_artifacts: finish?.absent_artifacts.map(redactTextForOutbound) ?? [], external_effects: 'unknown',
-    } satisfies NativeDetail };
+    return {
+      body: {
+        family: 'native',
+        invocation_id: start.invocation_id,
+        step: start.step,
+        binding: start.binding,
+        artifact_paths: start.artifact_paths.map(redactTextForOutbound),
+        started_at: start.timestamp,
+        finished_at: finish?.timestamp ?? null,
+        completion: finish ? 'retained' : 'no completion retained; effects unknown',
+        disposition: finish?.disposition ?? null,
+        summary: redactNullable(finish?.summary ?? null),
+        outcome: finish?.outcome ?? null,
+        effects: finish?.effects ?? [],
+        facts: projectNativeFacts(finish?.facts ?? null),
+        source_return: finish?.source_return ?? 'unknown',
+        interruption: redactNullable(finish?.interruption ?? null),
+        timeout_reason: redactNullable(finish?.timeout_reason ?? null),
+        commands: visible.map((row) => {
+          const end = rows.find(
+            (item) => item.kind === 'native_process_finished' && item.process_id === row.process_id,
+          );
+          if (end && end.kind !== 'native_process_finished')
+            throw new Error('Native command selection mismatch.');
+          return {
+            process_id: row.process_id,
+            timestamp: row.timestamp,
+            allowed_exit_codes: row.allowed_exit_codes,
+            finished_at: end?.timestamp ?? null,
+            status: end?.status ?? null,
+            disposition: end?.disposition ?? null,
+            leader_exit: end?.leader_exit
+              ? { ...end.leader_exit, signal: redactNullable(end.leader_exit.signal) }
+              : null,
+            leader_error: end?.leader_error
+              ? {
+                  ...end.leader_error,
+                  diagnostic: redactTextForOutbound(end.leader_error.diagnostic),
+                }
+              : null,
+            process: end?.process
+              ? {
+                  ...end.process,
+                  group_diagnostic: redactNullable(end.process.group_diagnostic),
+                  stdout_error: redactNullable(end.process.stdout_error),
+                  stderr_error: redactNullable(end.process.stderr_error),
+                }
+              : null,
+            interruption: redactNullable(end?.interruption ?? null),
+            timeout_reason: redactNullable(end?.timeout_reason ?? null),
+          };
+        }),
+        processes_truncated: processes.length > visible.length,
+        files: selectedRows.flatMap((row) =>
+          row.files.map((file, ordinal) => ({
+            key: `${row.row_id}:${ordinal}`,
+            label: file.kind === 'capture' ? file.stream : redactTextForOutbound(file.path),
+            source: file.kind === 'capture' ? ('capture' as const) : ('current' as const),
+            observed_at: file.kind === 'artifact' ? file.observed_at : null,
+            size: file.kind === 'artifact' ? file.size : null,
+          })),
+        ),
+        absent_artifacts: finish?.absent_artifacts.map(redactTextForOutbound) ?? [],
+        external_effects: 'unknown',
+      } satisfies NativeDetail,
+    };
   }
 
   async file(id: string, invocationId: string, key: string): Promise<FileResult> {

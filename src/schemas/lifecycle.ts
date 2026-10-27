@@ -128,8 +128,14 @@ const blockedResultSchema: z.ZodType<BlockedResult> = z.union([
   workflowResultSchema,
   contentPolicyRefusalBlockedResultSchema,
   compactionSummaryBlockedResultSchema,
-  z.object({ kind: z.literal('git-workflow-blocked'), step: gitNativeStepSchema,
-    invocation_id: uuidV4Schema, summary: nonEmptyStringSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('git-workflow-blocked'),
+      step: gitNativeStepSchema,
+      invocation_id: uuidV4Schema,
+      summary: nonEmptyStringSchema,
+    })
+    .strict(),
 ]);
 
 export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discriminatedUnion(

@@ -77,7 +77,11 @@ function refineCardCommon(
   ctx: z.RefinementCtx,
 ): void {
   if (card.git && (card.git.kind === 'root') !== (card.id === 'project'))
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Git root binding belongs only to project.', path: ['git'] });
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Git root binding belongs only to project.',
+      path: ['git'],
+    });
   if (card.id === 'project' && card.type !== 'project')
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

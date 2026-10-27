@@ -127,4 +127,7 @@ export type {
   CardExecutionBinding,
   CardExecutionFile,
   CardExecutionObservation,
+  CardNativeExecutionStart,
+  CardNativeExecutionBinding,
+  CardNativeExecutionFinish,
 } from './card-execution-log.js';

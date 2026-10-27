@@ -13,7 +13,7 @@ import {
 } from '../../schemas/index.js';
 import type { CardArtifact } from '../../persistence/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
-import { cardGitFactsSchema, type CardGitFacts } from '../../schemas/git-source.js';
+import { cardGitFactsSchema, type CardGitFacts } from '../../schemas/index.js';
 
 export function projectGitFacts(value: unknown): CardGitFacts | null {
   const facts = cardGitFactsSchema.nullable().parse(value);
@@ -24,9 +24,13 @@ export function projectGitFacts(value: unknown): CardGitFacts | null {
   if (result.correction) {
     result.correction.branch_ref = redactTextForOutbound(result.correction.branch_ref);
     result.correction.onto.branch_ref = redactTextForOutbound(result.correction.onto.branch_ref);
-    result.correction.retained_original_ref = redactTextForOutbound(result.correction.retained_original_ref);
+    result.correction.retained_original_ref = redactTextForOutbound(
+      result.correction.retained_original_ref,
+    );
     if (result.correction.preserved_source)
-      result.correction.preserved_source.ref = redactTextForOutbound(result.correction.preserved_source.ref);
+      result.correction.preserved_source.ref = redactTextForOutbound(
+        result.correction.preserved_source.ref,
+      );
   }
   return result;
 }

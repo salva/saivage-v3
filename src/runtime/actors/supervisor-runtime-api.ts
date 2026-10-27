@@ -7,7 +7,7 @@ import {
   type NativeGitRequest,
   type NativeGitResult,
 } from '../git-workflow.js';
-import type { CardGitFacts } from '../../schemas/git-source.js';
+import type { CardGitFacts } from '../../schemas/index.js';
 import type { AcceptedSource, SourcePreparation } from './card-activation-owner.js';
 import {
   cardAgentSessionId,
@@ -785,7 +785,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
                 await this.sourceOperation(boundary, async () => {
                   const facts = this.sourceFacts(boundary);
                   const saved = await this.nativeCommand(boundary, {
-                    ...this.nativeRequest(boundary),
+                    ...this.nativeRequest(),
                     step: 'checkpoint',
                     expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
                   });
@@ -981,7 +981,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw new Error(`Child '${childCardId}' already has a different activation owner.`);
     }
     this.requireOwnerAuthority(parent);
-    let admission = this.behavior.actorStore.readActivationAdmission(childCardId);
+    const admission = this.behavior.actorStore.readActivationAdmission(childCardId);
     if (!admission)
       return this.rejectLease(lease, new Error(`Child card '${childCardId}' not found.`));
     if (cardParentId(admission.child.id) !== parent.cardId)
@@ -998,7 +998,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           `Child card '${childCardId}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`,
         ),
       );
-    let entry = cardProcessEntryForStatus(admission.child.lifecycle.status);
+    const entry = cardProcessEntryForStatus(admission.child.lifecycle.status);
     if (entry === null)
       return this.rejectLease(
         lease,
@@ -1033,7 +1033,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
             current();
             const facts = this.sourceFacts(parent);
             const saved = await this.nativeCommand(parent, {
-              ...this.nativeRequest(parent),
+              ...this.nativeRequest(),
               step: 'checkpoint',
               expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
             });
@@ -1319,7 +1319,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw new Error('Native source operation lost its invoking node.');
   }
 
-  private nativeRequest(owner: CardActivationOwner) {
+  private nativeRequest() {
     const policy = this.behavior.workflows.gitPolicy;
     if (!policy) throw new Error('Native source operation requires the compiled policy.');
     return {
@@ -1386,7 +1386,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       const result = await this.nativeCommand(
         owner,
         {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'prepareCandidate',
           expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
           base_oid: facts.base_oid,
@@ -1438,16 +1438,22 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       await owner.processor.settleSourceWriters();
       this.requireSourceOwner(owner, 'open', ordinal);
       await this.sourceOperation(owner, async () => {
-      const facts = this.sourceFacts(owner);
-      if (facts.correction) throw new Error('Use native correction verification while a correction task is pending.');
-      const result = await this.nativeCommand(owner, {
-        ...this.nativeRequest(owner), step: 'checkpoint',
-        expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
-      });
-      this.requireSourceOwner(owner, 'open', ordinal);
-      if (result.kind !== 'completed') throw new Error('Source checkpoint did not complete.');
-      observation = result.observation;
-      this.publishSource(owner, { ...this.sourceFacts(owner), observed_tip: observation.observed_tip, candidate: null });
+        const facts = this.sourceFacts(owner);
+        if (facts.correction)
+          throw new Error('Use native correction verification while a correction task is pending.');
+        const result = await this.nativeCommand(owner, {
+          ...this.nativeRequest(),
+          step: 'checkpoint',
+          expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
+        });
+        this.requireSourceOwner(owner, 'open', ordinal);
+        if (result.kind !== 'completed') throw new Error('Source checkpoint did not complete.');
+        observation = result.observation;
+        this.publishSource(owner, {
+          ...this.sourceFacts(owner),
+          observed_tip: observation.observed_tip,
+          candidate: null,
+        });
       });
     } catch (error) {
       if (error instanceof PublicationOutcomeUnknownError) throw error;
@@ -1488,7 +1494,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       const result = await this.nativeCommand(
         owner,
         {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'inspect',
           expected: { branch_ref: source.branch_ref, observed_tip: source.candidate_oid },
           require_clean: true,
@@ -1515,7 +1521,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       if (!this.sourceCandidateMatches(facts, source))
         throw new Error('Accepted source selection changed before delivery.');
       const result = await this.nativeCommand(owner, {
-        ...this.nativeRequest(owner),
+        ...this.nativeRequest(),
         step: 'deliver',
         expected: { branch_ref: source.branch_ref, observed_tip: source.candidate_oid },
         parent: facts.parent,
@@ -1567,7 +1573,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       const result = await this.nativeCommand(
         owner,
         {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'verifyCorrection',
           expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
           task,
@@ -1646,7 +1652,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       const expected = { branch_ref: parent.branch_ref, observed_tip: parent.observed_tip };
       if (previous?.correction) {
         const switched = await this.nativeCommand(owner, {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'switch',
           expected,
           target: { branch_ref: previous.branch_ref, observed_tip: previous.observed_tip },
@@ -1666,7 +1672,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       const result = await this.nativeCommand(
         owner,
         {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'enter',
           expected,
           owner: { namespace: policy.private_ref_namespace, card_id: owner.cardId },
@@ -1729,7 +1735,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
         const { preserved_source: _snapshot, ...task } = before.correction;
         const verified = await this.nativeCommand(
           owner,
-          { ...this.nativeRequest(owner), step: 'verifyCorrection', expected, task },
+          { ...this.nativeRequest(), step: 'verifyCorrection', expected, task },
           true,
         );
         this.requireOwnerAuthority(owner);
@@ -1753,7 +1759,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       ) {
         const { preserved_source: _oldSnapshot, ...task } = before.correction;
         const capture = await this.nativeCommand(owner, {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'captureRebase',
           expected,
           allow_owned_commits: true,
@@ -1773,7 +1779,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
         this.requireOwnerAuthority(owner);
         // Only this live owner carries N/Q across the successful CardService publication.
         result = await this.nativeCommand(owner, {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'restoreRebaseAndReturn',
           expected,
           allow_owned_commits: true,
@@ -1791,7 +1797,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
             })()
           : null;
         result = await this.nativeCommand(owner, {
-          ...this.nativeRequest(owner),
+          ...this.nativeRequest(),
           step: 'preserveAndReturn',
           expected,
           parent: before.parent,

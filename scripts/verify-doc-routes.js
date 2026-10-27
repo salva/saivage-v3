@@ -1060,11 +1060,42 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
   if (native) {
     if (stringLiteralText(unwrapExpression(propertyAssignment(template, 'provisioning', path)), path) !== 'native-git'
       || identifierText(propertyAssignment(template, 'materialize', path), path) !== 'createClassicGitConfig') throw new Error('Native template must require its direct provisioned builder');
+    const builder = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'createClassicGitConfig');
+    if (!builder?.body) throw new Error(`${path} must define createClassicGitConfig`);
+    if (!builder.body.statements.some(statement => ts.isVariableStatement(statement)
+      && (statement.declarationList.flags & ts.NodeFlags.Const)
+      && statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === 'config'))) {
+      throw new Error(`${path} native classic selected inventory must declare const config`);
+    }
+    let configSource = requiredInitializer(constInitializers(builder.body), 'config', path);
+    for (const name of ['structuredClone', 'createClassicConfig', 'structuredClone']) {
+      const call = directIdentifierCall(configSource, name, `${path} native classic selected inventory`);
+      if (call.arguments.length !== 1) throw new Error(`${path} native classic selected inventory: ${name} must have one argument`);
+      configSource = unwrapExpression(call.arguments[0]);
+    }
+    if (!ts.isNonNullExpression(configSource)) throw new Error(`${path} native classic selected inventory must use CLASSIC_TEMPLATE.config.card_types!`);
+    const cardTypes = configSource.expression;
+    if (!ts.isPropertyAccessExpression(cardTypes) || cardTypes.name.text !== 'card_types'
+      || !ts.isPropertyAccessExpression(cardTypes.expression) || cardTypes.expression.name.text !== 'config'
+      || identifierText(cardTypes.expression.expression, path) !== 'CLASSIC_TEMPLATE') {
+      throw new Error(`${path} native classic selected inventory must use CLASSIC_TEMPLATE.config.card_types!`);
+    }
+    const filterAssignment = builder.body.statements.find(statement => ts.isExpressionStatement(statement)
+      && ts.isBinaryExpression(statement.expression) && statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && statement.expression.left.getText(ast) === 'config.agents.analyst!.tools')?.expression;
+    const filter = filterAssignment && unwrapExpression(filterAssignment.right);
+    const predicate = filter && ts.isCallExpression(filter) && filter.arguments.length === 1 ? unwrapExpression(filter.arguments[0]) : null;
+    const body = predicate && ts.isArrowFunction(predicate) ? unwrapExpression(predicate.body) : null;
+    const excluded = body && ts.isPrefixUnaryExpression(body) && body.operator === ts.SyntaxKind.ExclamationToken
+      ? callNamed(unwrapExpression(body.operand), 'nativeGlobalExcludedTools', 'includes') : null;
+    if (!predicate || !ts.isArrowFunction(predicate) || predicate.parameters.length !== 1
+      || identifierText(predicate.parameters[0].name, path) !== 'name'
+      || !excluded || excluded.arguments.length !== 1 || identifierText(excluded.arguments[0], path) !== 'name') {
+      throw new Error(`${path} native classic selected inventory must filter excluded global tool names`);
+    }
     requireSourceFragments(projectRoot, path, [
       'const provisioning = gitProvisioningSchema.parse(input);',
-      'const config = structuredClone(createClassicConfig(structuredClone(CLASSIC_TEMPLATE.config.card_types!)));',
       'config.agents.analyst!.tools = config.agents.analyst!.tools.filter(',
-      'name => !nativeGlobalExcludedTools.includes(name)',
       'config.agents.executor!.tools.push(...nativeExecutorTools);',
     ], 'native classic selected inventory');
   } else if (path === 'src/config/system-templates/paad-typed/template.ts') {

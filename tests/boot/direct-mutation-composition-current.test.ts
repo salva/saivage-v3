@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,5 +40,29 @@ describe('direct mutation composition', () => {
       throw uncertainty;
     })).rejects.toThrow();
     expect(existsSync(runtimeProcessLockFile(root))).toBe(true);
+  });
+  it('retains the lock and cancellation listeners when final containment fails', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-mutation-containment-'));
+    roots.push(root);
+    const before = { SIGINT: process.listeners('SIGINT'), SIGTERM: process.listeners('SIGTERM') };
+    try {
+      await expect(withDirectMutationComposition(root, 'init', testApplicationFatalPort, async (composition) => {
+        jest.spyOn(composition.runner, 'terminateScopeTree').mockResolvedValueOnce({
+          selected: ['p'], stopped: [],
+          failed: [{ groupId: 'p', state: 'unconfirmed', diagnostic: 'test containment failure' }],
+        });
+        throw new Error('operation failed first');
+      })).rejects.toThrow('Initializer process containment failed; lifecycle lock retained.');
+      expect(existsSync(runtimeProcessLockFile(root))).toBe(true);
+      expect(process.listeners('SIGINT')).toHaveLength(before.SIGINT.length + 1);
+      expect(process.listeners('SIGTERM')).toHaveLength(before.SIGTERM.length + 1);
+    } finally {
+      jest.restoreAllMocks();
+      for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+        for (const listener of process.listeners(signal)) {
+          if (!before[signal].includes(listener)) process.removeListener(signal, listener);
+        }
+      }
+    }
   });
 });

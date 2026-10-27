@@ -1,5 +1,8 @@
 import type { CardService } from '../cards/store-api.js';
-import { nativeSourceToolBinders, type NativeSourceProviderContext } from './native-source-provider.js';
+import {
+  nativeSourceToolBinders,
+  type NativeSourceProviderContext,
+} from './native-source-provider.js';
 import type { QualityToolPort } from '../contracts/index.js';
 import { qualityToolBinders, type QualityProviderContext } from './quality-provider.js';
 import type { RetrievalPort } from '../contracts/index.js';
@@ -183,11 +186,14 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
   if (defaultGroups) return defaultGroups;
   const source: AnyProviderGroup[] = [
     {
-      key: 'card:native-source', providerName: 'native-source', scope: 'card',
+      key: 'card:native-source',
+      providerName: 'native-source',
+      scope: 'card',
       binders: nativeSourceToolBinders,
       context(runtime: RuntimeToolBindingContext): NativeSourceProviderContext {
         const checkpointSource = card(runtime).checkpointSource;
-        if (!checkpointSource) throw new Error('checkpoint_source requires the active native source owner.');
+        if (!checkpointSource)
+          throw new Error('checkpoint_source requires the active native source owner.');
         return { checkpointSource };
       },
     },
