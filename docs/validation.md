@@ -128,8 +128,10 @@ fresh invocation/activation identity and version-2 context while immutable versi
 evidence stays unchanged. This is distinct from correcting a premature result in
 one activation; actual captured wires still require a separate final review.
 
-The existing backend Jest/build and browser CI jobs explicitly provision a fresh
-isolated native tree outside the checkout with Node24.22.0/npm11.19.1 and Python3.14.4,
+The `backend-jest-build` and `browser-smoke` CI jobs pin `ubuntu-24.04` (x64)
+to match the published Python3.14.4 setup-python artifact, rather than a moving
+`ubuntu-latest` image. Both explicitly provision a fresh isolated native tree
+outside the checkout with unchanged Node24.22.0/npm11.19.1 and Python3.14.4,
 the tracked npm lock and hash-checked Ruff wheel. Provisioning is contributor/CI
 setup, never a runtime dependency download. CI uses Ubuntu GNU `/usr/bin/timeout`
 for finite provisioning/native runs; local workspace operations use the verified
@@ -516,10 +518,10 @@ paths and classifier output, never infer jobs solely from a “docs” commit la
 | Job | Real setup and check |
 | --- | --- |
 | `routine-docs` (always) | Dual clean install, one `validate:routine`; included docs:verify is its sole docs gate |
-| `backend-jest-build` | Dual clean install, build, canonical npm test |
+| `backend-jest-build` | Ubuntu24.04/x64; dual clean install, pinned Node/Python and isolated quality provisioning, build, canonical npm test, compiled native quality witnesses |
 | `backend-e2e` | Root clean install, test:e2e; no web/browser/external service |
 | `ui-vitest` | Dual clean install, web typecheck and complete Vitest |
-| `browser-smoke` | Dual clean install, Chromium and host libraries, complete self-contained browser profile, failure artifacts |
+| `browser-smoke` | Ubuntu24.04/x64; dual clean install, Chromium and host libraries, pinned Node/Python and isolated quality provisioning, matching packaged runtime build, complete self-contained browser profile, failure artifacts |
 | `dependency-hygiene` | Dual clean install, audit:security |
 | `lint-guards` | Dual clean install, lint |
 | `docs-pages-build` / `docs-pages-deploy` | After routine success, root install/Pages-base docs build and separate deployment |
@@ -537,6 +539,12 @@ Pages deploy has job-local pages:write/id-token:write and is deliberately outsid
 that aggregate. For publication, verify its conclusion separately. Require the
 run's **headSha to equal the final local/upstream commit**, not a green ancestor.
 Local gates are distinct evidence and do not waive applicable CI.
+
+The two runner pins select a supported exact prerequisite pairing, not a hosted
+test pass or a project-wide OS support policy. Workflow changes make all jobs,
+including dependency-hygiene, applicable; the known deferred/unwaived root Zod
+finding can still block `validation-required`. Qualifying the runner fix requires
+both affected jobs to complete their unchanged functional checks, not just setup.
 
 ## Dependency comparison recipes
 

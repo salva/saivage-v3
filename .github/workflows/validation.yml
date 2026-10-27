@@ -206,7 +206,8 @@ jobs:
 
   backend-jest-build:
     name: backend-jest-build
-    runs-on: ubuntu-latest
+    # Python 3.14.4 has a matching Ubuntu 24.04 x64 setup-python artifact.
+    runs-on: ubuntu-24.04
     env:
       NODE_DISABLE_COMPILE_CACHE: '1'
     needs: classify-changes
@@ -305,7 +306,8 @@ jobs:
 
   browser-smoke:
     name: browser-smoke
-    runs-on: ubuntu-latest
+    # Pair the exact Python 3.14.4 prerequisite with its Ubuntu 24.04 x64 artifact.
+    runs-on: ubuntu-24.04
     env:
       NODE_DISABLE_COMPILE_CACHE: '1'
     needs: classify-changes

@@ -738,13 +738,7 @@ describe('validation cadence guard', () => {
       ['obsolete event state', '          CLASSIFIER_RESULT:', '          EVENT_NAME: pull_request\n          CLASSIFIER_RESULT:', 'obsolete event/backstop token pull_request'],
     ];
     for (const [job, prefix] of pathJobs) {
-      const nativeEnvironment = ['backend-jest-build', 'browser-smoke'].includes(job)
-        ? "    env:\n      NODE_DISABLE_COMPILE_CACHE: '1'\n"
-        : '';
-      const header = `  ${job}:\n    name: ${job}\n    runs-on: ubuntu-latest\n${nativeEnvironment}    needs: classify-changes`;
       mutations.push(
-        [`${job} classifier dependency`, header, header.replace('needs: classify-changes', 'needs: routine-docs'), 'must depend exactly'],
-        [`${job} job applicability`, `${header}\n    if:`, `${header}\n    if: \${{ false }} #`, 'must use exact push path applicability'],
         [`${job} result env`, `          ${prefix}_RESULT: \${{ needs.${job}.result }}`, `          ${prefix}_RESULT: wrong`, `${prefix}_RESULT must be exactly`],
         [`${job} applies env`, `          ${prefix}_APPLIES:`, `          ${prefix}_APPLIES: \${{ false }} #`, `${prefix}_APPLIES must match`],
       );
@@ -756,6 +750,18 @@ describe('validation cadence guard', () => {
 
     it.each(mutations)('rejects mutation of %s', (_label, search, replacement, expected) => {
       expectWorkflowFailure(mutateWorkflow(search, replacement), expected);
+    });
+
+    it.each(PATH_JOBS)('rejects mutation of %s classifier dependency', (job) => {
+      const workflow = parse(VALID_WORKFLOW);
+      workflow.jobs[job].needs = 'routine-docs';
+      expectWorkflowFailure(stringify(workflow), 'must depend exactly');
+    });
+
+    it.each(PATH_JOBS)('rejects mutation of %s job applicability', (job) => {
+      const workflow = parse(VALID_WORKFLOW);
+      workflow.jobs[job].if = '${{ false }}';
+      expectWorkflowFailure(stringify(workflow), 'must use exact push path applicability');
     });
   });
 
