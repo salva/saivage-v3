@@ -153,6 +153,8 @@ Every approved fixer invokes Task with `subagent_type: "implementation-manager"`
 
 The manager must:
 
+For an interrupted attempt, the **Interrupted owner continuation** conditions below qualify the acquisition requirement and existing-lock stop in step 1; all other implementation obligations remain unchanged.
+
 1. Atomically acquire the lock before reading the implementation plan or making/delegating implementation mutation. On contention it edits and delegates nothing and returns the existing lock description. **Owner-override exception:** when the coordinator's initial assignment quotes an explicit project-owner instruction that an existing lock was wrongly acquired by an unrelated run and must be left untouched, the manager may proceed without acquiring it under these exact conditions: the coordinator guarantees this is the sole writing agent until the run reports completion; the stray lock file is never removed, modified, or taken over; the manager captures pre-existing repository state first, stages only its plan's intended paths, preserves unrelated changes, and escalates rather than overwrites when unexpected concurrent modifications appear. Before each new implementation attempt, the responsible fixer re-checks whether the stray lock was released; once it is gone, normal acquisition resumes for every later run.
 2. Capture pre-existing Git status/diff sufficiently to preserve unrelated work and avoid staging or removing it.
 3. Decompose the approved plan into developer assignments. Assign sequentially when work overlaps or has ordering dependencies. It may launch a concurrent developer group only after positively determining that the assignments do not conflict in files, contracts, generated outputs, validation side effects, or required order.
@@ -164,6 +166,12 @@ The manager must:
 8. Remove only the lock created by this run as the final mutation, then return the prepared report. Abnormal termination may leave the lock; no other agent removes or takes it over.
 
 The lock spans tracked/main-document edits, generated outputs, mutating build/test/docs commands, staging, commit hooks, commits, and final issue cleanup. Concurrent developers remain inside one lock holder's one issue and do not permit another issue implementation to overlap.
+
+### Interrupted owner continuation
+
+An explicit project-owner authorization may permit the original implementation-manager session to continue its interrupted attempt under its own still-held acquisition. Before any continuation work, positively establish the exact original session identity and its acquisition from retained session context and independent coordinator/tool evidence; matching lock text alone is insufficient. Verify the current lock still describes that acquisition, and positively verify that the prior invocation, every delegated worker and its launched commands have settled. Cancellation, a timeout, silence, or a caller's assertion alone is not settlement evidence. Do not overlap an active original child or launch a replacement manager, recreate/remove the lock, or transfer ownership. If any required evidence is unavailable or conflicting, remain BLOCKED with the lock untouched; do not poll or retry.
+
+Resume only that exact original manager session after these conditions hold. Reconcile prior partial effects and current repository state read-only against the approved plan before further delegation; material divergence returns to designer/reviewer review, not improvised implementation. Verify that the session's effective higher-priority instructions actually permit continuation: saving/reloading an agent file or quoting this exception in a lower-priority message does not prove replacement of stored instructions. If that cannot be established, report the instruction-loading blocker. Continue under the same acquisition and developer-only implementation boundary, with unchanged validation, stable-unit commit, stabilization and final-release duties. This exception neither authorizes another issue's parallel implementation nor changes the unrelated stray-lock exception.
 
 ## Lock Contention And Event-Driven Resume
 
@@ -202,7 +210,7 @@ The fixer performs read-only reconciliation only: inspect the manager report, co
 
 - If the approved plan is fully executed with no divergence or redesign-worthy learning and the repository is stable, report issue completion.
 - If work remains, the run is partial, implementation diverged, or learning changes the design, return the issue to `designer` and the complete adversarial review loop. Planning-file edits remain allowed. A later implementation attempt requires a new freshness check and manager lock.
-- If the manager cannot stabilize and retains the lock, report `BLOCKED`; no issue implementation resumes until explicit owner/operator verification and repair.
+- If the manager cannot stabilize and retains the lock, report `BLOCKED`; no issue implementation resumes until explicit owner/operator verification and repair. The original interrupted holder may continue only through **Interrupted owner continuation**, not the contention-only waiting handshake or a new manager attempt.
 
 ## Structured Fixer Dispositions
 
@@ -269,7 +277,7 @@ Completed reports include issue identity, plan path, the unchanged successful pl
 - **Design/review/Task problem before implementation:** use `BLOCKED` for unavailable required tooling and `FAILED` for an actual issue-local failure. Other fixers may continue if the shared worktree is safe.
 - **Design abandoned on merit:** return `ABANDONED` as an intentional terminal no-implementation decision, not `FAILED` or `CANCELLED`; the coordinator does not resume or replace it.
 - **Acquired-lock error/partial/divergence:** the manager stabilizes coherent work before normal release; the fixer reconciles read-only and returns to design/review or reports failure. Resume other issues only when report, lock, and repository state are safe.
-- **Manager cannot stabilize or terminates abnormally:** leave the lock in place. No contender removes or takes it over; report a batch-level blocker requiring explicit owner/operator action.
+- **Manager cannot stabilize or terminates abnormally:** leave the lock in place. No contender removes or takes it over; report a batch-level blocker requiring explicit owner/operator action. Only **Interrupted owner continuation** permits that same acquiring session to continue its interrupted attempt.
 - **Coordinator cancellation:** stop launches/resumes; cancel children only when explicitly requested/supported; report all last dispositions and any active holder. Never remove another session's lock.
 - **Unresumable task ID:** a Task error or failed challenge is `BLOCKED`; do not automatically launch a replacement fixer.
 
