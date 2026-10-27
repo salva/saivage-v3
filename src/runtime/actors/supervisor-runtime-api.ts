@@ -1,6 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync, realpathSync } from 'node:fs';
+import { join, relative, isAbsolute } from 'node:path';
+import {
+  assertCleanGitDelivery,
+  runGitWorkflow,
+  type NativeGitRequest,
+  type NativeGitResult,
+} from '../git-workflow.js';
+import type { CardGitFacts } from '../../schemas/git-source.js';
+import type { AcceptedSource, SourcePreparation } from './card-activation-owner.js';
 import {
   cardAgentSessionId,
+  canonicalValueSha256,
   type CardNotification,
   type CardRecord,
   type ConversationSessionId,
@@ -150,6 +161,48 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   private inOwnershipTransition = false;
   private workGcHold: WorkGcHold | null = null;
 
+  assertGlobalSourceWrite(absolutePath: string): void {
+    const policy = this.behavior.workflows.gitPolicy;
+    if (!policy) return;
+    const path = relative(realpathSync(this.behavior.projectRoot), absolutePath).replaceAll(
+      '\\',
+      '/',
+    );
+    if (
+      path === '..' ||
+      path.startsWith('../') ||
+      isAbsolute(path) ||
+      policy.excluded_paths.some(
+        (excluded) => path === excluded || path.startsWith(`${excluded}/`),
+      ) ||
+      !policy.source_roots.some(
+        (root) => root === '.' || path === root || path.startsWith(`${root}/`),
+      )
+    )
+      return;
+    if (
+      !this.applicationAdmissionOpen ||
+      this.status !== 'stopped' ||
+      this.runIdentity ||
+      this.preparedLaunch ||
+      this.halt ||
+      this.applicationCleanupTask ||
+      this.inOwnershipTransition ||
+      this.activationOwners.size ||
+      this.workGcHold
+    )
+      throw new Error('Global source writes require a genuinely stopped native Git runtime.');
+    const facts = this.behavior.actorStore.read(PROJECT_CARD_ID)?.git;
+    if (
+      !facts ||
+      facts.kind !== 'root' ||
+      facts.policy_digest !== canonicalValueSha256(policy) ||
+      facts.parent.branch_ref !== `refs/heads/${policy.delivery_branch}`
+    )
+      throw new Error('Global source writes require matching commissioned root source facts.');
+    assertCleanGitDelivery(this.behavior.projectRoot, facts.parent, policy);
+  }
+
   assertWorkGcIngressAllowed(): void {
     if (this.workGcHold) throw new WorkGcBusyError();
   }
@@ -263,6 +316,10 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   async start(): Promise<void> {
+    this.initializeStoppedRuntime();
+  }
+
+  private initializeStoppedRuntime(): void {
     if (this.status !== 'uninitialized') return;
     this.runtimeGate.close();
     this.assertOwnershipInvariants();
@@ -388,6 +445,9 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const prepared = await this.beginStartProject();
     if (!prepared.accepted) return prepared.result;
     const runtime = this.launchStartedProject(prepared.launch);
+    if (prepared.launch.owner.entryRefusal)
+      return this.startRejected(prepared.launch.owner.entryRefusal.summary);
+    if (!runtime) throw new Error('Admitted project launch has no runtime state.');
     return { runtime, status: runtime.status, started: true, stopped: false };
   }
 
@@ -395,7 +455,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     | { accepted: false; result: StartProjectResult }
     | { accepted: true; launch: SupervisorLaunchPlan }
   > {
-    await this.start();
+    this.initializeStoppedRuntime();
     this.assertWorkGcIngressAllowed();
     if (!this.applicationAdmissionOpen)
       return { accepted: false, result: this.startRejected('Application is closing.') };
@@ -439,6 +499,18 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
         throw new Error('Prepared root unexpectedly settled.');
       });
     this.requirePreparation(owner, runIdentity);
+    if (this.behavior.workflows.gitPolicy) {
+      try {
+        await this.enterSource(owner);
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError)
+          this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        if (!this.halt)
+          void this.beginHalt('runtime_failure', owner, error as Error).catch(() => undefined);
+        throw error;
+      }
+      this.requirePreparation(owner, runIdentity);
+    }
     const running = this.publish(owner, () =>
       root.lifecycle.status === 'stopped' || runningChain.length > 0
         ? this.behavior.actorStore.activateStopped(PROJECT_CARD_ID)
@@ -456,7 +528,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return { accepted: true, launch };
   }
 
-  private launchStartedProject(launch: SupervisorLaunchPlan): RuntimeState {
+  private launchStartedProject(launch: SupervisorLaunchPlan): RuntimeState | null {
     this.assertWorkGcIngressAllowed();
     if (launch !== this.preparedLaunch)
       throw new Error('Runtime launch plan is foreign, stale, or already consumed.');
@@ -480,7 +552,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw new Error('Prepared runtime launch lost admission during invalidation.');
     this.runtimeGate.open();
     this.activateProcessor(owner);
-    return this.runtimeState()!;
+    return this.runtimeState();
   }
 
   hasWorkGcMaintenanceHold(): boolean {
@@ -659,6 +731,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       void this.beginHalt('runtime_failure').catch(() => undefined);
       throw error;
     }
+    let fatalPublication = false;
     const task = (async () => {
       try {
         for (const owner of capture.suffix)
@@ -690,7 +763,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
             return;
           }
           completed.push(PROJECT_CARD_ID);
-          if (!this.replaceInterruptedRoot(boundary, completion.promise)) {
+          if (!(await this.replaceInterruptedRoot(boundary, completion.promise))) {
             takenOver = true;
             completion.resolve();
             return;
@@ -699,22 +772,62 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           // Never join the surviving activation/current guarded task: it awaits completion below.
           await boundary.processor.joinInterruptedNode();
           if (this.haltFor(boundary)) takenOver = true;
-          else this.requireOwnerAuthority(boundary);
+          else {
+            this.requireOwnerAuthority(boundary);
+            if (this.behavior.workflows.gitPolicy) {
+              if (this.sourceFacts(boundary).correction) {
+                await this.returnSource(boundary);
+                this.requireOwnerAuthority(boundary);
+                await this.enterSource(boundary);
+                this.requireOwnerAuthority(boundary);
+                if (boundary.entryRefusal) throw new Error(boundary.entryRefusal.summary);
+              } else {
+                await this.sourceOperation(boundary, async () => {
+                  const facts = this.sourceFacts(boundary);
+                  const saved = await this.nativeCommand(boundary, {
+                    ...this.nativeRequest(boundary),
+                    step: 'checkpoint',
+                    expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
+                  });
+                  this.requireOwnerAuthority(boundary);
+                  if (saved.kind !== 'completed')
+                    throw new Error('Interrupted source checkpoint did not complete.');
+                  this.publishSource(boundary, {
+                    ...this.sourceFacts(boundary),
+                    observed_tip: saved.observation.observed_tip,
+                    candidate: null,
+                    last_delivery: null,
+                  });
+                });
+                this.requireOwnerAuthority(boundary);
+              }
+            }
+          }
         }
         completion.resolve();
       } catch (error) {
-        if (error instanceof PublicationOutcomeUnknownError)
+        if (error instanceof PublicationOutcomeUnknownError) {
+          fatalPublication = true;
           this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        }
         void this.beginHalt('runtime_failure').catch(() => undefined);
-        completion.reject(error);
+        if (this.behavior.workflows.gitPolicy) {
+          takenOver = true;
+          completion.resolve();
+        } else completion.reject(error);
       } finally {
-        boundary.urgentSettlement = null;
-        const currentRoot = this.activationOwners.get(PROJECT_CARD_ID);
-        if (currentRoot?.urgentSettlement === completion.promise)
-          currentRoot.urgentSettlement = null;
+        if (!fatalPublication) {
+          boundary.urgentSettlement = null;
+          const currentRoot = this.activationOwners.get(PROJECT_CARD_ID);
+          if (currentRoot?.urgentSettlement === completion.promise)
+            currentRoot.urgentSettlement = null;
+        }
       }
     })();
     void task.catch((error) => {
+      if (fatalPublication) return;
+      if (error instanceof PublicationOutcomeUnknownError)
+        this.behavior.fatalPort.publicationOutcomeUnknown(error);
       completion.reject(error);
       void this.beginHalt('runtime_failure').catch(() => undefined);
     });
@@ -868,7 +981,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw new Error(`Child '${childCardId}' already has a different activation owner.`);
     }
     this.requireOwnerAuthority(parent);
-    const admission = this.behavior.actorStore.readActivationAdmission(childCardId);
+    let admission = this.behavior.actorStore.readActivationAdmission(childCardId);
     if (!admission)
       return this.rejectLease(lease, new Error(`Child card '${childCardId}' not found.`));
     if (cardParentId(admission.child.id) !== parent.cardId)
@@ -885,7 +998,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           `Child card '${childCardId}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`,
         ),
       );
-    const entry = cardProcessEntryForStatus(admission.child.lifecycle.status);
+    let entry = cardProcessEntryForStatus(admission.child.lifecycle.status);
     if (entry === null)
       return this.rejectLease(
         lease,
@@ -893,33 +1006,115 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           `Card '${childCardId}' in status '${admission.child.lifecycle.status}' is not activatable.`,
         ),
       );
-    const relationship = Object.freeze({
-      parentCardId: parent.cardId,
-      instructions,
-      invocation: lease,
+    const initialAdmission = admission,
+      initialEntry = entry;
+    const admit = async (): Promise<void> => {
+      let admission = initialAdmission,
+        entry = initialEntry;
+      if (this.behavior.workflows.gitPolicy) {
+        const position = parent.processor.processPosition();
+        if (position.kind !== 'node')
+          throw new Error('Child source handoff requires the current parent node.');
+        const current = () => {
+          this.requireOwnerAuthority(parent);
+          const now = parent.processor.processPosition();
+          if (
+            parent.terminalWinner !== 'open' ||
+            parent.childCardId !== null ||
+            now.kind !== 'node' ||
+            now.executionOrdinal !== position.executionOrdinal
+          )
+            throw new Error('Parent source handoff lost its current node.');
+        };
+        try {
+          await parent.processor.settleSourceWriters();
+          current();
+          await this.sourceOperation(parent, async () => {
+            current();
+            const facts = this.sourceFacts(parent);
+            const saved = await this.nativeCommand(parent, {
+              ...this.nativeRequest(parent),
+              step: 'checkpoint',
+              expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
+            });
+            current();
+            if (saved.kind !== 'completed') throw new Error('Parent checkpoint did not complete.');
+            this.publishSource(parent, {
+              ...this.sourceFacts(parent),
+              observed_tip: saved.observation.observed_tip,
+              candidate: null,
+              last_delivery: null,
+            });
+          });
+          current();
+          const freshAdmission = this.behavior.actorStore.readActivationAdmission(childCardId);
+          if (
+            !freshAdmission ||
+            cardParentId(freshAdmission.child.id) !== parent.cardId ||
+            freshAdmission.dependencies.some(({ status }) => status !== 'done')
+          )
+            throw new Error('Child admission changed during source handoff.');
+          admission = freshAdmission;
+          this.assertDurableParentRunning(parent, admission.child);
+          const freshEntry = cardProcessEntryForStatus(admission.child.lifecycle.status);
+          if (freshEntry === null)
+            throw new Error('Child is no longer activatable after source handoff.');
+          entry = freshEntry;
+        } catch (error) {
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.behavior.fatalPort.publicationOutcomeUnknown(error);
+          if (!this.halt)
+            void this.beginHalt('runtime_failure', parent, error as Error).catch(() => undefined);
+          throw error;
+        }
+      }
+      const relationship = Object.freeze({
+        parentCardId: parent.cardId,
+        instructions,
+        invocation: lease,
+      });
+      const owner = this.createOwner(admission.child, entry, 'child_admission', relationship);
+      this.ownershipTransition(true, () => {
+        this.requireOwnerAuthority(parent);
+        this.activationOwners.set(childCardId, owner);
+        parent.childCardId = childCardId;
+        lease.markAdmitted();
+      });
+      if (this.behavior.workflows.gitPolicy) {
+        try {
+          await this.enterSource(owner);
+        } catch (error) {
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.behavior.fatalPort.publicationOutcomeUnknown(error);
+          if (!this.halt)
+            void this.beginHalt('runtime_failure', owner, error as Error).catch(() => undefined);
+          throw error;
+        }
+        this.requireOwnerAuthority(parent);
+        this.requireOwnerAuthority(owner);
+      }
+      const running = this.publish(owner, () =>
+        admission.child.lifecycle.status === 'stopped'
+          ? this.behavior.actorStore.activateStopped(childCardId)
+          : this.behavior.actorStore.setStatus(childCardId, 'running'),
+      );
+      if (!running) return;
+      if (this.halt?.owners.includes(owner)) return;
+      this.ownershipTransition(true, () => {
+        this.requireOwnerAuthority(owner);
+        owner.phase = 'active';
+        owner.cachedStatus = 'running';
+        this.currentCardId = childCardId;
+      });
+      if (this.halt?.owners.includes(owner)) return;
+      this.activateProcessor(owner);
+    };
+    void admit().catch((error) => {
+      if (error instanceof PublicationOutcomeUnknownError)
+        this.behavior.fatalPort.publicationOutcomeUnknown(error);
+      if (!this.halt)
+        void this.beginHalt('runtime_failure', parent, error as Error).catch(() => undefined);
     });
-    const owner = this.createOwner(admission.child, entry, 'child_admission', relationship);
-    this.ownershipTransition(true, () => {
-      this.requireOwnerAuthority(parent);
-      this.activationOwners.set(childCardId, owner);
-      parent.childCardId = childCardId;
-      lease.markAdmitted();
-    });
-    const running = this.publish(owner, () =>
-      admission.child.lifecycle.status === 'stopped'
-        ? this.behavior.actorStore.activateStopped(childCardId)
-        : this.behavior.actorStore.setStatus(childCardId, 'running'),
-    );
-    if (!running) return lease.activation;
-    if (this.halt?.owners.includes(owner)) return lease.activation;
-    this.ownershipTransition(true, () => {
-      this.requireOwnerAuthority(owner);
-      owner.phase = 'active';
-      owner.cachedStatus = 'running';
-      this.currentCardId = childCardId;
-    });
-    if (this.halt?.owners.includes(owner)) return lease.activation;
-    this.activateProcessor(owner);
     return lease.activation;
   }
 
@@ -981,6 +1176,15 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     this.assertWorkGcNotCollecting();
     this.requireOwnerAuthority(owner);
     if (owner.phase !== 'active') return;
+    if (owner.entryRefusal) {
+      const result = owner.entryRefusal;
+      void this.settleResult(
+        owner,
+        { status: 'blocked', summary: result.summary, result },
+        true,
+      ).catch((error) => this.haltOnSettlementFailure(owner, error));
+      return;
+    }
     const caller =
       owner.parentRelationship === null
         ? { kind: 'root' as const }
@@ -998,6 +1202,22 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       card: this.requireKnownCard(owner),
       caller,
       entry: owner.entry,
+      ...(this.behavior.workflows.gitPolicy
+        ? {
+            nativeSource: {
+              correctionPending: () => this.sourceFacts(owner).correction !== null,
+              verifyCorrection: (ordinal: number) => this.verifyCorrection(owner, ordinal),
+              completeCorrection: (ordinal: number) => {
+                this.requireSourceOwner(owner, 'open', ordinal);
+                this.publishSource(owner, { ...this.sourceFacts(owner), correction: null });
+              },
+              prepareCandidate: (ordinal: number) => this.prepareCandidate(owner, ordinal),
+              checkpoint: (ordinal: number) => this.checkpointSource(owner, ordinal),
+              verifyCandidate: (ordinal: number, source: AcceptedSource) =>
+                this.verifyCandidate(owner, ordinal, source),
+            },
+          }
+        : {}),
       notificationDelivery: {
         hasPendingNotifications: () => {
           this.requireOwnerAuthority(owner);
@@ -1079,12 +1299,533 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     owner.terminalWinner = 'result';
   }
 
+  private sourceFacts(owner: CardActivationOwner): CardGitFacts {
+    this.requireOwnerAuthority(owner);
+    const facts = this.requireKnownCard(owner).git;
+    if (!facts) throw new Error(`Native source selection missing for '${owner.cardId}'.`);
+    return facts;
+  }
+
+  private requireSourceOwner(
+    owner: CardActivationOwner,
+    winner: CardActivationOwner['terminalWinner'],
+    ordinal?: number,
+  ): void {
+    this.requireOwnerAuthority(owner);
+    owner.sourceAbortController.signal.throwIfAborted();
+    if (owner.terminalWinner !== winner)
+      throw new Error('Native source operation lost its terminal winner.');
+    if (ordinal !== undefined && !owner.processor.canInterruptNode(ordinal))
+      throw new Error('Native source operation lost its invoking node.');
+  }
+
+  private nativeRequest(owner: CardActivationOwner) {
+    const policy = this.behavior.workflows.gitPolicy;
+    if (!policy) throw new Error('Native source operation requires the compiled policy.');
+    return {
+      project_root: this.behavior.projectRoot,
+      timeout_ms: 120000,
+      source: {
+        source_roots: [...policy.source_roots],
+        excluded_paths: [...policy.excluded_paths],
+      },
+    };
+  }
+
+  private async nativeCommand(
+    owner: CardActivationOwner,
+    request: NativeGitRequest,
+    allowRefusal = false,
+    invocationId = randomUUID(),
+  ): Promise<NativeGitResult> {
+    const winner = owner.terminalWinner;
+    const urgent = owner.urgentSettlement;
+    const position = owner.processor.processPosition();
+    const ordinal =
+      !urgent && owner.phase === 'active' && winner === 'open' && position.kind === 'node'
+        ? position.executionOrdinal
+        : undefined;
+    const assertCurrent = () => {
+      this.requireSourceOwner(owner, winner, ordinal);
+      if (urgent !== owner.urgentSettlement)
+        throw new Error('Native source operation lost its urgent settlement.');
+    };
+    assertCurrent();
+    const result = await runGitWorkflow({
+      request,
+      runner: this.#processRunner,
+      parentScope: this.#runtimeProcessRootScope,
+      cardId: owner.cardId,
+      invocationId: 'invocation_id' in request ? request.invocation_id : invocationId,
+      signal: owner.sourceAbortController.signal,
+      binding: {
+        origin: 'activation',
+        activation_id: owner.activationId,
+        parent_card_id: cardParentId(owner.cardId),
+        node: null,
+      },
+      assertCurrent,
+    });
+    assertCurrent();
+    if ((result.kind === 'refused' && !allowRefusal) || result.kind === 'uncertain')
+      throw new Error(`Native ${request.step} ${result.kind}: ${result.reason}`);
+    return result;
+  }
+
+  private async prepareCandidate(
+    owner: CardActivationOwner,
+    ordinal: number,
+  ): Promise<SourcePreparation> {
+    this.requireSourceOwner(owner, 'open', ordinal);
+    let prepared!: SourcePreparation;
+    await this.sourceOperation(owner, async () => {
+      const facts = this.sourceFacts(owner);
+      if (facts.correction)
+        throw new Error('Product source preparation cannot accept pending correction.');
+      const invocationId = randomUUID();
+      const result = await this.nativeCommand(
+        owner,
+        {
+          ...this.nativeRequest(owner),
+          step: 'prepareCandidate',
+          expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
+          base_oid: facts.base_oid,
+          parent: facts.parent,
+        },
+        true,
+        invocationId,
+      );
+      this.requireSourceOwner(owner, 'open', ordinal);
+      if (result.kind === 'refused') {
+        prepared = {
+          refusal: {
+            kind: 'git-workflow-blocked',
+            step: 'prepareCandidate',
+            invocation_id: invocationId,
+            summary: result.reason,
+          },
+        };
+        return;
+      }
+      if (result.kind !== 'candidate') throw new Error('Unexpected native candidate result.');
+      const source = Object.freeze({
+        branch_ref: result.observation.branch_ref,
+        base_oid: result.base_oid,
+        candidate_oid: result.observation.observed_tip,
+        preparation_invocation_id: invocationId,
+      });
+      this.publishSource(owner, {
+        ...this.sourceFacts(owner),
+        observed_tip: source.candidate_oid,
+        candidate: {
+          base_oid: source.base_oid,
+          candidate_oid: source.candidate_oid,
+          preparation_invocation_id: invocationId,
+        },
+      });
+      prepared = { source };
+    });
+    this.requireSourceOwner(owner, 'open', ordinal);
+    return prepared;
+  }
+
+  private async checkpointSource(owner: CardActivationOwner, ordinal: number) {
+    this.requireSourceOwner(owner, 'open', ordinal);
+    if (this.sourceFacts(owner).correction)
+      throw new Error('Use native correction verification while a correction task is pending.');
+    let observation!: { branch_ref: string; observed_tip: string };
+    try {
+      await owner.processor.settleSourceWriters();
+      this.requireSourceOwner(owner, 'open', ordinal);
+      await this.sourceOperation(owner, async () => {
+      const facts = this.sourceFacts(owner);
+      if (facts.correction) throw new Error('Use native correction verification while a correction task is pending.');
+      const result = await this.nativeCommand(owner, {
+        ...this.nativeRequest(owner), step: 'checkpoint',
+        expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
+      });
+      this.requireSourceOwner(owner, 'open', ordinal);
+      if (result.kind !== 'completed') throw new Error('Source checkpoint did not complete.');
+      observation = result.observation;
+      this.publishSource(owner, { ...this.sourceFacts(owner), observed_tip: observation.observed_tip, candidate: null });
+      });
+    } catch (error) {
+      if (error instanceof PublicationOutcomeUnknownError) throw error;
+      // A failed native checkpoint must not become ordinary tool feedback that
+      // permits more source work. Close admission without joining this tool itself.
+      this.haltOnSettlementFailure(owner, error as Error);
+      throw error;
+    }
+    this.requireSourceOwner(owner, 'open', ordinal);
+    return observation;
+  }
+
+  private sourceCandidateMatches(facts: CardGitFacts, source: AcceptedSource): boolean {
+    return (
+      facts.correction === null &&
+      facts.branch_ref === source.branch_ref &&
+      facts.base_oid === source.base_oid &&
+      facts.observed_tip === source.candidate_oid &&
+      facts.candidate?.base_oid === source.base_oid &&
+      facts.candidate.candidate_oid === source.candidate_oid &&
+      facts.candidate.preparation_invocation_id === source.preparation_invocation_id
+    );
+  }
+
+  private async verifyCandidate(
+    owner: CardActivationOwner,
+    ordinal: number,
+    source: AcceptedSource,
+  ): Promise<string | null> {
+    this.requireSourceOwner(owner, 'open', ordinal);
+    let violation: string | null = null;
+    await this.sourceOperation(owner, async () => {
+      const facts = this.sourceFacts(owner);
+      if (!this.sourceCandidateMatches(facts, source)) {
+        violation = 'Reviewed source selection changed; a fresh review is required.';
+        return;
+      }
+      const result = await this.nativeCommand(
+        owner,
+        {
+          ...this.nativeRequest(owner),
+          step: 'inspect',
+          expected: { branch_ref: source.branch_ref, observed_tip: source.candidate_oid },
+          require_clean: true,
+          parent: facts.parent,
+        },
+        true,
+      );
+      this.requireSourceOwner(owner, 'open', ordinal);
+      if (result.kind === 'refused') {
+        violation = result.reason;
+        return;
+      }
+      if (result.kind !== 'completed') throw new Error('Unexpected reviewed source inspection.');
+      if (!this.sourceCandidateMatches(this.sourceFacts(owner), source))
+        violation = 'Reviewed source selection changed; a fresh review is required.';
+    });
+    this.requireSourceOwner(owner, 'open', ordinal);
+    return violation;
+  }
+
+  private async deliverSource(owner: CardActivationOwner, source: AcceptedSource): Promise<void> {
+    await this.sourceOperation(owner, async () => {
+      const facts = this.sourceFacts(owner);
+      if (!this.sourceCandidateMatches(facts, source))
+        throw new Error('Accepted source selection changed before delivery.');
+      const result = await this.nativeCommand(owner, {
+        ...this.nativeRequest(owner),
+        step: 'deliver',
+        expected: { branch_ref: source.branch_ref, observed_tip: source.candidate_oid },
+        parent: facts.parent,
+      });
+      this.requireOwnerAuthority(owner);
+      if (result.kind !== 'delivered')
+        throw new Error('Native delivery did not establish returned parent source.');
+      owner.sourceReturned = true;
+      if (owner.parentRelationship) {
+        const parent = this.activationOwners.get(owner.parentRelationship.parentCardId);
+        if (!parent) throw new Error('Source delivery has no current parent owner.');
+        const parentFacts = this.sourceFacts(parent);
+        if (
+          parentFacts.branch_ref !== facts.parent.branch_ref ||
+          parentFacts.observed_tip !== result.parent_before
+        )
+          throw new Error('Parent selection changed during delivery.');
+        this.publishSource(parent, {
+          ...parentFacts,
+          observed_tip: result.parent_after,
+          candidate: null,
+          last_delivery: null,
+        });
+      }
+      this.publishSource(owner, {
+        ...this.sourceFacts(owner),
+        parent: { ...facts.parent, observed_tip: result.parent_after },
+        candidate: null,
+        last_delivery: {
+          child_tip: source.candidate_oid,
+          parent_before: result.parent_before,
+          parent_after: result.parent_after,
+        },
+      });
+    });
+    this.requireOwnerAuthority(owner);
+  }
+
+  private async verifyCorrection(
+    owner: CardActivationOwner,
+    ordinal: number,
+  ): Promise<string | null> {
+    this.requireSourceOwner(owner, 'open', ordinal);
+    let violation: string | null = null;
+    await this.sourceOperation(owner, async () => {
+      const facts = this.sourceFacts(owner);
+      if (!facts.correction) throw new Error('Correction verification has no current task.');
+      const { preserved_source: _snapshot, ...task } = facts.correction;
+      const result = await this.nativeCommand(
+        owner,
+        {
+          ...this.nativeRequest(owner),
+          step: 'verifyCorrection',
+          expected: { branch_ref: facts.branch_ref, observed_tip: facts.observed_tip },
+          task,
+        },
+        true,
+      );
+      this.requireSourceOwner(owner, 'open', ordinal);
+      if (result.kind === 'refused') {
+        violation = result.reason;
+        return;
+      }
+      if (result.kind !== 'correction-verified')
+        throw new Error('Unexpected correction verification result.');
+      this.publishSource(owner, {
+        ...this.sourceFacts(owner),
+        observed_tip: result.observation.observed_tip,
+        base_oid: result.base_oid,
+        candidate: null,
+        last_delivery: null,
+      });
+    });
+    this.requireSourceOwner(owner, 'open', ordinal);
+    return violation;
+  }
+
+  private publishSource(owner: CardActivationOwner, facts: CardGitFacts): void {
+    this.requireOwnerAuthority(owner);
+    if (!this.publish(owner, () => this.behavior.actorStore.publishGitFacts(owner.cardId, facts)))
+      throw (
+        this.halt?.failure ??
+        this.halt?.interruption ??
+        new Error('Native source publication did not complete.')
+      );
+  }
+
+  /** A Supervisor-owned task is joined by halt; agent cancellation does not abort cleanup. */
+  private sourceOperation(
+    owner: CardActivationOwner,
+    operation: () => Promise<void>,
+  ): Promise<void> {
+    if (owner.sourceTask) throw new Error('Native source operations cannot overlap.');
+    const task = operation().then(
+      () => {
+        owner.sourceTask = null;
+      },
+      (error) => {
+        if (error instanceof PublicationOutcomeUnknownError)
+          this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        owner.sourceTask = null;
+        throw error;
+      },
+    );
+    owner.sourceTask = task;
+    return task;
+  }
+
+  private async enterSource(owner: CardActivationOwner): Promise<void> {
+    const policy = this.behavior.workflows.gitPolicy;
+    if (!policy) return;
+    await this.sourceOperation(owner, async () => {
+      this.requireOwnerAuthority(owner);
+      const previous = this.requireKnownCard(owner).git;
+      const parentOwner = owner.parentRelationship
+        ? this.activationOwners.get(owner.parentRelationship.parentCardId)
+        : null;
+      if (owner.parentRelationship && !parentOwner)
+        throw new Error('Native child has no parent owner.');
+      const parent = parentOwner ? this.sourceFacts(parentOwner) : previous?.parent;
+      if (
+        !parent ||
+        (!parentOwner &&
+          (previous?.kind !== 'root' ||
+            parent.branch_ref !== `refs/heads/${policy.delivery_branch}`))
+      )
+        throw new Error('Root native source must be explicitly commissioned before Run.');
+      const expected = { branch_ref: parent.branch_ref, observed_tip: parent.observed_tip };
+      if (previous?.correction) {
+        const switched = await this.nativeCommand(owner, {
+          ...this.nativeRequest(owner),
+          step: 'switch',
+          expected,
+          target: { branch_ref: previous.branch_ref, observed_tip: previous.observed_tip },
+        });
+        this.requireOwnerAuthority(owner);
+        if (switched.kind !== 'completed')
+          throw new Error('Pending correction entry did not switch source.');
+        this.publishSource(owner, {
+          ...previous,
+          parent: expected,
+          correction: { ...previous.correction, onto: expected },
+        });
+        owner.sourceReturned = false;
+        return;
+      }
+      const invocationId = randomUUID();
+      const result = await this.nativeCommand(
+        owner,
+        {
+          ...this.nativeRequest(owner),
+          step: 'enter',
+          expected,
+          owner: { namespace: policy.private_ref_namespace, card_id: owner.cardId },
+          invocation_id: invocationId,
+          previous: previous
+            ? {
+                base_oid: previous.base_oid,
+                observed_tip: previous.observed_tip,
+                last_delivered_child_tip: previous.last_delivery?.child_tip ?? null,
+              }
+            : null,
+        },
+        true,
+      );
+      this.requireOwnerAuthority(owner);
+      if (result.kind === 'refused') {
+        if (!result.untouched_parent)
+          throw new Error(`Native entry refused without qualified parent source: ${result.reason}`);
+        owner.sourceReturned = true;
+        owner.entryRefusal = {
+          kind: 'git-workflow-blocked',
+          step: 'enter',
+          invocation_id: invocationId,
+          summary: result.reason,
+        };
+        return;
+      }
+      if (result.kind !== 'entered' && result.kind !== 'correction-required')
+        throw new Error('Unexpected native entry result.');
+      const identity =
+        previous?.kind === 'root'
+          ? { kind: 'root' as const, policy_digest: previous.policy_digest }
+          : { kind: 'child' as const };
+      this.publishSource(owner, {
+        ...identity,
+        branch_ref: result.observation.branch_ref,
+        observed_tip: result.observation.observed_tip,
+        parent: expected,
+        base_oid: result.kind === 'entered' ? result.base_oid : result.task.base_oid,
+        candidate: null,
+        last_delivery: null,
+        correction:
+          result.kind === 'correction-required' ? { ...result.task, preserved_source: null } : null,
+      });
+      owner.sourceReturned = false;
+    });
+    this.requireOwnerAuthority(owner);
+  }
+
+  private async returnSource(owner: CardActivationOwner): Promise<void> {
+    if (!this.behavior.workflows.gitPolicy || owner.sourceReturned) return;
+    await this.sourceOperation(owner, async () => {
+      const policy = this.behavior.workflows.gitPolicy!;
+      let before = this.sourceFacts(owner);
+      let expected = { branch_ref: before.branch_ref, observed_tip: before.observed_tip };
+      if (
+        before.correction &&
+        !existsSync(join(this.behavior.projectRoot, '.git', 'rebase-merge'))
+      ) {
+        const { preserved_source: _snapshot, ...task } = before.correction;
+        const verified = await this.nativeCommand(
+          owner,
+          { ...this.nativeRequest(owner), step: 'verifyCorrection', expected, task },
+          true,
+        );
+        this.requireOwnerAuthority(owner);
+        if (verified.kind === 'correction-verified') {
+          this.publishSource(owner, {
+            ...before,
+            observed_tip: verified.observation.observed_tip,
+            base_oid: verified.base_oid,
+            candidate: null,
+            last_delivery: null,
+          });
+          before = this.sourceFacts(owner);
+          expected = { branch_ref: before.branch_ref, observed_tip: before.observed_tip };
+        } else if (verified.kind !== 'refused')
+          throw new Error('Unexpected settled correction verification.');
+      }
+      let result: NativeGitResult;
+      if (
+        before.correction &&
+        existsSync(join(this.behavior.projectRoot, '.git', 'rebase-merge'))
+      ) {
+        const { preserved_source: _oldSnapshot, ...task } = before.correction;
+        const capture = await this.nativeCommand(owner, {
+          ...this.nativeRequest(owner),
+          step: 'captureRebase',
+          expected,
+          allow_owned_commits: true,
+          task,
+          owner: { namespace: policy.private_ref_namespace, card_id: owner.cardId },
+          invocation_id: randomUUID(),
+        });
+        this.requireOwnerAuthority(owner);
+        if (capture.kind !== 'captured') throw new Error('Expected a native source capture.');
+        const current = this.sourceFacts(owner);
+        this.publishSource(owner, {
+          ...current,
+          candidate: null,
+          last_delivery: null,
+          correction: { ...capture.task, preserved_source: capture.preserved_source },
+        });
+        this.requireOwnerAuthority(owner);
+        // Only this live owner carries N/Q across the successful CardService publication.
+        result = await this.nativeCommand(owner, {
+          ...this.nativeRequest(owner),
+          step: 'restoreRebaseAndReturn',
+          expected,
+          allow_owned_commits: true,
+          task: capture.task,
+          preserved_source: capture.preserved_source,
+          rebase_observation: capture.rebase_observation,
+          owner: { namespace: policy.private_ref_namespace, card_id: owner.cardId },
+          invocation_id: randomUUID(),
+        });
+      } else {
+        const task = before.correction
+          ? (() => {
+              const { preserved_source: _snapshot, ...task } = before.correction;
+              return task;
+            })()
+          : null;
+        result = await this.nativeCommand(owner, {
+          ...this.nativeRequest(owner),
+          step: 'preserveAndReturn',
+          expected,
+          parent: before.parent,
+          task,
+        });
+      }
+      this.requireOwnerAuthority(owner);
+      if (result.kind !== 'returned') throw new Error('Expected actual native source return.');
+      const current = this.sourceFacts(owner);
+      this.publishSource(owner, {
+        ...current,
+        observed_tip: result.source.observed_tip,
+        candidate: null,
+        last_delivery: null,
+        correction: result.task
+          ? {
+              ...result.task,
+              preserved_source:
+                result.preserved_source ?? current.correction?.preserved_source ?? null,
+            }
+          : null,
+      });
+      owner.sourceReturned = true;
+    });
+    this.requireOwnerAuthority(owner);
+  }
+
   private async settleResult(
     owner: CardActivationOwner,
     outcome: Exclude<
       import('../../contracts/tool-api.js').CardActivationOutcome,
       { status: 'cancelled' | 'stopped' }
     >,
+    entryRefusal = false,
   ): Promise<void> {
     if (this.halt?.owners.includes(owner)) return;
     this.requireOwnerAuthority(owner);
@@ -1108,6 +1849,19 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       if (owner.parentRelationship?.invocation.phase() === 'admitted')
         owner.parentRelationship.invocation.markSettling();
     });
+    if (this.behavior.workflows.gitPolicy && !entryRefusal) {
+      owner.processor.suppressContinuationAndPrepareJoin(
+        new Error('Native activation settlement.'),
+      );
+      await owner.processor.joinActivation();
+      this.requireOwnerAuthority(owner);
+      if (outcome.status === 'done') {
+        const source = owner.processor.acceptedTerminalSource();
+        if (!source) throw new Error('Native DONE has no same-activation accepted source.');
+        await this.deliverSource(owner, source);
+      } else await this.returnSource(owner);
+      this.requireOwnerAuthority(owner);
+    }
     const committed = this.publish(owner, () =>
       this.behavior.actorStore.commitActivationOutcome(owner.cardId, outcome, this.now()),
     );
@@ -1115,6 +1869,11 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (this.halt?.owners.includes(owner)) return;
     this.requireOwnerAuthority(owner);
     owner.cachedStatus = committed.card.lifecycle.status;
+    if (entryRefusal) {
+      if (owner.cardId === PROJECT_CARD_ID) this.releaseRootNaturally(owner, outcome);
+      else this.releaseChildNaturally(owner, outcome);
+      return;
+    }
     await owner.processor.afterActivationCommit(
       committed,
       owner.activationId,
@@ -1363,6 +2122,21 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const afterJoinHalt = this.haltFor(owner);
     if (afterJoinHalt) return { kind: 'taken_over', halt: afterJoinHalt };
     this.requireOwnerAuthority(owner);
+    if (this.behavior.workflows.gitPolicy) {
+      try {
+        await this.returnSource(owner);
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError)
+          this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        if (!this.halt) void this.beginHalt('runtime_failure').catch(() => undefined);
+        const halt = this.haltFor(owner);
+        if (halt) return { kind: 'taken_over', halt };
+        throw error;
+      }
+      const halt = this.haltFor(owner);
+      if (halt) return { kind: 'taken_over', halt };
+      this.requireOwnerAuthority(owner);
+    }
     const stopped = this.publish(owner, () => this.behavior.actorStore.stopRunning(owner.cardId));
     if (!stopped) {
       const halt = this.halt;
@@ -1396,10 +2170,10 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return { kind: 'completed' };
   }
 
-  private replaceInterruptedRoot(
+  private async replaceInterruptedRoot(
     old: CardActivationOwner,
     settlement: Promise<void>,
-  ): CardActivationOwner | null {
+  ): Promise<CardActivationOwner | null> {
     this.assertWorkGcNotCollecting();
     this.requireOwnerAuthority(old);
     const stopped = this.requireKnownCard(old);
@@ -1410,6 +2184,11 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       this.activationOwners.set(PROJECT_CARD_ID, replacement);
     });
     old.settlement.resolve({ status: 'stopped', summary: 'Urgent root interruption.' });
+    if (this.behavior.workflows.gitPolicy) {
+      await this.enterSource(replacement);
+      if (this.haltFor(replacement)) return null;
+      this.requireOwnerAuthority(replacement);
+    }
     const running = this.publish(replacement, () =>
       this.behavior.actorStore.activateStopped(PROJECT_CARD_ID),
     );
@@ -1438,6 +2217,17 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
         throw error;
       }
       this.requireOwnerAuthority(owner);
+      if (this.behavior.workflows.gitPolicy) {
+        try {
+          await this.returnSource(owner);
+        } catch (error) {
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.behavior.fatalPort.publicationOutcomeUnknown(error);
+          if (!this.halt) void this.beginHalt('runtime_failure').catch(() => undefined);
+          throw error;
+        }
+        this.requireOwnerAuthority(owner);
+      }
       const cancelledDescendants: string[] = [];
       for (const childId of this.behavior.actorStore.listChildren(owner.cardId)) {
         this.requireOwnerAuthority(owner);
@@ -1530,6 +2320,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     for (const owner of owners)
       try {
         owner.abortController.abort(interruption);
+        owner.sourceAbortController.abort(interruption);
       } catch (error) {
         retainFirst(error);
       }
@@ -1561,6 +2352,17 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     // Urgent settlement may observe takeover, but must never await this encompassing halt.
     void Promise.allSettled([
       ...joins,
+      ...owners.flatMap((owner) =>
+        owner.sourceTask
+          ? [
+              owner.sourceTask.catch((error) => {
+                if (error instanceof PublicationOutcomeUnknownError)
+                  this.behavior.fatalPort.publicationOutcomeUnknown(error);
+                if (!owner.sourceAbortController.signal.aborted) throw error;
+              }),
+            ]
+          : [],
+      ),
       ...owners.flatMap((owner) => (owner.urgentSettlement ? [owner.urgentSettlement] : [])),
       processTermination,
     ]).then((results) => {

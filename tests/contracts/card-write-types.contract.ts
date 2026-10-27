@@ -69,7 +69,7 @@ void status;
 // @ts-expect-error backlog is initial-publication-only
 ('backlog' satisfies SetStatusTarget);
 
-const complete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, status_text: null, status_text_updated_at: null, pending_notifications: [] };
+const complete: CardRecord = { git: null, id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, status_text: null, status_text_updated_at: null, pending_notifications: [] };
 void complete;
 // @ts-expect-error canonical fields cannot be omitted
 const incomplete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, pending_notifications: [] };

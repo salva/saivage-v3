@@ -78,6 +78,7 @@ function card(
     lifecycle: { status: 'running', result: null, error: null, completed_at: null },
     status_text: null,
     status_text_updated_at: null,
+    git: null,
   };
 }
 

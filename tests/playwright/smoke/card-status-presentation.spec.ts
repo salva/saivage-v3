@@ -30,7 +30,7 @@ function card(id: string, title: string, status: FixtureStatus, children: string
     },
     operator_summary: { blocked: false, hasError: false, error: null, completedAt: completed, stale: false },
     priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
-    depends_on: [], status_text: null, status_text_updated_at: null,
+    git: null, depends_on: [], status_text: null, status_text_updated_at: null,
     allowedActions: [], version_seq: 1,
   };
 }
@@ -44,7 +44,7 @@ const children = [
 const goal = card(goalId, 'Representative status goal', 'running', children.map((child) => child.id));
 const project = card('project', 'Status fixture project', 'running', [goalId]);
 const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status,permitted_child_types:value.type==='project'||value.type==='goal'?['code'] as const:[]});
-const detailProjection=(value:ReturnType<typeof card>)=>({head_id:'11111111-1111-4111-8111-111111111111',id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
+const detailProjection=(value:ReturnType<typeof card>)=>({source:{mode:'off',facts:null},head_id:'11111111-1111-4111-8111-111111111111',id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
 const descriptors=[{name:'brief.md',format:'markdown' as const,schema:'brief.v1',bootstrap:true,current:null}];
 
 async function json(route: Route, payload: unknown): Promise<void> {

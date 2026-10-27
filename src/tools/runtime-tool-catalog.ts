@@ -1,4 +1,5 @@
 import type { CardService } from '../cards/store-api.js';
+import { nativeSourceToolBinders, type NativeSourceProviderContext } from './native-source-provider.js';
 import type { QualityToolPort } from '../contracts/index.js';
 import { qualityToolBinders, type QualityProviderContext } from './quality-provider.js';
 import type { RetrievalPort } from '../contracts/index.js';
@@ -60,6 +61,7 @@ import {
 type RuntimeToolScope = 'global' | 'card';
 
 export interface CardToolBindingContext {
+  readonly checkpointSource?: NativeSourceProviderContext['checkpointSource'];
   readonly quality?: QualityToolPort;
   readonly retrieval?: RetrievalPort;
   readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
@@ -82,6 +84,8 @@ export interface CardToolBindingContext {
 }
 
 export interface GlobalToolBindingContext {
+  readonly nativeGit?: boolean;
+  readonly assertGlobalSourceWrite?: (absolutePath: string) => void;
   readonly quality?: QualityToolPort;
   readonly retrieval?: RetrievalPort;
   readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
@@ -163,7 +167,10 @@ const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({
   agentName: runtime.agentName,
   store: runtime.store,
   ...(runtime.scope === 'global'
-    ? { analystToolContext: global(runtime).analystToolContext }
+    ? {
+        analystToolContext: global(runtime).analystToolContext,
+        assertGlobalSourceWrite: global(runtime).assertGlobalSourceWrite,
+      }
     : {
         cardId: runtime.cardId,
         notifyCard: runtime.notifyCard,
@@ -175,6 +182,15 @@ let defaultGroups: readonly AnyProviderGroup[] | null = null;
 function runtimeToolGroups(): readonly AnyProviderGroup[] {
   if (defaultGroups) return defaultGroups;
   const source: AnyProviderGroup[] = [
+    {
+      key: 'card:native-source', providerName: 'native-source', scope: 'card',
+      binders: nativeSourceToolBinders,
+      context(runtime: RuntimeToolBindingContext): NativeSourceProviderContext {
+        const checkpointSource = card(runtime).checkpointSource;
+        if (!checkpointSource) throw new Error('checkpoint_source requires the active native source owner.');
+        return { checkpointSource };
+      },
+    },
     ...(['card', 'global'] as const).map((scope) => ({
       key: `${scope}:quality`,
       providerName: 'quality',
@@ -446,6 +462,16 @@ export class BoundAgentToolSet {
   }
 
   bind(runtime: RuntimeToolBindingContext): InvocationSurface {
+    if (runtime.scope === 'global' && runtime.nativeGit) {
+      this.assertNativeGitGlobalEligibility();
+      if (
+        !runtime.assertGlobalSourceWrite ||
+        (runtime.analystToolContext && !runtime.analystToolContext.assertGlobalSourceWrite)
+      )
+        throw new Error('Native Git global binding requires final source-file admission.');
+      if (runtime.quality)
+        throw new Error('Native Git global binding refuses command-backed quality tools.');
+    }
     const selectedGroups = new Map<string, CatalogEntry[]>();
     for (const reference of this.references) {
       if (reference.scope !== runtime.scope)
@@ -455,6 +481,8 @@ export class BoundAgentToolSet {
         throw new Error(
           `Compiled tool '${reference.scope}/${reference.name}' is absent from the runtime catalog.`,
         );
+      if (entry.group.key !== reference.providerGroupId)
+        throw new Error(`Compiled tool '${reference.name}' has a mismatched provider binding.`);
       const selected = selectedGroups.get(reference.providerGroupId) ?? [];
       selected.push(entry);
       selectedGroups.set(reference.providerGroupId, selected);
@@ -484,5 +512,37 @@ export class BoundAgentToolSet {
       ),
       providers: Object.freeze(providers),
     };
+  }
+
+  assertNativeGitGlobalEligibility(): void {
+    for (const reference of this.references) {
+      const entry = runtimeToolCatalog().get(`global\u0000${reference.name}`);
+      if (reference.scope !== 'global' || !entry || entry.group.key !== reference.providerGroupId)
+        throw new Error('Native Git global tools require exact canonical provider bindings.');
+      if (
+        entry.group.key === 'global:quality' ||
+        (entry.group.key === 'global:process' &&
+          !['wait_process', 'kill_process'].includes(reference.name)) ||
+        (entry.group.key === 'global:mcp' &&
+          !['mcp_servers', 'mcp_tools'].includes(reference.name)) ||
+        ![
+          'global:observation',
+          'global:workspace-observation',
+          'global:analyst-workspace-mutation',
+          'global:analyst',
+          'global:card-inspection',
+          'global:card-version',
+          'global:patch',
+          'global:web',
+          'global:retrieval',
+          'global:skill',
+          'global:mcp',
+          'global:process',
+        ].includes(entry.group.key)
+      )
+        throw new Error(
+          `Native Git global participant selects unsupported source writer '${reference.name}'.`,
+        );
+    }
   }
 }

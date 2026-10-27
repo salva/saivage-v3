@@ -11,6 +11,7 @@ export const cardVersionChangeSchema = z
     entry_id: z.string().uuid(),
     kind: z.enum([
       'update',
+      'git_source',
       'notification_enqueue',
       'notification_remove',
       'status',
@@ -35,6 +36,7 @@ export const cardVersionChangeSchema = z
           'runtime-failure',
           'content-policy-refusal',
           'compaction-summary-blocked',
+          'git-workflow-blocked',
         ]),
         summary: z.string().min(1),
         content_policy: z

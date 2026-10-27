@@ -6,11 +6,12 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   readSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { z } from 'zod';
 
@@ -73,6 +74,7 @@ export type WorkspaceContext = {
   store?: CardService;
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   onRecordWritten?: (name: string) => void;
+  assertGlobalSourceWrite?: (absolutePath: string) => void;
 };
 type ResolvedToolPath =
   | Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>
@@ -241,6 +243,27 @@ function resolveWritePath(ctx: WorkspaceContext, raw: string): WritableToolPath 
   if (writable.kind === 'work')
     throw new Error('Read-only work paths must be rejected by scoped path resolution.');
   return { ...writable, kind: writable.kind };
+}
+
+function admitSourceWrite(ctx: WorkspaceContext, absolutePath: string): void {
+  if (!ctx.assertGlobalSourceWrite) return;
+  let existing = absolutePath;
+  const suffix: string[] = [];
+  for (;;) {
+    try {
+      const resolved = realpathSync(existing);
+      try {
+        ctx.assertGlobalSourceWrite(join(resolved, ...suffix));
+      } catch (error) {
+        throw toolInputError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      suffix.unshift(basename(existing));
+      existing = dirname(existing);
+    }
+  }
 }
 
 export function readWorkspaceImageSource(
@@ -619,6 +642,7 @@ export async function writeProject(
   }
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
+  admitSourceWrite(ctx, absolutePath);
   mkdirSync(dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, params.content, 'utf8');
   const scoped = parseScopedPathScheme(params.path);
@@ -859,6 +883,7 @@ export async function editProject(
   }
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
+  admitSourceWrite(ctx, absolutePath);
   const content = readFileSync(absolutePath, 'utf8');
   const occurrences = content.split(params.old_string).length - 1;
   if (occurrences === 0) throw toolInputError('old_string was not found.');
@@ -886,7 +911,8 @@ export async function applyProjectPatch(
 ): Promise<unknown> {
   const affected = patchPaths(params.patch);
   if (affected.length === 0) throw toolInputError('Patch does not contain any file changes.');
-  for (const path of affected) assertWritable(ctx.projectRoot, path);
+  for (const path of affected)
+    admitSourceWrite(ctx, assertWritable(ctx.projectRoot, path).absolutePath);
   const check = spawnSync('git', ['apply', '--check', '--'], {
     cwd: ctx.projectRoot,
     input: params.patch,

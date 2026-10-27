@@ -116,6 +116,7 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'grep',
   'apply_patch',
   'run_command',
+  'checkpoint_source',
   'wait_process',
   'kill_process',
   'websearch',
@@ -308,6 +309,7 @@ function projectValidArguments(
     case 'reorder_child':
     case 'reopen_card':
     case 'get_status':
+    case 'checkpoint_source':
     case 'start_project':
     case 'pause_runtime':
     case 'resume_runtime':
@@ -465,6 +467,8 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return applyPatchInputSchema;
     case 'run_command':
       return runCommandInputSchema;
+    case 'checkpoint_source':
+      return emptyToolInputSchema;
     case 'wait_process':
       return waitProcessInputSchema;
     case 'kill_process':

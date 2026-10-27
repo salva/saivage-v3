@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardGitFactsSchema } from './git-source.js';
 import { externalActorSchema } from './operation-author.js';
 import { uuidV4Schema } from './uuid.js';
 
@@ -51,6 +52,7 @@ export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotifica
   })
   .strict();
 const cardRecordShape = {
+  git: cardGitFactsSchema.nullable(),
   id: cardIdSchema,
   type: cardTypeSchema,
   child_membership: z.array(cardIdSchema),
@@ -74,6 +76,8 @@ function refineCardCommon(
   card: import('./types.js').OutboundCardRecord,
   ctx: z.RefinementCtx,
 ): void {
+  if (card.git && (card.git.kind === 'root') !== (card.id === 'project'))
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Git root binding belongs only to project.', path: ['git'] });
   if (card.id === 'project' && card.type !== 'project')
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

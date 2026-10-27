@@ -100,7 +100,7 @@ describe('evidence facet and system sections', () => {
     });
     api.listCardRecords.mockResolvedValue({ card_id: 'card-a', records: [{ name: 'brief.md', format: 'markdown', schema: 'brief.v1', bootstrap: true, current: null }] });
     api.getCardAgentSessions.mockResolvedValue({ sessions: [] });
-    api.getCard.mockResolvedValue({ card: { id: 'card-a', type: 'code', title: 'Card A', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-09-24T12:00:00.000Z', updated_at: '2026-09-24T12:00:00.000Z', allowedActions: [] } });
+    api.getCard.mockResolvedValue({ card: { source: { mode: 'off', facts: null }, id: 'card-a', type: 'code', title: 'Card A', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-09-24T12:00:00.000Z', updated_at: '2026-09-24T12:00:00.000Z', allowedActions: [] } });
     api.listEvents.mockResolvedValue({ events: [diagnosticEvent('e9', 'card-a')], total: 9 });
   });
 

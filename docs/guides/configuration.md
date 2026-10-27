@@ -1,5 +1,21 @@
 # Configure an instance
 
+Init preserves an existing configuration when `--profile` is omitted. An explicit
+profile must match the retained `.saivage/config/template.json` selection; a missing
+selection cannot be guessed. Fresh configuration is compiled against its selected
+bundled prompts and existing project overrides before configuration/prompt effects,
+then reloaded canonically after publication.
+
+The native provisioning CLI accepts four singleton values together:
+`--git-delivery-branch`, `--git-private-ref-namespace`, `--git-source-roots` and
+`--git-excluded-paths`. The last two take JSON arrays of literal paths, not globs;
+explicit exclusions include `.git` and `.saivage`. Partial/duplicate values,
+OFF-profile use and conflicting retained policy are errors, never merged defaults.
+The `classic-git` registry entry requires provisioning rather than exposing a sample
+effective configuration. Its shared classic builder supplies fixed squash,
+preservation and review/correction bindings. Init compiles the complete selected
+bundle before materialization and commissions only through the lifecycle owner.
+
 ## Opt in to native quality evidence
 
 Preprovision the [qualified native tools](../reference/quality-tool-qualification.md)
@@ -221,7 +237,7 @@ there is no image garbage-collection promise.
 
 ## Configure workflows and records
 
-A card type declares permitted children, records and `workflow.format_version: 4`.
+A card type declares permitted children, records and `workflow.format_version: 5`.
 For retained explicit workflow2 inputs, follow the
 [literal-key adoption boundary](../runbook/state-adoption.md#workflow3-literal-protection-keys),
 not an automatic version rewrite.

@@ -4,6 +4,7 @@ import { agentNameSchema } from './agent-name.js';
 import { externalActorSchema } from './operation-author.js';
 
 const ordinaryCardChangeFieldSchema = z.enum([
+  'git',
   'title',
   'priority',
   'urgency',

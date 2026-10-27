@@ -4,7 +4,7 @@ import { expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SYSTEM_TEMPLATES } from '../../src/config/system-templates/registry.js';
+import { OFF_SYSTEM_TEMPLATES as SYSTEM_TEMPLATES } from '../helpers/system-template-config.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { compileProjectWorkflows, describeNodeResultContract, nodeResultToolDefinition } from '../../src/runtime/card-process/card-process-config.js';
 import { renderCompiledPrompt } from '../../src/utils/prompt-api.js';

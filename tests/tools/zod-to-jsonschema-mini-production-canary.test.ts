@@ -140,6 +140,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       quality,
       retrieval,
       scope: 'card',
+      checkpointSource: async () => { throw new Error('Schema inspection must not checkpoint source.'); },
       agentName: 'planner',
       projectRoot,
       store,
@@ -174,13 +175,13 @@ describe('zodToJsonSchemaMini production surface canary', () => {
     expect(coveredTools.size).toBe(catalog.size);
     expect(coveredTools).toEqual(new Set([...catalog.values()].map((entry) => `${entry.group.scope}/${entry.binder.name}`)));
 
-    expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed']);
+    expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed', 'classic-git']);
     const coveredNodes = new Set<string>();
     let expectedNodeCount = 0;
     for (const registeredTemplate of SYSTEM_TEMPLATES) {
       const template = resolveSystemTemplate(registeredTemplate.name);
       expect(template).toBe(registeredTemplate);
-      const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
+      const config = effectiveSaivageConfigSchema.parse(templateConfig(template));
       const workflows = compileProjectWorkflows(config, { defaultPromptRoot: template.promptRoot });
       for (const [cardType, workflow] of workflows.cardTypes) {
         const allNodeStateIds = [...workflow.states]
@@ -206,3 +207,4 @@ describe('zodToJsonSchemaMini production surface canary', () => {
     expect(coveredNodes.size).toBe(expectedNodeCount);
   });
 });
+import { templateConfig } from '../helpers/system-template-config.js';

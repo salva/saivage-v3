@@ -37,6 +37,7 @@ export const WorkflowPresentationSchema = z
         z
           .object({
             node_id: z.string().min(1),
+            purpose: z.enum(['product', 'git-correction']),
             execution: WorkflowExecutionIdentitySchema,
             initialize_records: z.array(recordNameSchema),
             output_record: recordNameSchema.nullable(),

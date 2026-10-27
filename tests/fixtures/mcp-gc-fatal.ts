@@ -21,7 +21,7 @@ const mark = (value: string) => appendFileSync(join(root, 'marker'), `${value}\n
 const fatal = createApplicationFatalPort(), groups = new ManagedProcessGroupRegistry();
 const runner = new ProcessRunner(root, groups, fatal);
 const eventLogger = createEventLog(root);
-const manager = new McpManager({ configAuthority: createTestConfigAuthority(root), processRunner: runner,
+const manager = new McpManager({ nativeGit: false, configAuthority: createTestConfigAuthority(root), processRunner: runner,
   mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger });
 const peer = join(root, 'peer.cjs');
 writeFileSync(peer, `require('node:readline').createInterface({input:process.stdin}).on('line',line=>{

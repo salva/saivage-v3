@@ -209,7 +209,7 @@ function runCopySystemTemplatePromptsTest() {
 
     const classicRoot = resolveSystemTemplate('classic').promptRoot;
     const typedRoot = resolveSystemTemplate('classic-typed').promptRoot;
-    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed', 'registered template order changed');
+    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed,classic-git', 'registered template order changed');
     const paad = resolveSystemTemplate('paad-typed');
     assert(collectTemplatePromptClosure({ template: paad }).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed selected closure differs');
     assert(walkFiles(paad.promptRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed has missing or unselected artifacts');
@@ -223,6 +223,7 @@ function runCopySystemTemplatePromptsTest() {
 
     const distRoot = temporary('saivage-template-dist-');
     copySystemTemplatePrompts({ distRoot });
+    assertTreesEqual(resolveSystemTemplate('classic-git').promptRoot, join(distRoot, 'src/config/system-templates/classic-git/prompts'));
     const paadOutput = join(distRoot, 'src', 'config', 'system-templates', 'paad-typed', 'prompts');
     assertTreesEqual(paad.promptRoot, paadOutput);
     const plannerPath = 'agents/_shared/planner.md';

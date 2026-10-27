@@ -32,7 +32,7 @@ function fixture(autostart = false) {
   writeFileSync(join(root, '.saivage/saivage.yaml'), stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { 'secret-server': { ...config, autostart } } }));
   const processRegistry = new ManagedProcessGroupRegistry(); const scope = processRegistry.createContainerScope(processRegistry.rootScope, 'mcp-servers');
   const runner = new ProcessRunner(root, processRegistry, testApplicationFatalPort); const capture = capturedHttp();
-  const manager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: { appendEvent() {}, appendEventPrepared() {} } as never, outboundHttp: capture.sink });
+  const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: { appendEvent() {}, appendEventPrepared() {} } as never, outboundHttp: capture.sink });
   const installation = createMcpToolInvocationInstallation(); installation.installer.install(manager);
   const surface = new BoundAgentToolSet(['mcp_server_control', 'mcp_tool_call'].map(n => resolveRuntimeTool('card', n))).bind({ scope: 'card', agentName: 'executor', projectRoot: root, mcpToolInvocation: installation.port } as never);
   return { manager, surface, ...capture };

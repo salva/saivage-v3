@@ -6,7 +6,7 @@ import type { CardRecord } from '../../src/schemas/index.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 
-const card: CardRecord = { id: 'project', type: 'project', child_membership: [], active_child_order: [], title: 'project', priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, depends_on: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, status_text: null, status_text_updated_at: null };
+const card: CardRecord = { git: null, id: 'project', type: 'project', child_membership: [], active_child_order: [], title: 'project', priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, depends_on: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, status_text: null, status_text_updated_at: null };
 const processor = {
   activate: async () => ({ status: 'done' as const, summary: 'done', result: workflowResult('DONE', 'done') }),
 } as unknown as CardProcessActor;
@@ -27,6 +27,7 @@ let storeWrites = 0;
 let processTerminations = 0;
 let injectionRan = false;
 const supervisor = createSupervisorRuntimeApi({
+  workflows: { gitPolicy: null },
   actorStore: {
     read: (id: string) => id === 'project' ? card : null,
     commitActivationOutcome: () => { storeWrites += 1; throw new Error('Unexpected store write.'); },

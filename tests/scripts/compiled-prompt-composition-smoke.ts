@@ -90,7 +90,7 @@ function assertGuidanceComposition(text: string, promptRoot: string, role: Shipp
 }
 
 for (const template of SYSTEM_TEMPLATES) {
-  for (const agent of Object.values(template.config.agents)) {
+  for (const agent of Object.values(templateConfig(template).agents)) {
     if (agent.tools.some((name) => name.startsWith('code_quality_')) || agent.quality_tools)
       throw new Error(`Template '${template.name}' must not grant optional quality analysis by default.`);
   }
@@ -359,3 +359,4 @@ try {
 }
 
 console.log(`Compiled production composition loaded per-template packaged prompts for ${SYSTEM_TEMPLATES.map((template) => template.name).join(' and ')}.`);
+import { templateConfig } from '../helpers/system-template-config.js';

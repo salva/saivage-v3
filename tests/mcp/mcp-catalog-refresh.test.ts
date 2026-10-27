@@ -48,7 +48,7 @@ function fixture() {
   const groups = new ManagedProcessGroupRegistry();
   const runner = new ProcessRunner(root, groups, testApplicationFatalPort);
   const events = { appendEventPrepared: jest.fn() };
-  const manager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: events as never });
+  const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: events as never });
   return { root, manager, events, runner, groups, async close() { await manager.cleanupForApplicationStop(); rmSync(root, { recursive: true }); } };
 }
 

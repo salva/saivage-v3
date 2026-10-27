@@ -56,6 +56,7 @@ function fixture() {
   return { runner, execution, args, store };
 }
 const accepted: AcceptedNodeResult = {
+  nodeOrdinal: 0, source: null,
   nodeId: 'work',
   executor: { kind: 'agent', agent: 'executor' },
   values: {},

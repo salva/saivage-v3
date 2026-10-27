@@ -116,7 +116,7 @@ describe('operator API client contracts after S06 mutation removal', () => {
     const card = {
       head_id: '11111111-1111-4111-8111-111111111111',
       id: 'card-a', title: 'Blocked summary', type: 'code', version_seq: 2, urgency: 'normal',
-      created_at: '2026-09-21T00:00:00.000Z', updated_at: '2026-09-21T00:01:00.000Z', allowedActions: ['card.start'],
+      source: { mode: 'off', facts: null }, created_at: '2026-09-21T00:00:00.000Z', updated_at: '2026-09-21T00:01:00.000Z', allowedActions: ['card.start'],
       lifecycle: { status: 'blocked', result: { kind: 'compaction-summary-blocked', summary, session_id: 'agent:executor:card-a', summary_input_id: '00000000-0000-4000-8000-000000000099' }, error: summary, completed_at: null },
     };
     expect(parseOperatorResponse('cards.get', 200, { card })).toEqual({ card });

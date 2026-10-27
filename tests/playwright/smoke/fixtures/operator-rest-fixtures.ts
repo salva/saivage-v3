@@ -16,6 +16,7 @@ const runtimeRunning = {
 };
 
 export const smokeOperatorCard = {
+  source: { mode: 'off', facts: null },
   head_id: '11111111-1111-4111-8111-111111111111',
   id: smokeCardId,
   type: 'code',
@@ -28,12 +29,13 @@ export const smokeOperatorCard = {
   version_seq: 3,
 };
 const card = smokeOperatorCard;
-const outboundCard = { id:smokeCardId,type:'code',child_membership:[],active_child_order:[],title:card.title,lifecycle:card.lifecycle,priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,depends_on:[],status_text:'synthetic result',status_text_updated_at:now };
+const outboundCard = { git:null,id:smokeCardId,type:'code',child_membership:[],active_child_order:[],title:card.title,lifecycle:card.lifecycle,priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,depends_on:[],status_text:'synthetic result',status_text_updated_at:now };
 const priorCard = {
   ...outboundCard,
   lifecycle: { status: 'running' as const, result: null, error: null, completed_at: null },
   status_text: null,
   status_text_updated_at: null,
+  git: null,
   version_seq: 2,
 };
 const historyEntryId = '11111111-1111-4111-8111-111111111111';
@@ -74,7 +76,7 @@ const codeDebugGraph = {
     card_type: 'code', notification_recipient: 'executor', permitted_child_types: [],
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, initialization: null }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, initialization: null }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
-    nodes: [{ node_id: 'execute', output_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], record_write_patterns: ['status.md'] } }],
+    nodes: [{ purpose: 'product', node_id: 'execute', output_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], record_write_patterns: ['status.md'] } }],
     edges: [{ route_id: 'done', test: null, source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { route_id: 'execution:failed', test: null, source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { route_id: 'execution:blocked', test: null, source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
@@ -84,7 +86,7 @@ const debugGraphs = parseOperatorResponse('debug.graphs', 200, {
 });
 const projectPresentation = parseOperatorResponse('workflows.presentation', 200, {
   card_type: 'project',
-  nodes: [{ node_id: 'plan', output_record: null, initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }],
+  nodes: [{ purpose: 'product', node_id: 'plan', output_record: null, initialize_records: [], execution: { kind: 'agent', agent_name: 'planner' } }],
   entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'plan' })),
   edges: [
     { route_id: 'done', test: null, source_node_id: 'plan', outcome: 'done', condition: 'default', target: { kind: 'terminal', terminal: 'DONE' } },
@@ -399,7 +401,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       if (!graph) return json(route, parseOperatorResponse('workflows.presentation', 404, { error: 'workflow_type_not_found', card_type: workflowMatch[1] }), 404);
       return json(route, parseOperatorResponse('workflows.presentation', 200, {
         card_type: graph.card_type,
-        nodes: graph.nodes.map(({ node_id, execution, initialize_records, output_record }) => ({ node_id, execution: execution.kind === 'agent' ? { kind: 'agent', agent_name: execution.agent_name } : execution, initialize_records, output_record })),
+        nodes: graph.nodes.map(({ purpose, node_id, execution, initialize_records, output_record }) => ({ purpose, node_id, execution: execution.kind === 'agent' ? { kind: 'agent', agent_name: execution.agent_name } : execution, initialize_records, output_record })),
         entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
         edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
         terminals: graph.terminals,

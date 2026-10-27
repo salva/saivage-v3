@@ -84,6 +84,7 @@ describe('MCP schema validation at runtime use', () => {
     const registry = new ManagedProcessGroupRegistry();
     const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
     const manager = new McpManager({
+      nativeGit: false,
       configAuthority: testConfigAuthority(root),
       processRunner: runner,
       mcpProcessRootScope: registry.createContainerScope(registry.rootScope, 'mcp'),
@@ -182,7 +183,7 @@ describe('MCP schema validation at runtime use', () => {
       const scope = registry.createContainerScope(registry.rootScope, 'mcp');
       const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
       const events = { appendEventPrepared: jest.fn() };
-      const manager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: events as never });
+      const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: events as never });
       const calls = () => transport === 'stdio'
         ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
         : httpCalls;

@@ -213,13 +213,17 @@ describe('source-derived publication owner inventory', () => {
     expect(publicCallerInventory).toEqual({
       'src/application/external-analyst-operations.ts': 1,
       'src/application/runtime-composition.ts': 2,
+      'src/boot/app.ts': 1,
+      'src/boot/direct-mutation-composition.ts': 1,
       'src/mcp/mcp-manager.ts': 1,
       'src/mcp/server-runtime.ts': 1,
-      // Agent node resources close their exact direct scope after nonfatal settlement.
-      'src/runtime/actors/node-execution.ts': 1,
+      // Source handoff settles exact node writers; nonfatal completion closes the scope.
+      'src/runtime/actors/node-execution.ts': 2,
       // Operations terminate timed-out/interrupted commands and close their own scope;
       // publication uncertainty exits through the fatal port before cleanup.
       'src/runtime/operation-execution.ts': 2,
+      // Native commands use the same finite kill/join and invocation-scope closure.
+      'src/runtime/git-workflow.ts': 2,
       'src/runtime/actors/supervisor-runtime-api.ts': 2,
       'src/tools/process-provider.ts': 3,
     });

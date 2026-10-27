@@ -1,5 +1,25 @@
 # Saivage — Autonomous Software Development
 
+The opt-in `classic-git` profile requires explicit clean-repository commissioning.
+Its source-file admission is fail-closed:
+global source writes require stopped, clean commissioned delivery; OFF profiles
+retain existing behavior. See [policy declarations](docs/reference/configuration.md#native-git-policy-declarations).
+
+Synthetic provisioning example (choose actual project values, do not copy these
+as an existing project's policy):
+
+```bash
+saivage init --profile classic-git --git-delivery-branch main \
+  --git-private-ref-namespace refs/saivage/example \
+  --git-source-roots '["."]' --git-excluded-paths '[".git",".saivage"]'
+```
+
+The delivery branch must be attached and clean, with the exact private ref absent.
+Init leaves that checkout selected and starts no Run. A preauthored complete ON
+configuration is also accepted and preserved; supplied CLI values must match it.
+See [validation](docs/validation.md) for functional constituent qualification and
+known aggregate/security limits; source delivery is not deployment authorization.
+
 Give Saivage an objective, constraints and acceptance criteria, then explicitly
 start a Run. Configured Planners delegate and sequence work, Executors implement,
 investigate and test, and configured Reviewers assess evidence. Parents coordinate
@@ -69,6 +89,9 @@ inside the isolated deployment. It separates these decisions:
    is `classic`; optional `classic-typed` and
    [paad-typed](src/config/system-templates/paad-typed/README.md) use typed workflows.
    Existing-config init preserves inputs; it is not a profile switch or upgrade.
+   An explicit `--profile` must match its retained template metadata. Fresh init
+   compiles the selected source configuration and prompt overrides before writing
+   configuration or copying bundle prompts, then reloads canonical inputs.
 2. **Configure** providers, all required model routes and the fixed summarizer.
    Bundled templates ship no provider. Use the [configuration tasks](docs/guides/configuration.md)
    and [exact field lookup](docs/reference/configuration.md); keep credentials private.

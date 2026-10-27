@@ -43,6 +43,7 @@ function requirePrompt(process: CompiledCardTypeWorkflow, promptId: string): str
 function accepted(node: CompiledNodeContract, outcome: string, cardId: string): AcceptedNodeResult {
   const recordName = node.nodeId === 'review' ? 'review.md' : 'status.md';
   return Object.freeze({
+    nodeOrdinal: 0, source: null,
     nodeId: node.nodeId,
     executor: { kind: 'agent' as const, agent: agentExecution(node).agent.name },
     values: {},

@@ -54,6 +54,138 @@ import { ExternalAnalystOperations } from '../../src/application/external-analys
 const mode = process.argv[2];
 const path = process.argv[3];
 const fatalPort = createApplicationFatalPort();
+if (mode === 'native-source-head' || mode === 'native-parent-delivery-head' || mode === 'native-parent-delivery-ordinary') {
+  if (!path) throw new Error('marker path required');
+  const { publicNativeProject, publicNativeCli, nativeOptions, nativeIdentity } = await import('../helpers/public-native-project.js');
+  const { parse } = await import('yaml');
+  const { createPromptTemplateRegistry } = await import('../../src/utils/prompt-api.js');
+  const { createObservedCollections } = await import('../../src/retrieval/index.js');
+  const { NO_FRESHNESS_EFFECTS } = await import('../../src/contracts/index.js');
+  const root = publicNativeProject();
+  Object.assign(process.env, nativeIdentity);
+  const init = publicNativeCli(root, 'init', ...nativeOptions);
+  assert.equal(init.status, 0, init.stderr);
+  const config = effectiveSaivageConfigSchema.parse(parse(fs.readFileSync(join(root, '.saivage/saivage.yaml'), 'utf8')));
+  config.models = structuredClone(TEST_SAIVAGE_CONFIG.models);
+  config.providers = structuredClone(TEST_SAIVAGE_CONFIG.providers);
+  config.compaction = structuredClone(TEST_SAIVAGE_CONFIG.compaction);
+  for (const agent of Object.values(config.agents)) agent.tools = agent.tools.filter(tool => tool !== 'view_image');
+  const compiled = compileProjectWorkflows(config, { projectRoot: root });
+  const registry = new ProviderRegistry(config);
+  const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
+  const markerFd = openSync(path, 'a');
+  const markerWrite = writeSync;
+  const mark = (label: string) => { markerWrite(markerFd, `${label}\n`); };
+  let uncertain = false, selectedFault = false, childHasRun = false, ordinaryFailed = false;
+  let stopped!: () => void;
+  const settled = new Promise<void>(resolve => { stopped = resolve; });
+  const forbid = (label: string) => { if (uncertain) mark(`FORBIDDEN:${label}`); };
+  const cards = new ProductionCardService(root, compiled, NO_FRESHNESS_EFFECTS, {
+    open: (...args) => {
+      forbid('selection-open');
+      if (mode === 'native-parent-delivery-ordinary' && selectedFault && String(args[0]).includes('.card-head.json.')) {
+        ordinaryFailed = true; mark('ordinary-head-open-failed'); throw new Error('Known pre-publication head open failure');
+      }
+      return openSync(...args);
+    },
+    write: ((...args: Parameters<typeof writeSync>) => { forbid('selection-write'); return writeSync(...args); }) as typeof writeSync,
+    fsync: (...args) => { forbid('selection-fsync'); return fsyncSync(...args); },
+    close: (...args) => { forbid('selection-close'); return closeSync(...args); },
+    rename(from, to) {
+      forbid('selection-rename');
+      renameSync(from, to);
+      if (selectedFault && String(to).endsWith('/card-head.json')) {
+        mark(`renamed:${String(to)}`); uncertain = true;
+        throw new Error('Injected after actual native source head rename');
+      }
+    },
+  });
+  const publish = cards.publishGitFacts.bind(cards);
+  cards.publishGitFacts = (id, facts) => {
+    forbid(`publish:${id}`);
+    const previous = cards.read(id)!.git;
+    selectedFault = childHasRun && (mode === 'native-source-head'
+      ? id !== 'project' && facts.observed_tip !== previous!.observed_tip && facts.candidate === null
+      : id === 'project' && facts.observed_tip !== previous!.observed_tip);
+    if (selectedFault) mark(`source-selection:${id}`);
+    return publish(id, facts);
+  };
+  // Instrument existing owners as well as filesystem calls. These wrappers do
+  // not replace execution, settlement or publication; they only record a breach.
+  for (const name of ['read', 'publishGitFacts', 'stopRunning'] as const) {
+    const original = cards[name].bind(cards) as (...args: any[]) => any;
+    (cards as any)[name] = (...args: any[]) => { forbid(`card:${name}`); return original(...args); };
+  }
+  for (const name of ['readFileSync','openSync','closeSync','writeFileSync','appendFileSync','renameSync','unlinkSync','mkdirSync','readdirSync','lstatSync','statSync','linkSync','fsyncSync'] as const) {
+    const original = fs[name] as (...args: any[]) => any;
+    (fs as any)[name] = (...args: any[]) => {
+      if (!(name === 'fsyncSync' && (args[0] === 1 || args[0] === 2))) forbid(`fs:${name}`);
+      return original(...args);
+    };
+  }
+  const kill = process.kill.bind(process);
+  process.kill = ((...args: Parameters<typeof process.kill>) => { forbid('kill'); return kill(...args); }) as typeof process.kill;
+  const remove = AbortSignal.prototype.removeEventListener;
+  AbortSignal.prototype.removeEventListener = function (...args: Parameters<typeof remove>) {
+    forbid('abort-listener-release'); return remove.apply(this, args);
+  };
+  const gate = new RuntimeGate();
+  for (const name of ['open', 'close', 'completeRun'] as const) {
+    const original = gate[name].bind(gate);
+    gate[name] = () => { forbid(`gate:${name}`); original(); };
+  }
+  syncBuiltinESMExports();
+  const processes = createTestProcessRunner(root);
+  processes.processRunner = new ProcessRunner(root, processes.registry, fatalPort);
+  for (const name of ['spawnCaptured','retireSettled','closeAndTerminateDirectScope','terminateScopeTree'] as const) {
+    const original = (processes.processRunner as any)[name].bind(processes.processRunner);
+    (processes.processRunner as any)[name] = (...args: any[]) => { forbid(`runner:${name}`); return original(...args); };
+  }
+  const call = (id: string, name: string, args: object) => ({ result: { kind: 'tool_calls' as const,
+    tool_calls: [{ id, type: 'function' as const, function: { name, arguments: JSON.stringify(args) } }] }, provider_exchanges: [] });
+  let parentTurns = 0, childTurns = 0;
+  const supervisor = createSupervisorRuntimeApi({ ...testAutonomousCompaction, workflows, projectRoot: root,
+    retrieval: createObservedCollections(root), actorStore: cards, conversations: { projectRoot: root }, runtimeGate: gate,
+    processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+    processIdentity: { pid: process.pid, startedAt: new Date().toISOString() },
+    promptTemplates: createPromptTemplateRegistry(workflows), fatalPort, freshness: NO_FRESHNESS_EFFECTS,
+    runtimeStatusChanged: status => { forbid('status-report'); if (status === 'stopped' && ordinaryFailed) stopped(); },
+    provider: scriptedAdmissionProvider(async input => {
+      forbid('provider');
+      if (input.sessionId === 'agent:planner:project') {
+        parentTurns++;
+        if (parentTurns === 1) return call('create', 'create_card', { type: 'code', title: 'Fatal native boundary', bootstrap_content: 'Bounded source change', priority: 0, urgency: 'normal', depends_on: [] });
+        if (parentTurns === 2) return call('activate', 'activate_card', { card_id: 'card-a', instructions: 'Bounded change.' });
+        mark('FORBIDDEN:parent-resumed'); throw new Error('Unexpected parent continuation');
+      }
+      childHasRun = true; childTurns++;
+      if (childTurns === 1) return call('write', 'write', { path: 'source.txt', content: 'native candidate\n' });
+      if (mode === 'native-source-head') return call('checkpoint', 'checkpoint_source', {});
+      if (childTurns === 2) return call('status', 'write', { path: 'record:///status.md?card=card-a', content: 'Bounded source change complete.' });
+      if (childTurns === 3) return call('done', 'emit_result', { outcome: 'done', summary: 'Bounded change complete.' });
+      throw new Error('Unexpected child continuation');
+    }),
+  });
+  mark(`root:${root}`);
+  await supervisor.startProject();
+  if (mode === 'native-parent-delivery-ordinary') {
+    await settled;
+    const { readCardExecutions } = await import('../../src/persistence/card-execution-log.js');
+    assert.equal(parentTurns, 2); assert.equal(childTurns, 3);
+    assert.equal(cards.read('card-a')!.lifecycle.status, 'running');
+    assert.equal(cards.read('card-a')!.git!.last_delivery, null);
+    assert.equal(readCardExecutions(root, 'card-a').filter(row => row.kind === 'native_finished' && row.outcome === 'delivered').length, 1);
+    assert.equal(processes.processRunner.list().length, 0);
+    await supervisor.cleanupForApplicationStop();
+    mark('ordinary-held-no-replay');
+    closeSync(markerFd);
+  } else {
+    await new Promise(resolve => setTimeout(resolve, 180000));
+    mark('FORBIDDEN:no-fatal-exit');
+    await supervisor.cleanupForApplicationStop();
+    process.exitCode = 2;
+  }
+}
 if (mode === 'external-analyst-publication' || mode === 'external-analyst-cleanup-publication') {
   if (!path) throw new Error('marker path required');
   const mark = (label: string) => appendFileSync(path, `${label}\n`);
@@ -264,7 +396,7 @@ if (mode === 'llm-bootstrap-preparation') {
 
 if (mode === 'direct-mutation') {
   if (!path) throw new Error('project root required');
-  withDirectMutationComposition(path, 'bound', fatalPort, () => { replaceFile(join(path, '.saivage', 'startup-publication'), Buffer.from('published')); throw new PublicationOutcomeUnknownError(); });
+  await withDirectMutationComposition(path, 'bound', fatalPort, () => { replaceFile(join(path, '.saivage', 'startup-publication'), Buffer.from('published')); throw new PublicationOutcomeUnknownError(); });
 }
 
 if (mode === 'rest-chat') {

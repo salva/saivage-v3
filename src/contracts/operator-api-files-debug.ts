@@ -219,6 +219,7 @@ const DebugGraphAgentExecutionSchema = z
   .strict();
 const DebugGraphNodeSchema = z
   .object({
+    purpose: z.enum(['product', 'git-correction']),
     node_id: z.string().min(1),
     execution: z.discriminatedUnion('kind', [
       DebugGraphAgentExecutionSchema,

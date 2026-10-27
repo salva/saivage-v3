@@ -36,6 +36,26 @@ function expectFatalOwner(mode: string, expectedDiagnostic = diagnostic): void {
 }
 
 describe('publication fatal owner boundaries', () => {
+  it.each(['native-source-head', 'native-parent-delivery-head', 'native-parent-delivery-ordinary'])('halts actual Supervisor %s without follow-up or parent continuation', mode => {
+    // Deliberately preserved, including failed receipts; not part of roots cleanup.
+    const root = mkdtempSync(join(tmpdir(), 'native-source-frontier-'));
+    const marker = join(root, 'marker'); writeFileSync(marker, '');
+    const result = spawnSync(process.execPath, ['--import', 'tsx', fixture, mode, marker], {
+      cwd: process.cwd(), encoding: 'utf8', timeout: 240000, killSignal: 'SIGKILL',
+    });
+    writeFileSync(join(root, 'receipt.json'), JSON.stringify({ status: result.status, signal: result.signal, error: String(result.error), stdout: result.stdout, stderr: result.stderr }));
+    expect(result.error).toBeUndefined();
+    const events = readFileSync(marker, 'utf8');
+    if (mode === 'native-parent-delivery-ordinary') {
+      expect(result.status).toBe(0); expect(events).toContain('ordinary-head-open-failed\n');
+      expect(events).toMatch(/ordinary-held-no-replay\n$/); expect(events).not.toContain('FORBIDDEN');
+      return;
+    }
+    expect(result.status).toBe(1); expect(result.stderr).toContain('Fatal: PublicationOutcomeUnknownError');
+    expect(events).toContain(`source-selection:${mode === 'native-source-head' ? 'card-a' : 'project'}\n`);
+    expect(events).toMatch(/renamed:.*\/card-head.json\n$/);
+    expect(events).not.toContain('FORBIDDEN');
+  }, 245000);
   it('halts receipt append uncertainty before HTTP response, SDK disposal, follow-up audit or cleanup', () => {
     const root = mkdtempSync(join(tmpdir(), 'publication-external-receipt-')); roots.push(root);
     const marker = join(root, 'marker'); writeFileSync(marker, '');

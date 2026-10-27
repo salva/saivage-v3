@@ -1,5 +1,77 @@
 # Validation
 
+Native Git bundle qualification uses synthetic repositories and scripted providers,
+never a live project: `tests/config/classic-git-materialization.test.ts` compiles and
+binds the selected roles/correction nodes and custom overrides; the packaging tests
+verify standalone source/output prompt closure. `tests/cli/init-provisioning.test.ts`
+exercises public fresh commissioning and byte-unchanged retained init. Native
+Supervisor/correction tests and cache-suffix regressions cover different boundaries,
+not a substitute for fresh first Run, startup cancellation, reset-before-delete,
+checkpoint invocation, actual browser evidence and full release gates. Static renders
+prove selected text/contracts, not model understanding or behavioral improvement.
+
+The 2026-10-27 native Git qualification passed functional constituent gates:
+390 backend suites (5134 tests, seven snapshots), 11 terminal-child tests,
+32 E2E suites (147 tests), six compiled quality programs, and UI qualification
+(836 unit, 11 smoke and 48 browser tests). This is not a literal aggregate release
+pass: the initial parallel release failed, and the subsequent monolithic serial
+backend exhausted the Node heap. Passing serial batches do not erase those failures.
+Separate security checks returned root exit1 for the known high Zod advisory
+(deferred, unwaived) and web exit0. These synthetic source results do not establish
+live adoption or exact-SHA public publication.
+
+For resource-constrained native-Git qualification, use the existing Jest CLI
+control: `npm run test:parallel -- --runInBand tests/runtime/actors/supervisor-native-correction.test.ts`.
+The package has no worker-limit environment variable; arguments passed to the
+top-level release script do not propagate to its nested Jest command. To execute
+the backend release stage serially, run `npm run check:stamp-producers`,
+`npm run test:parallel -- --runInBand`, and `npm run test:terminal-child`, retaining
+all other release stages separately. Report this as constituent release gates,
+not an invocation of the unchanged aggregate command. Native operation deadlines
+and all repeated-preservation/source assertions remain unchanged; resource
+contention can trigger real containment, which must not be treated as success.
+
+`web:test:operator-smoke` includes `native-git.spec.ts`: public classic-git init,
+actual server/local scripted providers and real Git delivery, correction and
+terminated-command browser evidence. The full retained transcript may conservatively
+protect all work during GC; that scenario verifies zero effects and unchanged
+selected captures/index/ref, not selective collection. The owning
+`tests/workspace/work-garbage-collector.test.ts` separately uses fresh public
+commissioning with empty configured conversations/minimal bootstrap records,
+actual sequential bootstrap captures and a strict-valid incomplete native artifact
+selection to verify selective retention plus deletion of an unselected control.
+Neither witness changes GC reference interpretation or certifies model compliance.
+
+`tests/cli/native-public-lifecycle.test.ts` exercises the selected native bundle's
+public reset collision-before-delete/fresh namespace, rootless no-replay refusal,
+startup create-runtime, OS-signal containment, and subprocess-injected publication
+and process-group observation fatal boundaries. `tests/e2e/native-public-first-run.e2e.test.ts`
+starts from public CLI commissioning and uses the actual server/Analyst/Planner/
+Executor paths with a local scripted HTTP provider. It checks strict empty checkpoint
+arguments, natural hook-descendant settlement and Stop during checkpoint, including
+exact tool pairs and the owning conversation's observation suffix. Interrupted
+native evidence can end with an unmatched process start: retired authority does
+not invent a completion or continue Git commands. These bounded witnesses do not
+replace the full publication-frontier, prompt-reentry or browser/release matrix.
+
+The bootstrap lifecycle suite also distinguishes pre-effect failures from
+post-publication uncertainty at session, execution, record, artifact and head
+boundaries. Its subprocess fault injector checks for forbidden follow-up filesystem
+and signal calls. First execution evidence is a fresh replacement publication:
+failure writing its unselected temporary file is **not** canonical uncertainty;
+the uncertainty witness fails after its selecting rename. Native preservation
+tests interrupt after naturally settled normalization/abort, while Supervisor
+tests cover ordinary snapshot-selection failure and Stop after actual snapshot
+publication. These are bounded witnesses, not every possible timing interleaving.
+
+The existing publication-fatal child harness additionally runs public-commissioned
+native projects through actual Supervisor checkpoint and delivery. It injects
+uncertainty after source-head rename and after parent delivery-head rename, before
+child facts can be selected, checking no later filesystem/signal/runner calls,
+abort-listener release, gate transition or parent continuation. Its separate known
+head-open failure retains one factual delivered execution without publishing child
+DONE or replaying delivery. These subprocess witnesses retain their scratch receipts.
+
 Native quality witnesses require explicit `SAIVAGE_QUALITY_NATIVE_ROOT` provisioned
 from the tracked exact qualification inputs, `NODE_DISABLE_COMPILE_CACHE=1`, and a
 matching build before `tests/quality/native-engines.test.ts`. The Jest test launches

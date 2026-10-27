@@ -68,9 +68,9 @@ function installOperatorApiFetch(): void {
       case '/api/cards/project/children':
         return jsonResponse({ parent: hierarchyView('project'), children: [hierarchyView('card-a', { title: 'Smoke card' })] });
       case '/api/cards/project':
-        return jsonResponse({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } });
+        return jsonResponse({ card: { source: { mode: 'off', facts: null }, id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } });
       case '/api/cards/card-a':
-        return jsonResponse({ card: { id: 'card-a', type: 'goal', title: 'Smoke card', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } });
+        return jsonResponse({ card: { source: { mode: 'off', facts: null }, id: 'card-a', type: 'goal', title: 'Smoke card', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } });
       case '/api/cards/card-a/agent-sessions':
         return jsonResponse({ sessions: [] });
       case '/api/agents/agent:planner:card-a':

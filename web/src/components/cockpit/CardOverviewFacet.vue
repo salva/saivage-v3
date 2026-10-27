@@ -1,5 +1,20 @@
 <template>
   <div class="overview-facet" data-testid="facet-overview">
+    <section v-if="detail" class="overview-section" data-testid="overview-source">
+      <h3 class="overview-label">Source ownership</h3>
+      <p>{{ detail.source.mode === 'native' ? 'Native Git' : 'Agent-managed Git (native mode off)' }}</p>
+      <template v-if="detail.source.facts">
+        <p>Private branch: <code>{{ detail.source.facts.branch_ref }}</code></p>
+        <p>Observed tip: <code>{{ detail.source.facts.observed_tip }}</code></p>
+        <p>Parent selection: <code>{{ detail.source.facts.parent.branch_ref }}</code> · <code>{{ detail.source.facts.parent.observed_tip }}</code></p>
+        <p v-if="detail.source.facts.correction">Source correction required — the configured Executor reconstructs original work; this is not product acceptance.</p>
+        <p v-if="detail.source.facts.last_delivery">Last completed delivery: <code>{{ detail.source.facts.last_delivery.parent_after }}</code></p>
+        <details><summary>Recorded source selections</summary><CodeBlock :code="formatJson(detail.source.facts)" language="json" copyable /></details>
+        <p class="overview-muted">Recorded selections are not live checkout verification. Stopped or queued does not prove source returned; inspect execution evidence for held or uncertain effects.</p>
+        <router-link :to="{ name: 'card-detail', params: { id: cardId }, query: { facet: 'executions' } }">Source execution evidence</router-link>
+      </template>
+      <p v-else-if="detail.source.mode === 'native'">This card has no initialized source selection yet.</p>
+    </section>
     <section class="overview-section" data-testid="overview-objective">
       <h3 class="overview-label">Objective</h3>
       <ViewState v-if="recordDescriptorsLoading && !bootstrapDescriptor" state="loading" title="Loading objective source" />
@@ -182,7 +197,7 @@ function fmtDate(ts: string): string { return formatRecentTimestamp(ts); }
 </script>
 
 <style scoped>
-.overview-facet { display: flex; flex-direction: column; min-width: 0; }
+.overview-facet { display: flex; flex-direction: column; min-width: 0; color: var(--text); }
 .overview-section { padding: 14px 16px; border-bottom: 1px solid var(--surface-3); min-width: 0; }
 .overview-label { margin: 0 0 9px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .overview-muted, .overview-error, .overview-stale { margin: 6px 0 0; font-size: 11px; color: var(--text-muted); }

@@ -253,6 +253,7 @@ function stringArray(node, context) {
 const CLASSIC_FACTORY_SOURCE = 'src/config/system-templates/classic-shared.ts';
 const OVERSIGHT_POLICY_SOURCE = 'src/contracts/oversight-tool-policy.ts';
 const SHIPPED_TEMPLATE_SOURCES = [
+  'src/config/system-templates/classic-git/template.ts',
   'src/config/system-templates/classic-typed/template.ts',
   'src/config/system-templates/classic/template.ts',
   'src/config/system-templates/paad-typed/template.ts',
@@ -819,8 +820,8 @@ const PATHS = Object.freeze({
   loggedEvents: sourcePathSet(['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/global-observation-tools.ts']),
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
-  shippedTools: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
-  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
+  shippedTools: sourcePathSet(['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
+  toolRelations: sourcePathSet(['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
   uiDiff: sourcePathSet(['web/src/api/client.ts', 'web/src/stores/cards.ts']),
 });
 
@@ -1054,8 +1055,19 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
   if (!ts.isObjectLiteralExpression(template)) throw new Error(`${path} ${templateName} must freeze an object literal`);
   requireLiteralMembers(template, `${path} ${templateName}`);
   const name = stringLiteralText(propertyAssignment(template, 'name', `${path} ${templateName}`), `${path} ${templateName}.name`);
-  const configExpression = unwrapExpression(propertyAssignment(template, 'config', `${path} ${templateName}`));
-  if (path === 'src/config/system-templates/paad-typed/template.ts') {
+  const native = name === 'classic-git';
+  const configExpression = native ? null : unwrapExpression(propertyAssignment(template, 'config', `${path} ${templateName}`));
+  if (native) {
+    if (stringLiteralText(unwrapExpression(propertyAssignment(template, 'provisioning', path)), path) !== 'native-git'
+      || identifierText(propertyAssignment(template, 'materialize', path), path) !== 'createClassicGitConfig') throw new Error('Native template must require its direct provisioned builder');
+    requireSourceFragments(projectRoot, path, [
+      'const provisioning = gitProvisioningSchema.parse(input);',
+      'const config = structuredClone(createClassicConfig(structuredClone(CLASSIC_TEMPLATE.config.card_types!)));',
+      'config.agents.analyst!.tools = config.agents.analyst!.tools.filter(',
+      'name => !nativeGlobalExcludedTools.includes(name)',
+      'config.agents.executor!.tools.push(...nativeExecutorTools);',
+    ], 'native classic selected inventory');
+  } else if (path === 'src/config/system-templates/paad-typed/template.ts') {
     requireNamedImport(ast, '../classic-typed/template.js', 'CLASSIC_TYPED_TEMPLATE');
     if (name !== 'paad-typed' || !ts.isPropertyAccessExpression(configExpression)
       || identifierText(configExpression.expression, `${path} config owner`) !== 'CLASSIC_TYPED_TEMPLATE'
@@ -1079,7 +1091,13 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
     || url.arguments[0].text !== './prompts/' || url.arguments[1].getText(ast) !== 'import.meta.url') {
     throw new Error(`${path} ${templateName} must retain its exact promptRoot`);
   }
-  return { name, roles: extractClassicAgents(projectRoot) };
+  const roles = extractClassicAgents(projectRoot);
+  if (native) {
+    const excluded = constStringArray(projectRoot, path, 'nativeGlobalExcludedTools');
+    roles.analyst = roles.analyst.filter(tool => !excluded.includes(tool));
+    roles.executor = [...roles.executor, ...constStringArray(projectRoot, path, 'nativeExecutorTools')];
+  }
+  return { name, roles, provisioningRequired: native };
 }
 function registryTemplates(projectRoot) {
   const registryPath = 'src/config/system-templates/registry.ts';
@@ -1104,7 +1122,9 @@ function registryTemplates(projectRoot) {
   });
 }
 function shippedToolInventories(projectRoot) {
-  const templates = registryTemplates(projectRoot);
+  // This claim describes the fixed OFF inventories. Native provisioning is a
+  // distinct selection, included in the tool union and exclusive-role checks.
+  const templates = registryTemplates(projectRoot).filter(template => !template.provisioningRequired);
   if (templates.length === 0) throw new Error('SYSTEM_TEMPLATES must contain a shipped template');
   const [first, ...rest] = templates;
   for (const template of rest) if (canonicalJson(first.roles) !== canonicalJson(template.roles)) throw new Error('Shipped template role/tool inventories differ');
@@ -1121,11 +1141,11 @@ function objectKeys(projectRoot, path, name) {
   });
 }
 function selectToolEquality(projectRoot) {
-  const inventories = Object.fromEntries(shippedToolInventories(projectRoot).agents.map((agent) => [agent.name, agent.tools]));
+  const inventories = registryTemplates(projectRoot).flatMap(template => Object.values(template.roles));
   const invocationPath = 'src/tools/tool-invocation-outbound.ts';
   const names = constStringArrayWithIdentifier(projectRoot, invocationPath, 'KNOWN_TOOL_INVOCATION_NAMES', 'TERMINAL_RESULT_TOOL_NAME', stringInitializer(projectRoot, 'src/contracts/result-envelope.ts', 'TERMINAL_RESULT_TOOL_NAME'));
   const presenters = objectKeys(projectRoot, 'web/src/utils/tool-presenters/presenters.ts', 'TOOL_PRESENTERS');
-  const roleUnion = new Set(Object.values(inventories).flat());
+  const roleUnion = new Set(inventories.flat());
   roleUnion.add(stringInitializer(projectRoot, 'src/contracts/result-envelope.ts', 'TERMINAL_RESULT_TOOL_NAME'));
   // Optional MCP selections need presenters without broadening shipped defaults.
   const { ast: mcpAst } = sourceAst(projectRoot, 'src/tools/mcp-provider.ts');
@@ -1175,7 +1195,9 @@ function constStringArrayWithIdentifier(projectRoot, path, name, identifier, res
   });
 }
 function selectExclusiveTools(projectRoot) {
-  const roles = Object.fromEntries(shippedToolInventories(projectRoot).agents.map((agent) => [agent.name, agent.tools]));
+  const roles = {};
+  for (const template of registryTemplates(projectRoot)) for (const [name, tools] of Object.entries(template.roles))
+    roles[name] = [...new Set([...(roles[name] ?? []), ...tools])];
   const allOther = (role) => new Set(Object.entries(roles).filter(([name]) => name !== role).flatMap(([, tools]) => tools));
   const relative = (role) => mathematicalSet(roles[role].filter((tool) => !allOther(role).has(tool)), `${role} exclusive tools`);
   return { analystPresenterOnly: relative('analyst'), plannerOnly: relative('planner') };
@@ -1349,7 +1371,7 @@ const VALUE_CONTRACT_CLAIMS = Object.freeze({
   'constant.analyst-title-preview-max-bytes': defineClaim('constants', sourcePathSet(['src/application/read-models/analyst-orientation.ts']), (root) => constantValue(root, 'src/application/read-models/analyst-orientation.ts', 'ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES', 'bytes', [['src/application/read-models/analyst-orientation.ts', 2]])),
   'constant.app-cleanup-leaf-timeout-ms': defineClaim('constants', sourcePathSet(['src/boot/app.ts']), (root) => constantValue(root, 'src/boot/app.ts', 'APP_CLEANUP_LEAF_TIMEOUT_MS', 'milliseconds', [['src/boot/app.ts', 2]])),
   'constant.compaction-refine-max-invocations': defineClaim('constants', sourcePathSet(['src/runtime/actors/compaction/refine-accumulator.ts']), (root) => constantValue(root, 'src/runtime/actors/compaction/refine-accumulator.ts', 'MAX_REFINE_INVOCATIONS', 'logical invocations', [['src/runtime/actors/compaction/refine-accumulator.ts', 4]])),
-  'constant.emit-result-summary-max-chars': defineClaim('constants', sourcePathSet(['src/runtime/card-process/card-process-config.ts']), (root) => constantValue(root, 'src/runtime/card-process/card-process-config.ts', 'EMIT_RESULT_SUMMARY_MAX_CHARS', 'characters', [['src/runtime/card-process/card-process-config.ts', 3]])),
+  'constant.emit-result-summary-max-chars': defineClaim('constants', sourcePathSet(['src/runtime/card-process/card-process-config.ts']), (root) => constantValue(root, 'src/runtime/card-process/card-process-config.ts', 'EMIT_RESULT_SUMMARY_MAX_CHARS', 'characters', [['src/runtime/card-process/card-process-config.ts', 4]])),
   'constant.managed-process-post-kill-verification-ms': defineClaim('constants', sourcePathSet(['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), (root) => constantValue(root, 'src/runtime/managed-process-group-registry.ts', 'MANAGED_PROCESS_POST_KILL_VERIFICATION_MS', 'milliseconds', [['src/runtime/managed-process-group-registry.ts', 2]])),
   'constant.managed-process-term-grace-ms': defineClaim('constants', sourcePathSet(['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), selectManagedProcessTermGrace),
   'constant.maximum-card-depth-segments': defineClaim('constants', PATHS.cardIdentity, selectMaximumDepth),

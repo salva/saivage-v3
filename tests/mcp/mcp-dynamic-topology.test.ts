@@ -56,6 +56,7 @@ function setup(operator = {}) {
   const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
   const events = { appendEventPrepared: jest.fn() };
   const manager = new McpManager({
+    nativeGit: false,
     configAuthority: testConfigAuthority(root),
     processRunner: runner,
     mcpProcessRootScope: scope,
@@ -529,6 +530,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       const registry = new ManagedProcessGroupRegistry();
       const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
       const fresh = new McpManager({
+        nativeGit: false,
         configAuthority: testConfigAuthority(root),
         processRunner: runner,
         mcpProcessRootScope: registry.createContainerScope(registry.rootScope, 'fresh'),

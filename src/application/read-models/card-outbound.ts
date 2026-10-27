@@ -13,11 +13,29 @@ import {
 } from '../../schemas/index.js';
 import type { CardArtifact } from '../../persistence/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
+import { cardGitFactsSchema, type CardGitFacts } from '../../schemas/git-source.js';
+
+export function projectGitFacts(value: unknown): CardGitFacts | null {
+  const facts = cardGitFactsSchema.nullable().parse(value);
+  if (!facts) return null;
+  const result = structuredClone(facts);
+  result.branch_ref = redactTextForOutbound(result.branch_ref);
+  result.parent.branch_ref = redactTextForOutbound(result.parent.branch_ref);
+  if (result.correction) {
+    result.correction.branch_ref = redactTextForOutbound(result.correction.branch_ref);
+    result.correction.onto.branch_ref = redactTextForOutbound(result.correction.onto.branch_ref);
+    result.correction.retained_original_ref = redactTextForOutbound(result.correction.retained_original_ref);
+    if (result.correction.preserved_source)
+      result.correction.preserved_source.ref = redactTextForOutbound(result.correction.preserved_source.ref);
+  }
+  return result;
+}
 
 export function projectCardRecordForOutbound(card: CardRecord): OutboundCardRecord {
   const parsed = cardRecordSchema.parse(card);
   return outboundCardRecordSchema.parse({
     id: parsed.id,
+    git: projectGitFacts(parsed.git),
     type: parsed.type,
     child_membership: [...parsed.child_membership],
     active_child_order: [...parsed.active_child_order],
@@ -56,6 +74,7 @@ export function projectCardVersionChangeForOutbound(
         change.changed_by_actor,
       );
     case 'child_link':
+    case 'git_source':
     case 'reorder':
       return parseOutboundChange(
         change.change_summary,
@@ -128,6 +147,8 @@ function projectTerminalResult<T extends import('../../schemas/index.js').CardRe
 
 function projectDiffValue(field: string, value: unknown): unknown {
   switch (field) {
+    case 'git':
+      return projectGitFacts(value);
     case 'title':
       return typeof value === 'string' ? redactTextForOutbound(value) : failDiffType(field);
     case 'status_text':

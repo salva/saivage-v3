@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
 import { startApp, type App } from '../../src/boot/app.js';
-import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-bootstrap.js';
+import { publishTestProjectRuntime as publishInitialProjectRuntime } from '../helpers/initial-project-fixture.js';
 import { CardService } from '../../src/cards/card-service.js';
 import {
   appendConversationBatch,

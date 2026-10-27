@@ -28,6 +28,7 @@ export interface SafeToolData {
 }
 
 export interface ToolContext {
+  assertGlobalSourceWrite?: (absolutePath: string) => void;
   cardTypeVocabulary: readonly CardTypeName[];
   projectRoot: string;
   configAuthority: ResolvedConfigAuthority;

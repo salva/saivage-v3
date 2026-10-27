@@ -267,6 +267,7 @@ export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
   edit_card: { action: 'Edit card', call: request('card edit', ['card_id', 'title', 'depends_on', 'priority', 'urgency'], cardTarget), result: cardMutation },
   reorder_child: { action: 'Reorder children', call: request('sibling order', ['parentId', 'orderedChildIds'], (a) => listTarget(a.orderedChildIds, 'children')), result: cardMutation },
   reopen_card: { action: 'Reopen card', call: request('reopen', ['card_id', 'cardId'], cardTarget), result: cardMutation },
+  checkpoint_source: { action: 'Checkpoint source', call: request('private checkpoint', [], () => textPart('Current card source')), result: (ctx) => observed('', [fields('Private source selection', ctx.dataRecord, ['branch_ref', 'observed_tip'])], ctx.envelope.success === true ? 'Source checkpoint recorded · Not product acceptance' : 'Source checkpoint refused') },
   cancel_card: { action: 'Cancel card', call: request('cancel', ['card_id', 'cardId', 'reason'], cardTarget), result: cardMutation },
   delete_card: { action: 'Delete card roots', call: request('root deletion', ['ids'], (a) => listTarget(a.ids, 'roots')), result: cardMutation },
   activate_card: { action: 'Activate child', call: request('activation', ['card_id'], cardTarget), result: cardMutation },

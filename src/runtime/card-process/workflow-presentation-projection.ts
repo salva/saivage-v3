@@ -12,6 +12,7 @@ export function projectWorkflowPresentation(
     card_type: workflow.cardType,
     nodes: nodes.map((node) => ({
       node_id: node.nodeId,
+      purpose: node.purpose,
       execution:
         node.execution.kind === 'agent'
           ? { kind: 'agent', agent_name: node.execution.agent.name }

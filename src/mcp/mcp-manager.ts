@@ -94,6 +94,7 @@ interface McpReconciliationPort {
   reconcilePersistedConfig(): Promise<McpReconciliationReport>;
 }
 interface McpManagerOptions {
+  nativeGit: boolean;
   outboundHttp?: OutboundHttpEmitter;
   configAuthority: ResolvedConfigAuthority;
   processRunner: ProcessRunner;
@@ -113,6 +114,7 @@ function revisionOf(config: McpServerConfig): string {
 }
 
 export class McpManager implements McpReconciliationPort {
+  private readonly nativeGit: boolean;
   private readonly outboundHttp?: OutboundHttpEmitter;
   readonly #processRunner: ProcessRunner;
   readonly #mcpProcessRootScope: ManagedProcessScope;
@@ -125,12 +127,14 @@ export class McpManager implements McpReconciliationPort {
   private admissionOpen = true;
 
   constructor({
+    nativeGit,
     configAuthority,
     processRunner,
     mcpProcessRootScope,
     eventLogger,
     outboundHttp,
   }: McpManagerOptions) {
+    this.nativeGit = nativeGit;
     this.configAuthority = configAuthority;
     this.outboundHttp = outboundHttp;
     this.#processRunner = processRunner;
@@ -140,6 +144,14 @@ export class McpManager implements McpReconciliationPort {
 
   next(): number {
     return this.nextMsgId++;
+  }
+
+  private assertNativeSourceCapability(): void {
+    if (this.nativeGit)
+      throw new McpLifecycleError(
+        'Native Git refuses MCP writers with unknown source footprint.',
+        409,
+      );
   }
 
   hasPendingReconciliation(): boolean {
@@ -242,6 +254,7 @@ export class McpManager implements McpReconciliationPort {
     bindingId: string,
     options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
   ): Promise<McpCatalogRefreshResult> {
+    this.assertNativeSourceCapability();
     options?.signal?.throwIfAborted();
     this.assertAdmission();
     const { configs } = this.loadDefinitions();
@@ -262,6 +275,7 @@ export class McpManager implements McpReconciliationPort {
     name: string,
     options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
   ): Promise<McpLifecycleResult> {
+    this.assertNativeSourceCapability();
     const signal = options?.signal;
     signal?.throwIfAborted();
     this.assertAdmission();
@@ -311,6 +325,7 @@ export class McpManager implements McpReconciliationPort {
     name: string,
     options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
   ): Promise<McpLifecycleResult> {
+    this.assertNativeSourceCapability();
     options?.signal?.throwIfAborted();
     this.assertAdmission();
     const runtime = this.#runtimes.get(name);
@@ -327,6 +342,7 @@ export class McpManager implements McpReconciliationPort {
     name: string,
     connection: McpConnection,
   ): { serverName: string; registered: true } {
+    this.assertNativeSourceCapability();
     this.assertAdmission();
     if (!name.length) throw new McpLifecycleError('MCP server name must be nonempty.', 409);
     const parsed = mcpConnectionSchema.safeParse(connection);
@@ -351,6 +367,7 @@ export class McpManager implements McpReconciliationPort {
     name: string,
     connection: McpConnection,
   ): { serverName: string; replaced: true; status: 'stopped' } {
+    this.assertNativeSourceCapability();
     this.assertAdmission();
     if (!name.length) throw new McpLifecycleError('MCP server name must be nonempty.', 409);
     const parsed = mcpConnectionSchema.safeParse(connection);
@@ -405,6 +422,7 @@ export class McpManager implements McpReconciliationPort {
       observationSource?: OutboundObservationSource;
     },
   ): Promise<NativeMcpResult> {
+    this.assertNativeSourceCapability();
     options?.signal?.throwIfAborted();
     if (!this.admissionOpen) throw new ServerNotRunningError(serverName);
     const runtime = this.#runtimes.get(serverName);
@@ -444,6 +462,8 @@ export class McpManager implements McpReconciliationPort {
         }),
       )
       .sort((a, b) => a.name.localeCompare(b.name));
+    if (this.nativeGit && desired.some((entry) => !entry.config.disabled))
+      this.assertNativeSourceCapability();
     const desiredByName = new Map(desired.map((entry) => [entry.name, entry]));
     const destructive = [...this.#runtimes.values()].filter((runtime) => {
       const target = desiredByName.get(runtime.name);

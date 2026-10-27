@@ -310,6 +310,7 @@ describe('real process authority loss in current stdio lifetime owner', () => {
       );
     writeConfig({ one: f.config });
     const manager = new McpManager({
+      nativeGit: false,
       configAuthority: testConfigAuthority(f.root),
       processRunner: f.runner,
       mcpProcessRootScope: f.rootScope,

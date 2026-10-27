@@ -7,7 +7,7 @@ import { registerServerRoutes } from './composition/route-composition.js';
 import { createServerServices } from './composition/server-services.js';
 import type { RestartPort } from '../contracts/index.js';
 import type { AppTerminalRegistration } from '../contracts/index.js';
-import type { RuntimeProcessIdentity } from '../runtime/runtime-api.js';
+import type { RuntimeProcessIdentity, ManagedProcessGroupRegistry, ProcessRunner } from '../runtime/runtime-api.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
 
 interface ServerConfig {
@@ -20,6 +20,8 @@ interface CreateServerOptions {
   terminal: AppTerminalRegistration;
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
+  processRegistry: ManagedProcessGroupRegistry;
+  processRunner: ProcessRunner;
   restartPort?: RestartPort;
   onOversightOwnerFailure(error: unknown): void;
   onExternalAnalystOwnerFailure(error: unknown): void;
@@ -65,6 +67,8 @@ async function createServer(options: CreateServerOptions): Promise<ServerInstanc
     terminal: options.terminal,
     processIdentity: options.processIdentity,
     fatalPort: options.fatalPort,
+    processRegistry: options.processRegistry,
+    processRunner: options.processRunner,
     restartPort: options.restartPort,
     onOversightOwnerFailure: options.onOversightOwnerFailure,
     onExternalAnalystOwnerFailure: options.onExternalAnalystOwnerFailure,

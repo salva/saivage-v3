@@ -46,6 +46,7 @@ export {
   publishCardVersion,
   publishInitialChildCard,
   publishInitialProjectCard,
+  prepareInitialProjectDirectories,
   readActiveCardPath,
   readActiveCardSubtree,
   readCanonicalCard,

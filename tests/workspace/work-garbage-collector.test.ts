@@ -14,6 +14,7 @@ import { agentMessageSchema, type RecordDefinition } from '../../src/schemas/ind
 import { cardConversationVersionFile, cardConversationVersionIndexFile, cardExecutionFile, cardRecordsRoot, cardRecordHeadFile } from '../../src/persistence/layout.js';
 import type { WorkGcCollectionContext } from '../../src/workspace/work-garbage-collector.js';
 import { WebfetchTextDataSchema } from '../../src/contracts/webfetch.js';
+import { publicNativeProject, publicNativeCli, nativeOptions, fixtureGit } from '../helpers/public-native-project.js';
 
 // Jest's VM-module named builtin exports do not follow syncBuiltinESMExports. Forward only
 // this test module's collector imports to the real builtin object, where faults are installed.
@@ -75,6 +76,61 @@ function message(content: string): ReturnType<typeof agentMessageSchema.parse> {
 }
 
 describe('work GC two-phase selection', () => {
+  it('selectively retains commissioned bootstrap commands and an incomplete native index through strict canonical reads', async () => {
+    const root = publicNativeProject();
+    // Preserve this public commissioning fixture as qualification evidence.
+    const init = publicNativeCli(root, 'init', ...nativeOptions);
+    expect(init.status).toBe(0);
+    const { createResolvedConfigAuthority } = await import('../../src/config/resolved-config-authority.js');
+    const { readCardExecutions } = await import('../../src/persistence/card-execution-log.js');
+    const { readCard } = await import('../../src/persistence/card-files.js');
+    const fresh = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: process.env }).loadEffective();
+    const bootstrap = readCardExecutions(root, 'project');
+    expect(bootstrap.find(row => row.kind === 'native_started')?.binding).toEqual({ origin: 'bootstrap' });
+    const starts = bootstrap.filter(row => row.kind === 'native_process_started');
+    expect(starts.length).toBeGreaterThan(1);
+    const captures = starts.flatMap(row => row.files.map(file => join(root, file.path)));
+    const invocation = randomUUID();
+    const indexRelative = `.saivage/work/cards/project/tmp/native-git-${invocation}/index`;
+    const index = work(root, indexRelative.slice('.saivage/work/'.length), 'selected incomplete index');
+    // A strict-valid incomplete activation prefix selects its artifact. No
+    // fabricated completion, source effect or initialized conversation is needed.
+    appendCardExecutions(root, 'project', [{ row_id: randomUUID(), invocation_id: invocation,
+      card_id: 'project', timestamp: '2026-10-27T00:00:00.000Z', kind: 'native_started', step: 'captureRebase',
+      binding: { origin: 'activation', activation_id: randomUUID(), parent_card_id: null,
+        node: { node_id: 'git-rebase-correction', ordinal: 1 } }, artifact_paths: [indexRelative] }]);
+    const selected = [...captures, index].map(path => [path, readFileSync(path)] as const);
+    const garbage = work(root, 'cards/project/tmp/unselected-control');
+    const unlinked = join(root, '.saivage/cards/card-z/records'); mkdirSync(unlinked, { recursive: true });
+    writeFileSync(join(unlinked, 'executions.jsonl'), 'malformed unlinked evidence\n');
+    const ref = readCard(root, 'project')!.git!.branch_ref, oid = fixtureGit(root, 'rev-parse', ref);
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: Date.now() + 1000 },
+      context({ workflows: fresh.workflows, operationalInputs: { config: fresh.config } }));
+    expect(result.deleted_count).toBe(1);
+    expect(existsSync(garbage)).toBe(false);
+    for (const [path, bytes] of selected) expect(readFileSync(path)).toEqual(bytes);
+    expect(fixtureGit(root, 'rev-parse', ref)).toBe(oid);
+    expect(readFileSync(join(unlinked, 'executions.jsonl'), 'utf8')).toBe('malformed unlinked evidence\n');
+  }, 60_000);
+  it('marks exact native captures and selected private index even for an incomplete attempt', async () => {
+    const root = fixture(), invocation = randomUUID(), processId = 'proc-0123456789ab';
+    const index = work(root, `cards/project/tmp/native-git-${invocation}/index`);
+    const captures = ['stdout', 'stderr'].map(stream => work(root, `cards/project/processes/${processId}/${stream}.log`));
+    const garbage = work(root, 'cards/project/tmp/unselected');
+    const identity = { invocation_id: invocation, card_id: 'project', timestamp: '2026-10-25T00:00:00.000Z' };
+    appendCardExecutions(root, 'project', [
+      { ...identity, row_id: randomUUID(), kind: 'native_started', step: 'captureRebase',
+        binding: { origin: 'activation', activation_id: randomUUID(), parent_card_id: null, node: { node_id: 'git-rebase-correction', ordinal: 2 } },
+        artifact_paths: [`.saivage/work/cards/project/tmp/native-git-${invocation}/index`] },
+      { ...identity, row_id: randomUUID(), kind: 'native_process_started', process_id: processId, allowed_exit_codes: [0],
+        files: (['stdout', 'stderr'] as const).map(stream => ({ kind: 'capture', stream,
+          path: `.saivage/work/cards/project/processes/${processId}/${stream}.log` })) },
+    ]);
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(result.deleted_count).toBe(1);
+    expect([index, ...captures].every(existsSync)).toBe(true);
+    expect(existsSync(garbage)).toBe(false);
+  });
   it('retains terminal capture URLs hidden by primary projection and typed webfetch/source query selections', async () => {
     const root = fixture(), processId = 'proc-0123456789ab';
     const captures = ['stdout', 'stderr'].map(stream => work(root, `processes/${processId}/${stream}.log`, 'output'));

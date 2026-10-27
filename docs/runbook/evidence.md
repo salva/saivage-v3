@@ -189,7 +189,7 @@ explicit authorized reads, not automatic recall. See [compaction diagnosis](./di
 
 ## Action execution and stdout
 
-Executions is retained **non-LLM** action/hook evidence, separate from real agent
+Executions is retained **non-LLM** action/hook or explicitly native Git evidence, separate from real agent
 Conversations. Entry does not prove spawn. An unmatched start means **no completion
 retained; effects unknown**, not “running”; absent evidence does not mean never ran.
 Captured runner stdout/stderr is distinct from declared artifact paths, which are
@@ -197,6 +197,13 @@ mutable **current workspace sources**, not historical snapshots. Missing files s
 unavailable; absent artifacts have no invented link. Bounded redacted preview/file
 access keeps Files confidentiality and resolved-alias/attic refusal, never a raw-byte
 bypass. Never replay invocation logs or infer a verdict from capture presence.
+
+Native Git detail groups sequential command starts and finishes under one logical
+step. Each command has its own process/captures and allowed exit codes. A killed
+command with leader exit zero is containment, not success; missing logical finish
+retains an interrupted prefix, not restart authority. Logical finish selects domain
+facts and operation artifacts, never a fictitious aggregate process. Native lifecycle
+integration and the selectable bundle remain unavailable in this foundation.
 
 Required checks belong before DONE in ordinary workflow nodes. The optional single
 `after_activation_commit` hook runs only for matching natural done/blocked/failed

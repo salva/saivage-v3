@@ -8,7 +8,7 @@ function partialGeneratedState(path: string): Error {
   return new Error(
     `The canonical project card cannot be newly published because generated state exists at '${path}'. ` +
       'All of .saivage/cards, .saivage/agents, .saivage/logs, and .saivage/work must be absent for initial publication. ' +
-      'Stop Saivage, run the current built saivage reset, and retry.',
+      'Stop Saivage and choose a separately authorized reset or external recovery. Native Git reset also requires clean delivery and a fresh unused private namespace; existing refs are never adopted or removed.',
   );
 }
 

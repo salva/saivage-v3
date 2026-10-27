@@ -3,11 +3,17 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SYSTEM_TEMPLATES } from '../src/config/system-templates/registry.js';
+import { SYSTEM_TEMPLATES, materializeSystemTemplate } from '../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../src/schemas/saivage-config.js';
 import { compileProjectWorkflows } from '../src/runtime/card-process/card-process-config.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+// Offline closure qualification only; never emitted as a project's configuration.
+export const SYNTHETIC_GIT_PROVISIONING = Object.freeze({
+  delivery_branch: 'packaging-fixture', private_ref_namespace: 'refs/saivage/packaging-fixture',
+  source_roots: ['.'], excluded_paths: ['.git', '.saivage'],
+});
 
 function walkFiles(root, current = root) {
   const files = [];
@@ -41,10 +47,10 @@ function relativeTemplatePath(artifact, promptRoot) {
  * observe its exact prompt closure. This function performs no publication, name
  * lookup, discovery, or output mutation; the closure is derived from compilation.
  */
-export function collectTemplatePromptClosure({ template, promptRoot = template.promptRoot }) {
+export function collectTemplatePromptClosure({ template, promptRoot = template.promptRoot, provisioning }) {
   const canonicalPromptRoot = resolve(promptRoot);
   const selected = new Set();
-  const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
+  const config = effectiveSaivageConfigSchema.parse(materializeSystemTemplate(template, provisioning));
   compileProjectWorkflows(config, {
     defaultPromptRoot: canonicalPromptRoot,
     artifactObserver: (artifact) => selected.add(relativeTemplatePath(artifact, canonicalPromptRoot)),
@@ -134,14 +140,15 @@ function copyTree(sourceRoot, outputRoot, closure, templateName) {
  * closure exactly, the closure is copied to <distRoot>/src/config/system-templates/<name>/prompts/,
  * and the output root is recompiled and re-asserted before moving on.
  */
-export function copySystemTemplatePrompts({ templates = SYSTEM_TEMPLATES, distRoot = join(repoRoot, 'dist') } = {}) {
+export function copySystemTemplatePrompts({ templates = SYSTEM_TEMPLATES, distRoot = join(repoRoot, 'dist'), nativeProvisioning = SYNTHETIC_GIT_PROVISIONING } = {}) {
   const packaged = [];
   for (const template of templates) {
-    const closure = collectTemplatePromptClosure({ template });
+    const provisioning = 'provisioning' in template ? nativeProvisioning : undefined;
+    const closure = collectTemplatePromptClosure({ template, provisioning });
     assertExactTree(template.promptRoot, closure, template.name);
     const outputRoot = join(distRoot, 'src', 'config', 'system-templates', template.name, 'prompts');
     copyTree(template.promptRoot, outputRoot, closure, template.name);
-    const outputClosure = collectTemplatePromptClosure({ template, promptRoot: outputRoot });
+    const outputClosure = collectTemplatePromptClosure({ template, promptRoot: outputRoot, provisioning });
     assertEqualPaths(outputClosure, closure, `Copied '${template.name}' prompt closure must equal its source closure`);
     assertExactTree(outputRoot, closure, template.name);
     packaged.push(Object.freeze({ name: template.name, count: closure.length, outputRoot }));

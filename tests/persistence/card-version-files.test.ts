@@ -13,6 +13,8 @@ import { workflowResult } from '../helpers/workflow-result.js';
 import { CanonicalCardFilesReadModel } from '../../src/application/read-models/canonical-card-files-read-model.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY, CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
+import { cardGitFactsSchema, type CardGitFacts } from '../../src/schemas/git-source.js';
+import { projectCardRecordForOutbound } from '../../src/application/read-models/card-outbound.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.useRealTimers(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -27,7 +29,48 @@ function notice() { return { id: randomUUID(), content: 'private mailbox body', 
 const io: ReplacementFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync };
 
 describe('card immutable history and pending-only mailbox', () => {
-  it.each(['card-version', 'card-tombstone'] as const)('publishes strict format3 %s bodies while selectors/messages remain format1', kind => {
+  it('publishes runtime source facts strictly, retains tombstone provenance and rejects ownership changes', () => {
+    const { root, cards, child } = fixture();
+    expect(cards.read('project')!.git).toBeNull(); expect(child.git).toBeNull();
+    // Schema/publication fixture, not an assertion that these OIDs are native effects.
+    const oid = 'a'.repeat(40);
+    const facts: CardGitFacts = { kind: 'child', branch_ref: 'refs/heads/private',
+      parent: { branch_ref: 'refs/heads/main', observed_tip: oid }, base_oid: oid, observed_tip: oid,
+      candidate: null, last_delivery: null, correction: null };
+    const before = head(root, child.id);
+    const published = cards.publishGitFacts(child.id, facts);
+    expect(published.git).toEqual(facts);
+    expect(head(root, child.id).head_id).not.toBe(before.head_id);
+    expect(projectCardRecordForOutbound(published).git).toEqual(facts);
+    expect(cards.readCardVersion(child.id, published.version_seq)).toMatchObject({ kind: 'found', value: { card: { git: facts }, change: { kind: 'git_source', changed_by_actor: 'runtime', changed_fields: ['git'] } } });
+    expect(cards.publishGitFacts(child.id, facts).version_seq).toBe(published.version_seq);
+    expect(() => cards.publishGitFacts(child.id, { ...facts, branch_ref: 'refs/heads/foreign' })).toThrow();
+    expect(cardGitFactsSchema.safeParse({ ...facts, native_start: oid }).success).toBe(false);
+    expect(cardGitFactsSchema.safeParse({ ...facts, approval: true }).success).toBe(false);
+    const rootFacts: CardGitFacts = { ...facts, kind: 'root', policy_digest: 'b'.repeat(64) };
+    cards.publishGitFacts('project', rootFacts);
+    expect(() => cards.publishGitFacts('project', { ...rootFacts, policy_digest: 'c'.repeat(64) })).toThrow();
+    expect(() => cards.publishGitFacts(child.id, rootFacts)).toThrow();
+    cards.deleteSubtrees([child.id], () => true, 'analyst');
+    const selected = head(root, child.id);
+    const tombstone = JSON.parse(readFileSync(cardHistoryFile(root, child.id, selected.ordinary.entry_id), 'utf8'));
+    expect(tombstone).toMatchObject({ format_version: 6, final_card: { git: facts } });
+    const { git: _git, ...missing } = tombstone.final_card;
+    writeFileSync(cardHistoryFile(root, child.id, selected.ordinary.entry_id), JSON.stringify({ ...tombstone, final_card: missing }));
+    expect(() => cards.readCardVersion(child.id, selected.ordinary.version)).toThrow();
+  });
+
+  it('publishes a truthful runtime Git-blocked outcome without workflow or provider attribution', () => {
+    const { cards, child } = fixture();
+    cards.setStatus(child.id, 'running');
+    const result = { kind: 'git-workflow-blocked' as const, step: 'enter' as const, invocation_id: randomUUID(), summary: 'Source entry refused.' };
+    const published = cards.commitActivationOutcome(child.id,
+      { status: 'blocked', result, summary: result.summary }, new Date().toISOString());
+    expect(published.card.lifecycle).toMatchObject({ status: 'blocked', result, error: result.summary });
+    expect(projectCardRecordForOutbound(published.card).lifecycle.result).toEqual(result);
+    expect(cards.readCardVersion(child.id, published.card.version_seq)).toMatchObject({ kind: 'found', value: { change: { terminal_summary: { result_kind: 'git-workflow-blocked', content_policy: null } } } });
+  });
+  it.each(['card-version', 'card-tombstone'] as const)('publishes strict format6 %s bodies while selectors/messages remain format1', kind => {
     const { root, cards, child } = fixture();
     const message = notice(); cards.enqueueNotification(child.id, message);
     expect(JSON.parse(readFileSync(cardMailboxFile(root, child.id, message.id), 'utf8')).format_version).toBe(1);
@@ -36,14 +79,14 @@ describe('card immutable history and pending-only mailbox', () => {
     const selected = head(root, child.id); expect(selected.format_version).toBe(1);
     const path = cardHistoryFile(root, child.id, selected.ordinary.entry_id);
     const artifact = JSON.parse(readFileSync(path, 'utf8'));
-    expect(artifact).toMatchObject({ format_version: 5, kind });
+    expect(artifact).toMatchObject({ format_version: 6, kind });
     const body = kind === 'card-version' ? artifact.card : artifact.final_card;
     expect(body).not.toHaveProperty('subtype'); expect(body).not.toHaveProperty('metadata');
     expect(cards.readCardVersion(child.id, artifact.version).kind).toBe('found');
     const files = new CanonicalCardFilesReadModel(() => cards).content(`.saivage/cards/project/children/a/card.json?v=${artifact.version}`);
     if (!('content' in files.body)) throw new Error('Expected historical Files body');
-    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 5, kind });
-     for (const format_version of [1, 2]) {
+    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 6, kind });
+     for (const format_version of [1, 2, 5]) {
        writeFileSync(path, JSON.stringify({ ...artifact, format_version }));
        expect(() => cards.read(child.id)).toThrow();
        expect(() => cards.readCardVersion(child.id, artifact.version)).toThrow();

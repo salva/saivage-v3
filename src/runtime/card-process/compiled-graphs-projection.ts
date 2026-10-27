@@ -118,6 +118,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
             };
       return {
         node_id: node.nodeId,
+        purpose: node.purpose,
         execution: projectedExecution,
         child_creation_types: [...node.childCreationTypes],
         child_activation_types: [...node.childActivationTypes],
@@ -185,7 +186,10 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
             promotion: null,
           };
         }
-        if (route.semantic.kind !== 'runtime-terminal')
+        if (route.semantic.kind !== 'runtime-terminal' &&
+            route.semantic.kind !== 'native-correction-entry' &&
+            route.semantic.kind !== 'native-correction-return' &&
+            route.semantic.kind !== 'native-correction-outcome')
           throw new Error(
             `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid runtime target.`,
           );

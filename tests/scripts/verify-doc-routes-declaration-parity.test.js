@@ -22,6 +22,7 @@ describe('verify-doc-routes.d.ts declaration parity', () => {
     const result = verifyToolContractDocs({ projectRoot: process.cwd() });
     expect(result.checkedClaimKeys).toEqual(['tools.exclusive-identities', 'tools.projector-presenter-equality', 'tools.shipped-role-inventories']);
     expect(result.selectedSourcePaths).toEqual([
+      'src/config/system-templates/classic-git/template.ts',
       'src/config/system-templates/classic-shared.ts',
       'src/config/system-templates/classic-typed/template.ts',
       'src/config/system-templates/classic/template.ts',

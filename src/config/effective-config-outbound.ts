@@ -70,5 +70,9 @@ export function projectEffectiveConfigForOutbound(
     ),
     providers,
     mcpServers,
+    git_workflow:
+      value.git_workflow === undefined
+        ? undefined
+        : { format_version: 1, enabled: value.git_workflow.enabled },
   });
 }

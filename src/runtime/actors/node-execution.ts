@@ -7,7 +7,11 @@ import { invokeOperation } from './operation-execution.js';
 import { resolveExecutionInputs, selectOperationRoute } from '../card-process/operation-routing.js';
 import type { OperationValues } from '../card-process/operation-contract.js';
 import type { CardService } from '../../cards/store-api.js';
-import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
+import type {
+  AcceptedSource,
+  CardActivationInput,
+  PlannerChildControlPort,
+} from './card-activation-owner.js';
 import type { ConversationLLMActor } from './llm-actor.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ConversationFileContext } from '../../persistence/session-api.js';
@@ -30,6 +34,8 @@ import {
 } from '../card-process/card-process-config.js';
 
 export interface AcceptedNodeResult {
+  readonly nodeOrdinal: number;
+  readonly source: AcceptedSource | null;
   readonly nodeId: string;
   readonly executor: WorkflowExecutor;
   readonly values: OperationValues;
@@ -52,7 +58,9 @@ export interface NodeExecutionHost {
   selectLlm(llm: ConversationLLMActor | null): void;
   freshInputId(): string;
   assertCurrentActivation(input: CardActivationInput): void;
+  assertCurrentNode(ordinal: number): void;
   assertPromotionAvailable(transition: CompiledProcessTransition): void;
+  promotedSource(transition: CompiledProcessTransition): AcceptedSource | null;
   claimResultHandoff(ordinal: number): void;
   claimedNodeInterruption(ordinal: number): boolean;
   retainSettlementFailure(error: unknown): void;
@@ -84,9 +92,11 @@ export interface NodeExecutionArgs {
   input: CardActivationInput;
   signal: AbortSignal;
   nodeOrdinal: number;
+  correctionReturnEntry?: CardActivationInput['entry'];
 }
 type CleanupStatus = 'done' | 'blocked' | 'failed' | 'cancelled';
 type NodeAcceptance =
+  | { pendingNotifications: true }
   | { violations: readonly string[]; message: string }
   | { stale: string }
   | { accepted: AcceptedNodeResult; cleanupStatus: CleanupStatus };
@@ -101,12 +111,19 @@ export interface AgentNodeContext {
     candidate: { outcome: string; summary: string },
     reviewerStaleReason: () => string | null,
     beforeClaim: (terminal: boolean) => void,
-  ): NodeAcceptance;
+  ): Promise<NodeAcceptance>;
 }
 
 /** The graph owner supplies exact claims; execution owns fresh acceptance and resources. */
 export class NodeExecution {
   private readonly agentExecutor: AgentExecutor;
+  private sourceWriterJoin: (() => Promise<void>) | null = null;
+
+  /** The admitted activate_card tool parks this node; keep its scope usable on return. */
+  async settleSourceWriters(): Promise<void> {
+    if (!this.sourceWriterJoin) throw new Error('Source handoff requires the active agent node.');
+    await this.sourceWriterJoin();
+  }
   constructor(
     readonly deps: NodeExecutionDeps,
     readonly host: NodeExecutionHost,
@@ -135,6 +152,7 @@ export class NodeExecution {
     const writtenRecords = new Set<string>();
     let baseline = new Map<string, { revision: number; headId: string } | null>();
     let finalizationBegun = false;
+    let reviewSource: AcceptedSource | null = null;
     const context: AgentNodeContext = {
       scope,
       writtenRecords,
@@ -171,11 +189,48 @@ export class NodeExecution {
             finalizationBegun = true;
           },
           writtenRecords,
+          undefined,
+          candidate.outcome,
+          {},
+          reviewSource,
         ),
     };
     let primary: { value: NodeExecutionResult } | { error: unknown };
+    this.sourceWriterJoin = async () => {
+      signal.throwIfAborted();
+      this.host.assertCurrentActivation(input);
+      this.host.assertCurrentNode(args.nodeOrdinal);
+      if (!scope) return;
+      const ownerId = `${input.activationId}:node:${args.nodeOrdinal}`;
+      const processes = this.deps.processRunner
+        .list()
+        .filter((record) => record.owner_id === ownerId);
+      for (const process of processes) {
+        await this.deps.processRunner.kill(process.id, {
+          directScope: scope,
+          category: 'runtime_card',
+          reason: 'Parent source handoff to child',
+          graceMs: 1000,
+        });
+        signal.throwIfAborted();
+        this.host.assertCurrentActivation(input);
+        this.host.assertCurrentNode(args.nodeOrdinal);
+        this.deps.processRunner.retireSettled(process.id, scope);
+      }
+    };
     try {
-      primary = { value: await this.agentExecutor.execute(args, context) };
+      const review = this.deps.workflows.gitPolicy?.review_bindings[input.card.type];
+      if (input.nativeSource && node.purpose === 'product' && review?.node === node.nodeId) {
+        const prepared = await input.nativeSource.prepareCandidate(args.nodeOrdinal);
+        signal.throwIfAborted();
+        this.host.assertCurrentActivation(input);
+        this.host.assertCurrentNode(args.nodeOrdinal);
+        if ('refusal' in prepared) primary = { value: prepared.refusal };
+        else {
+          reviewSource = prepared.source;
+          primary = { value: await this.agentExecutor.execute(args, context) };
+        }
+      } else primary = { value: await this.agentExecutor.execute(args, context) };
     } catch (error) {
       if (error instanceof PublicationOutcomeUnknownError) throw error;
       primary = { error };
@@ -202,9 +257,11 @@ export class NodeExecution {
         );
     }
     if (this.host.claimedNodeInterruption(args.nodeOrdinal)) {
+      this.sourceWriterJoin = null;
       if ('error' in primary && primary.error !== signal.reason) throw primary.error;
       return { kind: 'node-interrupted', ordinal: args.nodeOrdinal };
     }
+    this.sourceWriterJoin = null;
     if ('error' in primary) throw primary.error;
     return primary.value;
   }
@@ -299,7 +356,7 @@ export class NodeExecution {
         : [],
     );
     const selected = selectOperationRoute(node.execution, routes, invocation.result);
-    const acceptance = this.acceptCandidate(
+    const acceptance = await this.acceptCandidate(
       args,
       selected.result,
       baseline,
@@ -319,11 +376,15 @@ export class NodeExecution {
     );
     if ('accepted' in acceptance) return acceptance.accepted;
     throw new Error(
-      'violations' in acceptance ? acceptance.violations.join('; ') : acceptance.stale,
+      'violations' in acceptance
+        ? acceptance.violations.join('; ')
+        : 'stale' in acceptance
+          ? acceptance.stale
+          : 'Pending notifications require agent continuation.',
     );
   }
 
-  private acceptCandidate(
+  private async acceptCandidate(
     args: NodeExecutionArgs,
     candidate: { outcome: string; summary: string },
     baseline: ReadonlyMap<string, { revision: number; headId: string } | null>,
@@ -334,8 +395,63 @@ export class NodeExecution {
     executor?: WorkflowExecutor,
     routeId = candidate.outcome,
     values: OperationValues = {},
-  ): NodeAcceptance {
+    reviewSource: AcceptedSource | null = null,
+  ): Promise<NodeAcceptance> {
     const { node, process, input } = args;
+    if (node.purpose === 'git-correction') {
+      if (!input.nativeSource) throw new Error('Correction requires its Supervisor source owner.');
+      if (candidate.outcome === 'source_ready') {
+        await this.settleSourceWriters();
+        args.signal.throwIfAborted();
+        this.host.assertCurrentActivation(input);
+        this.host.assertCurrentNode(args.nodeOrdinal);
+        const violation = await input.nativeSource.verifyCorrection(args.nodeOrdinal);
+        args.signal.throwIfAborted();
+        this.host.assertCurrentActivation(input);
+        this.host.assertCurrentNode(args.nodeOrdinal);
+        if (violation) return { violations: [violation], message: violation };
+      }
+      const event =
+        candidate.outcome === 'source_ready'
+          ? `native:verified:${args.correctionReturnEntry ?? input.entry}`
+          : `result:${candidate.outcome}`;
+      const route = node.on.get(event);
+      if (
+        !route ||
+        (route.semantic.kind !== 'native-correction-return' &&
+          route.semantic.kind !== 'native-correction-outcome')
+      )
+        throw new Error('Correction has no owning compiled result route.');
+      const records = this.validateRecords(node, baseline);
+      if ('violations' in records) return { ...records, message: 'Record validation failed.' };
+      if (candidate.outcome === 'source_ready')
+        input.nativeSource.completeCorrection(args.nodeOrdinal);
+      beforeClaim(candidate.outcome !== 'source_ready');
+      this.host.claimResultHandoff(args.nodeOrdinal);
+      this.host.assertCurrentActivation(input);
+      beginFinalization();
+      return {
+        accepted: Object.freeze({
+          nodeOrdinal: args.nodeOrdinal,
+          source: null,
+          nodeId: node.nodeId,
+          executor: { kind: 'agent' as const, agent: requireAgentExecution(node).agent.name },
+          values: {},
+          outcome: candidate.outcome,
+          event,
+          summary: candidate.summary,
+          acceptedRecords: Object.freeze(
+            this.closeAcceptedRecords(node, records.candidates, writtenRecords),
+          ),
+        }),
+        cleanupStatus:
+          candidate.outcome === 'failed'
+            ? 'failed'
+            : candidate.outcome === 'blocked'
+              ? 'blocked'
+              : 'done',
+      };
+    }
     const route = node.on.get(`result:${routeId}`);
     if (!route || route.semantic.kind !== 'configured-outcome')
       throw new Error(
@@ -346,6 +462,69 @@ export class NodeExecution {
       throw new Error(
         `Compiled node '${node.nodeId}' has invalid target '${route.targetStateId}'.`,
       );
+    let source: AcceptedSource | null = null;
+    if (input.nativeSource) {
+      const review = this.deps.workflows.gitPolicy!.review_bindings[input.card.type];
+      const approvedReview =
+        review?.node === node.nodeId && review.approved_outcome === candidate.outcome;
+      const promoted = route.semantic.terminalBehavior?.promotion;
+      const reviewedTerminal =
+        target.kind === 'terminal' &&
+        target.terminal === 'DONE' &&
+        promoted?.kind === 'latest-node';
+      const prepares =
+        !approvedReview &&
+        !reviewedTerminal &&
+        ((target.kind === 'terminal' && target.terminal === 'DONE') ||
+          (target.kind === 'node' && target.nodeId === review?.node));
+      if (approvedReview || reviewedTerminal || prepares) {
+        const heads = new Map(
+          [
+            ...new Set([
+              ...node.requirements.map((record) => record.definition.name),
+              ...writtenRecords,
+            ]),
+          ].map((name) => [name, this.captureRecordHead(name)?.headId ?? null]),
+        );
+        if (node.execution.kind === 'agent') await this.settleSourceWriters();
+        args.signal.throwIfAborted();
+        this.host.assertCurrentActivation(input);
+        this.host.assertCurrentNode(args.nodeOrdinal);
+        if (prepares) {
+          const prepared = await input.nativeSource.prepareCandidate(args.nodeOrdinal);
+          args.signal.throwIfAborted();
+          this.host.assertCurrentActivation(input);
+          this.host.assertCurrentNode(args.nodeOrdinal);
+          if ('refusal' in prepared)
+            return { violations: [prepared.refusal.summary], message: prepared.refusal.summary };
+          source = prepared.source;
+        } else {
+          source = approvedReview ? reviewSource : this.host.promotedSource(route);
+          if (!source)
+            return {
+              violations: ['No current reviewed source is available.'],
+              message: 'A fresh source review is required.',
+            };
+          const violation = await input.nativeSource.verifyCandidate(args.nodeOrdinal, source);
+          args.signal.throwIfAborted();
+          this.host.assertCurrentActivation(input);
+          this.host.assertCurrentNode(args.nodeOrdinal);
+          if (violation) return { violations: [violation], message: violation };
+        }
+        for (const [name, headId] of heads)
+          if ((this.captureRecordHead(name)?.headId ?? null) !== headId)
+            return {
+              violations: [`Record '${name}' changed during source preparation; reassess it.`],
+              message: 'Record selection changed during source preparation.',
+            };
+        if (
+          node.execution.kind === 'agent' &&
+          node.execution.agent.name === process.notificationRecipient &&
+          input.notificationDelivery.hasPendingNotifications()
+        )
+          return { pendingNotifications: true };
+      }
+    }
     const records = this.validateRecords(node, baseline);
     if ('violations' in records) return { ...records, message: 'Record validation failed.' };
     const stale = reviewerStaleReason();
@@ -392,6 +571,8 @@ export class NodeExecution {
     const acceptedRecords = this.closeAcceptedRecords(node, records.candidates, writtenRecords);
     return {
       accepted: Object.freeze({
+        nodeOrdinal: args.nodeOrdinal,
+        source: event.endsWith(':pending-notifications') ? null : source,
         nodeId: node.nodeId,
         executor: executor ?? {
           kind: 'agent' as const,

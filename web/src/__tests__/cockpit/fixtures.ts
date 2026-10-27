@@ -103,6 +103,7 @@ export function hierarchyParent(id: string, overrides: Partial<CardHierarchyPare
 export function cardDetail(id: string, overrides: Partial<CardDetail> = {}): CardDetail {
   const type = id === 'project' ? 'project' : id === 'card-a' ? 'goal' : 'code';
   return {
+    source: { mode: 'off', facts: null },
     id,
     type,
     title: id,
@@ -137,7 +138,7 @@ export function cyclicCodePresentation(): OperatorApiSuccess<'workflows.presenta
   const graph = cyclicCodeGraph();
   return {
     card_type: graph.card_type,
-    nodes: graph.nodes.map(({ node_id, execution, initialize_records, output_record }) => ({ node_id, execution: execution.kind === 'agent' ? { kind: 'agent' as const, agent_name: execution.agent_name } : execution, initialize_records, output_record })),
+    nodes: graph.nodes.map(({ node_id, purpose, execution, initialize_records, output_record }) => ({ node_id, purpose, execution: execution.kind === 'agent' ? { kind: 'agent' as const, agent_name: execution.agent_name } : execution, initialize_records, output_record })),
     entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
     edges: graph.edges.map(({ source_node_id, outcome, route_id, test, condition, target }) => ({ source_node_id, outcome, route_id, test, condition, target })),
     terminals: graph.terminals,
@@ -162,8 +163,8 @@ export function cyclicCodeGraph(): OperatorApiSuccess<'debug.graphs'>['graphs'][
       { entry: 'STOPPED', node_id: 'execute', prompt },
     ],
     nodes: [
-      { node_id: 'execute', output_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md'], requirements: [{ record_name: 'brief.md', mode: 'clean', gate: 'exists' }], descendant_context: null, outcomes: ['done', 'needs-repair'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' }, prompt: { source: 'bundled-card', declaration: prompt, process: prompt, correction: prompt }, model: { route: 'sol', candidates: [{ provider: 'openai', model: 'sol' }], temperature: 0.2, max_tokens: 8192 }, skills: false, tools: ['read_file'], record_write_patterns: ['notes.md'] } },
-      { node_id: 'repair', output_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md'], requirements: [{ record_name: 'brief.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done', 'needs-repair'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' }, prompt: { source: 'bundled-card', declaration: prompt, process: prompt, correction: prompt }, model: { route: 'sol', candidates: [{ provider: 'openai', model: 'sol' }], temperature: 0.2, max_tokens: 8192 }, skills: false, tools: ['read_file'], record_write_patterns: ['notes.md'] } },
+      { purpose: 'product', node_id: 'execute', output_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md'], requirements: [{ record_name: 'brief.md', mode: 'clean', gate: 'exists' }], descendant_context: null, outcomes: ['done', 'needs-repair'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' }, prompt: { source: 'bundled-card', declaration: prompt, process: prompt, correction: prompt }, model: { route: 'sol', candidates: [{ provider: 'openai', model: 'sol' }], temperature: 0.2, max_tokens: 8192 }, skills: false, tools: ['read_file'], record_write_patterns: ['notes.md'] } },
+      { purpose: 'product', node_id: 'repair', output_record: null, initialize_records: [], record_prompts: [], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md'], requirements: [{ record_name: 'brief.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done', 'needs-repair'], execution: { kind: 'agent', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' }, prompt: { source: 'bundled-card', declaration: prompt, process: prompt, correction: prompt }, model: { route: 'sol', candidates: [{ provider: 'openai', model: 'sol' }], temperature: 0.2, max_tokens: 8192 }, skills: false, tools: ['read_file'], record_write_patterns: ['notes.md'] } },
     ],
     edges: [
       { route_id: 'done', test: null,

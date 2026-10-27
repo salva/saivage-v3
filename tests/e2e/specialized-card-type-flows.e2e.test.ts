@@ -7,7 +7,7 @@ import { basename, join } from 'node:path';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
-import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-bootstrap.js';
+import { publishTestProjectRuntime as publishInitialProjectRuntime } from '../helpers/initial-project-fixture.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import {
@@ -271,7 +271,7 @@ function harness(
   roots.push(root);
   createProjectIdentity(root, `Specialized ${type}`);
   const config = testConfig();
-  config.card_types = effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate(profile).config)).card_types;
+  config.card_types = effectiveSaivageConfigSchema.parse(templateConfig(resolveSystemTemplate(profile))).card_types;
   if (summary) {
     const capabilities = config.providers.test?.capabilities;
     if (!capabilities) throw new Error('test provider capabilities are missing');
@@ -2743,3 +2743,4 @@ else throw new Error('Unknown fixture mode');
     });
   });
 });
+import { templateConfig } from '../helpers/system-template-config.js';

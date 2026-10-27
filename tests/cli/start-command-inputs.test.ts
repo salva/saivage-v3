@@ -9,6 +9,8 @@ const withDirectMutationComposition = jest.fn<typeof import('../../src/boot/inde
 });
 jest.unstable_mockModule('../../src/boot/index.js', () => ({
   publishInitialProjectRuntime: jest.fn(),
+  assertInitialProjectPolicy: jest.fn(),
+  preflightInitialProjectSource: jest.fn(),
   startApp,
   withDirectMutationComposition,
 }));
@@ -81,5 +83,20 @@ describe('start command typed inputs', () => {
   ])('rejects diagnostic option misuse before starting (%j)', async (...args) => {
     await expect(run(['node', 'saivage', ...args])).rejects.toBeDefined();
     expect(startApp).not.toHaveBeenCalled(); expect(withDirectMutationComposition).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['--git-delivery-branch', 'main'],
+    ['--git-delivery-branch', 'main', '--git-delivery-branch', 'other'],
+    ['--profile', 'classic', '--git-delivery-branch', 'main', '--git-private-ref-namespace', 'refs/saivage/test', '--git-source-roots', '["."]', '--git-excluded-paths', '[".git",".saivage"]'],
+    ['--git-delivery-branch', 'main', '--git-private-ref-namespace', 'refs/saivage/test', '--git-source-roots', 'not-json', '--git-excluded-paths', '[".git",".saivage"]'],
+    ['--git-delivery-branch', 'HEAD', '--git-private-ref-namespace', 'refs/saivage/test', '--git-source-roots', '["."]', '--git-excluded-paths', '[".git",".saivage"]'],
+    ['--git-delivery-branch', 'main', '--git-private-ref-namespace', 'refs/saivage/test', '--git-source-roots', '["src/**"]', '--git-excluded-paths', '[".git",".saivage"]'],
+    ['--git-delivery-branch', 'main', '--git-private-ref-namespace', 'refs/saivage/test', '--git-source-roots', '["src","src"]', '--git-excluded-paths', '[".git",".saivage"]'],
+    ['--git-delivery-branch', 'main', '--git-private-ref-namespace', 'refs/saivage/test', '--git-source-roots', '["."]', '--git-excluded-paths', '[".git"]'],
+    ['--git-delivery-branch', 'main', '--git-private-ref-namespace', 'refs/saivage/test', '--git-source-roots', '["src"]', '--git-excluded-paths', '[".git",".saivage","src"]'],
+  ])('rejects malformed native provisioning before lifecycle effects (%j)', async (...args) => {
+    await expect(run(['node', 'saivage', 'init', ...args])).rejects.toBeDefined();
+    expect(startApp).not.toHaveBeenCalled();
+    expect(withDirectMutationComposition).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,34 @@
 # Saivage v3 System Specification
 
+Initial publication is lifecycle-excluded and creates configured root conversations
+and the required Analyst index before selecting the root card. The explicitly
+provisioned opt-in native Git path
+commissions only a fresh private root ref from clean explicit delivery, without
+checkout, commit, activation or Run. Completed source facts and truthful bootstrap
+execution evidence precede the initial head. Retained roots must match the selected
+ON/OFF policy; partial initialization and private-ref collisions refuse without
+replay/adoption. Native reset qualifies clean delivery and unused provisioning
+before deleting any generated state, and never deletes or reuses target Git refs.
+
+Immutable card format6 requires nullable native Git source facts on every ordinary
+and tombstone payload. OFF cards, newly created children and synthetic repair cards
+start with null facts; the commissioned ON initial root selects completed source facts.
+Runtime source publication records completed private/parent selections, original
+correction history and partial-source snapshots separately; it is not approval,
+source adoption, a resumable job or a promise of preservation after interruption.
+Root policy binding and private ownership remain fixed once established. A native
+entry refusal may have the truthful runtime-owned `git-workflow-blocked` result,
+without pretending to be an agent/action outcome. Native ON execution requires
+explicit provisioning, successful commissioning and eligible compiled configuration.
+
+Workflow5 structurally compiles ON correction as the configured card Executor in
+the same state table, with `git-correction` purpose and source_ready/blocked/failed
+results. Only native ownership may enter it and return to the saved ordinary entry
+after verification. It has no product DONE route, mandatory diagnostic output or
+product approval. Named agent sessions are reused/deduplicated, including on root
+and aggregate cards. OFF same-name authored nodes retain ordinary product meaning.
+The runtime compiler/binder admits only configurations satisfying native eligibility.
+
 Optional quality tools bind each selected policy agent to operator-provisioned
 JavaScript ESLint, typed TypeScript ESLint or Python Ruff configuration. Strict
 empty requests cannot replace code or scope. Card, global and externally authorized
@@ -374,7 +403,7 @@ verbatim memory; a fresh entry resolves and delivers fresh inputs again.
 
 ### Retained execution evidence
 
-`records/executions.jsonl` is a lazy card-owned strict version1 `card-execution`
+`records/executions.jsonl` is a lazy card-owned strict version3 `card-execution`
 family, not an authored record or workflow state. Each append is one nonempty
 newline-terminated envelope. Whole-log consumers validate identity/associations
 and all retained rows, not just a requested page. Entry precedes launch and does
@@ -391,6 +420,67 @@ Public named inputs and retained values use their original names for secret-name
 neutralization while preserving declared types and list cardinality. Raw operation
 values and retained evidence remain unchanged. Private configuration and environment
 are omitted from execution detail, not published as placeholders.
+
+Native Git evidence uses logical start/finish and sequential command start/finish rows, not action/provider
+impersonation. It records the actual step, invocation/card/parent/activation,
+optional node/ordinal, reported known effects and refs/OIDs, source-return result
+and exact captures/private-index artifact selection. Missing finish means effects
+unknown; reported source return is not product approval or a resumable phase.
+ON requires explicit provisioning and successful source commissioning. Each command
+must naturally settle its entire managed group and captures before another command
+or source observation. Deadline/Stop termination rejects even an exited-zero leader;
+known containment is not a successful source return. Optional binary input belongs
+to the existing runner, not a helper protocol or durable source-body field.
+
+The dependent Supervisor source owner orders root/child entry before provider work
+and failure/cancellation source return before terminal outcome and lease release.
+Runtime Stop takes over native command ownership rather than promising Git cleanup.
+Urgent held-source failures preserve queued notifications and suppress continuation;
+containment does not certify a restored checkout. Fresh commissioning and eligible
+bundle/configuration admission are prerequisites to running ON.
+
+Product acceptance prepares post-edit source before claim, record closure and the
+successful result settlement. Writers are joined without disabling corrective
+feedback; records, current node ownership, descendants, review freshness and pending
+notifications are consumed again after the await. Review entry prepares its exact
+candidate before the Reviewer sees it. Approval and later root reviewed completion
+verify that same clean tuple, never checkpointing later dirt under an old review.
+Root assessment retains the promoted review author/summary separately from its own
+closing record exports. Correction results never supply product approval.
+
+Supervisor delivery verifies the accepted child/root tuple and actual parent,
+squashes onto the parent's real checkout/index, and publishes the completed parent
+and child source facts before DONE or lease release. No-change delivery creates no
+empty commit. Dirt introduced after accepted emission refuses delivery and holds
+source; containment is not permission to attach a fresh checkpoint to old approval.
+
+Under ON, global source writes require a genuinely stopped runtime and the exact
+clean commissioned delivery selection. Starting, running, paused, transferring,
+halting and stopped-but-held private source are denied. The final resolved
+destination is classified synchronously before mkdir, edit-content reads or writes;
+new paths resolve their existing ancestor, and aliases grant no additional access.
+Multi-file patches admit every destination before any effect. Webfetch repeats
+final admission after the network await. Records and permitted unrelated files keep
+their own authority; OFF retains mid-run Analyst file behavior. An operator source
+edit is not card work: later Run refuses unattributed dirt rather than adopting it.
+Run reserves its existing starting ownership before asynchronous entry, without
+waiting for the submitting Analyst turn to finish.
+
+Global ON bindings reject unknown command-backed tools/quality and MCP writers,
+using actual canonical provider bindings. Read-only tools and existing process
+observation/containment remain available. The MCP owner freezes this restriction
+from startup workflows and refuses later register/replace/start/restart/catalog
+refresh/invocation and enabled persisted reconciliation before effects. Later
+configuration cannot hot-enlarge the frozen global tool surface or MCP eligibility.
+
+The configured correction Executor handles pending native tasks directly on reentry.
+Its `source_ready` requests native verification after its command writers settle;
+invalid source receives ordinary corrective feedback, not product acceptance.
+Verified correction resumes the saved ordinary entry, including STOPPED after a
+surviving urgent interruption. A blocked completed rewrite publishes the verified
+current tip but retains the original task/history and latest partial snapshot.
+Only an entry refusal with a proven untouched clean parent produces runtime
+`git-workflow-blocked`; partial or unknown transfer remains a containment failure.
 
 ### Parent direction and public notifications
 
@@ -444,7 +534,7 @@ aggregate permission implied by a role name.
 | Planner activate | Immediate child through the exact active parent owner and invocation lease | Compiled activation type; target entry status; every dependency exactly done; exact Supervisor owner/currentness admission | Running publication and child execution ownership |
 | Analyst delete | Explicit global non-root subtree while intervention-ready | No running member; complete survivor-dependency and ordering preflight | Permanent tombstones in dependent-before-dependency and child-before-parent order; this is not cancellation |
 | Record mutation | Current active linked target; card-scoped agents only their own card | Matching `record_writes`; every operation-required tool (`write`, `edit`, and prepared Analyst Webfetch requirements as applicable); Analyst lifecycle effect support and no existing workflow draft | Card-agent draft publication, or direct Analyst acceptance followed by record change propagation |
-| Analyst non-record write/edit | No intervention-readiness requirement, including mid-run; ordinary cancellation, permissions, and path admission apply | Existing project/scoped-file routing, not record authority | One file mutation and one `workspace.write`/`workspace.edit` audit append attempt; no ancestor propagation |
+| Analyst non-record write/edit | No intervention-readiness requirement; OFF permits mid-run. ON source destinations additionally require final synchronous stopped/clean delivery admission. Ordinary cancellation, permissions, and path admission apply | Existing project/scoped-file routing, not record authority | One file mutation and one `workspace.write`/`workspace.edit` audit append attempt; no ancestor propagation |
 
 For both reorder callers, an identity filtered active order succeeds with `changed:0` and appends no parent or child version.
 It performs no status publication, changed propagation, or notification.
@@ -841,7 +931,7 @@ Supervisor running-to-stopped and STOPPED stopped-to-running remain disjoint fix
 
 <!-- saivage:value-contract:card-change-vocabulary:start -->
 ```text
-vocabulary.card-version-change-kind = {"members":["child_link","delete","notification_enqueue","notification_remove","reorder","status","terminal","update"]}
+vocabulary.card-version-change-kind = {"members":["child_link","delete","git_source","notification_enqueue","notification_remove","reorder","status","terminal","update"]}
 ```
 <!-- saivage:value-contract:card-change-vocabulary:end -->
 

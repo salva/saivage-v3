@@ -80,7 +80,7 @@ describe('offline workflow compilation and publication', () => {
     expect(readProjectIdentity(projectRoot)).toBeNull();
     expect(existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json'))).toBe(false);
   });
-  it('actual PAAD init strictly loads its entire materialized closure and preserves it on a different profile request', async () => {
+  it('actual PAAD init strictly loads its closure, rejects a different profile, and preserves omitted-profile reinit', async () => {
     const projectRoot = root();
     jest.spyOn(console, 'log').mockImplementation(() => {});
     await command(projectRoot, 'init', '--profile', 'paad-typed');
@@ -91,7 +91,7 @@ describe('offline workflow compilation and publication', () => {
     const effective = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: {}, projectRoot }).loadEffective();
     expect(effective.config).toEqual(template.config);
     const emitted = YAML.parse(readFileSync(configPath, 'utf8')) as typeof template.config;
-    for (const type of Object.values(emitted.card_types!)) expect(type.workflow.format_version).toBe(4);
+    for (const type of Object.values(emitted.card_types!)) expect(type.workflow.format_version).toBe(5);
     expect(JSON.parse(readFileSync(markerPath, 'utf8'))).toEqual({ template: 'paad-typed', saivage_version: SAIVAGE_VERSION });
     assertTreeEqual(template.promptRoot, promptsRoot);
     const artifacts: Array<{path: string; source: string}> = [];
@@ -103,7 +103,8 @@ describe('offline workflow compilation and publication', () => {
       expect(artifact.source.startsWith('override-')).toBe(true);
     }
     const retained = new Map([configPath, markerPath, ...walkFiles(promptsRoot).map(file => join(promptsRoot, file))].map(path => [path, readFileSync(path)]));
-    await command(projectRoot, 'init', '--profile', 'classic');
+    await expect(command(projectRoot, 'init', '--profile', 'classic')).rejects.toThrow('Explicit --profile conflicts');
+    await command(projectRoot, 'init');
     for (const [path, bytes] of retained) expect(readFileSync(path)).toEqual(bytes);
     expect(walkFiles(promptsRoot)).toEqual(walkFiles(template.promptRoot));
   });
@@ -179,7 +180,8 @@ describe('offline workflow compilation and publication', () => {
     const markerBytes = readFileSync(markerPath);
     writeFileSync(fragmentPath, 'operator edited guidance');
     log.mockClear();
-    await command(projectRoot, 'init', '--profile', 'classic-typed');
+    await expect(command(projectRoot, 'init', '--profile', 'classic-typed')).rejects.toThrow('Explicit --profile conflicts');
+    await command(projectRoot, 'init');
     expect(log.mock.calls.map(([line]) => line)).toEqual([
       `Project layout already exists at ${projectRoot}`,
       'Existing configuration preserved',

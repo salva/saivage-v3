@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardService } from '../../../src/cards/card-service.js';
-import { publishInitialProjectRuntime } from '../../../src/boot/index.js';
+import { publishTestProjectRuntime as publishInitialProjectRuntime } from '../../helpers/initial-project-fixture.js';
 import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/index.js';

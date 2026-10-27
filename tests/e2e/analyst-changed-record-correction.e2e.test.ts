@@ -122,7 +122,7 @@ describe('Analyst corrections on CHANGED in production composition', () => {
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, 'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false } },
-          workflow: { format_version: 4,
+          workflow: { format_version: 5,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: { blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } } } } },

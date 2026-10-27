@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { gitNativeStepSchema } from './git-source.js';
 import { uuidV4Schema } from './uuid.js';
 import { operationIdSchema } from './operation-id.js';
 
@@ -55,7 +56,14 @@ export interface CompactionSummaryBlockedResult extends Record<string, unknown> 
 }
 export type RuntimeOwnedBlockedResult =
   | ContentPolicyRefusalBlockedResult
-  | CompactionSummaryBlockedResult;
+  | CompactionSummaryBlockedResult
+  | GitWorkflowBlockedResult;
+export interface GitWorkflowBlockedResult extends Record<string, unknown> {
+  kind: 'git-workflow-blocked';
+  step: z.infer<typeof gitNativeStepSchema>;
+  invocation_id: string;
+  summary: string;
+}
 export type DoneResult = WorkflowResult;
 export type FailedResult = WorkflowResult | RuntimeFailureResult;
 export type BlockedResult = WorkflowResult | RuntimeOwnedBlockedResult;
@@ -120,6 +128,8 @@ const blockedResultSchema: z.ZodType<BlockedResult> = z.union([
   workflowResultSchema,
   contentPolicyRefusalBlockedResultSchema,
   compactionSummaryBlockedResultSchema,
+  z.object({ kind: z.literal('git-workflow-blocked'), step: gitNativeStepSchema,
+    invocation_id: uuidV4Schema, summary: nonEmptyStringSchema }).strict(),
 ]);
 
 export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discriminatedUnion(

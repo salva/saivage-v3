@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CardExecutionsFacet from '../../components/cockpit/CardExecutionsFacet.vue';
 const api = vi.hoisted(() => ({ listCardExecutions: vi.fn(), getCardExecution: vi.fn(), getCardExecutionFile: vi.fn(), downloadCardExecutionFile: vi.fn() }));
 vi.mock('../../api/client', () => api);
-const row = { row_id: 'row', invocation_id: 'invocation', timestamp: '2026-10-19T00:00:00Z', operation: 'shell.run', contract_version: 1, binding: { kind: 'node', node_id: 'check', ordinal: 1, activation_id: 'activation' }, kind: 'invocation_started', disposition: null };
-const detail = { invocation_id: 'invocation', operation: 'shell.run', contract_version: 1, provider: { kind: 'builtin', name: 'shell' }, output_source: 'command-stdout', artifact_paths: ['absent.txt'], output: null, binding: row.binding, completion: 'no completion retained; effects unknown', started_at: row.timestamp, finished_at: null, shell: null, disposition: null, summary: null, outcome: null, leader_exit: null, leader_error: null, interruption: null, timeout_reason: null, process: null, input: [], values: [], processes: [], processes_truncated: false, files: [{ key: 'row:0', label: 'stdout', source: 'capture', observed_at: null, size: null }], absent_artifacts: ['absent.txt'] };
+const row = { family: 'action', row_id: 'row', invocation_id: 'invocation', timestamp: '2026-10-19T00:00:00Z', operation: 'shell.run', contract_version: 1, binding: { kind: 'node', node_id: 'check', ordinal: 1, activation_id: 'activation' }, kind: 'invocation_started', disposition: null };
+const detail = { family: 'action', invocation_id: 'invocation', operation: 'shell.run', contract_version: 1, provider: { kind: 'builtin', name: 'shell' }, output_source: 'command-stdout', artifact_paths: ['absent.txt'], output: null, binding: row.binding, completion: 'no completion retained; effects unknown', started_at: row.timestamp, finished_at: null, shell: null, disposition: null, summary: null, outcome: null, leader_exit: null, leader_error: null, interruption: null, timeout_reason: null, process: null, input: [], values: [], processes: [], processes_truncated: false, files: [{ key: 'row:0', label: 'stdout', source: 'capture', observed_at: null, size: null }], absent_artifacts: ['absent.txt'] };
 describe('card execution reader', () => {
   beforeEach(() => { vi.resetAllMocks(); api.listCardExecutions.mockResolvedValue({ rows: [row], next_cursor: null }); api.getCardExecution.mockResolvedValue(detail); });
   it('shows unknown completion without inventing live status; file content stays escaped and absent artifact has no link', async () => {
@@ -45,6 +45,25 @@ describe('card execution reader', () => {
     const wrapper = mount(CardExecutionsFacet, { props: { cardId: 'project' } }); await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toBe('Execution evidence unavailable.');
     expect(wrapper.text()).not.toContain('No retained execution evidence.');
+    wrapper.unmount();
+  });
+  it.each(['activation', 'bootstrap'])('labels incomplete native %s activity without fabricated ownership', async (origin) => {
+    const binding = origin === 'bootstrap' ? { origin } : { origin, activation_id: 'activation', parent_card_id: 'project', node: { node_id: 'git-rebase-correction', ordinal: 3 } };
+    const step = origin === 'bootstrap' ? 'commission' : 'captureRebase';
+    api.listCardExecutions.mockResolvedValue({ rows: [{ family: 'native', row_id: 'native-row', invocation_id: 'native',
+      timestamp: row.timestamp, kind: 'native_started', step, binding, disposition: null }], next_cursor: null });
+    const { operation, contract_version, provider, shell, input, values, output, output_source, ...common } = detail;
+    api.getCardExecution.mockResolvedValue({ ...common, family: 'native', invocation_id: 'native', step,
+      binding, effects: [], facts: null, source_return: 'unknown' });
+    const wrapper = mount(CardExecutionsFacet, { props: { cardId: 'card-a' } }); await flushPromises();
+    await wrapper.findAll('button').find(button => button.text().includes('native_started'))!.trigger('click'); await flushPromises();
+    const text = wrapper.get('[data-testid="execution-detail"]').text();
+    expect(text).toContain(`Native Git ${step}`);
+    expect(text).toContain(origin === 'bootstrap' ? 'Initial project bootstrap (no activation)' : 'git-rebase-correction · ordinal 3');
+    if (origin === 'bootstrap') expect(text).not.toContain('Activation');
+    expect(text).toContain('no completion retained; effects unknown');
+    expect(text).not.toContain('shell.run');
+    expect(text).not.toContain('contract v');
     wrapper.unmount();
   });
 });

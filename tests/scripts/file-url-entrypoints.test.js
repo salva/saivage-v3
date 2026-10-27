@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SYSTEM_TEMPLATES } from '../../src/config/system-templates/registry.js';
-import { collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
+import { collectTemplatePromptClosure, SYNTHETIC_GIT_PROVISIONING } from '../../scripts/copy-system-template-prompts.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const fixtureInputs = [
@@ -73,7 +73,7 @@ for (const name of ['checkout-ordinary', 'checkout café']) {
       const distRoot = join(fixture, 'dist');
       expect(existsSync(distRoot)).toBe(false);
       const success = runChild(`packaging (${name}) direct invocation`, fixture, process.execPath, args);
-      expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed']);
+      expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed', 'classic-git']);
       const summaries = [];
       for (const template of SYSTEM_TEMPLATES) {
         const sourceRoot = join(fixture, 'src/config/system-templates', template.name, 'prompts');
@@ -83,9 +83,10 @@ for (const name of ['checkout-ordinary', 'checkout café']) {
         for (const path of sourceFiles) {
           expect(readFileSync(join(outputRoot, path))).toEqual(readFileSync(join(sourceRoot, path)));
         }
-        const sourceClosure = collectTemplatePromptClosure({ template, promptRoot: sourceRoot });
+        const provisioning = 'provisioning' in template ? SYNTHETIC_GIT_PROVISIONING : undefined;
+        const sourceClosure = collectTemplatePromptClosure({ template, promptRoot: sourceRoot, provisioning });
         expect(sourceFiles).toEqual(sourceClosure);
-        expect(collectTemplatePromptClosure({ template, promptRoot: outputRoot })).toEqual(sourceClosure);
+        expect(collectTemplatePromptClosure({ template, promptRoot: outputRoot, provisioning })).toEqual(sourceClosure);
         summaries.push(`Copied ${sourceClosure.length} '${template.name}' prompt artifacts to ${relative(fixture, outputRoot)}`);
       }
       expect(success.stdout.trim()).toBe(summaries.join('\n'));

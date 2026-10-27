@@ -22,7 +22,7 @@ function fixture() {
   writeFileSync(join(root, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: {} }));
   const groups = new ManagedProcessGroupRegistry();
   const runner = new ProcessRunner(root, groups, testApplicationFatalPort);
-  const manager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
+  const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
   const installation = createMcpToolInvocationInstallation();
   installation.installer.install(manager);
   const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_tool_call')]).bind({ scope: 'card', agentName: 'executor', projectRoot: root, mcpToolInvocation: installation.port } as never);

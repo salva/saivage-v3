@@ -27,7 +27,7 @@ const first = {
   id: smokeCardId, type: 'code', title: 'Exact ordinary snapshot one', version_seq: 1,
   lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
   child_membership: [], active_child_order: [], priority: 0, urgency: 'normal', created_by: 'analyst',
-  created_at: now, updated_at: now, depends_on: [], status_text: null, status_text_updated_at: null,
+  git: null, created_at: now, updated_at: now, depends_on: [], status_text: null, status_text_updated_at: null,
 };
 const fourth = { ...first, title: 'Ordinary snapshot four', version_seq: 4 };
 const catalogEntry = (version: number, entry_id: string) => ({ version, entry_id, published_at: now, artifact_kind: 'card-version', change: null });
@@ -121,7 +121,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     if (!path.startsWith(namespace)) return route.fallback();
     if (path.endsWith(`/${recordName}`)) return json(route, 'files.content', { path, size: Buffer.byteLength(draftText), contentType: 'text/markdown', content: draftText, redacted: true, sensitivity: 'sensitive-redacted', version: 3, modifiedAt: now });
     const historical = path.endsWith('?v=1');
-    const content = JSON.stringify(historical ? { format_version: 5, card_id: smokeCardId, kind: 'card-version', version: 1, entry_id: firstId, published_at: now, card: first, change: null } : { kind: 'card-current', head_id:smokeOperatorCard.head_id, card_id: smokeCardId, version_seq: revision, history_version: 4, updated_at: now, card: fourth }, null, 2);
+    const content = JSON.stringify(historical ? { format_version: 6, card_id: smokeCardId, kind: 'card-version', version: 1, entry_id: firstId, published_at: now, card: first, change: null } : { kind: 'card-current', head_id:smokeOperatorCard.head_id, card_id: smokeCardId, version_seq: revision, history_version: 4, updated_at: now, card: fourth }, null, 2);
     return json(route, 'files.content', { path, size: Buffer.byteLength(content), contentType: 'application/json', content, redacted: true, sensitivity: 'sensitive-redacted', version: historical ? 1 : revision, modifiedAt: now });
   });
 

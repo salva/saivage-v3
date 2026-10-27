@@ -348,6 +348,13 @@ describe('source-derived Config schema inventory', () => {
       'card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.inputs.entry',
       'mcpServers.entry.variant1',
       'mcpServers.entry.variant2',
+      'git_workflow.variant1',
+      'git_workflow.variant2',
+      'git_workflow.variant2.preservation',
+      'git_workflow.variant2.correction',
+      'git_workflow.variant2.correction.prompt',
+      'git_workflow.variant2.correction.correction_prompt',
+      'git_workflow.variant2.review_bindings.entry',
     ]);
     expect(result.expected.get('card_types.entry.records.entry')).toEqual([
       'bootstrap', 'format', 'initialization', 'schema',

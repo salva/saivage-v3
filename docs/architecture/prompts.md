@@ -97,12 +97,26 @@ reference share applicable overrides. Independent content needs independent
 references. An independently named agent selecting `planner` receives that host's
 includes; a custom `project-planner` reference receives only includes it contains.
 
-Within workflow input format 4, agent-node `execution` contains `agent`, static `prompt`
+Within workflow input format 5, agent-node `execution` contains `agent`, static `prompt`
 and durable `correction_prompt`. Action execution has neither. Process references
 remain on declarations; the compiled workflow's `processPrompts` map owns bodies.
 There is no runtime workflow-family lookup or prompt manifest.
 
 ## Compiler and host contract
+
+The provisioned `classic-git` bundle has its own standalone selected tree, derived
+from classic. Every card role includes `native-source`, and each global role
+includes `native-global`; ON compilation refuses replacement hosts omitting their
+capability include. Includes still resolve through the ordinary override rules;
+their presence is not semantic certification of custom prose. The real Executor
+is selected for compiler-owned `git-rebase-correction` on all types, with optional
+`git-correction.md` diagnostics and ordinary rejected-result feedback. Its prepared
+task distinguishes original full history, current private work and partial source
+snapshots. `source_ready` requests verification/continuation, never product DONE.
+Role/task context is prepared for new sessions, reentry and urgent continuation,
+not remembered only from initialization. No native block is appended after the
+latest-record observation suffix, and compaction does not convert observations or
+diagnostic text into source authority.
 
 ::: v-pre
 
@@ -188,7 +202,7 @@ agents:
 card_types:
   code:
     workflow:
-      format_version: 4
+      format_version: 5
       entries:
         STOPPED:
           node: red

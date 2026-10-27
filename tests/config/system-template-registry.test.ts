@@ -1,4 +1,5 @@
 import { agentExecution } from '../helpers/workflow-execution.js';
+import { templateConfig } from '../helpers/system-template-config.js';
 import { describe,expect,it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join,resolve } from 'node:path';
@@ -15,7 +16,7 @@ import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, collectTe
 
 describe('system template registry',()=>{
   it('registers the three profiles with isolated module-relative prompt roots',()=>{
-    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed']);
+    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed','classic-git']);
     expect(new Set(SYSTEM_TEMPLATES.map(template=>template.promptRoot)).size).toBe(SYSTEM_TEMPLATES.length);
     expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic');
     for(const template of SYSTEM_TEMPLATES){
@@ -27,13 +28,13 @@ describe('system template registry',()=>{
   it('accepts the registered templates at load-time validation',()=>{
     expect(()=>validateSystemTemplates(SYSTEM_TEMPLATES)).not.toThrow();
     for (const template of SYSTEM_TEMPLATES) {
-      for (const type of Object.values(template.config.card_types!)) expect(type.workflow.format_version).toBe(4);
+      for (const type of Object.values(templateConfig(template).card_types!)) expect(type.workflow.format_version).toBe(5);
     }
   });
 
   it.each(SYSTEM_TEMPLATES)('compiles the scoped status/review starters and existing authorship authority in $name',template=>{
-    const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot});
-    const typed=template.name!=='classic';
+    const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot});
+    const typed=template.name==='classic-typed'||template.name==='paad-typed';
     const statusNodes:Record<string,string[]>={
       project:['plan','recover','assess-completion'],goal:['plan','recover','handle-notifications'],
       architecture:typed?['draft']:['execute'],code:typed?['red','green','refactor']:['execute'],
@@ -67,7 +68,7 @@ describe('system template registry',()=>{
         .toEqual([...reviewNodes].sort());
     }
     expect(workflows.agents.get('planner')!.recordWrites.map(pattern=>pattern.source)).toEqual(['brief.md','status.md']);
-    expect(workflows.agents.get('executor')!.recordWrites.map(pattern=>pattern.source)).toEqual(['status.md']);
+    expect(workflows.agents.get('executor')!.recordWrites.map(pattern=>pattern.source)).toEqual(template.name==='classic-git'?['status.md','git-correction.md']:['status.md']);
     expect(workflows.agents.get('reviewer')!.recordWrites.map(pattern=>pattern.source)).toEqual(['review.md','review-*.md']);
     expect(workflows.analyst.recordWrites.map(pattern=>pattern.source)).toEqual(['brief.md']);
     expect(workflows.oversight.recordWrites).toEqual([]);
@@ -87,7 +88,7 @@ describe('system template registry',()=>{
   });
 
   it('fails unknown names with the exact listing and profile field path',()=>{
-    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed, paad-typed.");
+    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed, paad-typed, classic-git.");
     try { resolveSystemTemplate('Standard'); } catch (error) {
       expect((error as Error & { fieldPath?: string }).fieldPath).toBe('profile');
     }
@@ -115,7 +116,7 @@ describe('system template registry',()=>{
     expect(typed.config.card_types).not.toEqual(classic.config.card_types);
     expect(()=>assertClassicFamilyPromptParity({templates:SYSTEM_TEMPLATES})).not.toThrow();
     const assessments=SYSTEM_TEMPLATES.map(template=>{
-      const workflow=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot}).cardTypes.get('project')!;
+       const workflow=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot}).cardTypes.get('project')!;
       const node=workflow.states.get('node:assess-completion')!;
       if(node.kind!=='node')throw new Error('Missing project assessment');
       return workflow.processPrompts.get(agentExecution(node).prompt.promptId)!.text;
@@ -152,7 +153,7 @@ describe('system template registry',()=>{
   it('compiles each selected Executor with its observed guidance closure and one rendered outcome contract',()=>{
     for(const {name:templateName} of SYSTEM_TEMPLATES){
       const template=resolveSystemTemplate(templateName);const observed:string[]=[];
-      const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot,artifactObserver:(artifact)=>observed.push(artifact.path)});
+      const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot,artifactObserver:(artifact)=>observed.push(artifact.path)});
       const rendered=createPromptTemplateRegistry(workflows).render({kind:'workflow-agent',cardType:'code'},'executor',{contractDescription:'UNIQUE-OUTCOME-CONTRACT'});
       expect(rendered.split('UNIQUE-OUTCOME-CONTRACT')).toHaveLength(2);
       expect(observed.some((path)=>path.endsWith('/agents/_shared/executor.md'))).toBe(true);
@@ -164,9 +165,9 @@ describe('system template registry',()=>{
   it('ships the global role include and vocabulary tokens',()=>{
     for(const {name:templateName} of SYSTEM_TEMPLATES){
       const analyst=readFileSync(join(resolveSystemTemplate(templateName).promptRoot,'agents/_shared/analyst.md'),'utf8');
-      expect(analyst.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>operator-policy-overrides}}','{{>project-guidance-common}}','{{>project-guidance-analyst}}','{{vocabularySnippet}}']);
+      expect(analyst.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>operator-policy-overrides}}',...(templateName==='classic-git'?['{{>native-global}}']:[]),'{{>project-guidance-common}}','{{>project-guidance-analyst}}','{{vocabularySnippet}}']);
       const oversight=readFileSync(join(resolveSystemTemplate(templateName).promptRoot,'agents/_shared/oversight.md'),'utf8');
-      expect(oversight.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>operator-policy-overrides}}','{{>project-guidance-common}}','{{>project-guidance-oversight}}','{{vocabularySnippet}}']);
+      expect(oversight.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>operator-policy-overrides}}',...(templateName==='classic-git'?['{{>native-global}}']:[]),'{{>project-guidance-common}}','{{>project-guidance-oversight}}','{{vocabularySnippet}}']);
     }
   });
 });

@@ -9,7 +9,7 @@ import { compileProjectWorkflows, bindRuntimeWorkflows } from '../../../src/runt
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
 import { CardService } from '../../../src/cards/card-service.js';
-import { publishInitialProjectRuntime } from '../../../src/boot/index.js';
+import { publishTestProjectRuntime as publishInitialProjectRuntime } from '../../helpers/initial-project-fixture.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
@@ -105,13 +105,14 @@ function fixture(profile: Profile, steps: Step[], hooks: Partial<Pick<Parameters
 }
 
 describe.each(profiles)('%s actual project objective reconciliation', profile => {
-  it('rechecks an already accepted Start after its awaited preparation while GC owns the existing run', async () => {
+  it('rechecks Start admission after an awaited preparation boundary while GC owns the existing run', async () => {
     const providerEntered = deferred<void>(), releaseProvider = deferred<void>();
     const f = fixture(profile, [{ ...write('plan', 'Continue after the same-run maintenance.'), before: async () => { providerEntered.resolve(); await releaseProvider.promise; } }]);
     const owner = await f.launch(); await providerEntered.promise;
     const startEntered = deferred<void>(), releaseStart = deferred<void>();
-    const originalStart = f.supervisor.start.bind(f.supervisor);
-    const start = jest.spyOn(f.supervisor, 'start').mockImplementation(async () => { startEntered.resolve(); await releaseStart.promise; return originalStart(); });
+    const preparation = f.supervisor as unknown as { beginStartProject(): Promise<unknown> };
+    const originalStart = preparation.beginStartProject.bind(preparation);
+    const start = jest.spyOn(preparation, 'beginStartProject').mockImplementation(async () => { startEntered.resolve(); await releaseStart.promise; return originalStart(); });
     const acceptedStart = f.supervisor.startProject().catch(error => error);
     await startEntered.promise;
     const collecting = deferred<void>(), releaseCollection = deferred<void>();

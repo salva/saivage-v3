@@ -38,11 +38,11 @@ const canonicalCard = {
   id: 'project', type: 'project', child_membership: [], active_child_order: [], title: 'Project', priority: 0,
   urgency: 'normal', created_by: 'analyst', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1,
   depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-  status_text: null, status_text_updated_at: null, pending_notifications: [],
+  git: null, status_text: null, status_text_updated_at: null, pending_notifications: [],
 } as const;
 const oversight={agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:true,eligibility_reason:null,state:'waiting',next_nominal_due:'2026-01-01T02:00:00.000Z',last_attempt:null,last_successful_at:null,service_epoch:'2026-01-01T00:00:00.000Z'} as const;
 const { pending_notifications: _pendingNotifications, ...outboundCanonicalCard } = canonicalCard;
-const canonicalCardDetail = { head_id:'11111111-1111-4111-8111-111111111111',id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
+const canonicalCardDetail = { source:{mode:'off',facts:null},head_id:'11111111-1111-4111-8111-111111111111',id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
 const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog',permitted_child_types:['goal','code'] } as const;
 const canonicalHierarchyChild = { id:'card-a',type:'code',title:'Card',status:'backlog',permitted_child_types:[] } as const;
 const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, current: null }] as const;

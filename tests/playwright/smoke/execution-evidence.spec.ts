@@ -38,6 +38,7 @@ test('compiled plugin observations render the actual authenticated detail result
     expect(response.status()).toBe(200);
     expect(response.request().headers().authorization).toBe(`Bearer ${fixture.token}`);
     const detail = parseOperatorResponse('cards.executions.get', 200, await response.json());
+    if (detail.family !== 'action') throw new Error('Expected action evidence');
     const rendered = page.getByTestId('execution-detail').locator('h4 + pre');
     await expect(rendered).toHaveText(JSON.stringify({ input: detail.input, values: detail.values }, null, 2));
     const observations = JSON.parse((await rendered.textContent())!);

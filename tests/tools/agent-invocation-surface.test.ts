@@ -265,7 +265,7 @@ describe('named-agent inventories and composition', () => {
   it.each(SYSTEM_TEMPLATES)(
     'compiles the exact $name named inventory in declared order without MCP reconcile',
     (template) => {
-      const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
+      const config = effectiveSaivageConfigSchema.parse(templateConfig(template));
       const workflows = compileProjectWorkflows(config as never, {
         defaultPromptRoot: template.promptRoot,
       });
@@ -276,7 +276,10 @@ describe('named-agent inventories and composition', () => {
         'reviewer',
         'executor',
       ]);
-      for (const [name, tools] of Object.entries(expected)) {
+      for (const [name, originalTools] of Object.entries(expected)) {
+        const tools = template.name !== 'classic-git' ? originalTools : name === 'analyst'
+          ? originalTools.filter(tool => !['run_command','wait_process','kill_process','mcp_tool_call','mcp_server_control','mcp_tools'].includes(tool))
+          : name === 'executor' ? [...originalTools, 'checkpoint_source'] : originalTools;
         expect(config.agents[name]!.tools).toEqual(tools);
         expect(workflows.agents.get(name as never)?.tools.map((tool) => tool.name)).toEqual(tools);
         expect(new Set(tools).size).toBe(tools.length);
@@ -653,3 +656,4 @@ describe('named-agent inventories and composition', () => {
     expect(closeAndTerminateDirectScope).not.toHaveBeenCalled();
   });
 });
+import { templateConfig } from '../helpers/system-template-config.js';

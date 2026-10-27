@@ -9,7 +9,7 @@ import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../../help
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { testApplicationFatalDelivery, testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
-import { publishInitialProjectRuntime } from '../../../src/boot/project-runtime-bootstrap.js';
+import { publishTestProjectRuntime as publishInitialProjectRuntime } from '../../helpers/initial-project-fixture.js';
 import { compileProjectWorkflows, bindRuntimeWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
 import { TEST_SAIVAGE_CONFIG } from '../../helpers/test-saivage-config.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';

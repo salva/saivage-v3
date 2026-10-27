@@ -1,5 +1,30 @@
 # State adoption, repair and reset
 
+## Native Git initialization boundaries
+
+The opt-in classic-git profile requires all four explicit init provisioning values
+or a complete preauthored ON configuration. Init leaves delivery selected without
+starting Run. Its source/compiler availability is not deployment authorization.
+Its initializer never adopts a partial root or existing private ref. A failed
+rootless initialization may retain generated directories, execution evidence and
+an allocated private ref; later init/start refuses it without discovery or replay.
+Reset remains a separate destructive choice, not a ref cleanup or retry protocol.
+Before deleting any generated root, native reset requires clean explicit delivery
+and a separately configured unused private namespace. Equal ref tips do not make
+an existing ref reusable. Preserve failure evidence and obtain the appropriate
+reset/recovery authorization; do not infer that generic reset advice removes Git
+refs or guarantees lossless recovery.
+
+The native-source dependent cutover requires immutable card format6 (from5),
+including nullable Git facts on OFF/bootstrap/repair cards. Old retained card5
+is a strict blocker, not automatically filled with null. Card heads remain1;
+accepted records5 and conversation12 are unchanged. Execution evidence now requires
+format3 (from2), including unchanged action meanings and distinct native evidence.
+Old execution2 is rejected even for OFF projects; no implicit conversion occurs. The dependent
+workflow input cutover is now4→5 for compiler-owned correction interpretation,
+including strict current inputs for OFF profiles. Deployment is
+not migration/reset permission; use only separately authorized adoption procedures.
+
 Adopting optional `agents.<name>.quality_tools` requires a matching release supporting
 its initial format1 input, paired tool grant and preprovisioned pinned dependencies.
 Old binaries reject this section. Source completion is not installation adoption,

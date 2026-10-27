@@ -110,10 +110,10 @@ describe('AgentNodeExecution LLM options', () => {
     const node = { nodeId: 'work', execution: { kind: 'agent', agent: { name: 'planner' }, prompt: { promptId: 'work', compactable: true } } };
     const process = {
       cardType: 'project',
-      states: new Map([['entry:READY', { kind: 'entry', entry: 'READY', on: new Map([['begin', { targetStateId: 'node:work', semantic: { kind: 'entry-route', promptId: null } }]]) }]]),
+      states: new Map([['entry:BACKLOG', { kind: 'entry', entry: 'BACKLOG', on: new Map([['entry:route', { targetStateId: 'node:work', semantic: { kind: 'entry-route', prompt: null } }]]) }]]),
       processPrompts: new Map([['work', { text: 'selected node prompt body' }], ['other', { text: 'unselected prompt body' }]]),
     };
-    const transition = { context: { source: 'entry:READY', event: 'begin', target: 'node:work' }, acceptedResult: null };
+    const transition = { context: { source: 'entry:BACKLOG', event: 'entry:route', target: 'node:work' }, acceptedResult: null };
     const input = { card: { id: 'project', type: 'project' }, notificationDelivery: { hasPendingNotifications: () => false, selectNotifications: () => [], removeNotifications: () => undefined } };
     const firstInputId = '00000000-0000-4000-8000-000000000001';
     const secondInputId = '00000000-0000-4000-8000-000000000002';

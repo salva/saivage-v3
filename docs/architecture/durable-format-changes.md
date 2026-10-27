@@ -30,15 +30,16 @@ source-era values; they must not be read as today's accepted-version list.
 
 | Durable family | Exact path/owner | Discriminator and selected meaning |
 | --- | --- | --- |
+| Native Git policy input | Optional YAML `git_workflow`; `schemas/saivage-config.ts`, workflow compiler | Initial `format_version:1`; strict OFF or explicit source/delivery/preservation/correction/review declarations. The opt-in classic-git bundle supports fresh lifecycle-owned commissioning; no retained-state adoption is available. |
 | Card current head / previous slot | Card namespace `card-head.json`, `card-head.prev.json`; `persistence/canonical-card-artifacts.ts`, `card-files.ts` | `format_version:1`, `kind:card-head`; fresh head UUID, ordinary selection and ordered current-only mailbox UUIDs. Previous slot shares this selector contract, not separate numbering. |
-| Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:5`, `card-version` / `card-tombstone`; minimal ordinary/final payload, qualified action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
+| Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:6`, `card-version` / `card-tombstone`; required nullable native source facts, runtime source publications and Git-blocked result; qualified action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected by current head, not a queue log. |
 | Record head / previous slot | `records/record-<stem>.json` and injective `.prev.json` sibling; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; fresh UUID/mutation revision, current-only baseline0, explicit draft version/target and latest accepted reference. Baseline/draft0/empty is ineligible. |
 | Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:5`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated agent/external/runtime/action-output author with body-bound output descriptor and ordinary card provenance. Historical projection has null current head/revision. |
 | Record initialization input | Card-type YAML; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; no old content/trigger input reader. |
-| Workflow input | Card-type YAML `workflow`; same owners | `format_version:4`; literal authored durable prompt keys; qualified action IDs, optional declared `output_record` binding, typed fields/cases/inputs and advisory natural-postcommit attachment. |
+| Workflow input | Card-type YAML `workflow`; same owners | `format_version:5`; compiler-owned native correction participant/purpose/result/continuation interpretation under ON; literal authored durable prompt keys, qualified action IDs, typed fields/cases/inputs and OFF advisory natural-postcommit attachment. |
 | Operation selection | Explicit compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; retained in action results/execution observations, not package/shared-envelope version. |
-| Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, `runtime/actors/operation-execution.ts` | `version:2`, `type:card-execution`; qualified IDs, declared output source/exact artifact paths, nullable completed-output descriptor and strict entry/spawn/finish/file associations. Incomplete is valid, not resumable state; artifacts select mutable source. |
+| Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, action owner and `runtime/git-workflow.ts` | `version:3`, `type:card-execution`; strict action and native start/process/finish associations. Native step/binding, known effects/selections and exact captures/private-index artifacts; unchanged action meanings. Incomplete is valid, not resumable state; artifacts select mutable source. |
 | Conversation index / previous index and ordinary/compacted genesis | Session `index.json`, `index.prev.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/source/cutoff/continuation, baseline/draft/current/historical record facts, protected prompts, excerpts and declared structural omission. |
 | Conversation segment envelope / selected PNGs | Same versions and `images/<UUID>.png`; above owners plus `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; strict message/private-context/activation and ordered result-content selection. Raw PNGs use this identified owning descriptor contract, not an independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use **shared** `version:2`, `type:rows`, with distinct strict row owners. App log includes event/control/external-receipt rows; provider grammar is unchanged by the attribution bump. Not independently numbered envelopes. |
@@ -47,6 +48,137 @@ source-era values; they must not be read as today's accepted-version list.
 | Private observed native deployment | `.saivage/config/observed-collections-native.json`; same schema owner, `retrieval/xerj-deployment.ts` producer | New `format_version:1`, `type:xerj-observed-deployment`; loopback endpoint, exact native/model identities and root→prefix association. No concrete destinations/progress. Selects fixed raw `xerj.key` encoding and derived deployment bundle. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; exceptional lifecycle exclusion, outside generated-root replacement. |
 | Private failed-provider diagnostics | `.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`; `agents/failed-provider-request-diagnostics.ts` | `format_version:3`, `kind:failed-provider-request-diagnostic`, `privacy_policy:failed-provider-request-privacy-2`; opt-in finite private observation, no retained runtime reader/index. |
+
+### Native Git policy input spine — 2026-10-25
+
+Source parent `3290426494367cafad7d2dc54c8d442f1caf01c6` had no native Git
+policy input. This source cutover introduces strict optional
+`git_workflow.format_version:1` in source/effective schemas and detached immutable
+declaration compilation. Omission remains OFF; explicit OFF admits no ON fields.
+Public projection exposes only version/enabled. ON whole-workflow compilation and
+fresh commissioning are integrated through the opt-in classic-git bundle.
+
+The card6, workflow5 and execution3 changes below form the same source cutover.
+There is no migration or retained-source adoption;
+the [configuration reference](../reference/configuration.md#native-git-policy-declarations)
+describes the input and explicit provisioning requirements.
+
+The in-process native preservation owner keeps original history C separate from
+current published O, native start N and interrupted HEAD Q. Snapshot S is final
+eligible source, not a replacement replay endpoint. Its two-call contract requires
+successful owning snapshot publication before real-index normalization; index
+stages can then be lost even if abort/return fails. Typed leaf/container selection
+does not capture ignored caches, and exact threatened-prefix obstructions refuse
+at destructive use, including after synchronous index hooks. These are native
+target-source operations, not a new durable Saivage phase or restart protocol.
+Card6, workflow5 and execution3 contracts are implemented below with owning runtime
+integration. See [validation](../validation.md) for functional constituent
+qualification and known aggregate/security limits; source changes do not evidence live adoption.
+
+### Native card source facts — 2026-10-25
+
+Source parent `3290426494367cafad7d2dc54c8d442f1caf01c6` selects immutable card5.
+This fresh **5→6** bump changes ordinary and tombstone payloads together: required
+nullable `git`, discriminated root/child facts, immutable root policy digest,
+private/parent selections, base/observed tip, factual candidate/delivery and pending
+correction with original B/C/retention and optional Q-parented snapshot. Native N
+remains call-local, never a durable phase, approval or resume token. Runtime-only
+`git_source` changes and `git-workflow-blocked` terminal results are admitted by the
+same strict artifact/history contract. Child creation/synthetic repair start with
+null facts; fresh ON root bootstrap publishes completed commissioning facts as
+detailed below. Retained tombstones preserve the final facts.
+
+CardService publishes facts synchronously; this API does not grant native source
+ownership or adopt unexplained retained source. ON uses explicit provisioning and
+the selected native bundle, not a compatibility/adoption path.
+The same prospective source cutover now wires actual Supervisor snapshot publication
+and repeated return: blocked completed correction can publish verified rewritten O
+while retaining original B/C/task and latest Q-parented snapshot. `source_ready`
+clears that pending task only through the current correction owner after native
+verification and node checks. No new durable continuation or conversation meaning
+is introduced; the actual source owner, not saved snapshot metadata, permits return.
+Product preparation/delivery now publishes the existing factual candidate and
+last-delivery fields through those owners. Accepted source tuples and ordinals
+remain call-local in the existing accepted-result map; no durable approval or
+additional family change is introduced. Parent/child delivery selections are
+separate nontransactional publications before DONE, not a resumable commit record.
+The final global file gate consumes the same root binding and parent selection;
+its source inspection and frozen global/MCP capability restriction add no durable
+admission token, registry, family or discriminator. Explicit commissioning and
+bundle eligibility guard ON; these source changes do not authorize retained-state adoption.
+Card heads1, accepted records5, record heads3, conversation12 and shared envelope2
+remain unchanged; workflow5 and execution3 are described below. This is a new incompatible
+source contract, not shared undeployed-version reuse. Retained card5 is rejected,
+including OFF projects; deployment requires a separately authorized matching-state
+adoption operation, never normalization or migration inside the product.
+
+### Native correction workflow — 2026-10-26
+
+Source parent `3290426494367cafad7d2dc54c8d442f1caf01c6` selects workflow4.
+Fresh **4→5** changes compiler interpretation: ON inserts one real configured card
+Executor node `git-rebase-correction` into each existing state table, with explicit
+`git-correction` purpose, `source_ready`/`blocked`/`failed` results and native-owned
+entry/verified-return transitions. Authored exact node and entry/edge/pending/
+promotion/review references are rejected ON. OFF retains ordinary same-name nodes
+and behavior, but all shipped workflow inputs/fixtures now use5. There is no old
+format reader, implicit rewrite, per-node session or second workflow engine.
+
+Conversation12 remains unchanged: the node identifier already satisfies the strict
+activation grammar; real named Executor identity/session/caller and marker semantics
+are unchanged. Bootstrap, current admission and repair discover/deduplicate this
+participant through the same state table. Source-ready is not product approval.
+Card6 carries the source facts above; execution3 carries the evidence below.
+Runtime compilation/binding now supports eligible ON configurations and the
+selectable classic-git bundle; this is not deployment evidence. Adoption of retained workflow4 inputs
+requires a separately authorized matching release/input operation, including OFF.
+
+### Native execution evidence — 2026-10-26
+
+Source parent `3290426494367cafad7d2dc54c8d442f1caf01c6` selects execution2.
+Fresh **2→3** adds strict logical native start/finish and sequential command
+start/finish variants in the same exact
+`records/executions.jsonl` family. Native bindings strictly distinguish
+`origin:activation` with actual activation, nullable parent and nullable node/ordinal
+from `origin:bootstrap` with no activation/parent/node fields. Bootstrap is valid
+only for root `commission`; every other native step requires activation origin.
+Commission success reports create-only private-ref allocation at the delivery tip,
+without leaving delivery checkout, committing or claiming product acceptance.
+Native rows carry actual invocation/card identity, step, reported outcome/known effects,
+refs/OIDs, source-return observation and exact selected captures/private index.
+There is no fabricated operation/provider, source body, resume phase or Git log.
+Incomplete attempts remain incomplete, not replay instructions. Existing action
+rows keep their meanings under envelope3; old2 is rejected, including OFF projects.
+GC marks selected work paths through the existing complete execution consumer;
+native Git refs/objects are not work-GC candidates. API/UI discriminate native
+from action evidence. Immediate publication uncertainty is fatal, not reportable
+native failure. No startup recovery or per-command hook-settlement claim follows.
+
+This is a fresh bump, not assumed undeployed reuse. Card6/workflow5 remain their
+separate cutovers; accepted5/conversation12 and all other families are unchanged.
+
+Bootstrap origin is part of the same native-hybrid source cutover from deployed
+`32904264` execution2 to execution3, not reuse of a deployed3. The bootstrap
+addition preceded adoption of target3; the source contract introduces both together.
+Public ON provisioning and selected bundle closure are implemented. Neither this
+source record nor synthetic qualification receipts establish live release adoption.
+
+The initial card6 grammar permits completed native root facts only on the actual
+`runtime:bootstrap` project: private branch distinct from delivery, private tip and
+base equal delivery tip, and no candidate/correction/last-delivery. Children and
+synthetic repair still start with `git:null`. Session preparation and managed
+execution3 commissioning precede that first head; no temporary selected root or
+new durable phase exists. This is part of the same source cutover, not an
+additional deployed-version reuse.
+
+Init's four provisioning options reuse the policy's existing owning field
+validators; they do not add durable fields or a family discriminator. Fresh input
+compilation before configuration materialization and retained profile/policy
+matching change admission, not selected card/workflow/execution shapes. Native
+profile registration now uses a provision-required builder and standalone selected
+prompt tree. Functional constituent qualification and known aggregate/security
+limits are recorded in [validation](../validation.md); compilation is not retained-state
+adoption or deployment evidence. Deployment/adoption needs a separately authorized
+matching-state operation; no normalization, migration or reset is implemented.
 
 ### Generalized action output — 2026-10-24
 

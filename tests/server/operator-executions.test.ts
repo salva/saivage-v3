@@ -156,6 +156,7 @@ describe('exact authenticated execution evidence APIs', () => {
       const response = await get(`/${invocation.invocationId}`);
       expect(response.statusCode).toBe(200);
       const detail = parseOperatorResponse('cards.executions.get', 200, response.json());
+      if (detail.family !== 'action') throw new Error('Expected action evidence');
       // The outbound read must not rewrite or neutralize canonical evidence or internal values.
       expect(readFileSync(path)).toEqual(bytes);
       expect(readCardExecutions(root, 'project')).toEqual(raw);
@@ -183,6 +184,20 @@ describe('exact authenticated execution evidence APIs', () => {
       expect(response.body).not.toContain('ordinary-output-list-canary');
     },
   );
+
+  it('presents incomplete native evidence without fabricated action or provider fields', async () => {
+    const invocation = randomUUID();
+    appendCardExecutions(root, 'project', [{ kind: 'native_started', row_id: randomUUID(),
+      invocation_id: invocation, card_id: 'project', timestamp: new Date().toISOString(), step: 'inspect',
+      binding: { origin: 'activation', activation_id: randomUUID(), parent_card_id: null, node: null }, artifact_paths: [] }]);
+    const list = parseOperatorResponse('cards.executions.list', 200, (await get()).json());
+    expect(list.rows[0]).toMatchObject({ family: 'native', step: 'inspect', kind: 'native_started' });
+    const detail = parseOperatorResponse('cards.executions.get', 200, (await get(`/${invocation}`)).json());
+    expect(detail).toMatchObject({ family: 'native', completion: 'no completion retained; effects unknown',
+      source_return: 'unknown', effects: [], facts: null, outcome: null });
+    expect(detail).not.toHaveProperty('operation');
+    expect(detail).not.toHaveProperty('provider');
+  });
 
   it('authenticates before consuming even malformed canonical evidence, including downloads', async () => {
     writeFileSync(cardExecutionFile(root, 'project'), 'MALFORMED\n');
@@ -305,7 +320,7 @@ describe('exact authenticated execution evidence APIs', () => {
     expect(readFileSync(path)).toEqual(prefix);
     appendFileSync(
       path,
-      `${JSON.stringify({ version: 2, type: 'card-execution', rows: [{ ...closing, row_id: randomUUID() }] })}\npartial`,
+      `${JSON.stringify({ version: 3, type: 'card-execution', rows: [{ ...closing, row_id: randomUUID() }] })}\npartial`,
     );
     const corrupt = readFileSync(path);
     for (const suffix of [

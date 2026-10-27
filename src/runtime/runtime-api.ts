@@ -59,6 +59,7 @@ export type NotificationSubmissionPort = (
 ) => Promise<NotificationSubmissionResult>;
 
 export interface RuntimeApi {
+  assertGlobalSourceWrite(absolutePath: string): void;
   start(): Promise<void>;
   pause(): void;
   hasWorkGcMaintenanceHold(): boolean;

@@ -1,5 +1,153 @@
 # System architecture
 
+Initial root publication prepares the exact card directories and all configured
+root-session indexes, then the global Analyst index, before selecting the root
+head. Oversight stays lazy. The final initial-card publisher does not create or
+adopt directories; child creation likewise prepares its exact namespace before
+publishing records/artifact/head. Direct CLI mutation composition awaits its
+callback under lifecycle exclusion; publication uncertainty retains the lock even
+when a test fatal boundary throws.
+
+The native-hybrid evidence contract distinguishes real activation
+ownership from root-only bootstrap commissioning. Init/reset own one managed process
+registry/runner and a lifecycle-scoped container; signals cancel that initializer
+without releasing exclusion. Ordinary release follows callback and process
+settlement. Startup creates its one application registry before bootstrap and
+passes that same registry/runner into server services and Supervisor. During startup
+signals abort initialization, not a terminal cleanup that would join itself.
+
+Fresh bootstrap qualifies clean explicit delivery D and absence of the exact
+private ref before generated namespaces. After configured root sessions and Analyst
+exist, the managed `commission` step reconsumes D/absence, creates only that ref,
+and verifies unchanged checkout/source. Its truthful bootstrap finish precedes
+authored records, initial card artifact and selecting head with completed source
+facts/policy digest. Strict generated-state admission follows. Retained roots must
+match ON/OFF and exact compiled source policy; they never replay commissioning.
+Reset preflights clean delivery and unused provisioning before any generated-root
+deletion. The provision-required classic-git bundle now compiles and materializes
+through public init; [validation](../validation.md) records functional constituent
+qualification and known aggregate/security limits.
+Structural bootstrap tests alone are not CLI rollout or first-Run evidence.
+
+## Native Git dependent implementation boundary
+
+Card6 gives CardService a strict runtime-only source-fact publication path.
+Ordinary/tombstone payloads require nullable root/child `git` facts, with immutable
+root policy/branch ownership and retained original correction provenance. New
+OFF bootstrap, child and repair cards initialize null; commissioned ON root
+publication selects completed source facts. Safe read models project detached
+source refs/OIDs and redact ref text; no source bytes, approval or helper phase is
+stored there. Supervisor owns runtime source sequencing and activation frontiers;
+held or mismatched source blocks further execution.
+
+Workflow5 adds the correction participant to the existing compiled state table,
+not another engine. Structural declaration compilation selects actual task/feedback
+prompts and named agent sessions; runtime compilation and binding enforce ON eligibility.
+Generated native transitions distinguish entry, verified saved-entry return and
+blocked/failed reporting from authored product edges. Node purpose is explicit in
+the compiled contract and graph projections, never inferred from historical text.
+The actor excludes correction from product accepted-result promotion; urgent
+continuation waits for source settlement and refuses continuation on held source.
+
+Eligible ON workflows use Supervisor/CardService integration. In-process GitWorkflow's
+failed-rebase preservation uses two separate invocations: capture final eligible
+source leaves without changing the real index, then (only after the owning caller
+successfully publishes the snapshot) normalize the real index, abort once, restore
+the snapshot and checkpoint/return. Original replay history and current source
+selection remain distinct. No saved phase authorizes restart or adoption.
+
+Every Git argv runs directly in its own existing ProcessRunner-managed group.
+The coordinator awaits the saved whole-group/capture settlement and reconsumes
+current owner authority before continuing. An exited-zero leader with a killed
+descendant is containment, never command success. Finite naturally exiting hook
+children remain supported; their effects are consumed at the next source check.
+The runner owns exact optional binary/NUL stdin and rejects incomplete/broken input.
+Publication uncertainty crosses the fatal boundary before cleanup or another read.
+
+Capture treats directories as containers, not retained leaves. Exact native-start
+and current-index membership retain now-ignored tracked source; unrelated ignored
+data is not captured. Before destructive transitions, only threatened selected
+prefixes are checked for uncaptured obstructions. After index-writing hooks settle,
+final observations compare bytes, modes, links and index entries without refresh
+or index writes, then proceed directly to abort or restore. A hook-created ignored
+obstruction means known normalization but held source, not successful return.
+Real-index conflict stages may be lost after snapshot selection even when return
+later fails. Native-domain qualification alone does not establish complete actor
+integration, product acceptance, UI or full native-hook qualification.
+
+The Supervisor's native foundation now enters commissioned root/child source
+before provider admission, joins the parked parent's command writers and publishes
+its checkpoint before child entry, and returns failed/cancelled/interrupted source
+before terminal publication or child-lease delivery. A Supervisor-owned source
+task outlives cancellation of the failed agent, but is aborted and joined by the
+existing runtime halt. Parent command scopes remain usable after child return;
+only their exact node-owned processes are settled at handoff. Snapshot publication
+and its N/Q continuation remain within that same live source owner, not restart state.
+Urgent source failure requests halt without awaiting the halt that joins the urgent
+task, and reports queued/suppressed rather than a successor. Whole-workflow ON
+remains rejected until commissioning and bundle
+integration are complete; successful product settlement is not
+substituted with an unreviewed source return.
+
+NodeExecution carries the prepared source tuple and node ordinal only in the
+same-activation AcceptedNodeResult map. Preparation precedes handoff, record close
+and successful emit_result; every await reconsumes current owner/node control and
+the applicable record, descendant, review and notification gates. Joining actual
+writers leaves the node scope available for ordinary corrective rearm. Reviewer
+entry prepares before snapshot/provider admission; approved review verifies that
+exact clean selection. Root reviewed completion verifies the promoted tuple without
+preparing later source, while retaining assessment exports separately from review
+authorship/summary. No approval is serialized into card Git facts.
+
+The processor passes its terminal promoted tuple to Supervisor settlement.
+Supervisor joins the processor and delivers on the real parent index, verifies
+files/index/refs and publishes parent then child facts before terminal outcome or
+lease release. A no-change squash leaves the parent commit unchanged. Later dirt
+refuses rather than checkpointing under old approval. Git effects and the two
+fact publications are not transactional; a failure leaves a stopped mismatch,
+not a retry or automatic return path.
+
+Global workspace mutation and delayed Webfetch save contexts carry the Supervisor's
+final source-file admission callback through internal and external Analyst
+composition. ON construction requires it. File owners resolve the destination or
+its existing ancestor and invoke it synchronously before any mkdir/read-for-edit/
+write; multi-file patches classify all destinations before effects. The gate uses
+existing status, run identity, prepared launch, active owners and halt/transition
+state, plus strict root facts and read-only Git inspection of exact delivery.
+Starting ownership is reserved before the first asynchronous entry operation.
+There is no whole-Analyst-turn join, source lease or cached admission.
+
+Synchronous Git queries share a finite five-second remaining deadline, disable
+optional locks and lazy fetching, and never use status, diff/textconv, refresh,
+filters or index/object writes. Unsupported fsmonitor/transform/sparse state
+refuses. Real index entries are compared with the selected tree, and actual file
+bytes, executable modes and symlink bytes are compared directly with blob hashes.
+Missing local objects refuse rather than fetching. Normal mutating Git continues
+only through the existing asynchronous managed-command owner.
+
+Frozen ON global capability validation checks canonical provider identity at
+declaration and binding. Unknown command-backed/quality/MCP writers cannot be
+selected; observation and process containment are unchanged. MCP composition
+receives the frozen mode and refuses dynamic capability enlargement at the owning
+manager, including HTTP lifecycle calls and persisted reconciliation. Config setters
+still validate their complete candidate and require restart; they cannot replace
+the current bound surface or weaken the manager's frozen mode.
+
+The compiled correction Executor now runs in its ordinary configured card session
+and state table. Native verification joins its command writers without closing the
+scope needed for corrective feedback. A refused `source_ready` follows the ordinary
+result-correction route; successful verification publishes the actual rewritten tip
+before the node returns to its saved entry. Correction results never populate the
+product accepted-result map. If correction blocks after a completed rewrite, the
+owner verifies/publishes the new tip while retaining the original task and snapshot
+provenance for explicit reentry. Snapshot return keeps original C, current O,
+native N and detached Q distinct across repeated interruptions. Surviving urgent
+correction joins only its retiring node, preserves/returns/reenters source, then
+releases the guarded correction successor before ordinary STOPPED continuation.
+An entry refusal can publish runtime-owned Git BLOCKED only when the native owner
+established the clean exact parent and performed no mutation. Partial transfer or
+unqualified source remains held; no provider or compensating checkout is admitted.
+
 Quality tool binders depend on the contract-layer `QualityToolPort`, not runtime
 implementation. Runtime/application composition binds the selected agent's frozen
 configuration and actual owner process scope to `executeFiniteOperation`, using the
@@ -314,6 +462,14 @@ NodeExecution output acceptance. Native tool grants are not implied by registrat
 qualified identity/contract version and reserved namespace checks. It is not a
 dynamic plugin service. The shared schema-level operation identity owns the same
 qualified grammar for compilation, lifecycle, execution evidence and API projections.
+
+Execution envelope3 also has logical native start/finish and sequential command
+start/finish rows owned by GitWorkflow. These carry actual native bindings and completed observations,
+not action descriptors or provider turns. The existing complete execution reader
+validates associations and selects exact captures/private-index paths for work GC.
+Incomplete attempts authorize no continuation. Evidence publication uncertainty
+crosses the application fatal boundary before native follow-up or cleanup. This
+contract does not enable ON before Supervisor lifecycle integration is complete.
 Operation declarations select `null`, `command-stdout` or `returned-text` output
 and exact artifact paths from validated configuration plus host invocation UUID.
 The private run result separates completed bytes from flat routable values; it
@@ -720,7 +876,7 @@ consumed and ignored. Tombstones retain membership/order and terminate traversal
 | `config-file.ts`, `auth-profile-file.ts`, `project-identity.ts` | Exact configuration/credentials/identity files under their owning contracts. |
 | `runtime/lock.ts` | Exceptional process exclusion, not durable application state coordination. |
 
-Current family labels are card ordinary/tombstone 5, head/mailbox 1, accepted 5,
+Current family labels are card ordinary/tombstone 6, head/mailbox 1, accepted 5,
 record-head 3, conversation 12 and shared app/provider rows 2. Versions are change
 labels, not revisions, segment ordinals, currentness or whole-project compatibility.
 The [format reference](./durable-format-changes.md#current-source-baseline) owns
@@ -1395,6 +1551,12 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 ### Agent tools
 
 Rows compare alphabetically normalized default membership, not operational order.
+These default rows and the fixed `shipped-role-inventories` claim cover the three
+OFF profiles. The provision-required `classic-git` builder derives the same graph:
+its Analyst excludes run_command/wait_process/kill_process and the three default
+MCP tools, while Executor adds `checkpoint_source` and optional git-correction.md
+permission on every type. Other role inventories are unchanged. The tool-union and
+exclusive-role guards include this separately validated native selection.
 Classic shared factory, contracts Oversight policy and actual binding own order;
 `emit_result` is workflow-generated. Optional MCP tools remain explicitly selected,
 not default grants. Shared reopen spelling never aliases scoped contracts.
@@ -1419,7 +1581,7 @@ separate claims, not a second executable catalog.
 <!-- saivage:value-contract:tool-identities:start -->
 ```text
 tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"executor","tools":["read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"oversight","tools":["get_status","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","glob","grep","read_runtime_events","read_runtime_errors","list_processes_tool","list_agent_sessions","read_agent_session","queue_notification"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","list_observed_collections","query_observed_collections"]},{"name":"reviewer","tools":["read","view_image","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections"]}],"templates":["classic","classic-typed","paad-typed"]}
-tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","code_quality_javascript_eslint","code_quality_python_ruff","code_quality_typescript_eslint","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_observed_collections","list_processes_tool","mcp_catalog_refresh","mcp_server_control","mcp_server_register","mcp_server_replace","mcp_server_unregister","mcp_servers","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","query_observed_collections","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal-and-optional-mcp-and-quality"]}
+tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","checkpoint_source","code_quality_javascript_eslint","code_quality_python_ruff","code_quality_typescript_eslint","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_observed_collections","list_processes_tool","mcp_catalog_refresh","mcp_server_control","mcp_server_register","mcp_server_replace","mcp_server_unregister","mcp_servers","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","query_observed_collections","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal-and-optional-mcp-and-quality"]}
 tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_back","navigate_workspace","pause_runtime","read_control_actions","reconfigure","restart_server","resume_runtime","show_config","start_project","stop_project"],"plannerOnly":["activate_card","edit_card"]}
 ```
 <!-- saivage:value-contract:tool-identities:end -->
@@ -1449,8 +1611,15 @@ map. These are field inventories, not defaults or permission grants.
 <!-- saivage:config-schema:start -->
 | Section | Fields | Source |
 |---|---|---|
-| `top-level` | `agents,analyst_agent,card_types,compaction,mcpServers,models,oversight,providers,server` | `src/schemas/saivage-config.ts:500` |
+| `top-level` | `agents,analyst_agent,card_types,compaction,git_workflow,mcpServers,models,oversight,providers,server` | `src/schemas/saivage-config.ts:591` |
 | `agents.entry` | `can_create_children,model_route,prompt,quality_tools,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:443` |
+| `git_workflow.variant1` | `enabled,format_version` | `src/schemas/saivage-config.ts:260` |
+| `git_workflow.variant2` | `correction,delivery_branch,enabled,excluded_paths,format_version,integration,preservation,private_ref_namespace,review_bindings,source_roots` | `src/schemas/saivage-config.ts:262` |
+| `git_workflow.variant2.preservation` | `interrupted_rebase,source_checkpoint` | `src/schemas/saivage-config.ts:277` |
+| `git_workflow.variant2.correction` | `agent,correction_prompt,prompt` | `src/schemas/saivage-config.ts:283` |
+| `git_workflow.variant2.correction.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:201` |
+| `git_workflow.variant2.correction.correction_prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:204` |
+| `git_workflow.variant2.review_bindings.entry` | `approved_outcome,node` | `src/schemas/saivage-config.ts:292` |
 | `agents.entry.prompt` | `compactable,reference` | `src/schemas/saivage-config.ts:200` |
 | `models` | `equivalents,failover,profiles,routes` | `src/schemas/saivage-config.ts:42` |
 | `models.routes.entry` | `candidates,max_tokens,profile,temperature` | `src/schemas/saivage-config.ts:27` |

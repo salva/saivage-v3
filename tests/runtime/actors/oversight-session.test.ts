@@ -124,7 +124,7 @@ describe('OversightSession owned check settlement', () => {
       const root = projectRoot();
       const template = resolveSystemTemplate(profile);
       const workflows = compileProjectWorkflows(
-        effectiveSaivageConfigSchema.parse(structuredClone(template.config)),
+        effectiveSaivageConfigSchema.parse(templateConfig(template)),
         { projectRoot: root, defaultPromptRoot: template.promptRoot },
       );
       const prompts = createPromptTemplateRegistry(workflows);
@@ -583,3 +583,4 @@ describe('OversightSession owned check settlement', () => {
     await expect(check.run()).rejects.toBe(testApplicationFatalDelivery);
   });
 });
+import { templateConfig } from '../../helpers/system-template-config.js';

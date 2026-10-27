@@ -14,11 +14,13 @@ import {
   publishRuntimeControlEndpoint,
   releaseRuntimeLifecycleLock,
   runtimeProcessIdentity,
+  ManagedProcessGroupRegistry,
+  ProcessRunner,
   type RuntimeLifecycleLockHandle,
 } from '../runtime/runtime-api.js';
 import { startServer, type ServerInstance } from '../server/server-api.js';
 import { createRestartPort } from './restart-port.js';
-import { publishInitialProjectRuntime } from './project-runtime-bootstrap.js';
+import { publishInitialProjectRuntime, assertInitialProjectPolicy } from './project-runtime-bootstrap.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../contracts/index.js';
 import type {
   ShutdownComponent,
@@ -135,7 +137,12 @@ interface StartAppOptions extends StartInputs {
 }
 
 export async function startApp(options: StartAppOptions): Promise<App> {
-  const fatalPort = createApplicationFatalPort();
+  const processFatalPort = createApplicationFatalPort();
+  let fatal = false;
+  const fatalPort = { publicationOutcomeUnknown(error: PublicationOutcomeUnknownError): never {
+    fatal = true;
+    return processFatalPort.publicationOutcomeUnknown(error);
+  } };
   const env = options.env ?? process.env;
   const projectRoot = resolveStartupProjectRoot(options, env);
   const terminal = createAppTerminalCoordinator();
@@ -148,19 +155,62 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   }
   const processIdentity = runtimeProcessIdentity(lifecycleLock);
   terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
+  const processRegistry = new ManagedProcessGroupRegistry();
+  const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
+  const bootstrapScope = processRegistry.createContainerScope(processRegistry.rootScope, 'initial-project');
+  const startupController = new AbortController();
+  let starting = true;
+  const assertInitializerCurrent = () => {
+    startupController.signal.throwIfAborted();
+    if (!starting || fatal || terminal.isApplicationClosing()) throw new Error('Startup initializer no longer owns publication.');
+    runtimeProcessIdentity(lifecycleLock);
+  };
+  terminal.registerAdmissionCloser('process-admission', () => processRunner.closeLaunchAdmission());
+  const containProcesses = async () => {
+    try {
+      const report = await processRunner.terminateScopeTree({ rootScope: processRegistry.rootScope,
+        categories: ['runtime_card', 'operator_session', 'service_infrastructure'], reason: 'Application stopped', graceMs: 1000 });
+      if (report.failed.length > 0) throw new Error('Application process containment unconfirmed.');
+    } catch (error) {
+      if (fatal) throw error;
+      if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
+      console.error('Application process containment failed; lifecycle lock retained.');
+      process.exit(1);
+    }
+  };
+  terminal.registerCleanupLeaf('process-admission', containProcesses);
+  const stopForSignal = (): void => {
+    if (starting) {
+      startupController.abort(new Error('Startup initialization interrupted.'));
+      return;
+    }
+    void terminal.stop().then((report) => { logShutdownWarnings(report); process.exit(0); });
+  };
+  process.once('SIGINT', stopForSignal);
+  process.once('SIGTERM', stopForSignal);
+  terminal.registerCleanupLeaf('signal-handlers', () => {
+    process.removeListener('SIGINT', stopForSignal);
+    process.removeListener('SIGTERM', stopForSignal);
+  });
   let environment: Environment;
   let server: ServerInstance;
   let boundListener: App['boundListener'];
   try {
     environment = await loadEnvironment(options, env);
+    assertInitializerCurrent();
     for (const warning of environment.configWarnings) console.error(formatConfigWarning(warning));
     if (
       options.createRuntime &&
       readProjectCardOrAssertInitialPublicationAllowed(projectRoot) === null
     ) {
-      publishInitialProjectRuntime(projectRoot, environment.workflows);
+      await publishInitialProjectRuntime(projectRoot, environment.workflows, {
+        runner: processRunner, parentScope: bootstrapScope, signal: startupController.signal,
+        assertCurrent: assertInitializerCurrent,
+      });
     }
+    assertInitializerCurrent();
     initializeAndValidateCurrentGeneratedState(projectRoot, environment.workflows);
+    assertInitialProjectPolicy(projectRoot, environment.workflows);
     const restartPort = createRestartPort({
       onAcknowledgedRestart: () => terminal.stop(),
       exit: (code) => process.exit(code),
@@ -181,9 +231,12 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       restartPort,
       processIdentity,
       fatalPort,
+      processRegistry,
+      processRunner,
       onOversightOwnerFailure,
       onExternalAnalystOwnerFailure,
     });
+    assertInitializerCurrent();
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string')
       throw new Error('Server did not publish a TCP control address.');
@@ -197,25 +250,18 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       origin: `http://${urlHost}:${address.port}`,
       auth: environment.auth.apiToken === undefined ? 'disabled' : 'bearer',
     });
+    assertInitializerCurrent();
+    starting = false;
   } catch (error) {
+    if (fatal) throw error;
     if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
+    processRunner.closeLaunchAdmission();
+    await containProcesses();
     const report = await terminal.stop();
     logShutdownWarnings(report);
     throw error;
   }
 
   const stop = () => terminal.stop();
-  const stopForSignal = (): void => {
-    void stop().then((report) => {
-      logShutdownWarnings(report);
-      process.exit(0);
-    });
-  };
-  process.once('SIGINT', stopForSignal);
-  process.once('SIGTERM', stopForSignal);
-  terminal.registerCleanupLeaf('signal-handlers', () => {
-    process.removeListener('SIGINT', stopForSignal);
-    process.removeListener('SIGTERM', stopForSignal);
-  });
   return { environment, server, boundListener, stop };
 }

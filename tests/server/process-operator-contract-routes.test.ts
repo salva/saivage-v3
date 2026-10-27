@@ -95,6 +95,7 @@ describe('contract-backed process routes', () => {
       const processRunner = processes.processRunner;
       const cardStore = new CardService(projectRoot);
       const mcpManager = new McpManager({
+        nativeGit: false,
         configAuthority: testConfigAuthority(projectRoot),
         processRunner,
         mcpProcessRootScope: processes.mcpProcessRootScope,

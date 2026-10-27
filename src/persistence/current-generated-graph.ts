@@ -277,7 +277,8 @@ export async function inspectWorkGcCanonicalState(
     const executions = inspectCardExecutions(projectRoot, card.id);
     if (executions.tornSuffixLength)
       throw new Error('GC refuses torn execution evidence without mutation.');
-    // All validated rows are included; execution endpoint links cannot hide selected files.
+    // Both action and native rows are included, including incomplete native capture/index
+    // selections; execution endpoint links cannot hide selected work files.
     reference(executions.projection, card.id);
     for (const agent of cardConversationAgents(workflow))
       await conversation(cardAgentSessionId(agent, card.id));

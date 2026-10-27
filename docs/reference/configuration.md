@@ -1,5 +1,113 @@
 # Configuration field reference
 
+Init provisioning uses the same field validators as native `git_workflow` for
+delivery branch, private namespace, source roots and exclusions. Its four
+`--git-*` options are singleton/all-or-none; JSON path arrays preserve their exact
+order and entries. No implicit source/exclusion/branch value is supplied. Existing
+configurations are preserved, and supplied values must match their selected policy
+exactly. The `classic-git` registry entry has a provision-required builder, not a
+default effective config. Compilation selects its standalone prompt root, including
+the real Executor correction participant on every type. Selected role overrides
+must retain the `native-source` (card) or `native-global` capability include.
+
+## Native Git policy declarations
+
+The strict source/effective `git_workflow` input has initial `format_version: 1`.
+Absence is OFF; explicit OFF is exactly `{format_version: 1, enabled: false}`.
+ON requires all of:
+
+- `delivery_branch`: literal attached branch name, not an OID, revision expression
+  or full `refs/heads/` ref;
+- `private_ref_namespace`: explicit namespace beneath `refs/saivage/`;
+- nonempty, duplicate-free `source_roots` and `excluded_paths`: literal relative
+  paths (`.` denotes the project root), not globs or URLs; exclusions include
+  `.git` and `.saivage`;
+- `integration: squash` and
+  `preservation: {source_checkpoint: eligible-worktree, interrupted_rebase: preserve-source-before-abort}`;
+- `correction: {agent, prompt, correction_prompt}`: an actual card Executor
+  participant without child authority, with command/write tools and diagnostic
+  `git-correction.md` permission; task and result-correction prompts use the existing
+  static and durable declarations respectively;
+- `review_bindings`: every configured card type explicitly maps to
+  `{node, approved_outcome}` or null for a type without review. Bound review uses
+  unchanged descendant context and routes approval to DONE or root completion
+  assessment. Every participating type declares nonbootstrap `git-correction.md`.
+
+Compilation freezes a detached policy and rejects authored correction-node
+collisions/references, postcommit hooks and unsupported selected global writer
+surfaces. Public effective configuration exposes only version/enabled, not source
+paths, refs or correction provisioning. This validation is **not** native repository
+qualification, identity-scoped ref allocation, commissioning or source adoption.
+
+The opt-in classic-git profile supports ON with explicit provisioning and fresh
+lifecycle-owned commissioning. Existing profiles remain OFF; there is no startup
+toggle or retained-state adoption. Do not add these declarations to a running
+project or interpret schema acceptance as successful repository commissioning.
+
+The dependent native domain foundation currently qualifies an ordinary real-index
+checkout, checkpoints eligible final worktree bytes through that real index, and
+performs protected switches to an exact existing branch/tip. The initializer owns
+fresh commissioning; CardService publishes source facts. Checkpoint normalization discards the prior staging split;
+tracked/new/deleted files, executable bits and symlinks are source, while excluded
+or nonignored out-of-scope dirt refuses before checkpoint. Sparse/split indexes,
+submodules, filesystem-monitor hooks and non-round-tripping attributes are not
+supported. Source names must be UTF-8; native command output is bounded to 8 MiB.
+Git hooks are not disabled. Timeout, incomplete capture or unexpected mutation
+failure contains the attempt without retry or inferred source publication.
+Supervisor owns runtime native lifecycle, acceptance and source-fact publication;
+fresh commissioning belongs to the lifecycle-held initializer, not the first Run.
+Native entry derives `refs/heads/saivage/<commissioned-namespace-suffix>/<card-id>`
+and creates that exact branch only when absent. Retained originals use the distinct
+`refs/saivage/<suffix>/retained/<card-id>/<invocation-uuid>` namespace, create-only.
+Reentry replays explicit old B..C onto the exact current parent; after a previous
+delivery the delivered child endpoint replaces B as the replay boundary. Empty
+and reapplied owned commits are retained. An identified untouched native conflict
+is aborted and verified back at clean C before returning a correction task; hook
+or custom-driver involvement prevents that automatic-abort certification.
+Candidate preparation returns post-checkpoint source observations, not approval.
+Correction verification requires exact task/retained-original/parent identities,
+clean source and linear parent ancestry; it cannot prove semantic completeness.
+Only CardService publishes returned source facts. Native delivery requires the exact clean
+accepted child and parent tuple and materializes a squash in the **real parent
+index**. It commits only that staged accepted tree, not later worktree dirt; an
+unchanged tree makes no empty commit. Ordinary failure return checkpoints eligible
+source privately and switches back without merging it.
+
+ON global source writes use final synchronous stopped/clean delivery admission,
+including delayed Webfetch saves and resolved aliases; OFF retains ordinary
+mid-run behavior. Records and permitted non-source files are unaffected. Global
+command-backed quality, arbitrary commands and unknown MCP writers are rejected
+from actual provider bindings, not silently removed. Wait/kill process controls
+and read-only MCP discovery remain available, but no unknown writer can start.
+The MCP manager retains the startup mode across later configuration reads and
+rejects dynamic registration/replacement, start/restart, catalog refresh/invocation
+and enabled persisted reconciliation before connection or publication effects.
+This is not permission to edit policy on a commissioned project or adopt dirt.
+
+Interrupted correction preservation has two independent owner calls, each using
+sequential direct managed Git commands rather than a subprocess coordinator.
+`captureRebase` leaves the actual rebase/index untouched, selects final eligible
+bytes/deletions/modes/symlinks through a fresh command-work index, and retains a
+native snapshot separately from original B..C. Its result names both the original
+task and partial snapshot plus the selected work artifact. Only **successful caller
+source-fact publication and continuing settlement authority** permit a separate
+`restoreRebaseAndReturn` invocation. That invocation rechecks exact task/snapshot
+and actual source with a fresh index, then aborts the identified rebase, restores
+the snapshot through native real-index/worktree restore, checkpoints it privately
+and returns to the unchanged parent. It never uses the first temporary index as
+authority or runs across a publication frontier. Source mismatch refuses before
+abort; later failure contains without retry or manual file cleanup.
+
+A partial c1 snapshot may omit original c2. The original endpoint/ref and correction
+task remain retained: the snapshot is neither a new replay endpoint nor proof of
+semantic completeness. A later correction must reconstruct original work and useful
+resolutions while preserving parent-only work. Captures and returns consume only
+their exact identified task/native rebase; foreign or unexplained progress refuses.
+These steps use the native lifecycle owner and execution evidence. Fresh init
+commissions the root before publishing its initial head; retained state is never
+implicitly adopted. `checkpoint_source` is selected only for the bundle's Executor:
+an empty-argument private checkpoint, not delivery, review approval or a repair API.
+
 ## Quality actions
 
 ### Optional tool binding input
@@ -310,7 +418,7 @@ is the precise tool lookup, not this field table.
 | Static: agent role, agent-node task | `reference`, `compactable` | Reference required; compactable defaults true |
 | Durable: correction, entry, edge, pending-notification or record prompt | `reference`, `compactable`, optional `compaction_key` | compactable true; a nonempty key is allowed only with compactable false |
 
-Under workflow4, a key remains the exact parsed YAML string, not quote delimiters or
+Under workflow5, a key remains the exact parsed YAML string, not quote delimiters or
 escape spelling. `${POLICY_KEY}`, embedded substitutions, whitespace, case and
 Unicode remain literal whether variables exist or not; no key-only missing-variable
 warning is emitted. Empty is invalid; whitespace-only is nonempty and is not
@@ -373,7 +481,7 @@ Path `card_types.<type>`; `project` required in a supplied map:
 | --- | --- |
 | `permitted_child_types` | Required array; configured unique types, never `project`; empty means leaf |
 | `records` | Required name→record declaration map; exactly one bootstrap record |
-| `workflow` | Required workflow4 object below |
+| `workflow` | Required workflow5 object below |
 
 At resulting card depth12 creation requires a compiled leaf type. Child permission
 and card identity are runtime requirements, not configurable allocation scans.

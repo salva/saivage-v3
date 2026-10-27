@@ -18,7 +18,7 @@ import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fix
 import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
 
 const DEFAULT_TYPES=['project','goal','architecture','code','test','doc','data','research','ops'] as const;
-function card(id:string,type:string,children:string[]=[]):CardRecord{return {id,type,title:id,child_membership:children,active_child_order:children,priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,depends_on:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},status_text:null,status_text_updated_at:null,pending_notifications:[]};}
+function card(id:string,type:string,children:string[]=[]):CardRecord{return {git:null,id,type,title:id,child_membership:children,active_child_order:children,priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,depends_on:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},status_text:null,status_text_updated_at:null,pending_notifications:[]};}
 const unusedParentControl: PlannerChildControlPort = {
   activateChild() { throw new Error('unused parent control'); },
   cancelChild() { throw new Error('unused parent control'); },

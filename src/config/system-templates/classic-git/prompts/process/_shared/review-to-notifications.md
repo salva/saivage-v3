@@ -1,0 +1,1 @@
+The immediately preceding review was accepted, but completion was not claimed because designated-recipient context was pending. Retain its accepted summary and immutable versioned `review.md` URL as historical evidence, not as a rejection.

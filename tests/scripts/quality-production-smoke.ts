@@ -71,6 +71,8 @@ for (const language of ['javascript', 'typescript', 'python'] as const) {
       const invocation = list.rows[0]!.invocation_id;
       const detail = parseOperatorResponse('cards.executions.get', 200,
         await get(`/api/cards/project/executions/${invocation}`));
+      assert.equal(detail.family, 'action');
+      if (detail.family !== 'action') throw new Error('Expected action evidence');
       assert.equal(detail.operation, operation);
       assert.equal(detail.process?.group, 'absent');
       assert.equal(detail.process?.stdout, 'eof');

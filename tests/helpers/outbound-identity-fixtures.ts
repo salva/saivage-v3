@@ -34,6 +34,7 @@ export function credentialShapedCard(overrides: Partial<CardRecord> = {}): CardR
     depends_on: ['card-sk'],
     status_text: OUTBOUND_TEXT_MARKER,
     status_text_updated_at: OUTBOUND_TIMESTAMP,
+    git: null,
     pending_notifications: [OUTBOUND_SOURCE_INPUT_ID],
     ...overrides,
   };

@@ -60,7 +60,7 @@ vi.mock('../api/client', async (importOriginal) => ({
   getAgentConversationVersion: api.getAgentConversationVersion,
   listAgentConversationVersions: api.listAgentConversationVersions,
   getAgentLlmExchange: api.getAgentLlmExchange,
-  getCard: vi.fn(async () => ({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } })),
+  getCard: vi.fn(async () => ({ card: { source: { mode: 'off', facts: null }, id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } })),
   getCardAgentSessions: vi.fn(async () => ({ sessions: [] })),
   getWorkflowPresentation: vi.fn(async () => ({ ...cyclicCodePresentation(), card_type: 'project' })),
   getCardChildren: vi.fn(async (id: string) => ({ parent: { id, type: 'project', title: 'Project', status: 'running', permitted_child_types: [] }, children: [] })),

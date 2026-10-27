@@ -651,6 +651,13 @@ export function readCommittedCardVersion(
     : { kind: 'card-not-found' };
 }
 
+function prepareInitialCardDirectories(projectRoot: string, cardId: string): void {
+  mkdirSync(cardHistoryRoot(projectRoot, cardId));
+  mkdirSync(cardMailboxRoot(projectRoot, cardId));
+  mkdirSync(cardRecordsRoot(projectRoot, cardId));
+  mkdirSync(cardAcceptedRecordsRoot(projectRoot, cardId));
+}
+
 function publishInitialCardState(
   projectRoot: string,
   card: CardRecord,
@@ -658,10 +665,6 @@ function publishInitialCardState(
   definitions: readonly RecordDefinition[],
   temporary?: PublicationTemporaryIdFactory,
 ): void {
-  mkdirSync(cardHistoryRoot(projectRoot, card.id));
-  mkdirSync(cardMailboxRoot(projectRoot, card.id));
-  mkdirSync(cardRecordsRoot(projectRoot, card.id));
-  mkdirSync(cardAcceptedRecordsRoot(projectRoot, card.id));
   const initialEntryId = randomUUID();
   for (const definition of definitions)
     initializeAuthoredRecord(
@@ -685,7 +688,7 @@ function publishInitialCardState(
 
 function initializeCardConversations(
   projectRoot: string,
-  card: CardRecord,
+  card: Pick<CardRecord, 'id'>,
   workflow: CompiledCardTypeWorkflow,
   temporary?: PublicationTemporaryIdFactory,
 ): void {
@@ -751,6 +754,7 @@ export function publishInitialChildCard(
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     status_text: null,
     status_text_updated_at: null,
+    git: null,
     pending_notifications: [],
   });
   const definitions = [...workflow.records.values()].map(
@@ -763,15 +767,32 @@ export function publishInitialChildCard(
     }),
   );
   mkdirSync(cardConversationsRoot(projectRoot, id));
+  prepareInitialCardDirectories(projectRoot, id);
   initializeCardConversations(projectRoot, card, workflow, temporary);
   publishInitialCardState(projectRoot, card, input.bootstrap_content, definitions, temporary);
   return card;
+}
+
+export function prepareInitialProjectDirectories(
+  projectRoot: string,
+  workflow: CompiledCardTypeWorkflow,
+  temporary?: PublicationTemporaryIdFactory,
+): void {
+  if (workflow.cardType !== 'project')
+    throw new Error('Initial project preparation requires the compiled project workflow.');
+  mkdirSync(cardNamespace(projectRoot, 'project'));
+  mkdirSync(cardConversationsRoot(projectRoot, 'project'));
+  mkdirSync(saivageAgentsRoot(projectRoot));
+  mkdirSync(globalAgentConversationsRoot(projectRoot));
+  prepareInitialCardDirectories(projectRoot, 'project');
+  initializeCardConversations(projectRoot, { id: 'project' }, workflow, temporary);
 }
 
 export function publishInitialProjectCard(
   projectRoot: string,
   input: InitialProjectCardInput,
   workflow: CompiledCardTypeWorkflow,
+  git: CardRecord['git'],
   temporary?: PublicationTemporaryIdFactory,
 ): void {
   if (workflow.cardType !== 'project')
@@ -795,6 +816,7 @@ export function publishInitialProjectCard(
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     status_text: null,
     status_text_updated_at: null,
+    git,
     pending_notifications: [],
   });
   const definitions = [...workflow.records.values()].map(
@@ -806,11 +828,6 @@ export function publishInitialProjectCard(
       declared: true,
     }),
   );
-  mkdirSync(cardNamespace(projectRoot, 'project'));
-  mkdirSync(cardConversationsRoot(projectRoot, 'project'));
-  mkdirSync(saivageAgentsRoot(projectRoot));
-  mkdirSync(globalAgentConversationsRoot(projectRoot));
-  initializeCardConversations(projectRoot, card, workflow, temporary);
   publishInitialCardState(projectRoot, card, input.bootstrap_content, definitions, temporary);
 }
 
@@ -845,6 +862,7 @@ export function publishDiscardedCard(
     },
     status_text: null,
     status_text_updated_at: null,
+    git: null,
     pending_notifications: [],
   });
   for (const path of [
@@ -901,7 +919,7 @@ export function publishCardVersion(
     card = cardRecordSchema.parse(card);
     validateInitialCard(card, path);
     const artifact = cardVersionArtifactSchema.parse({
-      format_version: 5,
+      format_version: 6,
       kind: 'card-version',
       entry_id: initialEntryId ?? randomUUID(),
       card_id: card.id,
@@ -979,7 +997,7 @@ export function publishCardVersion(
     return null;
   }
   const artifact = cardVersionArtifactSchema.parse({
-    format_version: 5,
+    format_version: 6,
     kind: 'card-version',
     entry_id: change.entry_id,
     card_id: card.id,
@@ -1029,7 +1047,7 @@ export function publishCardTombstone(
   if (!valuesEqual(fold.current.card, finalCard))
     throw new Error(`Card '${cardId}' tombstone final card must equal current.`);
   const artifact = cardTombstoneArtifactSchema.parse({
-    format_version: 5,
+    format_version: 6,
     kind: 'card-tombstone',
     entry_id: change.entry_id,
     card_id: cardId,

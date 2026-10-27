@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { replaceConfigYaml } from '../../src/config/config-file.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
-import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-bootstrap.js';
+import { publishTestProjectRuntime as publishInitialProjectRuntime } from '../helpers/initial-project-fixture.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';

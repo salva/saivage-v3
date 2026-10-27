@@ -29,6 +29,15 @@ export function workflowEdge(
   let outcome: string;
   let condition: 'default' | 'pending_notifications' = 'default';
   switch (route.semantic.kind) {
+    case 'native-correction-entry':
+      outcome = 'native:correction';
+      break;
+    case 'native-correction-return':
+      outcome = `native:verified:${route.semantic.entry}`;
+      break;
+    case 'native-correction-outcome':
+      outcome = route.semantic.outcome;
+      break;
     case 'configured-outcome':
       outcome = route.semantic.outcome;
       break;

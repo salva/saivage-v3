@@ -292,6 +292,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           runtimeApi.getActorRuntimeReadModel().cards.find((card) => card.cardId === cardId)
             ?.processState ?? null,
         context: {
+          assertGlobalSourceWrite: runtimeApi.assertGlobalSourceWrite.bind(runtimeApi),
           cardTypeVocabulary: workflows.cardTypeVocabulary,
           projectRoot,
           configAuthority: services.configAuthority,
@@ -418,6 +419,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       const surface = oversightBinding.toolSet.bind({
         outboundHttp: services.outboundHttp,
         scope: 'global',
+        nativeGit: workflows.gitPolicy !== null,
+        assertGlobalSourceWrite: runtimeApi.assertGlobalSourceWrite.bind(runtimeApi),
         agentName: workflows.oversight.name,
         projectRoot,
         store: cardStore,
@@ -487,6 +490,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
             ?.processState ?? null,
         context: {
           cardTypeVocabulary: workflows.cardTypeVocabulary,
+          assertGlobalSourceWrite: runtimeApi.assertGlobalSourceWrite.bind(runtimeApi),
           projectRoot,
           configAuthority: services.configAuthority,
           interventionReadiness: runtimeSupervisor,

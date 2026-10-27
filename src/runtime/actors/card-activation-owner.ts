@@ -5,6 +5,16 @@ import type { ChildInvocationLease } from './child-invocation-wait.js';
 import type { CardProcessActor } from './card-process-actor.js';
 import { deferred, type Deferred } from './deferred.js';
 
+export interface AcceptedSource {
+  readonly branch_ref: string;
+  readonly base_oid: string;
+  readonly candidate_oid: string;
+  readonly preparation_invocation_id: string;
+}
+export type SourcePreparation =
+  | { source: AcceptedSource }
+  | { refusal: import('../../schemas/lifecycle.js').GitWorkflowBlockedResult };
+
 export interface CardActivationInput {
   activationId: string;
   card: CardRecord;
@@ -12,6 +22,14 @@ export interface CardActivationInput {
   entry: CardProcessEntry;
   notificationDelivery: CardNotificationDeliveryPort;
   claimResult(): void;
+  nativeSource?: {
+    checkpoint(ordinal: number): Promise<{ branch_ref: string; observed_tip: string }>;
+    correctionPending(): boolean;
+    verifyCorrection(ordinal: number): Promise<string | null>;
+    completeCorrection(ordinal: number): void;
+    prepareCandidate(ordinal: number): Promise<SourcePreparation>;
+    verifyCandidate(ordinal: number, source: AcceptedSource): Promise<string | null>;
+  };
 }
 
 type CardActivationCaller =
@@ -70,6 +88,11 @@ export class CardActivationOwner {
   readonly entry: CardProcessEntry;
   readonly settlement: Deferred<CardActivationOutcome> = deferred<CardActivationOutcome>();
   readonly abortController = new AbortController();
+  // Supervisor source settlement outlives an aborted agent, but never runtime halt.
+  readonly sourceAbortController = new AbortController();
+  sourceTask: Promise<void> | null = null;
+  sourceReturned = false;
+  entryRefusal: import('../../schemas/lifecycle.js').GitWorkflowBlockedResult | null = null;
   phase: CardActivationOwnerPhase;
   terminalWinner: TerminalWinner = 'open';
   cachedStatus: CardStatus;

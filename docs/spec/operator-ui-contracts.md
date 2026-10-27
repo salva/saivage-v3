@@ -1,5 +1,25 @@
 # Operator UI: Exact Contracts Register
 
+Workflow presentation and debug graph nodes expose required `purpose`:
+`product` or `git-correction`. Correction retains the real configured agent/session,
+with source_ready/blocked/failed outcomes; `native:verified:<entry>` edges mean a
+native-verified continuation, not product DONE or approval. A same-name authored OFF
+node remains product. The provisioned classic-git profile selects native execution;
+source availability does not establish deployment or release qualification.
+
+Card detail has required `source: { mode: 'native' | 'off', facts }`, where
+`facts` is the redacted current nullable card Git selection. Overview's **Source
+ownership** section shows mode, private branch/observed tip, parent selection,
+correction requirement and last completed delivery when present. Null facts under
+native mode mean no initialized selection yet, not OFF. Recorded selections are
+not live checkout verification or product acceptance. Stopped/queued status alone
+does not prove source returned. Execution evidence distinguishes bootstrap (no
+activation/session link), actual sequential commands and terminated commands with
+unknown effects; absent logical completion must never be presented as success.
+
+`checkpoint_source` displays a private source checkpoint and the observed branch/tip,
+explicitly not product acceptance. Refusal is not a successful checkpoint or delivery.
+
 The three `code_quality_*` tools render as configured-source analysis with operation,
 contract/invocation identity, outcome, flat counts/coverage, bounded report and named
 work artifacts. Label these as analysis evidence, not acceptance; artifact references
@@ -311,7 +331,11 @@ work continues; Stop is containment, not evidence that every effect was undone.
   evidence**, not “never ran.” An unmatched start says **no completion retained;
   effects unknown**, never “running,” “cancelled,” or “successful.” No process
   probing, completion append, replay, orphan discovery, or synthetic session occurs.
-- Execution detail presents the exact qualified operation/contract/provider,
+- Rows and detail discriminate `family: action` from `family: native`. Native
+  detail presents step, actual activation/parent and optional node/ordinal, reported
+  effects, refs/OIDs, outcome and source return, without operation/provider fields.
+  Incomplete native attempts have unknown effects/return, not live status or a verdict.
+- Action execution detail presents the exact qualified operation/contract/provider,
   activation, node/ordinal or postcommit hook and committed artifact selection,
   entry/finish times, safe command/cwd/argv, retained inputs/fields, disposition,
   outcome, leader exit/signal/error, timeout/interruption and group/capture facts.

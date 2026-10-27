@@ -20,13 +20,13 @@ export function historyCard(id: string, overrides: Partial<HistoryCard> = {}): H
     id, type: id === 'project' ? 'project' : 'code', child_membership: [], active_child_order: [], title: id === 'project' ? 'Project' : 'Card',
     lifecycle: lifecycleFor('backlog'), priority: 0, urgency: 'normal', created_by: 'analyst',
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1,
-    depends_on: [], status_text: null, status_text_updated_at: null, ...overrides,
+    git: null, depends_on: [], status_text: null, status_text_updated_at: null, ...overrides,
   };
 }
 
 export function cardView(id: string, overrides: Partial<CardDetail> = {}): CardDetail {
   const lifecycle = overrides.lifecycle ?? lifecycleFor('backlog');
-  return { head_id: '11111111-1111-4111-8111-111111111111', id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', lifecycle, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [], ...overrides };
+  return { source: { mode: 'off', facts: null }, head_id: '11111111-1111-4111-8111-111111111111', id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', lifecycle, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [], ...overrides };
 }
 
 export function hierarchyView(id: string, overrides: Partial<CardHierarchyRecord> = {}): CardHierarchyRecord { return { id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', status: 'backlog', permitted_child_types: id === 'project' ? ['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] : [], ...overrides }; }

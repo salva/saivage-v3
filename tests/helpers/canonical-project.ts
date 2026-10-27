@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { publishInitialProjectRuntime } from '../../src/boot/index.js';
+import { publishTestProjectRuntime as publishInitialProjectRuntime } from './initial-project-fixture.js';
 import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../../src/contracts/index.js';

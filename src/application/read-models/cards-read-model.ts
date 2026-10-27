@@ -31,6 +31,7 @@ import type {
 import { redactTextForOutbound } from '../../redaction/index.js';
 import {
   projectCardDiff,
+  projectGitFacts,
   projectCardArtifactForOutbound,
   projectCardVersionChangeForOutbound,
 } from './card-outbound.js';
@@ -69,9 +70,10 @@ function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {
   }
 }
 
-function detail(card: CardRecord, headId: string) {
+function detail(card: CardRecord, headId: string, native: boolean) {
   return CardDetailSchema.parse({
     id: card.id,
+    source: { mode: native ? 'native' : 'off', facts: projectGitFacts(card.git) },
     title: redactTextForOutbound(card.title),
     type: card.type,
     lifecycle: projectLifecycle(card.lifecycle),
@@ -150,7 +152,7 @@ export class CardsReadModelService {
       return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     return {
       body: CardDetailResponseSchema.parse({
-        card: detail(result.value.card, result.value.headId),
+        card: detail(result.value.card, result.value.headId, this.store.workflows.gitPolicy !== null),
       }),
     };
   }

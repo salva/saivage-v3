@@ -48,6 +48,7 @@ interface InteractiveProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command' |
 interface CapturedProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command'> {
   file: string;
   args: readonly string[];
+  stdin?: Uint8Array;
   onSpawn(record: ProcessRecord): void;
 }
 
@@ -205,7 +206,7 @@ export class ProcessRunner {
       { ...spec, command: JSON.stringify([spec.file, ...spec.args]) },
       spec.file,
       spec.args,
-      ['ignore', 'pipe', 'pipe'],
+      [spec.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       true,
       {
         ...sanitizedCommandEnv(),
@@ -213,7 +214,7 @@ export class ProcessRunner {
         SAIVAGE_ROOT: this.projectRoot,
         ...spec.env,
       },
-      { onSpawn: spec.onSpawn, settlementDeadlineMs: 5000 },
+      { onSpawn: spec.onSpawn, settlementDeadlineMs: 5000, stdin: spec.stdin },
     ).record;
   }
 
@@ -457,7 +458,7 @@ export class ProcessRunner {
     stdio: SpawnOptions['stdio'],
     captureOutput: boolean,
     childEnv: NodeJS.ProcessEnv,
-    captured?: { onSpawn(record: ProcessRecord): void; settlementDeadlineMs: number },
+    captured?: { onSpawn(record: ProcessRecord): void; settlementDeadlineMs: number; stdin?: Uint8Array },
   ): InteractiveProcessLaunch {
     if (!spec.command) throw new Error('command must not be empty');
     if (!spec.ownerId || !spec.ownerKind)
@@ -538,6 +539,7 @@ export class ProcessRunner {
         );
         child.stdout?.destroy();
         child.stderr?.destroy();
+        child.stdin?.destroy();
       }, captured.settlementDeadlineMs);
     };
     if (captured)
@@ -586,11 +588,27 @@ export class ProcessRunner {
     const stderrDrain = captureOutput
       ? this.#captureReadable(child.stderr, stderrPath, record, 'stderr', recordCaptureFailure)
       : Promise.resolve();
-    void Promise.all([stdoutDrain, stderrDrain]).then(() => {
+    // Own one exact input write/end alongside capture settlement. A broken pipe
+    // rejects evidence; never resend bytes or expose source bodies in argv/logs.
+    const inputDrain = captured?.stdin === undefined ? Promise.resolve() : new Promise<void>((done) => {
+      const input = child.stdin!;
+      let finished = false;
+      input.on('error', (error: Error) => {
+        recordCaptureFailure(new ProcessEvidenceUnavailableError(id, `Captured stdin failed: ${error.message}`));
+        done();
+      });
+      input.once('finish', () => { finished = true; done(); });
+      input.once('close', () => {
+        if (!finished) recordCaptureFailure(new ProcessEvidenceUnavailableError(id, 'Captured stdin closed before completion.'));
+        done();
+      });
+      input.end(captured.stdin);
+    });
+    void Promise.all([stdoutDrain, stderrDrain, inputDrain]).then(() => {
       captureSettled = true;
       if (settlementTimer !== null) clearTimeout(settlementTimer);
     });
-    void Promise.all([absence, stdoutDrain, stderrDrain]).then(() => {
+    void Promise.all([absence, stdoutDrain, stderrDrain, inputDrain]).then(() => {
       this.finalize(
         presentation,
         presentation.terminationReason ?? null,

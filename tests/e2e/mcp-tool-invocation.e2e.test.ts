@@ -91,7 +91,7 @@ describe('MCP tool invocation production composition', () => {
       writeFileSync(join(projectRoot, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { offline: { transport: 'streamable-http', url: `http://127.0.0.1:${port}`, autostart: false } } }));
       const registry = new ManagedProcessGroupRegistry();
       const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
-      manager = new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner: runner, mcpProcessRootScope: registry.createContainerScope(registry.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
+      manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(projectRoot), processRunner: runner, mcpProcessRootScope: registry.createContainerScope(registry.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
       let settled = false;
       const start = manager.startServer('offline', { signal: AbortSignal.timeout(5_000) }).then(result => { settled = true; return result; }, error => { settled = true; throw error; });
       // Attach a rejection observer while the bounded final-page wait is pending.
@@ -584,6 +584,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     const mcpScope = registry.createContainerScope(registry.rootScope, 'mcp');
     const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
     const manager = new McpManager({
+      nativeGit: false,
       configAuthority: testConfigAuthority(projectRoot),
       processRunner: runner,
       mcpProcessRootScope: mcpScope,
@@ -769,7 +770,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 4,
+          workflow: { format_version: 5,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },

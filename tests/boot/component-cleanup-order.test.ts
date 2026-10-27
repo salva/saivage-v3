@@ -29,7 +29,7 @@ describe('termination-first component cleanup', () => {
       } as never);
       cleanup = runtime.cleanupForApplicationStop();
     } else {
-      const mcp = new McpManager({ configAuthority: {}, processRunner: runner, mcpProcessRootScope: rootScope, eventLogger: { appendEvent() {} } } as never);
+      const mcp = new McpManager({ nativeGit: false, configAuthority: {}, processRunner: runner, mcpProcessRootScope: rootScope, eventLogger: { appendEvent() {} } } as never);
       cleanup = mcp.cleanupForApplicationStop();
     }
 
@@ -48,7 +48,7 @@ describe('termination-first component cleanup', () => {
     const rootScope = {};
     const cleanup = component === 'runtime'
       ? createSupervisorRuntimeApi({ runtimeGate: new RuntimeGate(), processRunner: runner, runtimeProcessRootScope: rootScope } as never).cleanupForApplicationStop()
-      : new McpManager({ configAuthority: {}, processRunner: runner, mcpProcessRootScope: rootScope, eventLogger: { appendEvent() {} } } as never).cleanupForApplicationStop();
+      : new McpManager({ nativeGit: false, configAuthority: {}, processRunner: runner, mcpProcessRootScope: rootScope, eventLogger: { appendEvent() {} } } as never).cleanupForApplicationStop();
     await expect(cleanup).resolves.toBeUndefined();
   });
 

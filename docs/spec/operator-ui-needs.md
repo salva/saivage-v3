@@ -1,5 +1,12 @@
 # Operator UI: Functional Needs Specification
 
+Operators need native source ownership visible alongside card outcomes: distinguish
+OFF from not-yet-initialized native source, original delivery from private source,
+actual correction Executor work from product approval, and last completed delivery
+from current checkout verification. Bootstrap has no activation/session. Terminated
+commands and missing logical completion retain uncertainty; stopped or queued does
+not imply source returned, notification delivery or successful continuation.
+
 Quality evidence must distinguish scoped clean/findings from incomplete analysis,
 execution failure and product acceptance. Operators need counts, coverage limits,
 omission disclosure and links to full mutable work artifacts without exposure of
@@ -222,6 +229,9 @@ Non-LLM action nodes and postcommit advisory hooks need their own **Executions**
 facet alongside real agent Conversations. Operators can inspect chronological
 entry/process/finish observations, exact operation/version/provider and binding,
 committed hook selection, known leader/group/capture facts and selected files.
+Native Git steps share this facet with an explicit native label, actual binding,
+known effects/ref selections and source return, never a fake provider or product
+verdict. Partial native evidence retains the same uncertainty presentation.
 An absent log is only absent retained evidence; an unfinished invocation says
 **no completion retained; effects unknown**, not live work. Show generated files
 as mutable current sources and absent/missing files honestly. Preview and download

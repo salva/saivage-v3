@@ -5,7 +5,11 @@ import {
   type ActorTransitionContext,
 } from '../micro-actor/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
-import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
+import type {
+  AcceptedSource,
+  CardActivationInput,
+  PlannerChildControlPort,
+} from './card-activation-owner.js';
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from './llm-actor.js';
 import type { ConversationFileContext } from '../../persistence/session-api.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -71,10 +75,12 @@ export class CardProcessActor extends BaseActor {
   #llmInvocationsDisposed = false;
   #currentExecutingLlm: ConversationLLMActor | null = null;
   #executionOrdinal: number | null = null;
+  #correctionReturnEntry: CardActivationInput['entry'] | undefined;
   #stagedResult: AcceptedNodeResult | null = null;
   #stagedBlocked: RuntimeOwnedBlockedResult | null = null;
   #stagedFailure: Error | null = null;
   readonly #acceptedByNode = new Map<string, AcceptedNodeResult>();
+  #terminalSource: AcceptedSource | null = null;
   #activationSettled = false;
   #preJoinFailure: { readonly error: unknown } | null = null;
   #interruptionReason: unknown | null = null;
@@ -153,6 +159,10 @@ export class CardProcessActor extends BaseActor {
         selectLlm: (llm) => this.#selectExecutingLlm(llm),
         freshInputId: () => this.#freshSourceInputId(),
         assertCurrentActivation: (input) => this.#assertCurrentActivation(input),
+        assertCurrentNode: (ordinal) => {
+          if (!this.canInterruptNode(ordinal))
+            throw new Error('Source acceptance lost its current node control.');
+        },
         assertPromotionAvailable: (transition) => {
           if (
             transition.semantic.kind !== 'configured-outcome' ||
@@ -162,6 +172,14 @@ export class CardProcessActor extends BaseActor {
           const promotion = transition.semantic.terminalBehavior.promotion;
           if (promotion.kind === 'latest-node' && !this.#acceptedByNode.has(promotion.nodeId))
             throw new Error(`Promoted node '${promotion.nodeId}' has no accepted result.`);
+        },
+        promotedSource: (transition) => {
+          if (transition.semantic.kind !== 'configured-outcome')
+            throw new Error('Source promotion requires a configured outcome.');
+          const promotion = transition.semantic.terminalBehavior?.promotion;
+          if (promotion?.kind !== 'latest-node')
+            throw new Error('Source promotion requires a previous accepted node.');
+          return this.#acceptedByNode.get(promotion.nodeId)?.source ?? null;
         },
         claimResultHandoff: (ordinal) => {
           // Result handoff and urgent claim compete for the same exact node control winner.
@@ -179,6 +197,7 @@ export class CardProcessActor extends BaseActor {
     if (this.#result !== null)
       throw new Error(`Card process '${this.cardId}' must be activated exactly once.`);
     this.#activationInput = input;
+    this.#correctionReturnEntry = input.entry;
     this.#activationSignal = signal;
     this.#executionOrdinal = null;
     this.#activationSettled = false;
@@ -186,7 +205,9 @@ export class CardProcessActor extends BaseActor {
     this.#operationTracker = new ActivationOperationTracker();
     this.#acceptedByNode.clear();
     this.#result = deferred<ProcessOutcome>();
-    this.parkedSendEvent(`activate:${input.entry}`);
+    this.parkedSendEvent(
+      input.nativeSource?.correctionPending() ? 'native:correction' : `activate:${input.entry}`,
+    );
     return this.#result.promise;
   }
 
@@ -204,6 +225,14 @@ export class CardProcessActor extends BaseActor {
     }
     if (this.#operationTracker)
       this.#capturePreJoinFailure(() => this.#operationTracker!.revoke(reason));
+  }
+
+  settleSourceWriters(): Promise<void> {
+    return this.#runner.settleSourceWriters();
+  }
+
+  acceptedTerminalSource(): AcceptedSource | null {
+    return this.#terminalSource;
   }
 
   /** Natural settlement only; the Supervisor supplies the exact known committed publication. */
@@ -299,11 +328,12 @@ export class CardProcessActor extends BaseActor {
   }
 
   canInterruptNode(ordinal: number): boolean {
+    const node = this.process.states.get(this.state());
     return (
       this.#result !== null &&
       !this.#activationSettled &&
       this.#executionOrdinal === ordinal &&
-      this.process.states.get(this.state())?.kind === 'node' &&
+      node?.kind === 'node' &&
       this.#nodeControl === 'open' &&
       this.#retiringNode === null
     );
@@ -542,7 +572,12 @@ export class CardProcessActor extends BaseActor {
     const activationSignal = this.#activationSignal;
     const tracker = this.#operationTracker;
     const ordinal = this.#executionOrdinal;
-    const guard = context.event === 'notification:interrupt' ? this.#successorGuard : null;
+    const guard =
+      context.event === 'notification:interrupt' ||
+      context.event === 'native:correction' ||
+      context.event === 'native:verified:STOPPED'
+        ? this.#successorGuard
+        : null;
     if (context.event === 'notification:interrupt' && !guard)
       throw new Error('Interrupted node successor has no settlement guard.');
     this.#nodeControl = guard ? 'interrupt' : 'open';
@@ -571,6 +606,7 @@ export class CardProcessActor extends BaseActor {
               input,
               signal: operationSignal,
               nodeOrdinal: ordinal,
+              correctionReturnEntry: this.#correctionReturnEntry,
             });
           } catch (error) {
             if (error instanceof PublicationOutcomeUnknownError)
@@ -605,10 +641,21 @@ export class CardProcessActor extends BaseActor {
       throw new Error(
         `Process transition '${context.source}' -> '${context.target}' has missing metadata.`,
       );
-    if (source.kind === 'entry' && target.kind === 'node') this.#executionOrdinal = 0;
+    const semantic = source.on.get(context.event)?.semantic;
+    if (
+      source.kind === 'ready' &&
+      target.kind === 'node' &&
+      target.purpose === 'git-correction' &&
+      semantic?.kind === 'native-correction-entry'
+    )
+      this.#executionOrdinal = 0;
+    else if (source.kind === 'entry' && target.kind === 'node') this.#executionOrdinal = 0;
     else if (source.kind === 'node' && target.kind === 'node') {
       if (
-        (!context.event.startsWith('result:') && context.event !== 'notification:interrupt') ||
+        (!context.event.startsWith('result:') &&
+          context.event !== 'notification:interrupt' &&
+          semantic?.kind !== 'native-correction-entry' &&
+          semantic?.kind !== 'native-correction-return') ||
         this.#executionOrdinal === null
       )
         throw new Error(`Process node transition '${context.event}' cannot reserve an ordinal.`);
@@ -659,7 +706,15 @@ export class CardProcessActor extends BaseActor {
         // Supervisor completion: that completion first joins this captured retiring consumer.
         this.#operationTracker = new ActivationOperationTracker();
         this.#successorGuard = claim.completion;
-        this.sendEvent('notification:interrupt');
+        this.#correctionReturnEntry = 'STOPPED';
+        const interrupted = this.process.states.get(sourceState);
+        this.sendEvent(
+          this.#activationInput?.nativeSource?.correctionPending()
+            ? 'native:correction'
+            : interrupted?.kind === 'node' && interrupted.purpose === 'git-correction'
+              ? 'native:verified:STOPPED'
+              : 'notification:interrupt',
+        );
       }
       this.#runtimeProjectionChanged();
       return;
@@ -670,6 +725,19 @@ export class CardProcessActor extends BaseActor {
       return;
     }
     const event = accepted.event;
+    const sourceNode = this.process.states.get(sourceState);
+    if (sourceNode?.kind === 'node' && sourceNode.purpose === 'git-correction') {
+      const route = sourceNode.on.get(event);
+      if (
+        !route ||
+        (route.semantic.kind !== 'native-correction-return' &&
+          route.semantic.kind !== 'native-correction-outcome')
+      )
+        throw new Error('Correction result lacks its native route.');
+      this.#stagedResult = accepted;
+      this.sendEvent(event);
+      return;
+    }
     const transition = this.process.states.get(sourceState)?.on.get(event);
     if (
       !transition ||
@@ -726,7 +794,8 @@ export class CardProcessActor extends BaseActor {
         throw new Error(`BLOCKED terminal has invalid staged runtime-owned state.`);
     } else {
       if (
-        transition.semantic.kind !== 'configured-outcome' ||
+        (transition.semantic.kind !== 'configured-outcome' &&
+          transition.semantic.kind !== 'native-correction-outcome') ||
         !accepted ||
         failure ||
         blocked ||
@@ -752,6 +821,7 @@ export class CardProcessActor extends BaseActor {
     }
     if (failure && isRuntimeStoppedInterruption(failure)) this.#rejectActivation(failure, true);
     else {
+      const correctionOutcome = transition.semantic.kind === 'native-correction-outcome';
       const behavior =
         transition.semantic.kind === 'configured-outcome'
           ? transition.semantic.terminalBehavior
@@ -761,9 +831,13 @@ export class CardProcessActor extends BaseActor {
           ? accepted!
           : this.#acceptedByNode.get(behavior.promotion.nodeId)
         : null;
-      if (!failure && !blocked && (!behavior || !promoted))
+      if (!failure && !blocked && !correctionOutcome && (!behavior || !promoted))
         throw new Error('Accepted terminal route has no promoted result.');
-      const summary = blocked?.summary ?? failure?.message ?? promoted!.summary;
+      this.#terminalSource = terminal === 'DONE' ? promoted!.source : null;
+      const summary =
+        blocked?.summary ??
+        failure?.message ??
+        (correctionOutcome ? accepted!.summary : promoted!.summary);
       const result =
         blocked ??
         (failure
@@ -771,11 +845,11 @@ export class CardProcessActor extends BaseActor {
           : {
               kind: 'workflow-result' as const,
               terminal,
-              executor: promoted!.executor,
-              node_id: promoted!.nodeId,
-              outcome: promoted!.outcome,
+              executor: (correctionOutcome ? accepted! : promoted!).executor,
+              node_id: (correctionOutcome ? accepted! : promoted!).nodeId,
+              outcome: (correctionOutcome ? accepted! : promoted!).outcome,
               summary,
-              records: behavior!.exportRecords.map((record) => {
+              records: (behavior?.exportRecords ?? []).map((record) => {
                 const projection = accepted!.acceptedRecords.find(
                   (value) => value.name === record.name,
                 );
@@ -895,6 +969,8 @@ function isRuntimeOwnedBlocked(
 ): result is RuntimeOwnedBlockedResult {
   return (
     'kind' in result &&
-    (result.kind === 'content-policy-refusal' || result.kind === 'compaction-summary-blocked')
+    (result.kind === 'content-policy-refusal' ||
+      result.kind === 'compaction-summary-blocked' ||
+      result.kind === 'git-workflow-blocked')
   );
 }

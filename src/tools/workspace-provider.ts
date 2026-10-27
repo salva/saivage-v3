@@ -45,6 +45,7 @@ import { ImageInputError } from './image-input-error.js';
 import { toolRecordSucceeded } from '../contracts/index.js';
 
 export interface WorkspaceProviderContext {
+  readonly assertGlobalSourceWrite?: (absolutePath: string) => void;
   readonly projectRoot: string;
   readonly cardId?: string;
   readonly agentName: AgentName;
@@ -134,6 +135,7 @@ const analystWorkspace = (ctx: GlobalWorkspaceContext): WorkspaceProviderContext
         agentName: ctx.policyAgentName,
         store: ctx.store,
         notifyCard: ctx.runtime.notifyCard,
+        assertGlobalSourceWrite: ctx.assertGlobalSourceWrite,
       }
     : { projectRoot: ctx.projectRoot, agentName: ctx.agentName, store: ctx.store };
 
@@ -390,7 +392,11 @@ export const analystPatchToolBinders: readonly ToolBinder<AnalystToolContext, an
         operational(() =>
           runWorkspaceTool(() =>
             applyProjectPatch(
-              { projectRoot: ctx.projectRoot, agentName: ctx.policyAgentName },
+              {
+                projectRoot: ctx.projectRoot,
+                agentName: ctx.policyAgentName,
+                assertGlobalSourceWrite: ctx.assertGlobalSourceWrite,
+              },
               args,
             ),
           ),

@@ -1,12 +1,17 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
+import * as YAML from 'yaml';
+import { gitProvisioningSchema } from './schemas/saivage-config.js';
+import { materializeSystemTemplate } from './config/system-templates/registry.js';
 import { createInterface } from 'node:readline/promises';
 import {
   publishInitialProjectRuntime,
+  assertInitialProjectPolicy,
+  preflightInitialProjectSource,
   startApp,
   withDirectMutationComposition,
   type StartInputs,
@@ -54,6 +59,7 @@ function loadCanonicalWorkflows(projectRoot: string) {
 
 interface InitInputs {
   readonly profile?: string;
+  readonly gitProvisioning?: z.infer<typeof gitProvisioningSchema>;
 }
 type Command =
   | 'init'
@@ -86,7 +92,14 @@ Usage:
   saivage observed-collections prepare --project-root <absolute-path> --output <fresh-absolute-directory> --executable <absolute-path> --model-directory <absolute-path> --data-directory <existing-absolute-directory> --user <service-user> [--port 19880] [--rest-port 19881] [--grpc-port 19882]
       Prepare private native engine/watcher configuration and systemd units only.
       No source walk, token copy, index creation, network or service action.
-  saivage init [--profile <classic|classic-typed|paad-typed>]
+  saivage init [--profile <classic|classic-typed|paad-typed|classic-git>]
+      Native provisioning (classic-git only):
+      --git-delivery-branch <name> --git-private-ref-namespace <refs/saivage/...>
+      --git-source-roots <JSON-array> --git-excluded-paths <JSON-array>
+      Supply all four or none; paths are literal, not globs. Exclusions must
+      explicitly include .git and .saivage. Existing policy must match exactly.
+      Explicit --profile must match existing template selection; omitted profile
+      preserves existing configuration rather than selecting a new default.
   saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>] [--analyst-mode internal|external|both] [--analyst-mcp-port <port>] [--analyst-mcp-principal <id>] [--analyst-mcp-tools <names>]
   saivage status
   saivage pause
@@ -248,8 +261,23 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
     };
   }
   if (command === 'init') {
-    const values = parseSingletonOptions(rest, { profile: { type: 'string' } });
-    return { command, inputs: { profile: values['profile'] as string | undefined } };
+    const values = parseSingletonOptions(rest, { profile: { type: 'string' },
+      'git-delivery-branch': { type: 'string' }, 'git-private-ref-namespace': { type: 'string' },
+      'git-source-roots': { type: 'string' }, 'git-excluded-paths': { type: 'string' },
+    });
+    const names = ['git-delivery-branch', 'git-private-ref-namespace', 'git-source-roots', 'git-excluded-paths'];
+    const supplied = names.filter(name => values[name] !== undefined);
+    if (supplied.length !== 0 && supplied.length !== names.length)
+      throw new Error('Native provisioning requires all four --git-* options or none.');
+    const profile = values.profile as string | undefined;
+    if (supplied.length && profile !== undefined && profile !== 'classic-git')
+      throw new Error('Native provisioning options cannot select an OFF profile.');
+    const gitProvisioning = supplied.length ? gitProvisioningSchema.parse({
+      delivery_branch: values['git-delivery-branch'], private_ref_namespace: values['git-private-ref-namespace'],
+      source_roots: JSON.parse(values['git-source-roots'] as string),
+      excluded_paths: JSON.parse(values['git-excluded-paths'] as string),
+    }) : undefined;
+    return { command, inputs: { profile, gitProvisioning } };
   }
   if (command === 'start') {
     const values = parseSingletonOptions(rest, {
@@ -314,12 +342,25 @@ function materializePromptTree(sourceRoot: string, destinationRoot: string): voi
 }
 async function handleInit(options: InitInputs): Promise<void> {
   const projectRoot = process.cwd();
-  withDirectMutationComposition(projectRoot, 'init', fatalPort, (composition) => {
+  await withDirectMutationComposition(projectRoot, 'init', fatalPort, async (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
-    const template = resolveSystemTemplate(options.profile ?? DEFAULT_SYSTEM_TEMPLATE);
     const configPath = join(canonicalProjectRoot, '.saivage', 'saivage.yaml');
     let configurationMaterialized = false;
+    let materializedProfile: string | null = null;
+    let workflows: ReturnType<typeof loadCanonicalWorkflows>;
     if (!existsSync(configPath)) {
+      const profile = options.profile ?? DEFAULT_SYSTEM_TEMPLATE;
+      if (options.gitProvisioning && profile !== 'classic-git')
+        throw new Error('Fresh native provisioning requires explicit --profile classic-git.');
+      if (profile === 'classic-git' && !options.gitProvisioning)
+        throw new Error('Fresh classic-git configuration requires all four --git-* provisioning options.');
+      const template = resolveSystemTemplate(profile);
+      const candidate = materializeSystemTemplate(template, options.gitProvisioning);
+      // Resolve inputs and the actual selected prompt root before materializing
+      // configuration or prompts. Canonical reload below remains authoritative.
+      createResolvedConfigAuthority({ path: configPath, projectRoot: canonicalProjectRoot,
+        defaultPromptRoot: template.promptRoot, interpolationEnvironment: process.env,
+      }).validateDocument(YAML.parseDocument(YAML.stringify(candidate)));
       materializePromptTree(
         template.promptRoot,
         join(canonicalProjectRoot, '.saivage', 'config', 'prompts'),
@@ -328,16 +369,43 @@ async function handleInit(options: InitInputs): Promise<void> {
         join(canonicalProjectRoot, '.saivage', 'config', 'template.json'),
         JSON.stringify({ template: template.name, saivage_version: SAIVAGE_VERSION }),
       );
-      replaceConfigYaml(configPath, structuredClone(template.config));
+      replaceConfigYaml(configPath, candidate);
       configurationMaterialized = true;
+      materializedProfile = template.name;
+      workflows = loadCanonicalWorkflows(canonicalProjectRoot);
+    } else {
+      if (options.profile !== undefined) {
+        resolveSystemTemplate(options.profile);
+        const metadataPath = join(canonicalProjectRoot, '.saivage', 'config', 'template.json');
+        if (!existsSync(metadataPath))
+          throw new Error('Explicit --profile cannot match an existing configuration without template selection metadata.');
+        const selected = z.object({ template: z.string().min(1), saivage_version: z.string().min(1) }).strict()
+          .parse(JSON.parse(readFileSync(metadataPath, 'utf8')));
+        if (selected.template !== options.profile)
+          throw new Error('Explicit --profile conflicts with the existing template selection.');
+      }
+      const effective = createResolvedConfigAuthority({ path: configPath, projectRoot: canonicalProjectRoot,
+        interpolationEnvironment: process.env }).loadEffective();
+      for (const warning of effective.warnings) console.error(formatConfigWarning(warning));
+      if (options.gitProvisioning) {
+        const policy = effective.config.git_workflow;
+        if (!policy?.enabled) throw new Error('Native provisioning cannot override an existing OFF configuration.');
+        const selected = gitProvisioningSchema.parse({ delivery_branch: policy.delivery_branch,
+          private_ref_namespace: policy.private_ref_namespace, source_roots: policy.source_roots,
+          excluded_paths: policy.excluded_paths });
+        if (JSON.stringify(selected) !== JSON.stringify(options.gitProvisioning))
+          throw new Error('Native provisioning conflicts with the existing source policy.');
+      }
+      workflows = effective.workflows;
     }
-    const workflows = loadCanonicalWorkflows(canonicalProjectRoot);
     if (readProjectIdentity(canonicalProjectRoot) === null)
       composition.createAndBindProjectIdentity();
     const projectCard = readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot);
     if (projectCard === null) {
-      publishInitialProjectRuntime(canonicalProjectRoot, workflows);
+      await publishInitialProjectRuntime(canonicalProjectRoot, workflows, composition);
     }
+    composition.assertCurrent();
+    assertInitialProjectPolicy(canonicalProjectRoot, workflows);
     initializeAndValidateCurrentGeneratedState(canonicalProjectRoot, workflows);
     console.log(
       projectCard === null
@@ -346,7 +414,7 @@ async function handleInit(options: InitInputs): Promise<void> {
     );
     console.log(
       configurationMaterialized
-        ? `Configuration materialized from template ${template.name}`
+        ? `Configuration materialized from template ${materializedProfile}`
         : 'Existing configuration preserved',
     );
   });
@@ -430,15 +498,18 @@ async function handleRuntimeControl(
 }
 async function handleReset(): Promise<void> {
   const projectRoot = process.cwd();
-  withDirectMutationComposition(projectRoot, 'bound', fatalPort, (composition) => {
+  await withDirectMutationComposition(projectRoot, 'bound', fatalPort, async (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
     const workflows = loadCanonicalWorkflows(canonicalProjectRoot);
     const generatedRoots = resetOwnedGeneratedRoots(canonicalProjectRoot);
+    composition.assertCurrent();
+    preflightInitialProjectSource(canonicalProjectRoot, workflows);
     console.log('Reset will remove these exact generated roots as whole trees:');
     for (const target of generatedRoots) console.log(`- ${target}`);
     console.log('The lifecycle-lock namespace and every path outside these roots are preserved.');
     for (const target of generatedRoots) rmSync(target, { recursive: true, force: true });
-    publishInitialProjectRuntime(canonicalProjectRoot, workflows);
+    await publishInitialProjectRuntime(canonicalProjectRoot, workflows, composition);
+    composition.assertCurrent();
     console.log(
       'Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.',
     );

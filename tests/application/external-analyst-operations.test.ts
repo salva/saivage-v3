@@ -115,7 +115,7 @@ it('uses the real selected surface for external create/bootstrap/record/notifica
   expect(bootstrap.value.projection?.accepted?.author).toEqual({kind:'external-agent',principal:'operator-one'});
   const head=JSON.parse(readFileSync(cardHeadFile(f.projectRoot,child.id),'utf8'));
   const artifact=JSON.parse(readFileSync(cardHistoryFile(f.projectRoot,child.id,head.ordinary.entry_id),'utf8'));
-  expect(artifact.format_version).toBe(5);
+  expect(artifact.format_version).toBe(6);
   expect(cardVersionArtifactSchema.safeParse({...artifact,format_version:4}).success).toBe(false);
   const accepted=bootstrap.value.projection!.accepted!;
   const acceptedArtifact=JSON.parse(readFileSync(cardAcceptedRecordFile(f.projectRoot,child.id,accepted.source_entry_id),'utf8'));
@@ -131,7 +131,7 @@ it('uses the real selected surface for external create/bootstrap/record/notifica
   expect(await f.call('delete_card',{ids:[child.id]})).toMatchObject({kind:'executed',execution:{providerOutcome:{kind:'succeeded'}}});
   const deletedHead=JSON.parse(readFileSync(cardHeadFile(f.projectRoot,child.id),'utf8'));
   const tombstone=cardTombstoneArtifactSchema.parse(JSON.parse(readFileSync(cardHistoryFile(f.projectRoot,child.id,deletedHead.ordinary.entry_id),'utf8')));
-  expect(tombstone.format_version).toBe(5);
+  expect(tombstone.format_version).toBe(6);
   expect(tombstone.change.changed_by_actor).toBe('external:operator-one');
   expect(projectCardArtifactForOutbound(tombstone)).toMatchObject({kind:'card-tombstone',change:{actor:'external:operator-one'}});
   expect(listControlActions(f.projectRoot)).toEqual(expect.arrayContaining([expect.objectContaining({actor:'external:operator-one',surface:'mcp',outcome:'ok'})]));

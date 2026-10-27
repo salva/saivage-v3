@@ -42,6 +42,7 @@ export interface CardNotification {
 }
 
 export interface CardRecord {
+  git: import('./git-source.js').CardGitFacts | null;
   id: string;
   type: CardTypeName;
   title: string;
@@ -62,6 +63,7 @@ export interface CardRecord {
 export type OutboundCardRecord = Omit<CardRecord, 'pending_notifications'>;
 
 export const CARD_RECORD_FIELDS = [
+  'git',
   'id',
   'type',
   'child_membership',

@@ -50,7 +50,7 @@ describe('literal durable prompt keys through selected YAML', () => {
     const { card_types: _omitted, ...config } = structuredClone(TEST_SAIVAGE_CONFIG);
     const effective = load(config).authority.loadEffective();
     expect(Object.keys(effective.config.card_types)).toEqual(Object.keys(TEST_SAIVAGE_CONFIG.card_types));
-    for (const type of Object.values(effective.config.card_types)) expect(type.workflow.format_version).toBe(4);
+    for (const type of Object.values(effective.config.card_types)) expect(type.workflow.format_version).toBe(5);
   });
   it.each(['${POLICY_KEY}', ' prefix-${POLICY_KEY}-É ', '   '])('preserves every admitted leaf and compiled identity: %s', key => {
     const config = fixture(key);
@@ -110,7 +110,7 @@ describe('literal durable prompt keys through selected YAML', () => {
     expect(interpolateValue({ compaction_key: '${UNSET}' }, {})).toEqual({ value: { compaction_key: '' }, warnings: ["Environment variable 'UNSET' is not set."] });
   });
 
-  it.each([undefined, 1, 2, 3, 5])('rejects absent/unsupported workflow %s without rewriting selected YAML', version => {
+  it.each([undefined, 1, 2, 3, 4, 6])('rejects absent/unsupported workflow %s without rewriting selected YAML', version => {
     const config = fixture('literal');
     Object.assign(config.card_types.goal!.workflow, { format_version: version });
     const { authority, path } = load(config);

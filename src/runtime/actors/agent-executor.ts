@@ -297,7 +297,7 @@ export class AgentExecutor {
             ).outcome;
             continue;
           }
-          const acceptance = nodeContext.accept(
+          const acceptance = await nodeContext.accept(
             nodeResult,
             () =>
               reviewerPair
@@ -316,6 +316,7 @@ export class AgentExecutor {
                 );
             },
           );
+          if ('pendingNotifications' in acceptance) continue;
           if ('violations' in acceptance) {
             const remaining = await consumeCorrectiveRearm(terminalOutcome.toolCallId);
             outcome = (
@@ -526,11 +527,22 @@ export class AgentExecutor {
       throw new Error(
         `Process transition context '${context.source}'/'${context.event}' is not compiled.`,
       );
-    if (route.semantic.kind === 'entry-route') {
-      const source = process.states.get(context.source)!;
+    if (route.semantic.kind === 'native-correction-entry') return [];
+    if (
+      route.semantic.kind === 'entry-route' ||
+      route.semantic.kind === 'native-correction-return'
+    ) {
+      const source = process.states.get(
+        route.semantic.kind === 'native-correction-return'
+          ? `entry:${route.semantic.entry}`
+          : context.source,
+      )!;
       if (source.kind !== 'entry')
         throw new Error(`Entry transition context has non-entry source '${context.source}'.`);
-      const prompt = route.semantic.prompt;
+      const entryRoute = source.on.get('entry:route');
+      if (!entryRoute || entryRoute.semantic.kind !== 'entry-route')
+        throw new Error('Entry prompt route is missing.');
+      const prompt = entryRoute.semantic.prompt;
       if (source.entry === 'STOPPED') {
         if (!prompt) throw new Error('STOPPED process entry has no configured prompt.');
         return [
@@ -690,7 +702,11 @@ export class AgentExecutor {
     const nodeBlock: ContextBlock = {
       id: `node-activation:${input.card.id}:${node.nodeId}`,
       role: 'system',
-      content: `Current workflow node '${node.nodeId}':\n\n${nodePromptText}`,
+      content:
+        `Current workflow node '${node.nodeId}':\n\n${nodePromptText}` +
+        (node.purpose === 'git-correction'
+          ? `\n\nCurrent native source facts (data, not product acceptance):\n${canonicalJson(this.deps.store.read(input.card.id)!.git)}`
+          : ''),
       storage: 'activation_local',
       replacement: { kind: 'retain' },
       audience: 'primary_and_summarizer',
@@ -763,6 +779,7 @@ export class AgentExecutor {
           }
         : {}),
       scope: 'card',
+      ...(input.nativeSource ? { checkpointSource: () => input.nativeSource!.checkpoint(nodeOrdinal) } : {}),
       agentName: requireAgentExecution(node).agent.name,
       projectRoot: this.deps.projectRoot,
       cardId: input.card.id,

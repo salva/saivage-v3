@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { gitRefNameSchema } from './git-source.js';
 import { qualityToolBindingsSchema, qualityToolNames } from './quality-operation-config.js';
 import { agentNameSchema } from './agent-name.js';
 import { recordNameSchema, type RecordName } from './record-name.js';
@@ -222,6 +223,80 @@ const processEntrySchema = z
     prompt: durablePromptDeclarationSchema.optional(),
   })
   .strict();
+
+// Provisioning input only. Native repository qualification belongs to bootstrap,
+// not schema parsing or workflow compilation.
+const gitSourcePathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) =>
+      value === '.' ||
+      (!/[\x00-\x1f\x7f\\:*?\[\]]/u.test(value) &&
+        value.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..')),
+    'Expected a project-relative source path or dot, not a URL or glob.',
+  );
+const gitSourcePathsSchema = z
+  .array(gitSourcePathSchema)
+  .min(1)
+  .refine((values) => new Set(values).size === values.length, 'Duplicate source path.');
+export const gitWorkflowSchema = z.discriminatedUnion('enabled', [
+  z.object({ format_version: z.literal(1), enabled: z.literal(false) }).strict(),
+  z
+    .object({
+      format_version: z.literal(1),
+      enabled: z.literal(true),
+      delivery_branch: gitRefNameSchema.refine(
+        (value) => !value.startsWith('refs/') && !value.startsWith('-') && value !== 'HEAD',
+        'Use the attached branch name, not a full ref or revision.',
+      ),
+      private_ref_namespace: gitRefNameSchema.refine(
+        (value) => value.startsWith('refs/saivage/'),
+        'Private namespace must be beneath refs/saivage/.',
+      ),
+      source_roots: gitSourcePathsSchema,
+      excluded_paths: gitSourcePathsSchema,
+      integration: z.literal('squash'),
+      preservation: z
+        .object({
+          source_checkpoint: z.literal('eligible-worktree'),
+          interrupted_rebase: z.literal('preserve-source-before-abort'),
+        })
+        .strict(),
+      correction: z
+        .object({
+          agent: agentNameSchema,
+          prompt: staticPromptDeclarationSchema,
+          correction_prompt: durablePromptDeclarationSchema,
+        })
+        .strict(),
+      review_bindings: z.record(
+        cardTypeNameSchema,
+        z
+          .object({
+            node: namedIdentifierSchema,
+            approved_outcome: outcomeIdentifierSchema,
+          })
+          .strict()
+          .nullable(),
+      ),
+    })
+    .strict(),
+]);
+export type GitWorkflowInput = z.infer<typeof gitWorkflowSchema>;
+/** Exact project provisioning, using the native policy's owning field schemas. */
+export const gitProvisioningSchema = gitWorkflowSchema.options[1].pick({
+  delivery_branch: true,
+  private_ref_namespace: true,
+  source_roots: true,
+  excluded_paths: true,
+}).superRefine((input, ctx) => {
+  if (!input.excluded_paths.includes('.git') || !input.excluded_paths.includes('.saivage'))
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['excluded_paths'], message: 'Explicit exclusions must include .git and .saivage.' });
+  for (const root of input.source_roots)
+    if (input.excluded_paths.some(excluded => excluded === '.' || root === excluded || root.startsWith(`${excluded}/`)))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source_roots'], message: `Git source root '${root}' is excluded.` });
+});
 const stoppedProcessEntrySchema = z
   .object({
     node: z.string(),
@@ -356,7 +431,7 @@ const processNodeSchema = z
   .strict();
 const cardProcessSchema = z
   .object({
-    format_version: z.literal(4),
+    format_version: z.literal(5),
     after_activation_commit: z
       .object({
         statuses: z
@@ -521,6 +596,7 @@ export const saivageConfigSchema = z
     compaction: compactionSectionSchema,
     card_types: cardTypesSchema.optional(),
     mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
+    git_workflow: gitWorkflowSchema.optional(),
   })
   .strict();
 
@@ -534,6 +610,7 @@ const effectiveSaivageConfigShape = {
   compaction: effectiveCompactionSectionSchema,
   card_types: cardTypesSchema,
   mcpServers: z.record(z.string(), effectiveMcpServerEntrySchema).optional(),
+  git_workflow: gitWorkflowSchema.optional(),
 };
 
 export const effectiveSaivageConfigSchema = z.object(effectiveSaivageConfigShape).strict();
@@ -543,6 +620,10 @@ export const outboundEffectiveSaivageConfigSchema = z
     ...effectiveSaivageConfigShape,
     agents: z.record(agentNameSchema, agentDefinitionFieldsSchema.omit({ quality_tools: true })),
     providers: z.record(z.string(), outboundEffectiveProviderEntrySchema),
+    git_workflow: z
+      .object({ format_version: z.literal(1), enabled: z.boolean() })
+      .strict()
+      .optional(),
   })
   .strict();
 

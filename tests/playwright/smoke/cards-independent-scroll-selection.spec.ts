@@ -21,7 +21,7 @@ function card(id: string, title: string, children: string[] = [], status: 'backl
     lifecycle: { status, result: status === 'blocked' ? { kind: 'workflow-result', terminal: 'BLOCKED', executor: { kind: 'agent', agent: 'executor' }, node_id: 'execute', outcome: 'blocked', summary: 'blocked', records: [] } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },
     operator_summary: { blocked: status === 'blocked', hasError: false, error: null, completedAt: null, stale: false },
     priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
-    depends_on: [], status_text: null, status_text_updated_at: null,
+    git: null, depends_on: [], status_text: null, status_text_updated_at: null,
     allowedActions: [], version_seq: 1,
   };
 }
@@ -40,7 +40,7 @@ const targetPrior = { ...target, title: 'Earlier target', version_seq: 2 };
 const newlyLinked = card(newId, 'Current detail outside retained slice');
 const project = card('project', 'Cards fixture project', [sourceId, goalId, ...overflow.map((entry) => entry.id)], 'running');
 const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status,permitted_child_types:value.type==='project'||value.type==='goal'?['code'] as const:[]});
-const detailProjection=(value:ReturnType<typeof card>)=>({head_id:'11111111-1111-4111-8111-111111111111',id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
+const detailProjection=(value:ReturnType<typeof card>)=>({source:{mode:'off',facts:null},head_id:'11111111-1111-4111-8111-111111111111',id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
 const recordsFor = (id: string) => id === targetId ? [
   { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', bootstrap: true,current:null },
   { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', bootstrap: false,current:null },

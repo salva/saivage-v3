@@ -47,6 +47,7 @@ import {
 import { shellRunOperation } from './shell-operation.js';
 import { qualityOperationPlugin } from './quality-operations.js';
 import { qualityToolNames, type QualityToolBindings } from '../../schemas/index.js';
+import { gitWorkflowSchema, type GitWorkflowInput } from '../../schemas/saivage-config.js';
 import {
   compileActionExecution,
   compileDataFields,
@@ -95,6 +96,7 @@ export interface WorkflowCompileOptions {
   readonly artifactObserver?: (artifact: PromptArtifactObservation) => void;
 }
 type PromptRoots = Readonly<{
+  nativeGit: boolean;
   defaultRoot: string;
   overrideRoot: string | undefined;
   artifactObserver: ((artifact: PromptArtifactObservation) => void) | undefined;
@@ -155,6 +157,9 @@ type CompiledRecordPrompt = Readonly<{
   }>;
 }>;
 type ProcessTransitionSemantic =
+  | Readonly<{ kind: 'native-correction-entry' }>
+  | Readonly<{ kind: 'native-correction-return'; entry: CardProcessEntry }>
+  | Readonly<{ kind: 'native-correction-outcome'; outcome: 'blocked' | 'failed' }>
   | Readonly<{ kind: 'activation' }>
   | Readonly<{ kind: 'entry-route'; prompt: CompiledPromptDeclaration | null }>
   | Readonly<{
@@ -188,7 +193,6 @@ export type CompiledNodeContract = ProcessStateBase &
   Readonly<{
     kind: 'node';
     nodeId: string;
-    execution: CompiledAgentExecution | CompiledActionExecution;
     outputRecord: CompiledRecordDefinition | null;
     recordPrompts: readonly CompiledRecordPrompt[];
     requirements: readonly CompiledRecordRequirement[];
@@ -197,7 +201,11 @@ export type CompiledNodeContract = ProcessStateBase &
     childCreationTypes: ReadonlySet<CardTypeName>;
     childActivationTypes: ReadonlySet<CardTypeName>;
     readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition>;
-  }>;
+  }> &
+  (
+    | Readonly<{ purpose: 'product'; execution: CompiledAgentExecution | CompiledActionExecution }>
+    | Readonly<{ purpose: 'git-correction'; execution: CompiledAgentExecution }>
+  );
 type CompiledAgentExecution = Readonly<{
   kind: 'agent';
   agent: CompiledAgentContract;
@@ -253,6 +261,7 @@ type SelectedGlobalParticipant = Readonly<{
   prompt: CompiledAgentPrompt;
 }>;
 export interface CompiledProjectWorkflows {
+  readonly gitPolicy: GitWorkflowPolicy | null;
   readonly operations: ReadonlyMap<string, OperationDefinition>;
   readonly analyst: CompiledAgentContract;
   readonly analystPrompt: CompiledAgentPrompt;
@@ -279,6 +288,7 @@ export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows {
 const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/u;
 const ENTRY_PORTS = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
+const GIT_CORRECTION_NODE_ID = 'git-rebase-correction';
 const TERMINAL_PORTS = ['DONE', 'BLOCKED', 'FAILED'] as const;
 export const EMIT_RESULT_SUMMARY_MAX_CHARS = 2000;
 
@@ -353,9 +363,10 @@ const immutableSet = <T>(values: Iterable<T>): ReadonlySet<T> => new ImmutableSe
 function defaultSystemTemplatePromptRoot(): string {
   return resolveSystemTemplate(DEFAULT_SYSTEM_TEMPLATE).promptRoot;
 }
-function promptRoots(options: WorkflowCompileOptions): PromptRoots {
+function promptRoots(options: WorkflowCompileOptions, nativeGit: boolean): PromptRoots {
   return {
-    defaultRoot: options.defaultPromptRoot ?? defaultSystemTemplatePromptRoot(),
+    nativeGit,
+    defaultRoot: options.defaultPromptRoot ?? (nativeGit ? resolveSystemTemplate('classic-git').promptRoot : defaultSystemTemplatePromptRoot()),
     overrideRoot: options.projectRoot
       ? join(options.projectRoot, '.saivage', 'config', 'prompts')
       : undefined,
@@ -431,16 +442,21 @@ function compileSelected(
   const cached = roots.agentCache.get(cacheKey);
   if (cached) return cached;
   const selected = selectPrompt('agents', host, reference, roots);
+  const requiredFragment = host.kind === 'global-agent' ? 'native-global' : 'native-source';
+  let selectedNativeCapability = false;
   const compiled = compilePromptTemplate({
     host,
     name,
     path: selected.path,
     text: selected.text,
     resolveFragment: (id) => {
+      if (id === requiredFragment) selectedNativeCapability = true;
       const fragment = selectPrompt('fragments', host, id, roots);
       return { path: fragment.path, text: fragment.text };
     },
   });
+  if (roots.nativeGit && !selectedNativeCapability)
+    throw new Error(`Native Git agent '${name}' must include the '${requiredFragment}' capability fragment.`);
   const artifact = Object.freeze({
     source: selected.source,
     reference,
@@ -1238,9 +1254,17 @@ function compiledProcessTransition(
 function buildCardTypeStateTable(
   draft: CardTypeCompileDraft,
   roots: PromptRoots,
+  correction: CompiledAgentExecution | null,
 ): CompiledCardTypeWorkflow {
   const stateEntries: Array<readonly [string, CompiledProcessState]> = [];
   const readyOn = new Map<string, CompiledProcessTransition>();
+  if (correction)
+    readyOn.set(
+      'native:correction',
+      compiledProcessTransition(nodeState(GIT_CORRECTION_NODE_ID), {
+        kind: 'native-correction-entry',
+      }),
+    );
   for (const entry of ENTRY_PORTS)
     readyOn.set(
       `activate:${entry}`,
@@ -1274,6 +1298,13 @@ function buildCardTypeStateTable(
   for (const [nodeId, node] of draft.nodes) {
     const stateId = nodeState(nodeId);
     const on = new Map<string, CompiledProcessTransition>();
+    if (correction)
+      on.set(
+        'native:correction',
+        compiledProcessTransition(nodeState(GIT_CORRECTION_NODE_ID), {
+          kind: 'native-correction-entry',
+        }),
+      );
     const recovery = draft.entries.get('STOPPED')!;
     if (!recovery.prompt)
       throw new Error(
@@ -1337,6 +1368,7 @@ function buildCardTypeStateTable(
       stateId,
       Object.freeze({
         kind: 'node',
+        purpose: 'product',
         nodeId,
         execution: node.execution,
         recordPrompts: node.recordPrompts,
@@ -1346,6 +1378,63 @@ function buildCardTypeStateTable(
         descendantContext: node.descendantContext,
         childCreationTypes: node.childCreationTypes,
         childActivationTypes: node.childActivationTypes,
+        readableRecords: draft.records,
+        on: immutableMap(on),
+        isTerminal: false,
+        isParked: false,
+      }),
+    ]);
+  }
+  if (correction) {
+    const on = new Map<string, CompiledProcessTransition>();
+    on.set(
+      'native:correction',
+      compiledProcessTransition(
+        nodeState(GIT_CORRECTION_NODE_ID),
+        { kind: 'native-correction-entry' },
+        true,
+      ),
+    );
+    // Only native verification may choose the call-local saved entry.
+    // source_ready is never a product DONE edge.
+    for (const entry of ENTRY_PORTS)
+      on.set(
+        `native:verified:${entry}`,
+        compiledProcessTransition(nodeState(draft.entries.get(entry)!.targetNodeId), {
+          kind: 'native-correction-return',
+          entry,
+        }),
+      );
+    for (const outcome of ['blocked', 'failed'] as const) {
+      on.set(
+        `result:${outcome}`,
+        compiledProcessTransition(terminalState(outcome === 'blocked' ? 'BLOCKED' : 'FAILED'), {
+          kind: 'native-correction-outcome',
+          outcome,
+        }),
+      );
+      on.set(
+        `execution:${outcome}`,
+        compiledProcessTransition(terminalState(outcome === 'blocked' ? 'BLOCKED' : 'FAILED'), {
+          kind: 'runtime-terminal',
+          cause: outcome,
+        }),
+      );
+    }
+    stateEntries.push([
+      nodeState(GIT_CORRECTION_NODE_ID),
+      Object.freeze({
+        kind: 'node',
+        purpose: 'git-correction',
+        nodeId: GIT_CORRECTION_NODE_ID,
+        execution: correction,
+        recordPrompts: Object.freeze([]),
+        requirements: Object.freeze([]),
+        initializeRecords: Object.freeze([]),
+        outputRecord: null,
+        descendantContext: null,
+        childCreationTypes: immutableSet<CardTypeName>([]),
+        childActivationTypes: immutableSet<CardTypeName>([]),
         readableRecords: draft.records,
         on: immutableMap(on),
         isTerminal: false,
@@ -1437,11 +1526,187 @@ function validateDescendantContextClosure(
   }
 }
 
+type EnabledGitWorkflowInput = Extract<GitWorkflowInput, { enabled: true }>;
+export type GitWorkflowPolicy = Readonly<
+  Omit<
+    EnabledGitWorkflowInput,
+    'source_roots' | 'excluded_paths' | 'preservation' | 'correction' | 'review_bindings'
+  > & {
+    source_roots: readonly string[];
+    excluded_paths: readonly string[];
+    preservation: Readonly<EnabledGitWorkflowInput['preservation']>;
+    correction: Readonly<{
+      agent: AgentName;
+      prompt: Readonly<StaticPromptDeclaration>;
+      correction_prompt: Readonly<DurablePromptDeclaration>;
+    }>;
+    review_bindings: Readonly<
+      Record<string, Readonly<{ node: string; approved_outcome: string }> | null>
+    >;
+  }
+>;
+
+/** Compile declarations only; this neither observes nor commissions a repository. */
+export function compileGitWorkflowPolicy(config: SaivageConfig): GitWorkflowPolicy | null {
+  if (config.git_workflow === undefined) return null;
+  const policy = gitWorkflowSchema.parse(config.git_workflow);
+  if (!policy.enabled) return null;
+  const reservedNode = 'git-rebase-correction';
+  const agents = compileAgents(config);
+  const correction = agents.get(policy.correction.agent);
+  if (
+    !correction ||
+    correction.session !== 'card' ||
+    correction.canCreateChildren ||
+    correction.tools.some((tool) => tool.name === 'activate_card' || tool.name === 'create_card')
+  )
+    throw new Error(
+      'git_workflow.correction.agent must be a declared card Executor without child authority.',
+    );
+  if (
+    !correction.tools.some((tool) => tool.name === 'run_command') ||
+    !correction.tools.some((tool) => tool.name === 'write') ||
+    !agentCanWriteRecord(correction, parseRecordName('git-correction.md'))
+  )
+    throw new Error(
+      'git_workflow.correction.agent requires run_command, write and git-correction.md permission.',
+    );
+  for (const name of new Set([config.analyst_agent, config.oversight.agent])) {
+    const agent = agents.get(name);
+    if (!agent || agent.session !== 'global')
+      throw new Error(`Git workflow global participant '${name}' must be a declared global agent.`);
+    new BoundAgentToolSet(agent.tools).assertNativeGitGlobalEligibility();
+    if (agent.qualityTools)
+      throw new Error(
+        `Git workflow global participant '${name}' selects an unsupported source writer.`,
+      );
+  }
+  if (Object.values(config.mcpServers ?? {}).some((server) => !server.disabled))
+    throw new Error(
+      'Git workflow cannot select an enabled MCP server with unknown writer footprint.',
+    );
+  if (!policy.excluded_paths.includes('.saivage') || !policy.excluded_paths.includes('.git'))
+    throw new Error('git_workflow.excluded_paths must exclude .saivage and .git.');
+  for (const root of policy.source_roots)
+    if (
+      policy.excluded_paths.some(
+        (excluded) => excluded === '.' || root === excluded || root.startsWith(`${excluded}/`),
+      )
+    )
+      throw new Error(`Git source root '${root}' is excluded.`);
+  const types = Object.keys(config.card_types);
+  if (
+    Object.keys(policy.review_bindings).length !== types.length ||
+    types.some((type) => !Object.hasOwn(policy.review_bindings, type))
+  )
+    throw new Error(
+      'git_workflow.review_bindings must explicitly select a binding or null for every card type.',
+    );
+  for (const [type, definition] of Object.entries(config.card_types)) {
+    const workflow = definition.workflow;
+    if (workflow.after_activation_commit)
+      throw new Error(`Git workflow '${type}' cannot select after_activation_commit hooks.`);
+    if (Object.hasOwn(workflow.nodes, reservedNode))
+      throw new Error(`Git workflow '${type}' authors the reserved correction node.`);
+    for (const entry of Object.values(workflow.entries))
+      if (entry.node === reservedNode)
+        throw new Error('Authored Git correction entry is forbidden.');
+    for (const node of Object.values(workflow.nodes)) {
+      for (const edge of Object.values(node.edges)) {
+        const routes = 'cases' in edge ? [...edge.cases, edge.otherwise] : [edge];
+        for (const route of routes) {
+          const target = route.target;
+          if (
+            ('node' in target && target.node === reservedNode) ||
+            ('terminal' in target &&
+              typeof target.promote !== 'string' &&
+              target.promote.latest_node === reservedNode) ||
+            route.pending_notifications?.node === reservedNode
+          )
+            throw new Error('Authored Git correction edge or promotion is forbidden.');
+        }
+      }
+    }
+    const diagnostic = definition.records['git-correction.md'];
+    if (!diagnostic || diagnostic.bootstrap)
+      throw new Error(
+        `Git workflow '${type}' requires a nonbootstrap git-correction.md declaration.`,
+      );
+    const review = policy.review_bindings[type];
+    if (review === null) {
+      if (Object.values(workflow.nodes).some((node) => node.descendant_context))
+        throw new Error(`Git workflow '${type}' has review context but no review binding.`);
+      continue;
+    }
+    const node = workflow.nodes[review!.node];
+    const edge = node?.edges[review!.approved_outcome];
+    if (
+      review!.node === reservedNode ||
+      !node ||
+      node.execution.kind !== 'agent' ||
+      !node.descendant_context?.require_unchanged_until_accept ||
+      !edge ||
+      'cases' in edge
+    )
+      throw new Error(
+        `Git workflow '${type}' has an invalid review node/approved outcome binding.`,
+      );
+    if (
+      'terminal' in edge.target
+        ? edge.target.terminal !== 'DONE'
+        : type !== 'project' || edge.target.node !== 'assess-completion'
+    )
+      throw new Error(
+        `Git workflow '${type}' approved review must route to DONE or root completion assessment.`,
+      );
+    const reviewer = agents.get(node.execution.agent);
+    if (
+      !reviewer ||
+      reviewer.session !== 'card' ||
+      reviewer.name === correction.name ||
+      reviewer.tools.some((tool) => tool.name === 'checkpoint_source')
+    )
+      throw new Error(
+        `Git workflow '${type}' must select an independent card Reviewer without checkpoint authority.`,
+      );
+  }
+  return Object.freeze({
+    ...policy,
+    source_roots: Object.freeze([...policy.source_roots]),
+    excluded_paths: Object.freeze([...policy.excluded_paths]),
+    preservation: Object.freeze({ ...policy.preservation }),
+    correction: Object.freeze({
+      ...policy.correction,
+      prompt: Object.freeze({ ...policy.correction.prompt }),
+      correction_prompt: Object.freeze({ ...policy.correction.correction_prompt }),
+    }),
+    review_bindings: Object.freeze(
+      Object.fromEntries(
+        Object.entries(policy.review_bindings).map(([type, binding]) => [
+          type,
+          binding === null ? null : Object.freeze({ ...binding }),
+        ]),
+      ),
+    ),
+  });
+}
+
 export function compileProjectWorkflows(
   config: SaivageConfig,
   options: WorkflowCompileOptions = {},
 ): CompiledProjectWorkflows {
-  const roots = promptRoots(options);
+  return compileProjectWorkflowDeclarations(config, options);
+}
+
+/** Structural compilation for inspection/qualification, without runtime admission. */
+export function compileProjectWorkflowDeclarations(
+  config: SaivageConfig,
+  options: WorkflowCompileOptions = {},
+): CompiledProjectWorkflows {
+  const gitPolicy = compileGitWorkflowPolicy(config);
+  if (!gitPolicy && Object.values(config.agents).some(agent => agent.tools.includes('checkpoint_source')))
+    throw new Error('checkpoint_source requires an enabled native Git policy.');
+  const roots = promptRoots(options, gitPolicy !== null);
   const operations = compileOperations(
     [shellRunOperation],
     [qualityOperationPlugin, ...(options.operationPlugins ?? [])],
@@ -1505,9 +1770,35 @@ export function compileProjectWorkflows(
   for (const draft of drafts.values()) validateCardTypeTopology(draft);
   validateDescendantContextClosure(drafts);
   const cardTypes = immutableMap(
-    [...drafts].map(([type, draft]) => [type, buildCardTypeStateTable(draft, roots)] as const),
+    [...drafts].map(([type, draft]) => {
+      const agent = gitPolicy ? agents.get(gitPolicy.correction.agent)! : null;
+      const correction: CompiledAgentExecution | null =
+        agent && gitPolicy
+          ? Object.freeze({
+              kind: 'agent',
+              agent,
+              selectedAgentPrompt: selectAgentPrompt(
+                { kind: 'workflow-agent', cardType: type },
+                agent,
+                roots,
+              ),
+              prompt: compilePromptDeclaration(
+                gitPolicy.correction.prompt,
+                'git_workflow.correction.prompt',
+              ),
+              correctionPrompt: compilePromptDeclaration(
+                gitPolicy.correction.correction_prompt,
+                'git_workflow.correction.correction_prompt',
+              ),
+              dataInputs: compileDataFields({}),
+              inputs: compileInputBindings({}),
+            })
+          : null;
+      return [type, buildCardTypeStateTable(draft, roots, correction)] as const;
+    }),
   );
   return Object.freeze({
+    gitPolicy,
     operations,
     analyst,
     analystPrompt,
@@ -1537,6 +1828,7 @@ export function bindRuntimeWorkflows(
   for (const { agent } of structural.selectedGlobalParticipants.values()) {
     if (agent.name === structural.analyst.name && !options.internalAnalystEnabled) continue;
     const toolSet = new BoundAgentToolSet(agent.tools);
+    if (structural.gitPolicy) toolSet.assertNativeGitGlobalEligibility();
     participants.set(
       agent.name,
       Object.freeze({
@@ -1633,6 +1925,8 @@ export function processNodeOutcomes(
   const node = process.states.get(stateId);
   if (!node || node.kind !== 'node')
     throw new Error(`Workflow '${process.cardType}' has no node state '${stateId}'.`);
+  if (node.purpose === 'git-correction')
+    return Object.freeze(['source_ready', 'blocked', 'failed']);
   return Object.freeze([
     ...new Set(
       [...node.on.values()].flatMap((route) =>
@@ -1661,7 +1955,11 @@ export function nodeResultToolDefinition(
     type: 'function',
     function: {
       name: TERMINAL_RESULT_TOOL_NAME,
-      description: 'Emit the configured process-node result as the final action of this turn.',
+      description:
+        process.states.get(stateId)?.kind === 'node' &&
+        (process.states.get(stateId) as CompiledNodeContract).purpose === 'git-correction'
+          ? 'Report source correction readiness or inability to continue; readiness requires native verification and is not product acceptance.'
+          : 'Emit the configured process-node result as the final action of this turn.',
       parameters: zodToJsonSchemaMini(nodeResultSchema(process, stateId)) as Record<
         string,
         unknown
@@ -1676,6 +1974,8 @@ export function describeNodeResultContract(
   const node = process.states.get(stateId);
   if (!node || node.kind !== 'node')
     throw new Error(`Workflow '${process.cardType}' has no node state '${stateId}'.`);
+  if (node.purpose === 'git-correction')
+    return `Call emit_result with exactly outcome (source_ready | blocked | failed) and summary (trimmed, non-empty, at most ${EMIT_RESULT_SUMMARY_MAX_CHARS} characters). source_ready requests native verification of the completed correction before ordinary work resumes; it does not approve or complete the product. Preserve the full original work and useful later corrections, not just the partial snapshot. Use blocked or failed when correction cannot be completed, with the actual reason. git-correction.md is optional diagnostic text, not a mandatory output gate or native effect ledger.`;
   const requirements =
     node.requirements.length === 0
       ? ''

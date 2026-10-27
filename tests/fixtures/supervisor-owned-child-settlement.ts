@@ -7,7 +7,7 @@ import { workflowResult } from '../helpers/workflow-result.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 function card(id: 'project' | 'card-a'): CardRecord {
-  return { id, type: id === 'project' ? 'project' : 'code', child_membership: [], active_child_order: [], title: id, priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, depends_on: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, status_text: null, status_text_updated_at: null };
+  return { git: null, id, type: id === 'project' ? 'project' : 'code', child_membership: [], active_child_order: [], title: id, priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, depends_on: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, status_text: null, status_text_updated_at: null };
 }
 
 const store = { read: (id: string) => id === 'project' || id === 'card-a' ? card(id) : null };
@@ -40,6 +40,7 @@ interface Internals {
 let resolveTermination!: (report: { selected: never[]; stopped: never[]; failed: never[] }) => void;
 const processTermination = new Promise<{ selected: never[]; stopped: never[]; failed: never[] }>((resolve) => { resolveTermination = resolve; });
 const supervisor = createSupervisorRuntimeApi({
+  workflows: { gitPolicy: null },
   actorStore: store,
   runtimeGate: new RuntimeGate(),
   processRunner: { terminateScopeTree: () => processTermination },

@@ -12,8 +12,7 @@ import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
 import type { RuntimeProcessIdentity } from '../../runtime/runtime-api.js';
-import { ManagedProcessGroupRegistry } from '../../runtime/runtime-api.js';
-import { ProcessRunner } from '../../runtime/runtime-api.js';
+import type { ManagedProcessGroupRegistry, ProcessRunner } from '../../runtime/runtime-api.js';
 import { bindRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import { settleFinalUnmatchedCall } from '../../runtime/runtime-api.js';
 import { isConversationCatalogEstablished } from '../../persistence/index.js';
@@ -48,6 +47,8 @@ export async function createServerServices(input: {
   terminal: AppTerminalRegistration;
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
+  processRegistry: ManagedProcessGroupRegistry;
+  processRunner: ProcessRunner;
   restartPort?: RestartPort;
   onOversightOwnerFailure(error: unknown): void;
   onExternalAnalystOwnerFailure(error: unknown): void;
@@ -99,7 +100,7 @@ export async function createServerServices(input: {
   const eventLogger = createEventLog(projectRoot);
   const cardStore = new CardService(projectRoot, workflows, syncHub);
 
-  const processRegistry = new ManagedProcessGroupRegistry();
+  const { processRegistry, processRunner } = input;
   const runtimeProcessRootScope = processRegistry.createContainerScope(
     processRegistry.rootScope,
     'runtime-cards',
@@ -112,7 +113,6 @@ export async function createServerServices(input: {
     processRegistry.rootScope,
     'mcp-servers',
   );
-  const processRunner = new ProcessRunner(projectRoot, processRegistry, input.fatalPort);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
   const externalProjectIdentity =
     environment.analyst.mode === 'internal' ? null : readProjectIdentity(projectRoot);
@@ -153,9 +153,6 @@ export async function createServerServices(input: {
     onOversightOwnerFailure: input.onOversightOwnerFailure,
   });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
-  terminal.registerAdmissionCloser('process-admission', () =>
-    runtimeApplication.processRunner.closeLaunchAdmission(),
-  );
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
   terminal.registerAdmissionCloser('oversight', () => runtimeApplication.closeOversightAdmission());
   terminal.registerCleanupLeaf('runtime', async () => {
@@ -209,6 +206,7 @@ export async function createServerServices(input: {
   }
 
   const mcpManager = new McpManager({
+    nativeGit: workflows.gitPolicy !== null,
     outboundHttp,
     configAuthority: environment.configAuthority,
     processRunner,

@@ -23,6 +23,8 @@ export function createAnalystOperationSurface(input: {
   outboundHttp?: OutboundHttpEmitter;
 }) {
   const { workflows, allowedTools } = input;
+  if (workflows.gitPolicy && !input.context.assertGlobalSourceWrite)
+    throw new Error('Native Git global tools require final source-file admission.');
   const selected = workflows.analyst.tools.filter(({ name }) => allowedTools.includes(name));
   if (new Set(allowedTools).size !== allowedTools.length || selected.length !== allowedTools.length)
     throw new Error('Analyst operation tools must be unique configured canonical tool names.');
@@ -59,6 +61,8 @@ export function createAnalystOperationSurface(input: {
       : {}),
     outboundHttp: input.outboundHttp,
     scope: 'global',
+    nativeGit: workflows.gitPolicy !== null,
+    assertGlobalSourceWrite: context.assertGlobalSourceWrite,
     agentName: workflows.analyst.name,
     projectRoot: context.projectRoot,
     store: context.store,
