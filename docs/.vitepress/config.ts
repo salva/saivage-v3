@@ -13,11 +13,13 @@ const base = process.env.DOCS_BASE ?? '/docs/';
 
 export default defineConfig({
   base,
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}brand/saivage-original.svg` }]],
   title: 'Saivage',
   description:
     'Autonomous Software Development: set an objective, explicitly Run, and follow configured planning, implementation, review and evidenced outcomes.',
   srcExclude: ['working/**'],
   themeConfig: {
+    logo: { light: '/brand/saivage-original.svg', dark: '/brand/saivage-dark-golden-blond.svg', alt: 'Saivage' },
     nav: [
       { text: 'Get started', link: '/guides/getting-started' },
       { text: 'How it works', link: '/overview' },

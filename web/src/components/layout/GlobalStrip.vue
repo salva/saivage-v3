@@ -2,6 +2,7 @@
   <header class="global-strip" data-testid="global-strip">
     <div class="strip-row">
       <div class="strip-identity">
+        <img class="strip-brand" src="/saivage-original.svg" alt="Saivage" width="32" height="32">
         <span class="strip-project" data-testid="strip-project">{{ projectId ?? 'saivage' }}</span>
         <span class="strip-chip" :class="`lifecycle-${statusLabel}`" data-testid="strip-lifecycle">{{ runtimeModeLabel }}</span>
         <span v-if="currentWorkLabel" class="strip-current" data-testid="strip-current-work">
@@ -217,7 +218,8 @@ async function restartServer(): Promise<void> {
   min-height: 44px;
   flex-wrap: wrap;
 }
-.strip-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.strip-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.strip-brand { width: 32px; height: 32px; flex: 0 0 32px; image-rendering: pixelated; }
 .strip-project { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .strip-current { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strip-current a { color: var(--accent-2); text-decoration: underline; }

@@ -1,0 +1,27 @@
+.VPNavBarTitle .logo {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  image-rendering: pixelated;
+}
+
+.VPHero .image-src {
+  width: 128px;
+  height: 128px;
+  max-width: none;
+  max-height: none;
+  image-rendering: pixelated;
+}
+
+.VPHero .image-bg { display: none; }
+
+.brand-usage img {
+  width: 210px;
+  height: 44px;
+  max-width: none;
+  image-rendering: pixelated;
+}
+
+.brand-usage .dark-only { display: none; }
+.dark .brand-usage .light-only { display: none; }
+.dark .brand-usage .dark-only { display: block; }

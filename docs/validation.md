@@ -450,8 +450,18 @@ Playwright list in package.json (including independent scroll/selection, card st
 and external Analyst mode). `npm run web:test:e2e:smoke` is the **complete
 self-contained browser profile**: all preview smoke via
 `web:test:e2e:preview-smoke`, then the source browser-client test via
-`web:test:e2e:browser-client-smoke`. The first owns production preview; the second
-owns a Vite dev server. Neither targets a live deployment.
+`web:test:e2e:browser-client-smoke`, then `web:test:e2e:branding-smoke`. The first
+owns production preview; the second owns a Vite dev server; the third exercises
+the real built Fastify `/docs/` and web surfaces plus an isolated `/saivage-v3/`
+Pages build. None targets a live deployment. Run `npm run build` first so the
+ordinary instance docs and web artifacts match source. Branding smoke builds its
+own Pages-prefixed docs under `tmp/playwright-builds/branding-pages`, without
+replacing ordinary docs output. It verifies all twelve SVG bytes/MIME, favicons,
+theme choices, gallery/download examples, desktop/360px layout and operator
+identity/navigation. Results/screenshots are under `tmp/playwright-results/branding`
+and are included in the existing CI browser failure-artifact upload. The
+`browser-smoke` CI job runs the complete three-suite profile after its matching
+build; brand assets, docs theme/config, landing and gallery edits select that job.
 
 Current locks select `@playwright/test`, playwright and playwright-core 1.64.1;
 matched Chromium/headless shell revision 1248/version 156.0.8078.4 and ffmpeg 1013.

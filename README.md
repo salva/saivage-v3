@@ -1,4 +1,9 @@
+<img src="docs/public/brand/saivage-original.svg" alt="Saivage pixel-art logo" width="128" height="128">
+
 # Saivage — Autonomous Software Development
+
+The original is Saivage's default identity. All six logo/badge pairs are available
+in [Brand assets](docs/brand.md), including usage [for projects made with Saivage](docs/brand.md#for-projects-made-with-saivage).
 
 The opt-in `classic-git` profile requires explicit clean-repository commissioning.
 Its source-file admission is fail-closed:

@@ -1,5 +1,15 @@
 # System architecture
 
+## Static brand ownership
+
+The twelve canonical logo/badge SVGs live only in `docs/public/brand`. Vite's
+`publicDir` selects that directory for UI-root filenames; VitePress packages it
+under `<docs-base>brand/`. Both builds bundle all six pairs without runtime
+loaders, external image dependencies or source-copy synchronization. Original is
+the product default and both favicons; docs select golden blond for dark-theme
+navigation, hero and the contextual project-badge example. The operator shell
+keeps its light surface and separate project identity.
+
 Initial root publication prepares the exact card directories and all configured
 root-session indexes, then the global Analyst index, before selecting the root
 head. Oversight stays lazy. The final initial-card publisher does not create or

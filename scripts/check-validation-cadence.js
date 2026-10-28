@@ -34,6 +34,7 @@ const IMPORT_BOUNDARY_COMMAND = 'npm run test:import-boundaries';
 const IMPORT_BOUNDARY_SCRIPT = 'node scripts/check-import-boundaries.cjs';
 const IMPORT_BOUNDARY_TEST_COMMAND = `${IMPORT_BOUNDARY_SCRIPT} --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && ${IMPORT_BOUNDARY_SCRIPT}`;
 const PLAYWRIGHT_SUITE_OWNERS = [
+  ['branding smoke', 'tests/playwright/branding', 'tests/playwright/branding/playwright.config.ts', 'web:test:e2e:branding-smoke', "testMatch: '*.spec.ts'"],
   ['preview smoke', 'tests/playwright/smoke', 'tests/playwright/smoke/playwright.config.ts', 'web:test:e2e:preview-smoke', String.raw`testMatch: /.*\.spec\.ts/`],
   ['browser-client smoke', 'tests/playwright/browser-client', 'tests/playwright/browser-client/chat-api-client-browser.config.ts', 'web:test:e2e:browser-client-smoke', String.raw`testMatch: /(^|\/)chat-api-client-browser\.spec\.ts$/`],
 ];
@@ -778,9 +779,9 @@ function validatePlaywrightOwnership({ root, scripts }) {
   for (const spec of allSpecs) {
     if (!owned.has(spec)) failures.push(`Playwright spec ${spec} has no positive suite owner`);
   }
-  const composite = 'npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke';
+  const composite = 'npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke && npm run web:test:e2e:branding-smoke';
   checked.push('package.json self-contained Playwright smoke composition');
-  if (scripts['web:test:e2e:smoke'] !== composite) failures.push(`package.json script "web:test:e2e:smoke" must compose exactly the two self-contained profiles: ${composite}`);
+  if (scripts['web:test:e2e:smoke'] !== composite) failures.push(`package.json script "web:test:e2e:smoke" must compose exactly the three self-contained profiles: ${composite}`);
   if ((scripts['web:test:e2e:smoke'] ?? '').includes('live-getrich-v2')) failures.push('package.json self-contained web:test:e2e:smoke must exclude the external live GetRich v2 suite');
   return { checked, failures };
 }

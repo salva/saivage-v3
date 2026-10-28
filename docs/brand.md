@@ -20,13 +20,41 @@ const html = (key) => `<img src="${published(logo(key))}" alt="Saivage" width="6
 # Brand assets
 
 Six pixel-art treatments, each with a matching **Made with Saivage** badge.
-All are available equally: choose the treatment that suits your surface. The
+The original is the product default; golden blond is this site's selected dark
+treatment. You may explicitly choose any delivered pair for your own surface,
+including the brown-haired honey-hazel and chestnut-green options. The gallery's
 light and dark samples below are independent of this site's theme.
 
 The original SVG is preserved byte-for-byte. The five dark treatments preserve
 the same 244 ordered artwork rectangles and use self-contained, region-aware
 palette CSS. Each logo has a native 32×32 viewBox; each badge is 210×44 with
 native-scale artwork. These are standalone SVG files, not a palette picker.
+
+## For projects made with Saivage
+
+Use these matching badges on projects actually made with Saivage. This is usage
+guidance, not a claim that Saivage itself was made with Saivage. The example below
+uses the original on light and golden blond on dark through this site's existing
+theme control; no application preference or saved variant selection is added.
+
+<div class="brand-usage">
+  <img class="light-only" :src="asset(badge('original'))" alt="Made with Saivage — original" width="210" height="44">
+  <img class="dark-only" :src="asset(badge('dark-golden-blond'))" alt="Made with Saivage — golden blond" width="210" height="44">
+</div>
+
+## Choose a pair
+
+Each row gives the exact local filenames; every pair has downloads and copyable
+examples below. All twelve files are bundled in both the UI and docs.
+
+| Treatment / usage | Logo | Matching badge |
+| --- | --- | --- |
+| Original — product default / light docs | `saivage-original.svg` | `made-with-saivage-original.svg` |
+| Golden blond — dark docs | `saivage-dark-golden-blond.svg` | `made-with-saivage-dark-golden-blond.svg` |
+| Honey light brown / hazel — explicit choice | `saivage-dark-honey-hazel.svg` | `made-with-saivage-dark-honey-hazel.svg` |
+| Ash light brown / blue-grey — explicit choice | `saivage-dark-ash-blue-grey.svg` | `made-with-saivage-dark-ash-blue-grey.svg` |
+| Light chestnut / green — explicit choice | `saivage-dark-chestnut-green.svg` | `made-with-saivage-dark-chestnut-green.svg` |
+| Dark blond sand / amber — explicit choice | `saivage-dark-sand-amber.svg` | `made-with-saivage-dark-sand-amber.svg` |
 
 <div class="brand-gallery">
   <section v-for="t in treatments" :key="t.key" class="brand-treatment" :aria-labelledby="`brand-${t.key}`">
@@ -68,8 +96,12 @@ For crisp icons, use integer multiples of 32 pixels (32, 64 or 128) and
 Keep badges at their native 210×44 dimensions; do not squeeze either asset to a
 fractional size. The previews wrap rather than shrink on narrow screens.
 
-A built Saivage instance serves equivalent asset URLs at
-`/docs/brand/<filename>` on that instance's origin. For downloaded files, use
+A built UI (and standalone Vite development) serves `/<filename>` on its own
+origin, for example `/saivage-original.svg`. Docs serve
+`<docs-base>brand/<filename>`: `/docs/brand/saivage-original.svg` on an instance,
+or `/saivage-v3/brand/saivage-original.svg` on Pages. Local previews and downloads
+on this page use the configured docs base, not the public Pages origin.
+For downloaded files, use
 the corresponding relative URL, for example `./saivage-original.svg` and
 `./made-with-saivage-original.svg`, in place of the absolute URL. Keep the
 dimensions and meaningful alt text from the HTML examples.

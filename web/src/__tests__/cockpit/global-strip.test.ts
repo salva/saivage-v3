@@ -65,6 +65,11 @@ describe('global strip runtime controls', () => {
     api.getRuntimeStatus.mockResolvedValue(status);
     const wrapper = await renderStrip();
 
+    expect(wrapper.get('img[alt="Saivage"]').attributes()).toMatchObject({
+      src: '/saivage-original.svg', width: '32', height: '32',
+    });
+    expect(wrapper.get('[data-testid="strip-project"]').text()).toBe('fixture-project');
+    expect(wrapper.get('nav[aria-label="Primary navigation"]').text()).toContain('Cockpit');
     expect(wrapper.get('[data-testid="strip-lifecycle"]').text().toLowerCase()).toContain(status.runtime);
     expect(wrapper.get('[data-testid="strip-updates"] summary').text()).toBe('Updates');
     expectNoProjectCommandButtons();

@@ -113,6 +113,8 @@ runtime status, current work or its absence, and observation/connection conditio
 navigating to another resource. Check: an operator familiar with the vocabulary can
 answer those four questions within ten seconds after initial reads settle; failed reads
 yield explicit unknown/error answers. Network time is measured separately, not hidden.
+Product branding must remain distinguishable from the target project's identity;
+the Saivage mark must not replace the project name or current-work orientation.
 
 **F2 — Must — Active work in context.** Identify the current card and its relationship
 to the represented parent chain that led to the current activation, with access to each

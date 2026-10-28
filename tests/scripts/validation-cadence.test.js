@@ -61,7 +61,8 @@ const PACKAGE_SCRIPTS = {
   'web:test:e2e:install': 'playwright install chromium',
   'web:test:e2e:preview-smoke': 'playwright test -c tests/playwright/smoke/playwright.config.ts',
   'web:test:e2e:browser-client-smoke': 'playwright test -c tests/playwright/browser-client/chat-api-client-browser.config.ts',
-  'web:test:e2e:smoke': 'npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke',
+  'web:test:e2e:branding-smoke': 'playwright test -c tests/playwright/branding/playwright.config.ts',
+  'web:test:e2e:smoke': 'npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke && npm run web:test:e2e:branding-smoke',
 };
 
 const PACKAGE_JSON = JSON.stringify({
@@ -164,6 +165,8 @@ describe('actual workflow shell decisions', () => {
     ['schemas', ['src/schemas/api.ts'], ['backend', 'ui', 'browser']],
     ['web', ['web/src/view.vue'], ['ui', 'browser']],
     ['Playwright-only', ['tests/playwright/smoke/example.spec.ts'], ['ui', 'browser']],
+    ...['docs/.vitepress/theme/index.ts', 'docs/public/brand/saivage-original.svg', 'docs/brand.md', 'docs/index.md']
+      .map((file) => [file, [file], ['docs_only', 'ui', 'browser']]),
     ...['package.json', 'package-lock.json', 'web/package.json', 'web/package-lock.json'].map((file) => [file, [file], ['backend', 'ui', 'browser', 'package_or_workflow']]),
     ['workflow', ['.github/workflows/example.yml'], all],
     ['unknown', ['unknown.txt'], all],
@@ -236,6 +239,8 @@ function validFiles(overrides = {}) {
     'tests/playwright/smoke/preview.spec.ts': 'test();\n',
     'tests/playwright/browser-client/chat-api-client-browser.config.ts': "testDir: '.'\ntestMatch: /(^|\\/)chat-api-client-browser\\.spec\\.ts$/\n",
     'tests/playwright/browser-client/client.spec.ts': 'test();\n',
+    'tests/playwright/branding/playwright.config.ts': "testDir: '.'\ntestMatch: '*.spec.ts'\n",
+    'tests/playwright/branding/branding.spec.ts': 'test();\n',
     ...overrides,
   };
 }
@@ -846,7 +851,7 @@ describe('validation cadence guard', () => {
       const scripts = { ...PACKAGE_SCRIPTS, 'web:test:e2e:smoke': 'npm run web:test:e2e:preview-smoke' };
       withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts }) }), (root) => {
         const result = verifyValidationCadence({ root });
-        expect(result.failures).toContainEqual(expect.stringContaining('must compose exactly the two self-contained profiles'));
+        expect(result.failures).toContainEqual(expect.stringContaining('must compose exactly the three self-contained profiles'));
       });
     });
 

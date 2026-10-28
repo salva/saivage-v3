@@ -47,6 +47,21 @@ function record(result, module, name) {
 }
 
 describe('export consumer checker', () => {
+  it('semantically checks VitePress theme consumers without exempting their imports or other docs scripts', () => {
+    const result = runFixture({
+      'src/contracts/a.ts': 'export const used = 1; export const stale = 2;\n',
+      'docs/.vitepress/theme/index.ts': "import { used, stale } from '../../../src/contracts/a.js'; export default { value: used };\n",
+      'docs/unsupported.ts': 'export {};\n',
+    });
+    expect(record(result, 'src/contracts/a.ts', 'used').classification).toBe('production-consumed');
+    expect(record(result, 'src/contracts/a.ts', 'used').productionLocations).toEqual([
+      expect.stringMatching(/^docs\/\.vitepress\/theme\/index\.ts:/),
+    ]);
+    expect(result.failures).toContainEqual(expect.objectContaining({ category: 'stale-import', module: 'src/contracts/a.ts', export: 'stale' }));
+    expect(result.failures.filter((failure) => failure.message === 'tracked TypeScript-family consumer has no semantic host'))
+      .toEqual([expect.objectContaining({ consumer: 'docs/unsupported.ts' })]);
+  });
+
   it('recognizes only the exact native-package loader boundary, never its file or other computed imports', () => {
     const ownerPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/quality/eslint-analysis.ts');
     const source = readFileSync(ownerPath, 'utf8');

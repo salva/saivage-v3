@@ -3,6 +3,10 @@ layout: home
 title: Autonomous Software Development
 description: Set an objective, explicitly Run, and let configured agents plan, implement, test and review. Understand outcomes and intervene when needed.
 hero:
+  image:
+    light: /brand/saivage-original.svg
+    dark: /brand/saivage-dark-golden-blond.svg
+    alt: Saivage
   name: Saivage
   text: Autonomous Software Development
   tagline: >-

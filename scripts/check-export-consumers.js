@@ -224,7 +224,7 @@ function createPrograms(root, tracked, candidates, failures) {
   const jsFiles = [...tracked].filter((file) => JS_EXTENSIONS.test(file)).sort();
   const rootFiles = tsFiles.filter((file) => file.startsWith('src/') || file.startsWith('tests/') || file.startsWith('scripts/'));
   const webFiles = tsFiles.filter((file) => file.startsWith('web/'));
-  const docsFiles = tsFiles.filter((file) => file === 'docs/.vitepress/config.ts');
+  const docsFiles = tsFiles.filter((file) => file === 'docs/.vitepress/config.ts' || file.startsWith('docs/.vitepress/theme/'));
   const assigned = new Set([...rootFiles, ...webFiles, ...docsFiles]);
   for (const file of tsFiles) if (!assigned.has(file)) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'tracked TypeScript-family consumer has no semantic host' });
   const virtualData = compileSfcModules(root, sfcFiles, failures);

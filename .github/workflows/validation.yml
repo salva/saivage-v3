@@ -92,7 +92,7 @@ jobs:
             esac
 
             case "$file" in
-              web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)
+              web/*|web/**/*|tests/playwright/*|tests/playwright/**/*|docs/.vitepress/*|docs/public/brand/*|docs/brand.md|docs/index.md)
                 recognized=true
                 ui=true
                 browser=true

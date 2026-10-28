@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '../../src/config/index.js';
@@ -62,6 +62,24 @@ const fatalPort: ApplicationFatalPort = {
 const app = await createFastifyApp(environment, fatalPort);
 try {
   await app.ready();
+
+  for (const [html, expected] of [
+    [webIndex.toString('utf8'), '/saivage-original.svg'],
+    [docsLandingHtml, '/docs/brand/saivage-original.svg'],
+  ]) {
+    assert.match(html, new RegExp(`<link(?=[^>]*rel="icon")(?=[^>]*type="image/svg\\+xml")(?=[^>]*href="${expected}")[^>]*>`));
+  }
+  const brandRoot = join(packageRoot, 'docs/public/brand');
+  const brandFiles = readdirSync(brandRoot).filter((name) => name.endsWith('.svg'));
+  assert.equal(brandFiles.length, 12);
+  for (const filename of brandFiles) {
+    for (const url of [`/${filename}`, `/docs/brand/${filename}`]) {
+      const response = await app.inject({ method: 'GET', url });
+      assert.equal(response.statusCode, 200, `GET ${url}`);
+      assert.match(response.headers['content-type'] ?? '', /^image\/svg\+xml\b/, `GET ${url}`);
+      assert.deepEqual(response.rawPayload, readFileSync(join(brandRoot, filename)), `GET ${url}`);
+    }
+  }
 
   const docsRedirectResponse = await app.inject({ method: 'GET', url: '/docs' });
   assert.equal(docsRedirectResponse.statusCode, 302, 'GET /docs');

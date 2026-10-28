@@ -238,6 +238,14 @@ Synthetic `runtime:repair` FAILED v1 is shown through ordinary canonical card an
 
 ## Runtime observation and the global strip
 
+The strip includes a noninteractive original Saivage mark, with accessible name
+**Saivage**, at a fixed nonshrinking 32×32 CSS pixels with pixelated rendering.
+It sits beside the unchanged project identity, not in place of it. The strip wraps
+on narrow screens; navigation, current work, observations, notices and controls
+retain their existing meaning. The operator surface remains light, independent
+of OS dark preference; no brand/theme selector is introduced. The favicon is the
+original SVG, not a theme-dependent variant.
+
 Explicit [work GC](../runbook/work-gc.md) has no UI button or dashboard. Its private
 hold uses existing `pausing`/`paused` observations or leaves stopped execution
 `stopped`, not a new public runtime status or elapsed-time countdown.
