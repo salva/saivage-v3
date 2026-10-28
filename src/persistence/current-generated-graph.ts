@@ -181,7 +181,7 @@ export async function inspectWorkGcCanonicalState(
   projectRoot: string,
   workflows: CompiledProjectWorkflows,
   check: () => void,
-  reference: (value: unknown, cardId: string | null) => void,
+  reference: (value: unknown, cardId: string | null) => Promise<void>,
 ): Promise<Set<string>> {
   const owners = new Set<string>();
   const types = new Map<string, string>();
@@ -198,6 +198,7 @@ export async function inspectWorkGcCanonicalState(
       throw new Error('Required GC conversation index is missing.');
     }
     const index = inspectConversationIndex(projectRoot, session, bytes);
+    await reference(index, cardId);
     for (const entry of index.versions) {
       check();
       const inspected = inspectConversationSegment(projectRoot, session, index, entry.version);
@@ -205,13 +206,16 @@ export async function inspectWorkGcCanonicalState(
         throw new Error(
           'GC requires complete selected conversation segments; no tail repair is performed.',
         );
-      reference(inspected.projection, cardId);
+      // Strict inspection has already validated the complete segment. Extract each source
+      // once, not the derived rounds/calls/preamble and repeated session index.
+      await reference(inspected.projection.genesis, cardId);
+      await reference(inspected.projection.rows, cardId);
       await setImmediate();
     }
   }
   for (const selection of iterateCanonicalLinkedCardHistoryTree(projectRoot)) {
     check();
-    reference(selection.rows, selection.current.id);
+    await reference(selection.rows, selection.current.id);
     if (selection.tombstone) continue;
     const card = selection.current;
     owners.add(card.id);
@@ -224,7 +228,7 @@ export async function inspectWorkGcCanonicalState(
       if (!parentType || !workflows.cardTypes.get(parentType)!.permittedChildTypes.has(card.type))
         throw new Error('GC reached an invalid parent/type relationship.');
     }
-    reference(readPendingCardNotifications(projectRoot, card.id), card.id);
+    await reference(readPendingCardNotifications(projectRoot, card.id), card.id);
     const selectedDefinitions = new Map<string, RecordDefinition>(
       definitions(workflow).map((d) => [d.filename, d]),
     );
@@ -266,10 +270,10 @@ export async function inspectWorkGcCanonicalState(
         throw new Error('Listed GC record head disappeared.');
       if (definition.bootstrap && !current?.accepted)
         throw new Error('Required GC bootstrap record is unavailable.');
-      reference(current, card.id);
+      await reference(current, card.id);
       for (const version of iterateAuthoredRecordVersions(projectRoot, card, definition)) {
         check();
-        reference(version, card.id);
+        await reference(version, card.id);
         await setImmediate();
       }
       await setImmediate();
@@ -279,22 +283,25 @@ export async function inspectWorkGcCanonicalState(
       throw new Error('GC refuses torn execution evidence without mutation.');
     // Both action and native rows are included, including incomplete native capture/index
     // selections; execution endpoint links cannot hide selected work files.
-    reference(executions.projection, card.id);
+    await reference(executions.projection, card.id);
     for (const agent of cardConversationAgents(workflow))
       await conversation(cardAgentSessionId(agent, card.id));
     for (const state of workflow.states.values()) {
       if (state.kind !== 'node') continue;
       if (state.execution.kind === 'action')
-        reference({ config: state.execution.config, inputs: state.execution.inputs }, card.id);
+        await reference(
+          { config: state.execution.config, inputs: state.execution.inputs },
+          card.id,
+        );
       else {
-        reference(state.execution.inputs, card.id);
-        reference({ path: state.execution.selectedAgentPrompt.path }, card.id);
+        await reference(state.execution.inputs, card.id);
+        await reference({ path: state.execution.selectedAgentPrompt.path }, card.id);
       }
       for (const prompt of state.recordPrompts)
-        reference({ path: resolve(projectRoot, prompt.artifact.path) }, card.id);
+        await reference({ path: resolve(projectRoot, prompt.artifact.path) }, card.id);
     }
     if (workflow.afterActivationCommit)
-      reference(
+      await reference(
         {
           config: workflow.afterActivationCommit.execution.config,
           inputs: workflow.afterActivationCommit.execution.inputs,
@@ -302,15 +309,15 @@ export async function inspectWorkGcCanonicalState(
         card.id,
       );
     for (const prompt of workflow.processPrompts.values())
-      reference({ path: prompt.path }, card.id);
+      await reference({ path: prompt.path }, card.id);
     await setImmediate();
   }
   if (!owners.has('project')) throw new Error('GC requires the canonical project card.');
   await conversation(globalAgentSessionId(workflows.analyst.name));
   await conversation(globalAgentSessionId(workflows.oversight.name), true);
-  reference({ path: workflows.analystPrompt.path }, null);
-  reference({ path: workflows.oversightPrompt.path }, null);
+  await reference({ path: workflows.analystPrompt.path }, null);
+  await reference({ path: workflows.oversightPrompt.path }, null);
   for (const participant of workflows.selectedGlobalParticipants.values())
-    reference({ path: participant.prompt.path }, null);
+    await reference({ path: participant.prompt.path }, null);
   return owners;
 }

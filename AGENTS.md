@@ -168,15 +168,28 @@ For normal Saivage operations, the following storage rules include the narrowly 
 
 ### Explicit work garbage collection exceptions
 
-Only explicit running-owner work GC may inventory approved ordinary temporary,
+Only explicit work GC may inventory approved ordinary temporary,
 command-scratch, capture and stash namespaces under `.saivage/work/`, using yielding
 synchronous I/O and call-local candidate/mark sets. Inventory is not deletion
-authority. Under one private Supervisor maintenance hold, await actual project
-parking and accepted Analyst/external/Oversight owner settlement, freshly mark all
-selected canonical references and operational protections, then recheck each exact
+authority. With a live server, one private Supervisor hold requires actual project
+parking or genuinely stopped execution and accepted Analyst/external/Oversight owner
+settlement. Unresolved native source ownership refuses collection; source-write
+guards remain unchanged. Without a lifecycle owner, only a missing lock permits GC
+under the existing bound lifecycle lock, after exact interactive confirmation
+`GC OFFLINE QUIESCENT <canonical-project-root>` that the service is stopped, restarts
+excluded and all managed/unrelated writers remain quiescent throughout. Disclose
+irreversible deletion and destruction of needed data if writer exclusion is mistaken;
+a missing lock alone proves no containment. Dead/malformed/indeterminate locks refuse,
+never permit takeover. Both entries freshly mark all selected canonical references,
+including linked card/accepted history, all indexed conversation segments and raw
+action/native evidence, plus operational protections, then recheck each exact
 candidate before unlink. Unknown ownership, references or surviving-writer footprint
 requires retention/refusal. Keep directories. Default/explicit dry-run uses the same
-selection without file effects; delete is irreversible and has no lossless guarantee.
+selection without collector file effects; offline preview does publish/release the
+lifecycle lock and prints its result only after successful release. Delete is
+irreversible and has no lossless guarantee. GC has no elapsed deadline or duration
+guarantee; cooperative cancellation settles the collector before hold/lock release.
+Only an originally running hold may restore its same Run; paused/stopped stay so.
 No startup/automatic cleanup, saved selection, additional lifecycle lock, registry,
 retry, rollback, canonical repair or orphan adoption is authorized. Publication
 uncertainty remains fatal before any cleanup, reporting or hold release.

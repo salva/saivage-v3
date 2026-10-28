@@ -1,7 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { tmpdir } from 'node:os';
+const tmpdir = () => '/home/salva/g/ml/tmp';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { stringify } from 'yaml';

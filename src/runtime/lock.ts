@@ -346,15 +346,6 @@ function blockerError(status: RuntimeLockBlocker): Error {
   return new Error(`Runtime lock is malformed (${status.detail}). ${status.repairInstruction}`);
 }
 
-function syncDirectory(path: string): void {
-  const fd = openSync(path, 'r');
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-}
-
 function admitLockDirectory(path: string): void {
   try {
     mkdirSync(path);
@@ -504,11 +495,20 @@ export function publishRuntimeControlEndpoint(
   replaceOwnedRecord(ownership, { ...ownership.record, control_endpoint: endpoint });
 }
 
-export function releaseRuntimeLifecycleLock(handle: RuntimeLifecycleLockHandle): void {
+export function releaseRuntimeLifecycleLock(
+  handle: RuntimeLifecycleLockHandle,
+  io = { unlink: unlinkSync, open: openSync, fsync: fsyncSync, close: closeSync },
+): void {
   const ownership = requireOwnership(handle);
   assertRecordOwned(ownership);
-  unlinkSync(ownership.lockFilePath);
-  syncDirectory(dirname(ownership.lockFilePath));
+  try {
+    io.unlink(ownership.lockFilePath);
+    const fd = io.open(dirname(ownership.lockFilePath), constants.O_RDONLY);
+    io.fsync(fd);
+    io.close(fd);
+  } catch (error) {
+    throw new PublicationOutcomeUnknownError(error);
+  }
   ownership.active = false;
 }
 

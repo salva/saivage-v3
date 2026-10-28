@@ -1,7 +1,9 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+const tmpdir = () => '/home/salva/g/ml/tmp';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { run } from '../../src/cli.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock } from '../../src/runtime/lock.js';
@@ -47,31 +49,40 @@ it('GC refuses dead, malformed and indeterminate synthetic locks without request
 });
 it('default and explicit preview send the same strict mode only to the published live endpoint', async () => {
   const root = mkdtempSync(join(tmpdir(), 'gc-cli-'));
+  const requests: Array<{ path: string | undefined; body: unknown }> = [];
+  let status = 200;
+  const server = createServer(async (request, reply) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    requests.push({ path: request.url, body });
+    reply.writeHead(status, { 'content-type': 'application/json' });
+    reply.end(JSON.stringify(status === 200 ? { mode: body.mode, disposition: 'refused',
+      reason: 'maintenance_refused', restoration: 'not_acquired', result: null } : {}));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing fixture endpoint');
   try {
     createProjectIdentity(root, 'GC test');
     writeFileSync(join(root, '.saivage/saivage.yaml'), 'invalid config is not consulted');
     process.chdir(root);
-    await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('No live');
+    await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('interactive');
     const lock = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
     try {
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('runtime control unavailable');
-      publishRuntimeControlEndpoint(lock, { origin: 'http://127.0.0.1:45901', auth: 'disabled' });
-      const request = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-        const body = JSON.parse(init!.body as string);
-        return new Response(JSON.stringify({ mode: body.mode, disposition: 'refused',
-          reason: 'maintenance_refused', restoration: 'not_acquired', result: null }), { status: 200 });
-      });
+      publishRuntimeControlEndpoint(lock, { origin: `http://127.0.0.1:${address.port}`, auth: 'disabled' });
       jest.spyOn(console, 'log').mockImplementation(() => {});
       for (const args of [[], ['--dry-run'], ['--delete']])
         await run(['node', 'saivage', 'gc-work', ...args, '--before', '2026-10-24T12:00:00+02:00', '--target-bytes', '0']);
-      expect(request.mock.calls.map(([url]) => url)).toEqual(Array(3).fill('http://127.0.0.1:45901/api/runtime/gc-work'));
-      const bodies = request.mock.calls.map(([, init]) => JSON.parse(init!.body as string));
+      expect(requests.map(request => request.path)).toEqual(Array(3).fill('/api/runtime/gc-work'));
+      const bodies = requests.map(request => request.body as { mode: string });
       expect(bodies[0]).toEqual(bodies[1]);
       expect(bodies[0]).toEqual({ mode: 'dry_run', before: '2026-10-24T12:00:00+02:00', target_bytes: 0 });
       expect(bodies[2].mode).toBe('delete');
-      request.mockResolvedValue(new Response('{}', { status: 401 }));
+      status = 401;
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('401');
-      expect(request).toHaveBeenCalledTimes(4);
+      expect(requests).toHaveLength(4);
     } finally { releaseRuntimeLifecycleLock(lock); }
-  } finally { process.chdir(cwd); rmSync(root, { recursive: true, force: true }); }
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); process.chdir(cwd); rmSync(root, { recursive: true, force: true }); }
 });

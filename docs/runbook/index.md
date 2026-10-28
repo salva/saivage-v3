@@ -33,7 +33,7 @@ owners. Project policy remains in
 | Give Saivage tools from another MCP server | [Outbound MCP](./mcp.md#saivage-tools-to-configured-mcp-servers) | YAML/dynamic connection plus separate grants/discovered identities |
 | Prepare native observation of approved source roots | [Observed collections](./observed-collections.md) | Offline prepare; separate adoption starts native watchers, no manual indexes or universal embeddings |
 | Inspect records, instructions, executions, output or images | [Evidence](./evidence.md) | Current observation, retained provenance and provider perception differ |
-| Reclaim unreferenced ordinary work | [Explicit work GC](./work-gc.md) | Preview first; separate fresh delete, private live-owner hold, irreversible effects |
+| Reclaim unreferenced ordinary work | [Explicit work GC](./work-gc.md) | Preview first; separate fresh delete, paused/stopped server hold or confirmed offline bound lock, irreversible effects |
 | Repair damaged **current-format** selected state | [Exact-target repair](./state-adoption.md#current-format-repair) | Stopped/excluded, complete fresh backup, report and exact typed consent |
 | Adopt incompatible formats/participating identities | [Adoption decision](./state-adoption.md#choose-the-operation) | Remain stopped; explicit reset or owner-requested external migration |
 | Intentionally discard generated history | [Destructive reset](./state-adoption.md#destructive-reset) | Concrete loss consent and complete stopped backup; four roots only |

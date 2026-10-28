@@ -134,7 +134,8 @@ interface UrgentSelection {
 type SupervisorStatus = RuntimeStatus | 'uninitialized';
 
 interface WorkGcHold {
-  readonly runIdentity: object;
+  readonly runIdentity: object | null;
+  readonly entryStatus: 'running' | 'paused' | 'stopped';
   readonly abort: AbortController;
   readonly parked: ReturnType<typeof deferred<void>>;
   phase: 'settling' | 'collecting';
@@ -233,19 +234,27 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (
       !this.applicationAdmissionOpen ||
       this.halt ||
-      !this.runIdentity ||
-      (this.status !== 'running' && this.status !== 'paused')
+      this.applicationCleanupTask ||
+      this.inOwnershipTransition ||
+      this.preparedLaunch ||
+      (this.status !== 'running' && this.status !== 'paused' && this.status !== 'stopped') ||
+      (this.status === 'stopped'
+        ? this.runIdentity !== null || this.activationOwners.size !== 0
+        : this.runIdentity === null)
     )
-      throw new Error('Work garbage collection requires an existing running or fully paused run.');
+      throw new Error(
+        'Work garbage collection requires a running, fully paused or genuinely stopped project.',
+      );
     const hold: WorkGcHold = {
       runIdentity: this.runIdentity,
+      entryStatus: this.status,
       abort: new AbortController(),
       parked: deferred<void>(),
       phase: 'settling',
       restoreRunning: this.status === 'running',
     };
     this.workGcHold = hold;
-    const signal = AbortSignal.any([input.signal, hold.abort.signal, AbortSignal.timeout(60_000)]);
+    const signal = AbortSignal.any([input.signal, hold.abort.signal]);
     const cancelled = deferred<never>();
     const onAbort = () => cancelled.reject(signal.reason);
     signal.addEventListener('abort', onAbort, { once: true });
@@ -254,6 +263,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       signal.removeEventListener('abort', onAbort);
       const restore =
         hold.restoreRunning &&
+        hold.entryStatus === 'running' &&
+        hold.runIdentity !== null &&
         this.runIdentity === hold.runIdentity &&
         this.applicationAdmissionOpen &&
         !this.halt &&
@@ -282,15 +293,21 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       signal.throwIfAborted();
       if (
         this.runIdentity !== hold.runIdentity ||
-        this.status !== 'paused' ||
-        !this.runtimeGate.isParked ||
+        (hold.entryStatus === 'stopped'
+          ? this.status !== 'stopped' || this.activationOwners.size !== 0
+          : this.status !== 'paused' || !this.runtimeGate.isParked) ||
+        !this.applicationAdmissionOpen ||
+        this.applicationCleanupTask ||
+        this.inOwnershipTransition ||
+        this.preparedLaunch ||
         this.halt ||
         [...this.activationOwners.values()].some(
           (owner) =>
             owner.phase !== 'active' ||
             owner.terminalWinner !== 'open' ||
             owner.urgentSettlement !== null ||
-            owner.cancellationSettlement !== null,
+            owner.cancellationSettlement !== null ||
+            owner.sourceTask !== null,
         )
       )
         throw new Error('Work garbage collection has no settled parked project frontier.');

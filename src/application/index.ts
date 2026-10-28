@@ -14,6 +14,11 @@ export type {
 } from './analyst-mutation-services.js';
 export type { ActorRuntimeReadModel } from './read-models/actor-runtime-read-model.js';
 export { OperatorRuntimeHttpClient } from './operator-runtime-http-client.js';
+export {
+  workGcCompletedResponse,
+  workGcFailureResponse,
+  workGcOperationalInputs,
+} from './work-gc-operation.js';
 export { createRuntimeApplication } from './runtime-composition.js';
 export { createAnalystOperationSurface } from './analyst-operation-surface.js';
 export { recordExternalToolCall } from './external-tool-call.js';

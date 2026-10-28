@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
+const tmpdir = () => '/home/salva/g/ml/tmp';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
@@ -61,6 +61,14 @@ async function availablePort(): Promise<number> {
 
 describe('App terminal process adapters', () => {
   const roots: string[] = [];
+  it('dispatches lifecycle release uncertainty instead of a terminal warning or normal stop', async () => {
+    const root = project(validConfig(await availablePort())); roots.push(root);
+    const result = await collect(runChild('release-fatal', root));
+    expect(result).toMatchObject({ code: 1, signal: null, stdout: 'RELEASE_UNCERTAIN\n' });
+    expect(result.stderr).toContain('Fatal: PublicationOutcomeUnknownError');
+    expect(result.stderr).not.toContain('STARTUP_ERROR:');
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(true);
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
   afterEach(() => {
     for (const [child, output] of children) {
       process.stderr.write(`TERMINAL_CHILD_TEARDOWN_PARTIAL:${JSON.stringify(output)}\n`);

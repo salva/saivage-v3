@@ -78,6 +78,28 @@ function fixture(on = true) {
   return { root, tip, branch, store, processes, supervisor, context, entered, release, paused, calls: () => calls };
 }
 
+test('genuinely stopped native GC blocks source writes throughout settling/collecting without source operations or a Run', async () => {
+  const f = fixture(); await f.supervisor.start();
+  const accepted = deferred<void>(), entered = deferred<void>(), release = deferred<void>();
+  const before = readFileSync(join(f.root, '.git/index'));
+  const launch = jest.spyOn(f.processes.processRunner, 'spawnCaptured');
+  const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+    assertEntryIdle() {}, settleAcceptedWork: () => accepted.promise, assertReady() {},
+    collect: async () => { entered.resolve(); await release.promise; return 1; } });
+  try {
+    await expect(writeProject(f.context, { path: 'source.txt', content: 'must refuse' })).rejects.toThrow('genuinely stopped');
+    accepted.resolve(); await entered.promise;
+    await expect(writeProject(f.context, { path: 'source.txt', content: 'must refuse' })).rejects.toThrow('genuinely stopped');
+    expect(f.calls()).toBe(0);
+    expect(launch).not.toHaveBeenCalled();
+    expect(readFileSync(join(f.root, '.git/index'))).toEqual(before);
+    expect(readFileSync(join(f.root, 'source.txt'), 'utf8')).toBe('original\n');
+    expect(f.supervisor.getStatus().status).toBe('stopped');
+    release.resolve(); await expect(gc).resolves.toEqual({ value: 1, restoredRunning: false });
+    expect(() => f.supervisor.assertGlobalSourceWrite(join(f.root, 'source.txt'))).not.toThrow();
+  } finally { accepted.resolve(); release.resolve(); await gc; await f.supervisor.cleanupForApplicationStop(); }
+});
+
 test('stopped final effect is synchronous; clean admission makes no index writes/hooks and later Run refuses operator dirt', async () => {
   const f = fixture(); await f.supervisor.start();
   const before = readFileSync(join(f.root, '.git/index'));

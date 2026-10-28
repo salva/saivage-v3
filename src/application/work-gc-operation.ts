@@ -38,6 +38,7 @@ function workflowInputs(workflows: CompiledProjectWorkflows): unknown {
     agents,
     cardTypes,
     cardTypeVocabulary,
+    gitPolicy,
   } = workflows;
   return operationalValue({
     operations,
@@ -49,7 +50,48 @@ function workflowInputs(workflows: CompiledProjectWorkflows): unknown {
     agents,
     cardTypes,
     cardTypeVocabulary,
+    gitPolicy,
   });
+}
+
+export function workGcOperationalInputs(
+  config: SaivageConfig,
+  workflows: CompiledProjectWorkflows,
+) {
+  return { config, operations: operationalValue(workflows.operations) };
+}
+
+export function workGcCompletedResponse(
+  request: WorkGcRequest,
+  result: WorkGcResult,
+  restoredRunning: boolean,
+): WorkGcResponse {
+  return {
+    mode: request.mode,
+    disposition: 'completed',
+    reason: 'completed',
+    restoration: restoredRunning ? 'resumed' : 'not_resumed',
+    result,
+  };
+}
+
+export function workGcFailureResponse(
+  request: WorkGcRequest,
+  error: unknown,
+  reason: WorkGcResponse['reason'],
+  cancelled: boolean,
+  restoration: WorkGcResponse['restoration'],
+  completedResult: WorkGcResult | null = null,
+): WorkGcResponse {
+  const cause = error instanceof WorkGcMaintenanceError ? error.cause : error;
+  const result = cause instanceof WorkGcInterruptedError ? cause.result : completedResult;
+  return {
+    mode: request.mode,
+    disposition: result ? 'interrupted' : 'refused',
+    reason: cancelled ? 'cancelled' : reason,
+    restoration,
+    result,
+  };
 }
 
 export async function runWorkGcOperation(input: {
@@ -99,10 +141,7 @@ export async function runWorkGcOperation(input: {
             // Executable dependencies live in the selected configuration/operation definitions.
             // Expanded role instructions are checked for composition consistency above; their
             // retained conversation selections are independently marked by the canonical owner.
-            operationalInputs: {
-              config: fresh.config,
-              operations: operationalValue(fresh.workflows.operations),
-            },
+            operationalInputs: workGcOperationalInputs(fresh.config, fresh.workflows),
             protection: input.processRunner.workGcProtection(),
             assertCollecting: () => signal.throwIfAborted(),
             fatal: (error) => input.fatalPort.publicationOutcomeUnknown(error),
@@ -111,33 +150,22 @@ export async function runWorkGcOperation(input: {
         return result;
       },
     });
-    return {
-      mode: input.request.mode,
-      disposition: 'completed',
-      reason: 'completed',
-      restoration: completed.restoredRunning ? 'resumed' : 'not_resumed',
-      result: completed.value,
-    };
+    return workGcCompletedResponse(input.request, completed.value, completed.restoredRunning);
   } catch (error) {
     if (error instanceof PublicationOutcomeUnknownError)
       input.fatalPort.publicationOutcomeUnknown(error);
     if (error instanceof WorkGcBusyError) throw error;
-    const cause = error instanceof WorkGcMaintenanceError ? error.cause : error;
-    if (cause instanceof WorkGcInterruptedError) result = cause.result;
-    return {
-      mode: input.request.mode,
-      disposition: result ? 'interrupted' : 'refused',
-      reason:
-        input.signal.aborted || (error instanceof WorkGcMaintenanceError && error.cancelled)
-          ? 'cancelled'
-          : failureReason,
-      restoration:
-        error instanceof WorkGcMaintenanceError
-          ? error.restoredRunning
-            ? 'resumed'
-            : 'not_resumed'
-          : 'not_acquired',
+    return workGcFailureResponse(
+      input.request,
+      error,
+      failureReason,
+      input.signal.aborted || (error instanceof WorkGcMaintenanceError && error.cancelled),
+      error instanceof WorkGcMaintenanceError
+        ? error.restoredRunning
+          ? 'resumed'
+          : 'not_resumed'
+        : 'not_acquired',
       result,
-    };
+    );
   }
 }

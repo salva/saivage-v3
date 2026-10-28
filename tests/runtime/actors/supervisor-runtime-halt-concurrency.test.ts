@@ -305,6 +305,80 @@ async function within<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe('Supervisor singular runtime halt concurrency', () => {
+  it('has no elapsed GC timer during settling or collection beyond the old minute', async () => {
+    const h = harness();
+    jest.useFakeTimers();
+    const timeout = jest.spyOn(AbortSignal, 'timeout');
+    const accepted = barrier<void>(), collected = barrier<void>();
+    const collect = jest.fn(async () => { await collected.promise; return 7; });
+    const gc = h.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+      assertEntryIdle() {}, settleAcceptedWork: () => accepted.promise, assertReady() {}, collect });
+    const frontier = h.runtimeGate.waitUntilOpen(new AbortController().signal);
+    try {
+      await jest.advanceTimersByTimeAsync(120_000);
+      expect(collect).not.toHaveBeenCalled();
+      expect(h.supervisor.hasWorkGcMaintenanceHold()).toBe(true);
+      accepted.resolve();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(collect).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(120_000);
+      expect(h.supervisor.hasWorkGcMaintenanceHold()).toBe(true);
+      expect(timeout).not.toHaveBeenCalled();
+      expect(jest.getTimerCount()).toBe(0);
+      collected.resolve();
+      await expect(gc).resolves.toEqual({ value: 7, restoredRunning: true });
+      await frontier;
+    } finally { accepted.resolve(); collected.resolve(); timeout.mockRestore(); jest.useRealTimers(); }
+  });
+
+  it.each(['active', 'prepared_root', 'child_admission', 'settling'] as const)(
+    'refuses pending native sourceTask at the collecting boundary with %s owner, without abort or replay', async phase => {
+      const h = harness();
+      const source = barrier<void>();
+      h.root.phase = phase;
+      h.root.sourceTask = source.promise;
+      const collect = jest.fn(async () => 1);
+      const gc = h.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+        assertEntryIdle() {}, settleAcceptedWork: async () => {}, assertReady() {}, collect });
+      const frontier = h.runtimeGate.waitUntilOpen(new AbortController().signal);
+      await expect(gc).rejects.toThrow('settled parked');
+      await frontier;
+      expect(collect).not.toHaveBeenCalled();
+      expect(h.root.sourceTask).toBe(source.promise);
+      expect(h.root.sourceAbortController.signal.aborted).toBe(false);
+      expect(h.rootProcessor.dispose).not.toHaveBeenCalled();
+      source.resolve(); h.root.sourceTask = null;
+    });
+
+  it('collects after actual Stop without a gate waiter or replacement activation and preserves stopped on cancellation', async () => {
+    const h = harness();
+    const stop = h.supervisor.stopProject();
+    h.rootProcessor.join.resolve([]); h.processTermination.resolve(processReport);
+    await stop;
+    const wait = jest.spyOn(h.runtimeGate, 'waitUntilOpen');
+    const accepted = barrier<void>(), entered = barrier<void>(), release = barrier<void>();
+    const gc = h.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+      assertEntryIdle() {}, settleAcceptedWork: () => accepted.promise, assertReady() {},
+      collect: async signal => { entered.resolve(); await release.promise; signal.throwIfAborted(); return 1; } });
+    expect(h.supervisor.getStatus().status).toBe('stopped');
+    expect(h.internals.activationOwners.size).toBe(0);
+    expect(h.internals.runIdentity).toBeNull();
+    await expect(h.supervisor.startProject()).rejects.toThrow('busy');
+    expect(() => h.supervisor.resume()).toThrow('busy');
+    accepted.resolve(); await entered.promise;
+    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
+    expect(h.supervisor.hasWorkGcMaintenanceHold()).toBe(true);
+    release.resolve(); await expect(gc).rejects.toThrow('stopped');
+    expect(wait).not.toHaveBeenCalled();
+    expect(h.runtimeGate.isOpen).toBe(false);
+    expect(h.runtimeGate.isParked).toBe(false);
+    expect(h.supervisor.getStatus().status).toBe('stopped');
+    await expect(h.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
+      assertEntryIdle() {}, settleAcceptedWork: async () => {}, assertReady() {}, collect: async () => 3,
+    })).resolves.toEqual({ value: 3, restoredRunning: false });
+    wait.mockRestore();
+  });
+
   it('holds ingress immediately, waits for actual parking and accepted work, then restores the same run', async () => {
     const h = harness();
     const identity = h.internals.runIdentity;

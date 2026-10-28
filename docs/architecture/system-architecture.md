@@ -543,19 +543,24 @@ The latest completion remains observable until the next accepted turn replaces i
 publication uncertainty is observed through the fatal port even without a waiter.
 
 Work-GC maintenance uses one private Supervisor hold, not a new public runtime
-status or lifecycle lock. Entry requires the same existing running/paused run;
+status or additional lifecycle lock. Running/paused entry retains the same existing
+Run; genuinely stopped entry requires null Run identity and no activation/prepared
+launch/cleanup/ownership transition, and creates no gate waiter or activation;
 independent HTTP MCP lifecycle or reconciliation activity refuses before pause.
 The hold denies new Analyst ingress and Start/Resume, while accepted tools finish
 under their existing owners. Collection awaits actual gate parking, Analyst
 consumer completion, external operations including receipts, and the cancelled
-Oversight check. Unresolved activation/interruption ownership refuses collection.
+Oversight check. Unresolved activation/interruption ownership, including any pending
+native `sourceTask`, refuses collection without cancellation, checkpoint or Git replay.
+Native global source-write guards continue to reject writes under the hold, even stopped.
 The collecting phase denies activation and notification mutation; it never opens
 the gate. Cancellation stops waiting, not accepted Analyst work. Stop, close,
 restart and natural run settlement defeat restoration. An ordinary Pause, including
 an accepted Analyst tool's Pause, withdraws restoration even if already paused.
 Only the hold owner may restore its own pause on the same run; a cancelled pending
-pause cannot leave a late parking callback behind. Maintenance is bounded to one
-minute and collector loops must honor cancellation before further file effects.
+pause cannot leave a late parking callback behind. Paused/stopped entries never
+auto-resume. Maintenance has no elapsed deadline; collector loops cooperatively
+honor cancellation before further effects and settle before hold release.
 
 The application owns the single in-flight GC task across inventory and maintenance;
 application shutdown cancels and joins it within runtime cleanup. The server's MCP
@@ -579,8 +584,8 @@ structured failed tool result does not prove containment or a safe write footpri
 
 The collector in `src/workspace/work-garbage-collector.ts` performs yielding
 synchronous work-only inventory and one shared preview/delete selection loop. Under
-the hold, persistence owners inspect the fresh linked graph, all indexed segments,
-selected records (including baseline/draft and accepted predecessors), pending
+the applicable exclusion, persistence owners inspect the fresh linked graph, all
+indexed segments, selected records (including baseline/draft and accepted predecessors), pending
 messages and execution evidence without initialization or torn-tail repair. Only
 GC may discover names one level deep in reached active-card record roots; exact
 head grammar/round-trip precedes strict owning reads. Previous slots, accepted
@@ -589,14 +594,40 @@ metadata may protect work without outside-work discovery. Fresh candidate identi
 size, timestamps and protection checks immediately precede the final effect switch:
 would-delete attribution or unlink plus directory durability. All directories stay.
 No persistent inventory/report, new durable family or format bump is introduced.
+Reference extraction visits each strict conversation index once and each validated
+segment's genesis and physical rows, not its repeated derived conversation views.
+It retains internal observations, protected prompts and raw tool/native evidence.
+Nested values and text tokens cooperatively yield every 256 visited items; individual
+file reads, JSON parsing and regex operations remain synchronous and indivisible.
+Call-local protection sets test candidate ancestors through the work root rather
+than scanning every mark for each candidate. Reference interpretation is unchanged,
+including conservative retention for ambiguous prose and aliases.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
-only the verified live lock endpoint/auth, with no offline/config fallback. Default
-and explicit preview require the same hold as deletion but no backup prerequisite
+only the verified live lock endpoint/auth, with no fallback after delegation failure.
+Its call-owned Undici dispatcher disables header/body deadlines, retains finite
+connection establishment, follows no redirects and retries nothing; other runtime
+requests keep their existing transport. Body transport failure differs from malformed
+JSON. The dispatcher is destroyed on completion/failure; process death disconnects.
+Default and explicit online preview require the same hold as deletion but no backup prerequisite
 or collector writes. Known effects and accounted estimates are bounded response
 data, not whole-work or physical-space guarantees. Deletion uncertainty reaches
 the nonreturning fatal boundary before report, cleanup or hold release. The
 [runbook](../runbook/work-gc.md) owns explicit preview-first adoption and cancellation.
+
+Only a missing lifecycle lock selects `src/cli-work-gc.ts`'s offline owner. Exact
+interactive maintained-quiescence acknowledgement precedes bound lifecycle acquisition
+and generated reads. This owner loads resolved inputs and shares operational projection,
+response construction and the strict collector, not server/init/recovery infrastructure.
+Empty process protections rely on that operator assertion, never inferred containment.
+Online comparison also includes compiled Git policy. Candidate/mark sets remain call-local;
+each effect requires fresh at-use checks under the applicable exclusion, never a saved
+selection. Offline signals abort cooperatively;
+actual settlement and successful release precede result output. Lock release checks
+ownership before unlink, then performs unlink/open/fsync/close sequentially. Any error
+from unlink onward is publication uncertainty, dispatched immediately through existing
+fatal ports in app cleanup, async initializer, repair and offline GC, before later
+cleanup/output; no close follows failed fsync and no release retry is allowed.
 
 ### Structure and records
 
@@ -1539,7 +1570,7 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 | `GET /api/cards/:id/diff` | Projected card comparison. | `src/contracts/operator-api-runtime-cards.ts:757` |
 | `GET /api/runtime/status` | Supervisor runtime observation. | `src/contracts/operator-api-runtime-cards.ts:774` |
 | `POST /api/runtime/pause` | Bodyless cooperative Pause. | `src/contracts/operator-api-runtime-cards.ts:786` |
-| `POST /api/runtime/gc-work` | Explicit live-owner work preview or deletion. | `src/contracts/operator-api-work-gc.ts:7` |
+| `POST /api/runtime/gc-work` | Explicit live-server work preview or deletion; collection requires paused/stopped execution. | `src/contracts/operator-api-work-gc.ts:7` |
 | `POST /api/runtime/resume` | Bodyless same-Run Resume. | `src/contracts/operator-api-runtime-cards.ts:799` |
 | `POST /api/runtime/stop-project` | Bodyless project containment. | `src/contracts/operator-api-runtime-cards.ts:813` |
 | `POST /api/runtime/restart-server` | Exact-confirmation authenticated restart. | `src/contracts/operator-api-runtime-cards.ts:826` |

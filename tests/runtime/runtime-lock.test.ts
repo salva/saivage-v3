@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+const tmpdir = () => '/home/salva/g/ml/tmp';
 import { join } from 'node:path';
 
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, readRuntimeLockStatus, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
@@ -72,6 +72,26 @@ describe('five-way runtime lifecycle lock classification', () => {
     expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
     expect((thrown as PublicationOutcomeUnknownError).cause).toBe(failure);
     expect(trace).toEqual(['open', 'write']);
+  });
+  it.each(['unlink', 'open', 'fsync', 'close'] as const)('release stops at uncertain %s without cleanup', (failed) => {
+    const owned = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
+    const trace: string[] = [];
+    const step = (name: string) => { trace.push(name); if (name === failed) throw new Error(name); };
+    const io = {
+      unlink: (() => step('unlink')) as never,
+      open: (() => { step('open'); return 42; }) as never,
+      fsync: (() => step('fsync')) as never,
+      close: (() => step('close')) as never,
+    };
+    expect(() => releaseRuntimeLifecycleLock(owned, io)).toThrow(PublicationOutcomeUnknownError);
+    expect(trace).toEqual(['unlink', 'open', 'fsync', 'close'].slice(0, ['unlink', 'open', 'fsync', 'close'].indexOf(failed) + 1));
+  });
+  it('rejects foreign and replaced ownership before the unlink boundary', () => {
+    const unlink = () => { throw new Error('must not reach unlink'); };
+    expect(() => releaseRuntimeLifecycleLock({} as RuntimeLifecycleLockHandle, { unlink, open: openSync, fsync: (() => {}) as never, close: (() => {}) as never })).toThrow('foreign');
+    handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
+    writeFileSync(join(root, '.saivage/locks/runtime.lock'), '{}');
+    expect(() => releaseRuntimeLifecycleLock(handle!, { unlink, open: openSync, fsync: (() => {}) as never, close: (() => {}) as never })).toThrow('Cannot verify');
   });
 });
 

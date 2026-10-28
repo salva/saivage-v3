@@ -159,7 +159,15 @@ export async function startApp(options: StartAppOptions): Promise<App> {
     throw error;
   }
   const processIdentity = runtimeProcessIdentity(lifecycleLock);
-  terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
+  terminal.registerCleanupLeaf('lifecycle-lock', () => {
+    try {
+      releaseRuntimeLifecycleLock(lifecycleLock);
+    } catch (error) {
+      if (error instanceof PublicationOutcomeUnknownError)
+        fatalPort.publicationOutcomeUnknown(error);
+      throw error;
+    }
+  });
   const processRegistry = new ManagedProcessGroupRegistry();
   const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
   const bootstrapScope = processRegistry.createContainerScope(

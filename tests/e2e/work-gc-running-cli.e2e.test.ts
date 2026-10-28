@@ -3,7 +3,8 @@ import Fastify from 'fastify';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, rmSync, existsSync, utimesSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { run } from '../../src/cli.js';
@@ -55,7 +56,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
   const reports: WorkGcResponse[] = [];
   const filteredReports: WorkGcResponse[] = [];
   const realFetch = globalThis.fetch;
-  const requests = jest.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
+  jest.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
     if (!String(url).startsWith('http://127.0.0.1:')) throw new Error('Unexpected provider/nonlocal request');
     return realFetch(url, init);
   });
@@ -82,6 +83,12 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       onExternalAnalystOwnerFailure(error) { throw error; }, onOversightOwnerFailure(error) { throw error; },
     });
     const server = Fastify({ logger: false });
+    // Production Fastify composition supplies no response/socket timeout. Keep
+    // inbound header/body parsing timeouts distinct from the long GC response.
+    expect(server.server.timeout).toBe(0);
+    expect(server.server.requestTimeout).toBe(0);
+    let requestCount = 0;
+    server.addHook('onRequest', async () => { requestCount++; });
     const lock = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
     try {
       const garbage = join(root, '.saivage/work/cards/project/tmp/garbage.txt');
@@ -117,13 +124,13 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       const before = snapshot(join(root, '.saivage'));
       const output = jest.spyOn(console, 'log').mockImplementation(() => {});
       process.env.SAIVAGE_API_TOKEN = 'wrong-synthetic-token';
-      const count = requests.mock.calls.length;
+      const count = requestCount;
       await expect(run(['node', 'saivage', 'gc-work', '--delete'])).rejects.toThrow('401');
-      expect(requests).toHaveBeenCalledTimes(count + 1);
+      expect(requestCount).toBe(count + 1);
       expect(snapshot(join(root, '.saivage'))).toEqual(before);
       process.env.SAIVAGE_API_TOKEN = 'synthetic-gc-token';
       await expect(run(['node', 'saivage', 'gc-work', '--delete', '--dry-run'])).rejects.toThrow();
-      expect(requests).toHaveBeenCalledTimes(count + 1);
+      expect(requestCount).toBe(count + 1);
       if (!flags.length) {
         // A non-TTY child uses the actual CLI parser, discovery, live lock and HTTP
         // client. tsx only loads source modules; no fetch/client replacement in it.
@@ -182,14 +189,19 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         const naturalWait = jest.spyOn(app.analystRuntime, 'awaitNaturalTurnCompletion').mockImplementation(() => {
           settling.resolve(); return releaseSettlement.promise;
         });
-        const disconnect = new AbortController();
-        const request = realFetch(`${origin}/api/runtime/gc-work`, { method: 'POST',
-          headers: { authorization: 'Bearer synthetic-gc-token', 'content-type': 'application/json' },
-          body: JSON.stringify({ mode: 'delete' }), signal: disconnect.signal }).catch(error => error);
+        const child = spawn(process.execPath,
+          ['--import', pathToFileURL(join(cwd, 'node_modules/tsx/dist/loader.mjs')).href,
+            '--input-type=module', '-e',
+            `import { run } from ${JSON.stringify(pathToFileURL(join(cwd, 'src/cli.ts')).href)}; await run(['node','saivage','gc-work','--delete']);`],
+          { cwd: root, env: { ...process.env, NODE_OPTIONS: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+        const exited = once(child, 'exit');
+        let interruptedOutput = '';
+        child.stdout.on('data', chunk => { interruptedOutput += String(chunk); });
         try {
           await settling.promise;
-          disconnect.abort();
-          expect(await request).toMatchObject({ name: 'AbortError' });
+          child.kill('SIGTERM');
+          expect(await exited).toEqual([null, 'SIGTERM']);
+          expect(interruptedOutput).toBe('');
           for (let i = 0; i < 1000; i++) {
             try { app.assertWorkGcIngressAllowed(); break; }
             catch { await new Promise<void>(resolve => setImmediate(resolve)); }
@@ -199,7 +211,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
           expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
           expect(app.runtimeApi.getStatus().status).toBe('paused');
           expect(snapshot(join(root, '.saivage'))).toEqual(before);
-        } finally { releaseSettlement.resolve(); naturalWait.mockRestore(); }
+        } finally { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); releaseSettlement.resolve(); naturalWait.mockRestore(); }
         // A preview is not saved deletion authority. Publish a new canonical reference
         // and invoke an independent real CLI delete against a fresh mark.
         author.acceptRecord('project', 'review-new-reference.md', 'tmp:///project/garbage.txt', { kind: 'agent', agent: 'analyst' });

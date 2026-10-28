@@ -96,7 +96,7 @@ function analyst(
 }
 
 describe('Analyst parsed tool invocation', () => {
-  it.each(['natural', 'disconnect', 'timeout', 'stop', 'close'] as const)(
+  it.each(['natural', 'disconnect', 'caller cancellation', 'stop', 'close'] as const)(
     'actual GC maintenance waits for a real accepted Analyst tool; %s never disposes that turn', async mode => {
       const entered = deferred<void>(), release = deferred<void>();
       let toolSignal: AbortSignal | undefined;
@@ -150,6 +150,7 @@ describe('Analyst parsed tool invocation', () => {
         expect(collect).not.toHaveBeenCalled();
         let stopping: Promise<void> | undefined;
         if (mode === 'disconnect') abort.abort(new Error('request disconnected'));
+        if (mode === 'caller cancellation') abort.abort(new Error('caller cancelled GC'));
         if (mode === 'stop') stopping = supervisor.stopProject().then(() => undefined);
         if (mode === 'close') { supervisor.closeApplicationAdmission(); stopping = supervisor.cleanupForApplicationStop(); }
         if (mode !== 'natural') {

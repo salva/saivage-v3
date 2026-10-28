@@ -23,6 +23,17 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Work-GC scalability and paused/stopped/offline admission from actual source parent
+`3f7ca83fd3bce0a100a3924134663898bb5bbabf` change no durable grammar, meaning or
+discriminator. Strict index/genesis/physical-row extraction preserves the full
+reference union; native execution3 evidence remains selected. Existing bound/null-endpoint
+lifecycle lock format1 gains no phase or field; sequential release failures now
+propagate publication uncertainty before cleanup/output. Card6, workflow5,
+native-policy1, accepted-record5, record-head3, conversation12 and shared evidence2
+remain unchanged. This isolated GC change requires no conversion; whole-release
+adoption still requires matching-contract assessment and separate deployment authority.
+In particular incident release32904264 is not this change's compatibility baseline.
+
 The purposeful process-wait advice from source parent
 `6a39f68e13612c11f07444b61b15cc519dab38e4` changes only selected tool
 descriptions: long appropriate early-return completion waits versus purposeful

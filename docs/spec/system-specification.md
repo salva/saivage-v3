@@ -142,8 +142,10 @@ During explicit work-GC maintenance, new internal/external Analyst submissions
 receive a temporary busy refusal; already accepted work finishes naturally before
 collection. Project Pause still gates the provider frontier rather than freezing
 filesystem writers. The private maintenance hold also excludes Start/Resume from
-every caller, waits for actual parking and accepted owners, and conservatively
-refuses unresolved transitions or MCP activity. Read-only views remain available.
+every caller, waits for actual parking or genuinely stopped execution and accepted
+owners, and refuses unresolved transitions, native sourceTask ownership or MCP
+activity. Stopped collection creates no Run, activation or gate waiter; native global
+source-write guards still reject under the hold. Read-only views remain available.
 Stop/server close/restart cancels maintenance and prevents automatic resume. An
 ordinary Pause removes GC's resume intent. Successful or ordinarily cancelled GC
 may restore only its own pause of the same existing run, never create another Run.
@@ -165,8 +167,27 @@ ownership or surviving writer effects cause retention/refusal, not guessed safet
 Only eligible unreferenced regular files under work can be removed; directories,
 publication temporaries and canonical/attic/backup data remain untouched.
 
-Default and explicit dry-run use the same hold, fresh marking and selection as
-delete, but perform no collector file effects and require no backup. Preview
+Only a missing lifecycle lock selects offline CLI GC: exact interactive maintained
+writer-quiescence confirmation precedes existing bound lifecycle exclusion and
+generated reads. Dead/malformed/indeterminate owners refuse, and live delegation
+never falls back. Offline GC loads current inputs without server/init/recovery/Git
+commissioning, and preserves historical running/unmatched/native selections without
+settling them. Operator exclusion, not lock absence, covers external writers.
+Preview publishes/releases that lock but has no collector effects; offline results
+follow successful release. Lock-release uncertainty is fatal before further output
+or cleanup for every owner, including app, initializer and repair.
+
+Strict extraction consumes each session index once and each validated segment's
+genesis/physical rows, retaining internal observations and protected prompts rather
+than repeatedly walking derived views. Call-local sets test candidate ancestors;
+they confer no later invocation authority. There is no GC elapsed deadline or
+duration knob: the call-owned CLI transport disables response header/body deadlines
+but keeps finite connection establishment. Explicit cancellation is cooperative,
+with actual collector settlement before release; indivisible synchronous operations
+preclude a latency guarantee. Ambiguous prose may conservatively protect everything.
+
+Default and explicit dry-run use the same applicable exclusion, fresh marking and
+selection as delete, but perform no collector file effects and require no backup. Preview
 reports hypothetical would-delete effects; delete reports only known removals.
 Remaining accounted logical bytes are estimates, never whole-root/physical/free-space
 claims. A separate delete always starts fresh, not from a preview report. First

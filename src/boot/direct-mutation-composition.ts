@@ -90,7 +90,13 @@ export async function withDirectMutationComposition<T>(
         throw new Error('Initializer process containment failed; lifecycle lock retained.');
       process.removeListener('SIGINT', cancel);
       process.removeListener('SIGTERM', cancel);
-      releaseRuntimeLifecycleLock(lifecycleLock);
+      try {
+        releaseRuntimeLifecycleLock(lifecycleLock);
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError)
+          ownedFatalPort.publicationOutcomeUnknown(error);
+        throw error;
+      }
     }
   }
   try {

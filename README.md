@@ -121,6 +121,9 @@ offline migration requires an explicit identified-project request and its full g
 Optional [explicit work reclamation](docs/runbook/work-gc.md) previews unreferenced
 scratch before a separate irreversible delete. It is not an installation/startup
 step, automatic cleanup or canonical-state repair.
+Collection uses paused/stopped server maintenance or confirmed offline lifecycle
+exclusion. It has no elapsed deadline; cancellation is cooperative. Root package
+dependencies pin the Node-24-compatible direct Undici transport used only for GC.
 
 | Owner | Exact responsibility |
 | --- | --- |

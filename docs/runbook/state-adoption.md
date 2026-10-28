@@ -61,6 +61,14 @@ source completion; unrelated family labels remain unchanged.
 
 ## Choose the operation
 
+Optional [work GC](./work-gc.md) changes no durable format and is not adoption,
+repair or migration. Live-server collection supports paused/stopped execution;
+only a missing lock permits interactive offline GC under bound exclusion and
+maintained writer-quiescence confirmation. It neither commissions source nor settles
+historical calls/running cards, and successful collection is not startup compatibility
+certification. These permissions do not authorize deployment, init, reset or Run.
+GC has no elapsed deadline; interruption/lost response never authorizes replay.
+
 | Situation | Appropriate decision |
 |---|---|
 | Valid retained state matches every selected release contract | Authorized stopped deployment; retain it, without reset or migration |

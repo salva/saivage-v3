@@ -44,6 +44,7 @@ import { SAIVAGE_VERSION } from './version.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
 import { WorkGcRequestSchema, type WorkGcRequest } from './contracts/index.js';
 import { handleRepair, type RepairInputs } from './cli-repair.js';
+import { handleGcWork } from './cli-work-gc.js';
 import { parseRepairTarget } from './persistence/index.js';
 import { cardTypeNameSchema } from './schemas/index.js';
 import {
@@ -115,8 +116,11 @@ Usage:
   saivage stop
   saivage restart_server
   saivage gc-work [--before <RFC3339-with-zone>] [--target-bytes <bytes>] [--dry-run | --delete]
-      Preview first with --dry-run (also the default). Both modes pause the live
-      owner for fresh marking; busy mutations reject, Stop remains available.
+      Preview first with --dry-run (also the default). A live server collects only
+      while paused or stopped; busy mutations reject, Stop remains available.
+      Without a lifecycle owner, interactive exact quiescence acknowledgement and
+      bound lifecycle exclusion are required in both modes. No elapsed deadline;
+      interrupt to cancel cooperatively. Lost response never authorizes retry.
       --delete is a separate fresh invocation and irreversibly removes eligible
       work files. Consider a separately preserved backup before deletion.
       Reports accounted logical bytes only, never whole-work or physical savings.
@@ -467,7 +471,7 @@ async function handleStart(inputs: StartInputs): Promise<void> {
     console.log(`Analyst MCP: ${app.server.analystMcpEndpoint}`);
 }
 async function handleRuntimeControl(
-  command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server' | WorkGcRequest,
+  command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server',
 ): Promise<void> {
   const projectRoot = findProjectRoot();
   if (projectRoot === null) throw new Error('Not in a Saivage project');
@@ -483,7 +487,7 @@ async function handleRuntimeControl(
       console.log(JSON.stringify({ status: 'stopped', contained: false }));
     } else {
       throw new Error(
-        `No live Saivage runtime owns this project; cannot ${typeof command === 'string' ? command : 'gc-work'}.${lock.kind === 'dead' ? ` ${lock.repairInstruction}` : ''}`,
+        `No live Saivage runtime owns this project; cannot ${command}.${lock.kind === 'dead' ? ` ${lock.repairInstruction}` : ''}`,
       );
     }
     if (lock.kind === 'dead') console.log(lock.repairInstruction);
@@ -492,12 +496,6 @@ async function handleRuntimeControl(
   const endpoint = lock.record.control_endpoint;
   if (endpoint === null) throw new Error('active lifecycle owner; runtime control unavailable');
   const client = new OperatorRuntimeHttpClient();
-  if (typeof command !== 'string') {
-    const result = await client.gcWork(endpoint, command);
-    console.log(JSON.stringify(result));
-    if (result.disposition !== 'completed') process.exitCode = 1;
-    return;
-  }
   if (command === 'status') {
     console.log(JSON.stringify(await client.getRuntimeStatus(endpoint)));
     return;
@@ -557,7 +555,7 @@ export async function run(args: string[]): Promise<void> {
   const parsed = parseCommand(args);
   switch (parsed.command) {
     case 'gc-work':
-      await handleRuntimeControl(parsed.inputs);
+      await handleGcWork(parsed.inputs, fatalPort);
       break;
     case 'observed-collections':
       prepareObservedCollections(parsed.inputs);

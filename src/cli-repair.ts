@@ -147,7 +147,13 @@ export async function handleRepair(
     // Never release descriptors/lock, update reports or log after publication uncertainty.
     if (error instanceof PublicationOutcomeUnknownError) fatal.publicationOutcomeUnknown(error);
     prompt?.close();
-    releaseRuntimeLifecycleLock(lock);
+    try {
+      releaseRuntimeLifecycleLock(lock);
+    } catch (releaseError) {
+      if (releaseError instanceof PublicationOutcomeUnknownError)
+        fatal.publicationOutcomeUnknown(releaseError);
+      throw releaseError;
+    }
     // Corrupt bytes and schema diagnostics must not escape through operator output.
     throw new Error(
       'Repair stopped without further effects. Check the external report for known completed steps; correct the exact unsupported condition before a separate attempt.',

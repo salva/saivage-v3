@@ -205,8 +205,20 @@ class WorkReferences {
   readonly paths = new Set<string>();
   retainAll = false;
   readonly root: string;
-  constructor(readonly projectRoot: string) {
+  private visited = 0;
+  constructor(
+    readonly projectRoot: string,
+    readonly check: () => void,
+  ) {
     this.root = saivageWorkRoot(projectRoot);
+  }
+
+  private async visit(): Promise<void> {
+    this.check();
+    if (++this.visited % 256 === 0) {
+      await setImmediate();
+      this.check();
+    }
   }
 
   path(path: string): void {
@@ -245,7 +257,8 @@ class WorkReferences {
     }
   }
 
-  token(token: string, bases: readonly string[]): void {
+  async token(token: string, bases: readonly string[]): Promise<void> {
+    await this.visit();
     if (!token || token.includes('\0')) return;
     const scheme = /^(project|system|work|tmp):\/\/\/(.*)$/su.exec(token);
     if (scheme) {
@@ -258,7 +271,7 @@ class WorkReferences {
       }
       // Query/fragment syntax is not valid for these owners. Preserve the plausible path too.
       if (/[?#]/u.test(tail)) {
-        this.token(`${scheme[1]}:///${tail.split(/[?#]/u)[0]}`, bases);
+        await this.token(`${scheme[1]}:///${tail.split(/[?#]/u)[0]}`, bases);
         this.retainAll = true;
         return;
       }
@@ -290,12 +303,13 @@ class WorkReferences {
           this.retainAll = true;
         }
       } else if (/\.saivage|work:|tmp:/u.test(url.pathname)) this.retainAll = true;
-      for (const value of url.searchParams.values()) this.text(value, bases);
+      for (const value of url.searchParams.values()) await this.text(value, bases);
       return;
     }
     if (token.includes('${') || token.includes('$(') || /[*?[]/u.test(token)) {
       const prefix = token.split(/\$|\*|\?|\[/u)[0]!;
-      if (prefix.includes('/')) this.token(prefix.endsWith('/') ? prefix : dirname(prefix), bases);
+      if (prefix.includes('/'))
+        await this.token(prefix.endsWith('/') ? prefix : dirname(prefix), bases);
       else this.retainAll = true;
       return;
     }
@@ -303,8 +317,9 @@ class WorkReferences {
     else for (const base of bases) this.path(resolve(base, token));
   }
 
-  text(text: string, bases: readonly string[], pathValue = false): void {
-    if (pathValue) this.token(text, bases);
+  async text(text: string, bases: readonly string[], pathValue = false): Promise<void> {
+    await this.visit();
+    if (pathValue) await this.token(text, bases);
     // Nested JSON and JSON-escaped strings occur in raw tool arguments and Markdown evidence.
     let parsed: unknown;
     try {
@@ -313,21 +328,23 @@ class WorkReferences {
       /* Ordinary prose need not be JSON. */
     }
     if (parsed !== undefined && (typeof parsed !== 'string' || parsed !== text)) {
-      this.value(parsed, bases);
+      await this.value(parsed, bases);
       return;
     }
     for (const match of text.matchAll(/"(?:\\.|[^"\\])*"/gu)) {
+      await this.visit();
       let value: unknown;
       try {
         value = JSON.parse(match[0]);
       } catch {
         /* Inspect enclosing text below. */
       }
-      if (typeof value === 'string') this.text(value, bases);
+      if (typeof value === 'string') await this.text(value, bases);
     }
     // Quotes/backticks preserve spaces; URI/native tokens retain percent bytes distinctly.
     const tokens = new Set<string>();
     for (const match of text.matchAll(/[`']([^`'\n]+)[`']|"([^"\n]+)"|(?:\]\()([^\n]+?)\)/gu)) {
+      await this.visit();
       const quoted = match[1] ?? match[2] ?? match[3]!;
       // Apostrophes also delimit ordinary prose, not just filenames. Require path syntax
       // or a single basename; do not interpret whole quoted sentences/card links as globs.
@@ -341,24 +358,31 @@ class WorkReferences {
     }
     for (const match of text.matchAll(
       /(?:[a-z]+:\/\/\/?|\/|\.\.?\/|\.saivage\/)[^\s<>"'`]+|[a-zA-Z0-9_.-]+\/[^\s<>"'`]+|\b[a-zA-Z0-9_-]+\.(?:txt|md|jsonl?|log|png|jpg|csv|sh|js|ts|yaml|yml)\b/gu,
-    ))
+    )) {
+      await this.visit();
       tokens.add(match[0]);
+    }
     for (const token of tokens) {
-      this.token(token, bases);
+      await this.token(token, bases);
       const stripped = token.replace(/[),.;:\]}]+$/u, '');
-      if (stripped !== token) this.token(stripped, bases);
+      if (stripped !== token) await this.token(stripped, bases);
     }
   }
 
-  value(value: unknown, bases: readonly string[] = [this.projectRoot], key = ''): void {
+  async value(
+    value: unknown,
+    bases: readonly string[] = [this.projectRoot],
+    key = '',
+  ): Promise<void> {
+    await this.visit();
     if (typeof value === 'string') {
-      this.text(
+      await this.text(
         value,
         bases,
         /(?:path|url|cwd|directory|root|file|script|argv|dependencies)$/iu.test(key),
       );
     } else if (Array.isArray(value)) {
-      for (const child of value) this.value(child, bases, key);
+      for (const child of value) await this.value(child, bases, key);
     } else if (value && typeof value === 'object') {
       const object = value as Record<string, unknown>;
       const cwd = typeof object.cwd === 'string' ? resolve(this.projectRoot, object.cwd) : null;
@@ -370,13 +394,18 @@ class WorkReferences {
             : name === 'value' && typeof object.name === 'string'
               ? object.name
               : name;
-        this.value(child, localBases, meaning);
+        await this.value(child, localBases, meaning);
       }
     }
   }
 
   protects(path: string): boolean {
-    return this.retainAll || [...this.paths].some((mark) => within(mark, path));
+    if (this.retainAll) return true;
+    for (;;) {
+      if (this.paths.has(path)) return true;
+      if (path === this.root) return false;
+      path = dirname(path);
+    }
   }
 }
 
@@ -401,7 +430,10 @@ async function markCanonical(
             ],
       ),
   );
-  refs.value(context.operationalInputs);
+  context.assertCollecting();
+  await setImmediate();
+  context.assertCollecting();
+  await refs.value(context.operationalInputs);
   return owners;
 }
 
@@ -440,10 +472,18 @@ export async function collectWorkGarbage(
 ): Promise<WorkGcResult> {
   const check = context.assertCollecting;
   check();
-  const refs = new WorkReferences(inventory.projectRoot);
+  await setImmediate();
+  check();
+  const refs = new WorkReferences(inventory.projectRoot, check);
   refs.retainAll = context.protection.retainAll;
-  for (const path of context.protection.capturePaths) refs.path(dirname(path));
+  for (const path of context.protection.capturePaths) {
+    await setImmediate();
+    check();
+    refs.path(dirname(path));
+  }
   const owners = await markCanonical(inventory.projectRoot, context, refs);
+  await setImmediate();
+  check();
   const retained = { protected: 0, recent: 0, stale: 0, opaque: 0, target: 0 };
   let selectedCount = 0;
   let selectedBytes = 0;

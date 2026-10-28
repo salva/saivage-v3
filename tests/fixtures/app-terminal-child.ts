@@ -2,6 +2,8 @@ import { createAppTerminalCoordinator, createApplicationOwnerFailureHandler, sta
 import { ProjectOversight } from '../../src/application/project-oversight.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 
 const scenario = process.argv[2];
 const projectRoot = process.argv[3];
@@ -63,7 +65,12 @@ if (scenario === 'coordinator-fast-reject') {
   }
   try {
     const app = await startApp({ projectRoot, createRuntime: false, env: process.env });
-    if (scenario === 'signal') {
+    if (scenario === 'release-fatal') {
+      fs.unlinkSync = () => { process.stdout.write('RELEASE_UNCERTAIN\n'); throw new Error('release fault'); };
+      syncBuiltinESMExports();
+      await app.stop();
+      process.stdout.write('FORBIDDEN_NORMAL_STOP\n');
+    } else if (scenario === 'signal') {
       process.stdout.write(`READY:${process.pid}\n`);
     } else if (scenario === 'restart-75') {
       const address = app.server.fastify.server.address();
