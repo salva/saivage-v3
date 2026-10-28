@@ -16,7 +16,6 @@ import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import type { App } from '../../src/boot/app.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
-import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 import {
   appOrigin, closeServer, createServer, initializeProject, listen, offeredToolNames,
   postStartProject, productionTestConfig, readJsonRequest, sendFinalMessage,
@@ -34,10 +33,8 @@ function expectedSettlement(body: ChatCompletionRequest, root: string, session: 
   const index = body.messages.indexOf(results[0]!);
   expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
   const conversation = readConversation(root, session);
-  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
-    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
-  }));
-  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  expect(conversation.sourceRows.some(row => row.kind === 'tool_result' && row.tool_call_id === id)).toBe(true);
+  expect(body.messages.slice(index + 1)).toEqual([]);
   return results[0]!;
 }
 const SERVER_NAME = 'marker-server';

@@ -55,7 +55,7 @@ conversation. `NodeExecution` owns acceptance independently of prompt execution.
 | Conditional record prompt | Supplier compares actual prior conversation selection knowledge | Actual rendered occurrence, with declaration-owned retention; not guaranteed refresh. |
 | Entry, edge, correction, notification and recovery context | Actual producer occurrence at its existing conversation position | Attributed context or task delta; not current-node selection authority. |
 | Selected typed inputs / action handoff | Actual accepted edge or entry into an agent | Quoted redacted data, summary, invocation detail and immutable accepted-record links; not instructions or tool authority. |
-| Latest record observations | Source-order fold of actual observations and retained suffix | Descriptor/exposure knowledge, not body recall, acceptance or later write authority. |
+| Latest record observations | Internal source-order fold of actual observations and retained suffix | Preparation, strict successor validation and audit bookkeeping, not an automatic primary/summarizer ledger or body recall, acceptance or later write authority. |
 | Global ingress | Analyst/Oversight owner | No automatic card/bootstrap/parent feed; confirmed restart is model-free. |
 
 `activate_card` requires preserved non-whitespace `instructions`. Supervisor
@@ -114,9 +114,9 @@ is selected for compiler-owned `git-rebase-correction` on all types, with option
 task distinguishes original full history, current private work and partial source
 snapshots. `source_ready` requests verification/continuation, never product DONE.
 Role/task context is prepared for new sessions, reentry and urgent continuation,
-not remembered only from initialization. No native block is appended after the
-latest-record observation suffix, and compaction does not convert observations or
-diagnostic text into source authority.
+not remembered only from initialization. Native blocks use ordinary prepared-context
+ordering, and compaction does not convert internal observations or diagnostic text
+into source authority.
 
 ::: v-pre
 
@@ -296,13 +296,15 @@ and the [configuration guide](../guides/configuration.md) own examples and use.
 The primary composition projector places prepared dynamic blocks first, then one
 system provenance boundary when non-dynamic context exists, accumulated-summary
 context with exact source segment/cutoff, newest recovery/refusal facts, retained
-instructions and uncovered suffix, and finally the latest record descriptor facts
-when nonempty. This final system snapshot preserves actual observation provenance
-without changing earlier history on ordinary read continuations; it neither
-reconstructs omitted bodies nor grants present freshness, acceptance or write
-authority. It does not supersede current-node instructions or user requirements.
-The summarizer source keeps its existing facts-before-history placement; it is not
-the primary conversation. Summary coordinates
+instructions and uncovered suffix. Latest record observations remain internal
+bookkeeping, not a generated ledger in primary composition, summarizer orientation
+or covered source. Useful conclusions survive through normal summarization; needed
+detail/current evidence can be explicitly reread with existing tools, without a
+per-record prose inventory or mandatory reread ceremony. Existing historical summary
+text remains unchanged. Actual tool results and record-prompt selection/body text remain,
+including explicitly requested observation-inspection data. Internal facts remain
+strict and available for preparation and operator audit; they do not reconstruct
+omitted bodies or grant freshness, acceptance or write authority. Summary coordinates
 delimit a historical prefix, not all origins or a cutoff date. Later continuation
 may supersede old status/authorization claims; still-applicable requirements and
 one-time accepted handoff obligations do not expire. Summary/replay grants no
@@ -317,7 +319,7 @@ prose. Images materialize descriptor-selected source-session PNGs, never today's
 workspace file. Chat, Responses and Codex map the same ordered composition; adapters
 add no context-selection or authority rule.
 
-Summary requests receive the full frozen prepared blocks, genuine accumulator and
+Summary requests receive the full frozen prepared blocks, protected instructions, genuine accumulator and
 labeled new source ranges. Guidance prioritizes final applicable decisions, known
 effects, uncertainty, ownership and useful anchors; it distinguishes proposals,
 drafts and accepted work. A successful last newline-separated command does not

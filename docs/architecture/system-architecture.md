@@ -1043,10 +1043,11 @@ owns source selection and context; agents own actual request/admission/attempts;
 persistence owns successor publication. `composeContextProjection` orders stable and
 fresh record blocks, one provenance boundary when non-dynamic context exists,
 accumulated history, newest recovery/refusal facts, retained instructions and uncovered
-suffix, then the nonempty latest record descriptor snapshot as a final system block.
-Its provenance remains observational, not present freshness or write authority;
-ordinary refreshed reads do not change the preceding retained history. The separately
-labeled summarizer source retains facts before history. Structural preparation
+suffix. Record-observation bookkeeping remains internal to preparation and strict
+successor validation, with separate operator audit and explicit session-inspection
+access; it is not synthesized into primary or summarizer requests. Ordinary refreshed
+reads do not change preceding retained history. Actual tool/prompt content, including
+requested inspection data, retains its normal projection. Structural preparation
 snapshots never reenter context.
 Summary source is validated then projected one-way; transformed range text is not a
 durable row. [Prompt handling](./prompts.md#composition-compaction-and-evidence)

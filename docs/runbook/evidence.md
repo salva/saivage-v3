@@ -175,6 +175,10 @@ public text/metadata are independently filtered, never decoded into a raw secret
 Prepared-bootstrap descriptors do not retain historical full-body text. The accepted
 bootstrap supplied to the model stays complete and can dominate capacity. Compacted
 facts retain original coordinates/time, not recalled body bytes or new observations.
+Record observations and **Required model facts** are retained audit/preparation
+context, not evidence of injection into a request: primary and summarizer requests
+do not automatically receive an observation ledger. Explicit authorized session
+inspection and actual tool/prompt content remain available.
 **Inspect immutable record evidence** opens the selected accepted artifact, not a
 reconstructed request. Template changes/restart do not re-fire unchanged conditional
 selections; indispensable procedure belongs in its prepared node host.

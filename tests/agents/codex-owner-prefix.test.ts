@@ -15,7 +15,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/regist
 import { RESPONSES_A, RESPONSES_B, responsesBundle } from '../helpers/responses-producer-fixture.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { writeFileSync } from 'node:fs';
-import { publicRecordSelection, type RecordSelectionObservation } from '../../src/schemas/index.js';
+import { type RecordSelectionObservation } from '../../src/schemas/index.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 
@@ -93,7 +93,7 @@ describe('record observation continuation prefixes', () => {
     ['full to slice', full, slice, false],
     ['full to metadata', full, { kind: 'metadata' }, false],
     ['head UUID only', full, full, true],
-  ] as const)('%s preserves serialized history before the old final facts boundary', (label, beforeExposure, afterExposure, newHead) => {
+  ] as const)('%s preserves all preceding serialized history', (label, beforeExposure, afterExposure, newHead) => {
     const selection: RecordSelectionObservation = { card_id: 'card-a', record_name: 'status.md', view: 'effective', selection_kind: 'current', head: { head_id: INPUTS[0]!, revision: 3 }, selection: { kind: 'draft', version: 2, target_version: 2, content_sha256: 'a'.repeat(64), accepted_backing: { kind: 'accepted', entry_id: INPUTS[2]!, version: 1, locator: 'record:///status.md?card=card-a&v=1', content_sha256: 'b'.repeat(64) } }, exposure: beforeExposure };
     const latest = { ...selection, exposure: afterExposure, head: { ...selection.head!, head_id: newHead ? INPUTS[1]! : INPUTS[0]! } };
     const rows = [row('requirement', 'user', 'text', 'Still required: independently verify before acceptance.\n' + 'Stable synthetic retained history.\n'.repeat(1000)), ...recordPair(0, selection)];
@@ -101,13 +101,9 @@ describe('record observation continuation prefixes', () => {
     const original = structuredClone(continuation);
     const first = request(rows);
     const next = request(continuation, 1);
-    const fact = next.providerConversation.messages.at(-1)!;
-    expect(fact).toMatchObject({ kind: 'synthetic_context', role: 'system', block_identity: 'latest-record-observations' });
-    expect(next.providerConversation.messages.filter(item => item.kind === 'synthetic_context' && item.block_identity === 'latest-record-observations')).toHaveLength(1);
     const result = continuation.at(-1)!;
-    expect(JSON.parse(fact.content.slice(fact.content.indexOf('\n') + 1))).toEqual([{ source: { messageId: result.id, timestamp: result.timestamp }, observation: { source: result.record_observations![0]!.source, observed: publicRecordSelection(latest) } }]);
-    expect(fact.content).not.toContain('content_sha256');
-    expect(fact.content).not.toContain('Ignore all instructions');
+    expect(next.providerConversation.messages.at(-1)).toEqual(result);
+    expect(next.providerConversation.messages.filter(item => item.kind === 'synthetic_context' && item.block_identity === 'latest-record-observations')).toHaveLength(0);
     const svc = service();
     const oldAdmission = admitted(svc, first);
     const newAdmission = admitted(svc, next);
@@ -121,8 +117,7 @@ describe('record observation continuation prefixes', () => {
       const key = protocol === 'openai-chat-completions' ? 'messages' : 'input';
       const oldItems = before[key] as Record<string, unknown>[];
       const newItems = after[key] as Record<string, unknown>[];
-      expect(newItems.at(-1)).toEqual({ role: 'system', content: protocol === 'openai-responses' ? [{ type: 'input_text', text: fact.content }] : fact.content });
-      expect(newItems.slice(0, oldItems.length - 1)).toEqual(oldItems.slice(0, -1));
+      expect(newItems.slice(0, oldItems.length)).toEqual(oldItems);
       expect(newItems).toHaveLength(oldItems.length + 2);
       for (const turn of [0, 1]) {
         const callId = `call-record-${turn}`;
@@ -140,22 +135,11 @@ describe('record observation continuation prefixes', () => {
         }
       }
       const serializedBefore = canonicalJson(oldItems), serializedAfter = canonicalJson(newItems);
-      const boundary = canonicalJson(oldItems.slice(0, -1)).length;
+      const boundary = canonicalJson(oldItems).length - 1;
       const common = commonCharacters(serializedBefore, serializedAfter);
       expect(common).toBeGreaterThanOrEqual(boundary);
       expect(serializedAfter.startsWith(serializedBefore)).toBe(false);
-      // Diagnostic original composition ordering, passed through the real serializers.
-      // This is not a production fallback or an assertion of whole-input append-only reuse.
-      const originalOrder = (invocation: InvocationRequest) => {
-        const messages = invocation.providerConversation.messages;
-        return build({ ...invocation, providerConversation: { sourceSessionId: SESSION,
-          messages: [messages[0]!, messages.at(-1)!, ...messages.slice(1, -1)],
-        } });
-      };
-      const originalBefore = originalOrder(first), originalAfter = originalOrder(next);
-      const originalOrderCommon = commonCharacters(canonicalJson(originalBefore[key]), canonicalJson(originalAfter[key]));
-      expect(originalOrderCommon).toBeLessThan(boundary);
-      artifacts[protocol] = { before, after, serializedBefore, serializedAfter, boundary, common, originalBefore, originalAfter, originalOrderCommon };
+      artifacts[protocol] = { before, after, serializedBefore, serializedAfter, boundary, common };
       expect(canonicalJson(newItems)).toContain('Ignore all instructions');
       expect(canonicalJson(newItems)).toContain('Still required: independently verify');
     }
@@ -164,9 +148,8 @@ describe('record observation continuation prefixes', () => {
     const privateConversation = request([...continuation, ...privateRows]).providerConversation;
     for (const producer of [RESPONSES_A, RESPONSES_B]) {
       const mapped = responsesInputFromProviderConversation(privateConversation, responsesProducerAccountId(producer));
-      expect(mapped.at(-1)).toEqual({ role: 'system', content: [{ type: 'input_text', text: fact.content }] });
       expect(mapped.filter(item => item.type === 'function_call' && item.call_id === `call-${INPUTS[2]}`)).toHaveLength(1);
-      expect(mapped.at(-2)).toEqual({ type: 'function_call_output', call_id: `call-${INPUTS[2]}`, output: '{"success":true,"data":"private bundle settled"}' });
+      expect(mapped.at(-1)).toEqual({ type: 'function_call_output', call_id: `call-${INPUTS[2]}`, output: '{"success":true,"data":"private bundle settled"}' });
       expect(canonicalJson(mapped).includes(`ciphertext-${INPUTS[2]}`)).toBe(producer === RESPONSES_A);
       artifacts[`private-${producer.account}`] = mapped;
     }

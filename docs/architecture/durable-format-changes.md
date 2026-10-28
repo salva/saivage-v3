@@ -23,6 +23,18 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+The internal record-observation bookkeeping change from source parent
+`0ed10ce212b70abe7be7d45235ebffcbf6cdd36c` removes only synthetic primary and
+summarizer ledgers at the composition/refine owners. Conversation index/previous
+index and ordinary/compacted genesis remain `format_version:12`; segment envelopes
+remain `version:12`, `type:conversation-segment`. Strict observation facts, source
+order/provenance, protection, preparation and audit contracts remain unchanged, as
+do all other family discriminators. Historical summaries are not rewritten. This
+isolated projection delta requires no migration/reset on a matching current-contract
+project; deployment/adoption is separately authorized. Deployment applicability is
+unknown, and equal versions do not certify arbitrary installations. The format-9
+introduction below describes its historical source contract, not current projection.
+
 The current-node handoff instruction clarification from source parent
 `8714c5ae7db2ef8586d327bf6d20e32dab3cc33c` changes selected prose, not durable
 shape, result meaning, workflow identity or source-candidate authority. No family

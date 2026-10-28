@@ -19,7 +19,6 @@ import {
 import { providerExchangeFile } from '../../src/persistence/layout.js';
 import { readCommittedCardCurrent } from '../../src/persistence/card-files.js';
 import { CardService } from '../helpers/canonical-project.js';
-import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 
 const CLI = join(process.cwd(), 'src', 'cli.ts');
 const TSX = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -57,10 +56,8 @@ function expectedSettlement(body: ChatRequest, root: string, session: Parameters
   const index = body.messages.indexOf(results[0]!);
   expect(index).toBe(body.messages.indexOf(calls[0]!) + 1);
   const conversation = readConversation(root, session);
-  const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({ ...fact,
-    source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
-  }));
-  expect(body.messages.slice(index + 1)).toEqual(facts.length ? [{ role: 'system', content: recordObservationFactsText(facts) }] : []);
+  expect(conversation.sourceRows.some(row => row.kind === 'tool_result' && row.tool_call_id === id)).toBe(true);
+  expect(body.messages.slice(index + 1)).toEqual([]);
   return results[0]!;
 }
 
@@ -1370,20 +1367,13 @@ describe('disposable production-composition smoke', () => {
         ];
       };
       expect(newSource(summaryRequests[0]!)).toEqual([
-        expect.objectContaining({
-          source: 'latest-record-observations',
-          kind: 'message:direct',
-          body: expect.stringContaining(writePair.result.id),
-        }),
         ...sourceComponents(writePair),
         ...sourceComponents(aPair),
       ]);
       expect(newSource(summaryRequests[2]!)).toEqual(sourceComponents(bPair));
-      expect(
-        newSource(summaryRequests[0]!).find((part) => part.source === 'latest-record-observations')!
-          .body,
-      ).not.toContain('Ordered child status export.');
-      expect(JSON.stringify(summaryRequests[2]!)).toContain(writePair.result.id);
+      expect(newSource(summaryRequests[0]!).find(part => part.source === 'latest-record-observations')).toBeUndefined();
+      expect(newSource(summaryRequests[0]!).find(part => part.source.endsWith(':arguments'))!.body).toBe(writePair.arguments);
+      expect(writePair.arguments).toContain('Ordered child status export.');
       const inheritedHistory = (request: ChatRequest) =>
         request.messages
           .filter((message) =>
@@ -1424,6 +1414,7 @@ describe('disposable production-composition smoke', () => {
         data: { content: { content: sourceC } },
       });
       const cMessages = continuedExecutorRequest!.messages;
+      if (evidence) writeFileSync(join(evidence, 'actual-disposable-primary-refine.json'), JSON.stringify({ summaryRequests, publishedExecutorRequest, continuedExecutorRequest }, null, 2));
       const cCalls = cMessages.filter((message) =>
         message.tool_calls?.some((call) => call.id === 'call-303'),
       );

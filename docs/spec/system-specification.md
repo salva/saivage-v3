@@ -1185,9 +1185,10 @@ and Reviewer gates are unchanged; omitted context never waives them.
 
 Rendered prompt bytes/provenance and needed preparation descriptors publish in one
 ordered envelope before provider work, without a later record-currentness read.
-Latest descriptor-only source/exposure facts reach primary and summary independently
-of retained text; they establish neither recall, delivery, acceptance nor write
-authority. Public current/history/protected `record_prompt` uses one shared server
+Latest descriptor-only source/exposure facts remain internal bookkeeping, not an
+automatically injected primary or summary ledger. They establish neither recall,
+delivery, acceptance nor write authority. Actual prompt/tool content and explicitly
+requested observation inspection remain available. Public current/history/protected `record_prompt` uses one shared server
 projection through the supplier's JSON-string encoding. Quoted/template-looking
 data stays text. The oversized prepass records actual transformed text for primary,
 summary and protection; source hashes identify source, not display-byte equality.
@@ -1329,14 +1330,15 @@ The strict `latestRecordObservations` required-fact array starts explicitly empt
 for new history and derives newest actual occurrences in source order per
 conversation/card/record/view, including inherited facts and retained suffix.
 The surviving latest occurrences determine array order: A1, B1, A2 yields B1,
-A2, including when A1 and B1 are inherited and A2 is in the suffix. Primary and
-summarizer descriptor facts preserve that order, not revision or timestamp order.
-The primary request places its nonempty descriptor snapshot last, after retained
-history and the uncovered suffix; prepared context remains first. The summarizer's
-separate source keeps its existing facts-before-history placement. This projection
-order changes no retained contract or observation meaning: the final system facts
-neither supersede current instructions nor confer present freshness, acceptance or
-write authority.
+A2, including when A1 and B1 are inherited and A2 is in the suffix, not revision
+or timestamp order. These facts support internal preparation and strict successor
+validation and remain available for operator audit and explicitly authorized session
+inspection. Neither primary composition nor summarizer orientation/covered source
+synthesizes an observation ledger. Actual tool results, record-prompt selections and
+body text, and explicitly requested inspection data retain their normal projection.
+Normal summaries preserve consequential history and unresolved obligations; needed
+detail or current evidence can be reread explicitly, without a per-record inventory
+or mandatory reread ceremony. Existing historical summary text is not rewritten.
 Descriptors retain provenance/coordinates/time, not bodies, templates, delivery or
 recall claims. Actual `record_prompt` text uses existing declaration-based keyed or
 anonymous protection independently; structural `record_observation` descriptors
@@ -2700,7 +2702,7 @@ network probe.
 ### Self-contained successor and protected context
 
 Compaction replaces one validated current conversation projection with a strictly smaller known-published successor and never rewrites an append-only body.
-The successor segment's compacted genesis is self-contained. Its accumulated history is exactly nonempty `summaryText`, ordered `protectedPrompts` with original exact message and first-extraction `{segmentVersion,rowIndex}` coordinates, and `requiredModelFacts` with two nullable bounded recovery/refusal slots plus required descriptor-only `latestRecordObservations`. Observations retain original source coordinates/time, not body/template copies or new occurrences. Their size grows with actually observed record/view keys; no eviction or fixed-memory guarantee exists. Genesis retains identity/session/version/time, `source:{version,filename,covered_through_message_id}`, and explicit continuation: `between_rounds` or `inherited_open_round` carrying only the validated marker ID, canonical input UUID, and active initial/repair segment kind. The index compacted entry retains exactly `kind`, `source_version`, `source_filename`, and `covered_through_message_id`; exact index/genesis agreement and predecessor-catalog checks remain strict. Physical suffix rows and continuation, not original-tail metadata, govern current messages and round continuation. The protected list size is variable and may grow without a configured bound.
+The successor segment's compacted genesis is self-contained. Its accumulated history is exactly nonempty `summaryText`, ordered `protectedPrompts` with original exact message and first-extraction `{segmentVersion,rowIndex}` coordinates, and `requiredModelFacts` with two nullable bounded recovery/refusal slots plus required descriptor-only `latestRecordObservations`. Observations retain original source coordinates/time, not body/template copies or new occurrences; their internal retention does not require a model-facing ledger. Their size grows with actually observed record/view keys; no eviction or fixed-memory guarantee exists. Genesis retains identity/session/version/time, `source:{version,filename,covered_through_message_id}`, and explicit continuation: `between_rounds` or `inherited_open_round` carrying only the validated marker ID, canonical input UUID, and active initial/repair segment kind. The index compacted entry retains exactly `kind`, `source_version`, `source_filename`, and `covered_through_message_id`; exact index/genesis agreement and predecessor-catalog checks remain strict. Physical suffix rows and continuation, not original-tail metadata, govern current messages and round continuation. The protected list size is variable and may grow without a configured bound.
 The successor identity is preallocated once; the validated candidate and the published genesis share that exact identity and timestamp, and the returned in-memory projection is exactly the published one.
 Publication-unknown escapes unwrapped before any append-error conversion.
 

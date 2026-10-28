@@ -285,8 +285,9 @@ describe('conversation compaction file persistence', () => {
         if (mode === 'cancelled') controller.abort(cancellation);
         const completeTurn = jest.fn(async (request: Parameters<import('../../src/runtime/actors/compaction/summarizer.js').SummarizerProviderPort['completeTurn']>[0]) => {
           const composed = JSON.stringify(request.providerConversation);
-          expect(composed).toContain('kind=record_selection_facts');
-          expect(composed).toContain(descriptor.id);
+          expect(composed).not.toContain('kind=record_selection_facts');
+          expect(composed).not.toContain('source=latest-record-observations');
+          expect(composed).not.toContain(descriptor.id);
           expect(composed).not.toContain('B current accepted body');
           expect(composed).toContain('Oversized record preview:');
           expect(composed).not.toContain('OMITTED REQUIREMENT');
@@ -340,11 +341,9 @@ describe('conversation compaction file persistence', () => {
         const projectedFacts = primary.find(
           (message) =>
             'block_identity' in message && message.block_identity === 'latest-record-observations',
-        )!;
-        expect(projectedFacts.content).toContain(descriptor.id);
-        expect(projectedFacts.content).toContain('metadata');
-        expect(projectedFacts.content).not.toContain(oldPrompt.content);
-        expect(projectedFacts.content).not.toContain('B current accepted body');
+        );
+        expect(projectedFacts).toBeUndefined();
+        if (mode === 'normal') expect(history.summaryText).toBe('Replacement historical summary');
         expect(primary.some((message) => message.content === oldPrompt.content)).toBe(true);
         expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toEqual(
           source.physicalRows,

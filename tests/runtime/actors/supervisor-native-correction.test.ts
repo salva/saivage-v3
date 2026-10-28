@@ -33,7 +33,6 @@ import { testApplicationFatalPort } from '../../helpers/test-application-fatal-p
 import { compact } from '../../../src/runtime/actors/compaction/compactor.js';
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
-import { recordObservationFactsText } from '../../../src/runtime/actors/context/composition-projector.js';
 import { canonicalValueSha256 } from '../../../src/schemas/index.js';
 
 const identity = {
@@ -354,7 +353,7 @@ test.each(['repeat', 'ordinary-publication-failure', 'stop-after-publication', '
           const conversation=readConversation(f.root,'agent:executor:project');
           const observations=conversation.effectiveRequiredModelFacts.latestRecordObservations;
           expect(observations.some(fact=>!conversation.sourceRows.some(row=>row.id===fact.source.messageId))).toBe(true);
-          expect(messages.at(-1)?.content).toBe(recordObservationFactsText(observations));
+           expect(messages.some(row=>row.kind==='synthetic_context'&&row.block_identity==='latest-record-observations')).toBe(false);
           expect(messages[task]!.content).toContain(facts.correction!.preserved_source!.oid);
           expect(messages[task]!.content).toContain(facts.observed_tip);
           expect(messages[task]!.content).toContain(f.original);
@@ -413,7 +412,7 @@ test.each(['repeat', 'ordinary-publication-failure', 'stop-after-publication', '
         const conversation=readConversation(f.root,'agent:executor:project');
         const facts=conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact=>({...fact,source:conversation.sourceRows.some(row=>row.id===fact.source.messageId)?{messageId:fact.source.messageId,timestamp:fact.source.timestamp}:fact.source}));
         expect(facts.length).toBeGreaterThan(0);
-        expect(rows.slice(rows.indexOf(results[0]!)+1).map(row=>row.content)).toEqual([recordObservationFactsText(facts)]);
+         expect(rows.slice(rows.indexOf(results[0]!)+1)).toEqual([]);
         indexBeforeCapture=readFileSync(join(f.root,'.git/index'));sourceBeforeCapture=readFileSync(join(f.root,'conflict.txt'));
         return call('diagnostic-blocked','emit_result',{outcome:'blocked',summary:'Partial source held; diagnostic read is not acceptance.'});
       }

@@ -13,7 +13,6 @@ import { materializedToolContent, type ValidatedConversation } from '../../../co
 import {
   composeContextProjection,
   type SummarizerContextItem,
-  recordObservationFactsText,
 } from '../context/composition-projector.js';
 import { selectLatestContextBlocks } from '../context/context-blocks.js';
 import { type ContextBlock } from '../../../contracts/index.js';
@@ -144,14 +143,6 @@ export function createSequentialRefineAccumulator(args: {
       content: block.content,
     }),
   );
-  if (args.conversation.effectiveRequiredModelFacts.latestRecordObservations.length)
-    orientation.push({
-      label: '[kind=record_selection_facts]',
-      role: 'system',
-      content: recordObservationFactsText(
-        args.conversation.effectiveRequiredModelFacts.latestRecordObservations,
-      ),
-    });
   orientation.push(
     ...protectedPrompts.map(({ source, message }) => ({
       label: `[kind=protected_instruction source=${source.segmentVersion}:${source.rowIndex}:${message.id}]`,

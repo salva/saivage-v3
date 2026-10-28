@@ -123,9 +123,7 @@ describe('real node preparation and document lifecycle', () => {
     const afterCompaction = prepare(recovery);
     expect(afterCompaction.rows.filter(row => row.kind === 'record_prompt')).toEqual([]);
     const composition = providerConversationProjection(compacted, afterCompaction.recordBlocks);
-    const facts = composition.messages.find(message => 'block_identity' in message && message.block_identity === 'latest-record-observations')!;
-    expect(facts.content).toContain('"target_version":1');
-    expect(facts.content).not.toContain('Actual current assessment');
+    expect(composition.messages.some(message => 'block_identity' in message && message.block_identity === 'latest-record-observations')).toBe(false);
     const evidence = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
     if (evidence) { mkdirSync(evidence, { recursive: true }); writeFileSync(join(evidence, `record-v0-${profile}.json`), JSON.stringify({ kind: 'offline-final-source-compiled-composition-not-provider-wire', profile, roles, initial, changed, reentry, afterCompaction, latest, composition }, null, 2)); }
   });

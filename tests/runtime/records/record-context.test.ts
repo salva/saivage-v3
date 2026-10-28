@@ -25,7 +25,6 @@ import {
   agentMessageSchema,
   canonicalJson,
   sha256Hex,
-  publicRecordSelection,
   type AgentMessage,
 } from '../../../src/schemas/index.js';
 import { workspaceToolBinders } from '../../../src/tools/workspace-provider.js';
@@ -207,14 +206,9 @@ describe('closed record-context compiler and same-read supplier', () => {
     const assertSnapshot = () => {
       const conversation = readConversation(f.root, SESSION);
       const projected = providerConversationProjection(conversation, prepared.recordBlocks);
-      const last = projected.messages.at(-1)!;
-      expect(last).toMatchObject({ kind: 'synthetic_context', role: 'system', block_identity: 'latest-record-observations' });
-      expect(JSON.parse(last.content.slice(last.content.indexOf('\n') + 1))).toEqual(conversation.effectiveRequiredModelFacts.latestRecordObservations.map(fact => ({
-        source: conversation.sourceRows.some(row => row.id === fact.source.messageId) ? { messageId: fact.source.messageId, timestamp: fact.source.timestamp } : fact.source,
-        observation: { source: fact.observation.source, observed: publicRecordSelection(fact.observation.observed) },
-      })));
-      expect(last.content).not.toContain('Draft B:');
-      expect(last.content).not.toContain('content_sha256');
+      expect(projected.messages.some(item => item.kind === 'synthetic_context' && item.block_identity === 'latest-record-observations')).toBe(false);
+      for (const result of conversation.sourceRows.filter(row => row.kind === 'tool_result'))
+        expect(projected.messages).toContainEqual(result);
       return { conversation, projected };
     };
     const readB = await readIntoConversation(f, 'record:///status.md?card=project');
@@ -250,7 +244,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     expect(freshBootstrap.recordBlocks[0]!.content).not.toBe(oldBootstrap.recordBlocks[0]!.content);
     const freshProjection = providerConversationProjection(readConversation(f.root, SESSION), freshBootstrap.recordBlocks);
     expect(freshProjection.messages[0]!.content).toContain('Fresh bootstrap requirement');
-    expect(freshProjection.messages.at(-1)).toMatchObject({ block_identity: 'latest-record-observations' });
+    expect(freshProjection.messages.at(-1)).toEqual(reread);
     if (process.env.SAIVAGE_TEST_RECORD_PREFIX_DIR) writeFileSync(`${process.env.SAIVAGE_TEST_RECORD_PREFIX_DIR}/actual-compaction-and-reentry.json`, JSON.stringify({
       kind: 'synthetic-offline-real-store-supplier-and-compactor-with-scripted-summary',
       role: createPromptTemplateRegistry(f.workflows).render({ kind: 'workflow-agent', cardType: 'project' }, agentExecution(f.node('recover')).agent.name, { contractDescription: describeNodeResultContract(f.workflows.cardTypes.get('project')!, 'node:recover') }),
@@ -699,10 +693,10 @@ describe('closed record-context compiler and same-read supplier', () => {
       const facts = projected.messages.find(
         (message) =>
           'block_identity' in message && message.block_identity === 'latest-record-observations',
-      )!;
-      expect(facts.content).toContain(result.id);
-      expect(facts.content).not.toContain('B'.repeat(6000));
-      expect(facts.content).not.toContain(a.rows[0]!.content);
+      );
+      expect(facts).toBeUndefined();
+      expect(projected.messages).toContainEqual(result);
+      expect(projected.messages[0]!.content).toContain('B'.repeat(6000));
     },
   );
 

@@ -9,7 +9,6 @@ import { readCard } from '../../src/persistence/card-files.js';
 import { readCardExecutions } from '../../src/persistence/card-execution-log.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { cardAgentSessionId, globalAgentSessionId } from '../../src/schemas/conversation-session-id.js';
-import { recordObservationFactsText } from '../../src/runtime/actors/context/composition-projector.js';
 
 jest.setTimeout(180000);
 async function waitFor(predicate:()=>boolean,ms=60000) {
@@ -43,8 +42,8 @@ it.each(['natural','cancel'] as const)('public commissioned first Run and %s che
         const index=body.messages.indexOf(results[0]);expect(index).toBe(body.messages.indexOf(calls[0])+1);
         const session=role==='analyst'?globalAgentSessionId('analyst'):cardAgentSessionId(role as 'planner'|'executor',role==='executor'?'card-a':'project');
         const conversation=readConversation(root,session);
-        const facts=conversation.effectiveRequiredModelFacts.latestRecordObservations.map(f=>({...f,source:conversation.sourceRows.some(r=>r.id===f.source.messageId)?{messageId:f.source.messageId,timestamp:f.source.timestamp}:f.source}));
-        expect(body.messages.slice(index+1)).toEqual(facts.length?[{role:'system',content:recordObservationFactsText(facts)}]:[]);
+        expect(conversation.sourceRows.some(row=>row.kind==='tool_result'&&row.tool_call_id===previous.id)).toBe(true);
+        expect(body.messages.slice(index+1)).toEqual([]);
         if(previous.id==='executor-3') expect(JSON.parse(results[0].content).success).toBe(false);
         if(previous.id==='executor-4') {
           expect(JSON.parse(results[0].content).success).toBe(true);checkpointResult=true;

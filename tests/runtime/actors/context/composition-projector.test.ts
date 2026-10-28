@@ -10,7 +10,6 @@ import {
   MODEL_RECOVERY_NOTICE_TEXT,
   STRUCTURAL_ROW_POLICY,
   compactedHistorySchema,
-  publicRecordSelection,
   type RecordSelectionObservation,
   type AgentMessage,
   type ConversationSessionId,
@@ -294,25 +293,15 @@ describe('latest record observation source order', () => {
       dynamicBlocks: [dynamicBlock('current-node', { role: 'system', content: 'Current task: verify the actual source before deciding.' })],
     });
     const primary = providerConversationProjection(conversation, [dynamicBlock('current-node', { role: 'system', content: 'Current task: verify the actual source before deciding.' })]);
-    const primaryFact = primary.messages.find((item) => item.kind === 'synthetic_context' && item.block_identity === 'latest-record-observations');
-    const summaryFact = composed.summarizer.find((item) => item.kind === 'message' && item.sourceId === 'latest-record-observations');
-    if (!primaryFact || !summaryFact || summaryFact.kind !== 'message') throw new Error('Missing production descriptor projections.');
-    expect(primaryFact.content).toBe(summaryFact.content);
-    expect(primary.messages.at(-1)).toBe(primaryFact);
-    expect(composed.summarizer[0]).toBe(summaryFact);
-    const payload = JSON.parse(primaryFact.content.slice(primaryFact.content.indexOf('\n') + 1));
-    expect(payload).toEqual(facts.map((fact) => ({
-      source: compacted && fact.source.messageId === 'B1' ? fact.source : { messageId: fact.source.messageId, timestamp: fact.source.timestamp },
-      observation: { source: fact.observation.source, observed: publicRecordSelection(fact.observation.observed) },
-    })));
-    expect(payload.map((fact: { source: { messageId: string } }) => fact.source.messageId)).toEqual(['B1', 'B1', 'A2']);
-    expect(primaryFact.content).not.toContain('content_sha256');
-    expect(primaryFact.content).not.toContain('a'.repeat(64));
-    expect(primaryFact.content).not.toContain('Historical body');
-    expect(primaryFact.content).not.toContain(instruction.content);
+    expect(primary.messages.some((item) => item.kind === 'synthetic_context' && item.block_identity === 'latest-record-observations')).toBe(false);
+    expect(composed.summarizer.map(item => item.kind === 'message' ? item.sourceId : item.kind)).toEqual(
+      compacted ? ['inherited_summary', 'settled_tool_bundle'] : [instruction.id, 'settled_tool_bundle'],
+    );
+    expect(primary.messages.at(-1)).toEqual(result);
+    expect(composed.summarizer.at(-1)).toMatchObject({ kind: 'settled_tool_bundle', callArguments: '{"id":"card-a"}', resultContent: historicalContent });
     expect(primary.messages.some((item) => item.content === instruction.content)).toBe(true);
     // Re-entry with only genuinely derived compacted facts: no body reconstruction,
-    // and recovery/refusal/protected instructions all precede the final snapshot.
+    // and recovery/refusal/protected instructions remain without a descriptor snapshot.
     const inheritedRefusal = refusalRow(INPUT_A);
     const inherited = compose([], { effectiveHistory: {
       ...history, historyMessageId: 'reentry-history', sourceVersion: 1,
@@ -324,13 +313,12 @@ describe('latest record observation source order', () => {
     }, dynamicBlocks: [dynamicBlock('reentry-node', { role: 'system', content: 'Current task: inspect, not approve.' })] });
     const inheritedProvider = providerConversationFromComposedContext(inherited);
     expect(inheritedProvider.messages.map(item => item.kind === 'synthetic_context' ? item.origin : item.kind)).toEqual([
-      'dynamic', 'context_boundary', 'history_summary', 'recovery_notice', 'refusal_notice', 'retained_instruction', 'dynamic',
+      'dynamic', 'context_boundary', 'history_summary', 'recovery_notice', 'refusal_notice', 'retained_instruction',
     ]);
-    expect(inheritedProvider.messages.at(-1)).toMatchObject({ role: 'system', block_identity: 'latest-record-observations', content: inherited.summarizer[0]!.kind === 'message' ? inherited.summarizer[0]!.content : '' });
+    expect(inheritedProvider.messages.at(-1)).toMatchObject({ role: 'user', content: instruction.content });
     expect(inherited.summarizer.map(item => item.kind === 'message' ? item.sourceId : item.kind)).toEqual([
-      'latest-record-observations', 'inherited_summary', `${INPUT_A}:model-recovered`, inheritedRefusal.id,
+      'inherited_summary', `${INPUT_A}:model-recovered`, inheritedRefusal.id,
     ]);
-    expect(inheritedProvider.messages.at(-1)!.content).not.toContain(instruction.content);
     expect({ prefix, suffix, history }).toEqual(original);
   });
 });

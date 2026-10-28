@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { validateConversation } from '../../../../src/contracts/conversation-validation.js';
 import { agentMessageSchema, type AgentMessage, type ConversationSessionId } from '../../../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
+import { STRUCTURAL_ROW_POLICY } from '../../../../src/schemas/index.js';
 import {
   createSequentialRefineAccumulator as createAccumulatorWithoutProgress,
   EMPTY_COVERAGE_SUMMARY,
@@ -48,6 +50,63 @@ function parseSummaryMessages(input: SummaryInput): ParsedSummaryMessage[] {
 }
 
 describe('sequential contextual refine accumulator', () => {
+  it('keeps observation bookkeeping internal through structural coverage, actual folds and correction while retaining requested inspection data', async () => {
+    const inputId = '11111111-1111-4111-8111-111111111111';
+    const descriptor = agentMessageSchema.parse({
+      ...text('record-descriptor', ''), role: 'system', kind: 'record_observation',
+      context_policy: STRUCTURAL_ROW_POLICY.record_observation,
+      record_observations: [{
+        source: { kind: 'preparation', input_id: inputId, node_id: 'plan' },
+        observed: { card_id: 'project', record_name: 'brief.md', view: 'accepted', selection_kind: 'current',
+          head: { head_id: inputId, revision: 1 },
+          selection: { kind: 'accepted', entry_id: inputId, version: 1, locator: 'record:///brief.md?card=project&v=1', content_sha256: 'a'.repeat(64) },
+          exposure: { kind: 'full_body' } },
+      }],
+    });
+    const inspection = JSON.stringify({ success: true, data: { required_model_facts: { latestRecordObservations: descriptor.record_observations }, summary_text: 'Historical quoted ledger remains data.' } });
+    const pair = settledToolRows('inspect-session', 2, '{"session_id":"agent:planner:project"}', inspection).map(row => agentMessageSchema.parse({
+      ...row, tool: 'read_agent_session',
+      ...(row.kind === 'tool_call' ? { content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'inspect-session', type: 'function', function: { name: 'read_agent_session', arguments: '{"session_id":"agent:planner:project"}' } }] }) } : {}),
+    }));
+    const retained = protectedText('retained', 'Owner requirement: verify actual source; submit the supported result only after the gate passes.');
+    const rows = [activation(), descriptor, retained, ...pair];
+    const conversation = validateConversation(SESSION, rows);
+    expect(conversation.effectiveRequiredModelFacts.latestRecordObservations).toHaveLength(1);
+    const prepared: ContextBlock = { id: 'bootstrap', role: 'system', content: 'Full changed accepted bootstrap: correct the implementation, preserve unresolved requirements, reread needed evidence with existing tools.', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } };
+    const sends: SummaryInput[] = [];
+    const admittedRequests: AdmittedSummaryRequest[] = [];
+    const accumulator = createSequentialRefineAccumulator({
+      conversation, inheritedHistory: null, preparedBlocks: [prepared],
+      protectedPrompts: [{ source: { segmentVersion: 1, rowIndex: 2 }, message: retained }],
+      summarizerProvider: recordingProvider({ contextWindowTokens: 1_000_000,
+        serialize: input => realSerialization(input, 'openai-chat-completions'),
+        completeTurn: async (input, admitted) => {
+          sends.push(input); admittedRequests.push(admitted);
+          return { result: { kind: 'message', content: sends.length === 1 ? ' ' : 'Consequential history and unresolved gate; no new approval.' }, provider_exchanges: [] };
+        },
+      }), budget: BUDGET, signal: new AbortController().signal,
+    });
+    await expect(accumulator.materializeThrough(2)).resolves.toBe(EMPTY_COVERAGE_SUMMARY);
+    expect(sends).toHaveLength(0);
+    await expect(accumulator.materializeThrough(rows.length)).resolves.toBe('Consequential history and unresolved gate; no new approval.');
+    expect(sends).toHaveLength(2);
+    expect(accumulator.correctionCount).toBe(1);
+    for (const input of sends) {
+      expect(parseSummaryMessages(input)).toEqual([
+        { label: '[kind=prepared_context source=bootstrap]', body: prepared.content },
+        { label: '[kind=protected_instruction source=1:2:retained]', body: retained.content },
+        ...sourceRanges(input).map(part => ({ label: `[kind=new_source source=${part.source} source_kind=${part.sourceKind} range=${part.start}:${part.end} total_bytes=${part.totalBytes} omitted_source_bytes=0]`, body: part.content })),
+      ]);
+      expect(sourceRanges(input).map(part => [part.sourceKind, part.content])).toEqual([
+        ['tool_arguments:read_agent_session', '{"session_id":"agent:planner:project"}'],
+        ['tool_result:read_agent_session', inspection],
+      ]);
+    }
+    const primary = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [prepared], uncoveredRows: rows }));
+    expect(primary.messages.map(message => message.content)).toEqual([prepared.content, expect.any(String), retained.content, pair[0]!.content, inspection]);
+    if (process.env.SAIVAGE_TEST_RECORD_PREFIX_DIR) writeFileSync(`${process.env.SAIVAGE_TEST_RECORD_PREFIX_DIR}/actual-primary-refine-correction.json`, JSON.stringify({ primary, sends, admittedRequests, facts: conversation.effectiveRequiredModelFacts }, null, 2));
+  });
+
   it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const)(
     'packs many whole components geometrically with exact %s wire authority and monotone count labels',
     async (protocol) => {
