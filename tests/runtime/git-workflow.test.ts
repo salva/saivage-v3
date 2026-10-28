@@ -13,6 +13,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   runGitWorkflow,
   nativeGitRefs,
@@ -29,7 +30,6 @@ import { cardRecordsRoot } from '../../src/persistence/layout.js';
 
 jest.setTimeout(120000);
 
-const scratch = '/home/salva/g/ml/tmp/2026-10-25-native-hybrid-git-a6/native';
 const identity = {
   GIT_AUTHOR_NAME: 'Native fixture',
   GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
@@ -645,7 +645,8 @@ test('N3 partial c1 capture and separate restore preserve original c2 and P with
       expected: { branch_ref: names.branch_ref, observed_tip: git(root, 'rev-parse', 'HEAD') },
     })).kind,
   ).toBe('correction-verified');
-}, 300000);
+  // Keep the cumulative interruption/history witness together; native calls still have 120s limits.
+}, 600000);
 
 test('N2 first entry allocates only its exact branch and prepares a factual candidate', async () => {
   const { root, tip, request } = fixture();
@@ -873,8 +874,7 @@ function git(root: string, ...args: string[]): string {
   return result.stdout.trim();
 }
 function fixture() {
-  mkdirSync(scratch, { recursive: true });
-  const root = mkdtempSync(join(scratch, 'source-'));
+  const root = mkdtempSync(join(tmpdir(), 'native-git-'));
   git(root, 'init', '--initial-branch=main');
   writeFileSync(join(root, '.gitignore'), '.saivage/\ncache/\n');
   writeFileSync(join(root, 'tracked'), 'base\n');

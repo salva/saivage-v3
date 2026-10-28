@@ -1,6 +1,7 @@
 import { describe, expect, test } from '@jest/globals';
 import { mkdirSync, mkdtempSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { prepareInitialProjectDirectories, publishInitialProjectCard, publishInitialChildCard, publishDiscardedCard } from '../../../src/persistence/card-files.js';
 import { initializeAndValidateCurrentGeneratedState } from '../../../src/persistence/current-generated-graph.js';
@@ -216,7 +217,7 @@ describe('Git workflow policy input and declaration compilation', () => {
 
 describe('workflow5 correction participant structural closure', () => {
   function fixture() {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/2026-10-25-native-hybrid-git-workflow-');
+    const root = mkdtempSync(join(tmpdir(), 'native-policy-'));
     const directory = join(root, '.saivage/config/prompts/process/_shared');
     mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, 'git-rebase-correction.md'), 'Reconstruct the full original work plus useful later corrections on the selected parent. Keep the partial snapshot distinct from original history. Report readiness for native verification, not product completion.');

@@ -1,6 +1,7 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, symlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
@@ -43,9 +44,7 @@ function git(root: string, ...args: string[]): string {
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { resolve, promise }; }
 function fixture(on = true) {
   Object.assign(process.env, identity);
-  const parent = '/home/salva/g/ml/tmp/2026-10-25-native-hybrid-git-attempt5-global';
-  mkdirSync(parent, { recursive: true });
-  const root = mkdtempSync(join(parent, 'source-')); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'native-global-')); roots.push(root);
   git(root, 'init', '-b', 'main');
   writeFileSync(join(root, '.gitignore'), '.saivage/\nunrelated/\n');
   writeFileSync(join(root, 'source.txt'), 'original\n');

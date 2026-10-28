@@ -1,6 +1,7 @@
 import { afterEach, expect, test, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, openSync, writeSync, closeSync, fsyncSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createTestProcessRunner, cleanupTestProcessRunners } from '../helpers/test-process-runner.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -10,9 +11,7 @@ import { randomUUID } from 'node:crypto';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await cleanupTestProcessRunners(root); });
 function fixture() {
-  const parent = '/home/salva/g/ml/tmp/2026-10-25-native-hybrid-git-attempt5-stdin';
-  mkdirSync(parent, { recursive: true });
-  const root = mkdtempSync(join(parent, 'case-')); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'native-stdin-')); roots.push(root);
   const composition = createTestProcessRunner(root);
   const runner = composition.processRunner;
   const scope = runner.createDirectScope(composition.runtimeProcessRootScope, 'stdin', 'runtime_card');
@@ -49,9 +48,7 @@ test.each(['broken-pipe', 'deadline', 'cancel'] as const)('captured stdin %s set
 }, 10000);
 
 test('native capture publication uncertainty is fatal before Git launch or scope cleanup', async () => {
-  const parent = '/home/salva/g/ml/tmp/2026-10-25-native-hybrid-git-attempt5-fatal';
-  mkdirSync(parent, { recursive: true });
-  const root = mkdtempSync(join(parent, 'case-'));
+  const root = mkdtempSync(join(tmpdir(), 'native-fatal-'));
   mkdirSync(join(root, '.saivage/cards/project/records'), { recursive: true });
   const registry = new ManagedProcessGroupRegistry();
   const fatal = new Error('fatal test boundary');
