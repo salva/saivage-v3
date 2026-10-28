@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { stringify } from 'yaml';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -18,7 +19,7 @@ const roots: string[] = [];
 const cwd = process.cwd();
 const stdin = Object.getOwnPropertyDescriptor(process, 'stdin')!;
 afterEach(() => { process.chdir(cwd); Object.defineProperty(process, 'stdin', stdin); jest.restoreAllMocks(); release.mockReset(); question.mockReset(); close.mockReset(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-function fixture() { const root = mkdtempSync('/home/salva/g/ml/tmp/release-callers-'); roots.push(root); return root; }
+function fixture() { const root = mkdtempSync(join(tmpdir(), 'release-callers-')); roots.push(root); return root; }
 it('async initializer contains first then dispatches release uncertainty exactly once', async () => {
   const root = fixture(), trace: string[] = [];
   const uncertainty = new PublicationOutcomeUnknownError();

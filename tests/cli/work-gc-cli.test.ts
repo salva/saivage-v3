@@ -1,7 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-const tmpdir = () => '/home/salva/g/ml/tmp';
+import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { run } from '../../src/cli.js';

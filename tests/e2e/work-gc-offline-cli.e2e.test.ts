@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, unlinkSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { initProjectTree, CardService } from '../helpers/canonical-project.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { acquireRuntimeLifecycleLock, readRuntimeLockStatus, releaseRuntimeLifecycleLock } from '../../src/runtime/lock.js';
@@ -16,7 +17,7 @@ import { publicNativeCli, nativeOptions, fixtureGit } from '../helpers/public-na
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/gc-offline-'); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'gc-offline-')); roots.push(root);
   initProjectTree(root);
   createTestConfigAuthority(root, { relativePath: '.saivage/saivage.yaml' });
   return root;
@@ -108,7 +109,7 @@ it('losing acquisition after acknowledgement refuses without reroute, takeover o
 }, 30_000);
 
 it('offline native project retains commissioned captures and never changes delivery source, refs or Git index', async () => {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/gc-offline-native-'); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'gc-offline-native-')); roots.push(root);
   fixtureGit(root, 'init', '-b', 'main'); writeFileSync(join(root, '.gitignore'), '.saivage/\n'); writeFileSync(join(root, 'source.txt'), 'delivery\n');
   fixtureGit(root, 'add', '--all'); fixtureGit(root, 'commit', '-m', 'Fixture delivery');
   expect(publicNativeCli(root, 'init', ...nativeOptions).status).toBe(0);

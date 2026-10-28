@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-const tmpdir = () => '/home/salva/g/ml/tmp';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';

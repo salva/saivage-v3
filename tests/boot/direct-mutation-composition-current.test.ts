@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-const tmpdir = () => '/home/salva/g/ml/tmp';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { withDirectMutationComposition } from '../../src/boot/direct-mutation-composition.js';
