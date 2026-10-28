@@ -277,10 +277,16 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
 
   it.each(['missing-beta', 'post-beta'] as const)('keeps accepted %s report factual and returns actionable existing work to plan', async scope => {
     const report = scope === 'missing-beta' ? 'Nine missing-beta items inventoried. Product work and root R1 remain open.' : 'Beta accepted against evidence beta-A. Authorized post-beta accessibility remains open.';
-    const steps = [write('plan', 'Current delivery ready for bounded review.'), result('plan', 'admit_review'),
+     const steps: Step[] = [write('plan', 'Current delivery ready for bounded review.'), result('plan', 'admit_review'),
       write('review', report), result('review', 'approved', 'Bounded report accepted; remaining objective is explicit.'),
       { node: 'assess-completion', tool: 'read', args: { path: 'record:///review.md?card=project&v=1' } },
-      write('assess-completion', `${report} Continue existing [[card:card-a]]; do not create a duplicate.`), result('assess-completion', 'replan'),
+       write('assess-completion', `${report} Ready to replan existing [[card:card-a]].`),
+       { ...write('assess-completion', `${report} Continue existing [[card:card-a]]; do not create a duplicate.`), before: () => {
+         expect(f.cards.read('project')!.lifecycle.status).toBe('running');
+         expect(f.cards.read('card-a')!.lifecycle.status).toBe('backlog');
+         expect(f.record('status.md')!.draft).not.toBeNull();
+         expect(f.record('review.md')!.accepted!.source_version).toBe(1);
+       } }, result('assess-completion', 'replan'),
       { node: 'plan', tool: 'activate_card', args: { card_id: 'card-a', instructions: 'Continue the existing authorized beta/accessibility scope under its accepted brief; retain open root R1 and distinguish inventory evidence from product acceptance.' } }];
     const f = fixture(profile, steps);
     const child = f.cards.create({ type: 'code', parent: 'project', title: 'Existing beta/accessibility implementation', bootstrap_content: 'Implement the remaining authorized scope.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
@@ -294,7 +300,11 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     expect(f.record('review.md')!.accepted).toMatchObject({ content: report, author: { kind: 'agent', agent: 'reviewer' } });
     const readReport = f.requests.flatMap(input => input.providerConversation.messages).find(message => message.role === 'tool' && message.tool_call_id === 'step-5')!;
     expect(JSON.parse(readReport.content)).toMatchObject({ success: true, data: { content: { content: report }, content_author: { kind: 'agent', agent: 'reviewer' } } });
-    expect(f.record('status.md')!.accepted!.content).toContain('card-a');
+     expect(f.record('status.md')!.accepted!.content).toContain('card-a');
+     expect(f.record('status.md')!.accepted!.source_version).toBe(2);
+     const replanned = f.requests.filter(input => input.sessionId === 'agent:planner:project' && nodeOf(input) === 'plan').at(-1)!;
+     expect(JSON.stringify(replanned.providerConversation)).toContain('record:///status.md?card=project&v=2');
+     expect(f.cards.readRecordHistory('project', 'review.md')).toMatchObject({ kind: 'found', value: { catalog: { versions: [expect.objectContaining({ version: 1 })] } } });
     capture(`${profile}-${scope}`, f.requests);
     await f.supervisor.stopProject(); await expect(owner.settlement.promise).rejects.toThrow('stopped');
   });

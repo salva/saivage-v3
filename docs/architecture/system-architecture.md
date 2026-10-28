@@ -446,6 +446,12 @@ passing immutable accepted URLs; successful system review promotes accepted draf
 Typed test coverage-ready routes to verify, the sole successful terminal owner.
 Other typed retries/research/data distinctions are selected instructions, not
 template-aware runtime branches or persisted phase machines.
+Prepared [role/node guidance](prompts.md#convergence-within-existing-role-decisions)
+directs explicit result submission after current obligations, not readiness-only
+status editing or waiting for downstream acceptance. Replan returns reconciled
+remaining work to planning; native source_ready requests verification and saved-node
+continuation, not product approval. Existing record, resource, pending-context and
+exact reviewed-source candidate checks still own acceptance; prose adds no gate.
 
 ### Action path, output and advisory hooks
 

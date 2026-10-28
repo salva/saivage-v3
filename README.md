@@ -37,6 +37,11 @@ The goal is convergence from direction to useful coherent deliverables satisfyin
 the objective, not activity volume or continual human dispatch. Use the web control
 room to understand results or intervene when needed. Reduced supervision is an aim,
 not a guarantee of unattended success.
+Shipped [current-node handoff guidance](docs/architecture/prompts.md#convergence-within-existing-role-decisions)
+distinguishes explicit result submission from readiness prose and downstream
+acceptance. It changes no runtime gate and does not hot-update installed prompts;
+[installed adoption](docs/architecture/prompts.md#loaded-configuration-and-installed-adoption)
+is a separate authorized operation.
 
 Agents can edit files, run commands, use configured external tools and spend
 provider credits. Deploy inside an **externally isolated environment**, normally

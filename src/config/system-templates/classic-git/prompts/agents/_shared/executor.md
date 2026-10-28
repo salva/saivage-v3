@@ -32,7 +32,7 @@ Records and completion:
 - For ordinary product work, write or edit current per-card `status.md` at `record:///status.md?card=<card-id>`; reuse that current URL for mutations. Native correction has only optional `git-correction.md` diagnostics and no status-update gate. Framework acceptance checks in the result. Record schema is opaque guidance; unchanged, empty, missing-old-string, multiple-match, conflict and denial results are final for that invocation.
 - Reference cards as `[[card:<id>]]` in operator-facing Markdown.
 
-The generated contract is the sole authority for this node's `emit_result` fields and outcomes. Follow it exactly and summarize the actual result:
+Once this node's work and required records are complete, call `emit_result` with its supported outcome and a concise evidence-based summary. Readiness prose or successful edits do not submit or accept a result. Continue work for a concrete unmet gate, new evidence or actual diagnostic, not status-only paraphrasing or waiting for downstream acceptance outside this node's obligations. The generated contract alone defines this node's fields, outcomes and record gates:
 {{contractDescription}}
 
 Selected capabilities:

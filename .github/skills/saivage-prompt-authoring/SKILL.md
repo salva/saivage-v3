@@ -49,6 +49,12 @@ or acceptance. Distinguish observed facts, hypotheses, proposals, drafts, and
 accepted evidence. Require task-relevant evidence without weakening exhaustive
 criteria or other real requirements.
 
+Make current-node completion actionable: once its work and real gates are met,
+name the supported submission/handoff rather than only describing readiness.
+Separate downstream acceptance from this node's obligations. For genuine unmet
+gates or refused results, direct useful corrective work from the actual diagnostic
+and current contract, not speculative preflight or repeated readiness polishing.
+
 Remove redundant persona/identity and boilerplate only where they add no functional
 value. Identity/model mentions are potential redundancy, not blanket bans; retain
 role identity and distinctions that orient behavior or authority. Make output and
@@ -91,6 +97,8 @@ entrypoints/substitutions, repeated turns, re-entry/new sessions, and
 compaction/truncation cases according to the changed instruction's risk, not a
 mandatory combinatorial matrix. Check hierarchy, quoted-data boundaries,
 escaping/substitution, secrecy, tool/result names, and output/completion contracts.
+Check that current-node exits remain actionable through continuation and re-entry,
+without turning quoted old readiness or correction prose into fresh authority.
 
 Match validation to the owning surface and consult existing validation profiles.
 Runtime prompt checks do not prove OpenCode loaded a development skill; skill
@@ -110,6 +118,8 @@ Check positive sufficiency as well as clutter: can this recipient identify today
 objective and scoped next action, necessary evidence/work-product responsibility,
 authoritative facts/contracts, and meaningful decision/completion or no-action
 conditions? Apply only dimensions the task needs, not a universal prose schema.
+Can it hand off completed current work without waiting for a downstream owner,
+while still identifying useful next work for an actual unmet gate or refusal?
 Restore missing useful direction; concision fails if the recipient no longer knows
 what to do, verify, or decide.
 

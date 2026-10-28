@@ -261,7 +261,7 @@ function runtimeHarness(
 }
 
 function harness(
-  type: 'code' | 'architecture' | 'data' | 'test' | 'goal',
+  type: 'code' | 'architecture' | 'data' | 'test' | 'goal' | 'research',
   provider: (input: LlmInvocationInput, signal: AbortSignal) => Promise<ProviderTurnCompletion>,
   summary?: { calls: LlmInvocationInput[]; content: string },
   brief = `Exercise ${type}.`,
@@ -356,6 +356,107 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
 }
 
 describe('specialized production card-type flows', () => {
+  it.each(['classic-typed', 'paad-typed'])('%s research readiness requires explicit handoffs again at report, before parent review', async profile => {
+    const counts = new Map<string, number>();
+    const accepted = new Map<string, unknown>();
+    let childId = '';
+    const historical = (version: number) => {
+      const result = run.cards.readRecordVersion(childId, 'status.md', version);
+      if (result.kind !== 'found') throw new Error('Missing immutable research evidence');
+      return result.value.projection;
+    };
+    const status = (content: string) => tool(`status-${counts.size}-${[...counts.values()].join('-')}`, 'write', {
+      path: `record:///status.md?card=${childId}`, content,
+    });
+    const result = (outcome: string) => tool(`result-${[...counts.values()].join('-')}`, 'emit_result', { outcome, summary: `Bounded research ${outcome}; parent acceptance remains separate.` });
+    const run = harness('research', async input => {
+      const block = input.preparedContext!.stableBlocks.find(row => row.id.startsWith('node-activation:'))!;
+      const node = block.id.split(':').at(-1)!;
+      const card = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
+      const key = `${card}/${node}`, n = (counts.get(key) ?? 0) + 1; counts.set(key, n);
+      captureTestComposition(`research-${profile}-${card}-${node}-${n}`, input);
+      if (card === childId) {
+        expect(run.cards.read('project')!.lifecycle.status).toBe('running');
+        if (node === 'explore') {
+          if (n === 1) return complete(result('evidence_ready')); // Actual missing-record refusal.
+          if (n === 2) {
+            expect(latestToolResult(input)).toMatchObject({ success: false });
+            return complete(status('Source fixture establishes the bounded observation; ready for assessment.'));
+          }
+          if (n === 3) {
+            expect(latestToolResult(input)).toMatchObject({ success: true });
+            expect(run.cards.read(childId)!.lifecycle.status).toBe('running');
+            return complete(status('Evidence ready: the same observation awaits assessment.'));
+          }
+          expect(n).toBe(4); expect(latestToolResult(input)).toMatchObject({ success: true });
+          return complete(result('evidence_ready'));
+        }
+        if (node === 'assess') {
+          if (n === 1) {
+            const record = run.cards.readRecordCurrent(childId, 'status.md');
+            if (record.kind !== 'found' || !record.value.projection?.acceptedVersionUrl) throw new Error('Missing exploration acceptance');
+            expect(JSON.stringify(transitionRows(input))).toContain(record.value.projection.acceptedVersionUrl);
+            accepted.set('explore', historical(1));
+            return complete(status('Supported bounded observation; inference applies only to fixture input, not policy.'));
+          }
+          expect(n).toBe(2); return complete(result('supported'));
+        }
+        expect(node).toBe('report');
+        if (n === 1) {
+          const record = run.cards.readRecordCurrent(childId, 'status.md');
+          if (record.kind !== 'found' || !record.value.projection?.acceptedVersionUrl) throw new Error('Missing assessment acceptance');
+          expect(JSON.stringify(transitionRows(input))).toContain(record.value.projection.acceptedVersionUrl);
+          expect(JSON.stringify(transitionRows(input))).toContain('supported');
+          accepted.set('assess', historical(2));
+          return complete(status('Final bounded report: fixture observation supports only the assessed question. Independent parent acceptance remains outstanding.'));
+        }
+        if (n === 2) {
+          expect(latestToolResult(input)).toMatchObject({ success: true });
+          expect(run.cards.read(childId)!.lifecycle.status).toBe('running');
+          return complete(status('Bounded report ready/done; same fixture conclusion and limits. Parent acceptance still outstanding.'));
+        }
+        expect(n).toBe(3); expect(latestToolResult(input)).toMatchObject({ success: true });
+        expect(run.cards.read(childId)!.lifecycle.status).toBe('running');
+        return complete(result('done'));
+      }
+      expect(card).toBe('project');
+      if (node === 'plan' && n === 1) return complete(tool('research-activate', 'activate_card', {
+        card_id: childId, instructions: 'Investigate the bounded fixture question, assess it, and report within the brief. Parent independently reviews the resulting evidence.',
+      }));
+      expect(run.cards.read(childId)!.lifecycle.status).toBe('done');
+      if (node === 'plan') {
+        if (n === 2) {
+          expect(run.cards.readRecordCurrent('project', 'review.md')).toMatchObject({ kind: 'found', value: { projection: null } });
+          return complete(tool('parent-status', 'write', { path: 'record:///status.md?card=project', content: `Bounded report record:///status.md?card=${childId}&v=3 delivered; independent parent acceptance outstanding.` }));
+        }
+        expect(n).toBe(3); return complete(result('admit_review'));
+      }
+      if (node === 'review') {
+        expect(input.agentName).toBe('reviewer');
+        if (n === 1) return complete(tool('review-report', 'read', { path: `record:///status.md?card=${childId}&v=3` }));
+        if (n === 2) {
+          expect(latestToolResult(input)).toMatchObject({ success: true });
+          return complete(tool('parent-review', 'write', { path: 'record:///review.md?card=project', content: 'Independent fixture assessment: bounded report matches its question and preserves limitations; finite parent objective accepted.' }));
+        }
+        expect(n).toBe(3); return complete(result('approved'));
+      }
+      expect(node).toBe('assess-completion');
+      if (n === 1) return complete(tool('parent-final-status', 'write', { path: 'record:///status.md?card=project', content: 'Finite objective fulfilled; independent acceptance record:///review.md?card=project&v=1. No continuing scope.' }));
+      expect(n).toBe(2); return complete(result('complete_reviewed'));
+    }, undefined, 'Answer the bounded synthetic fixture question, preserve evidence and limitations in the final status report. Parent review follows delivery.', profile);
+    childId = run.child.id;
+    try {
+      await run.supervisor.startProject();
+      await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+      expect(run.cards.read('project')!.lifecycle.status).toBe('done');
+      expect(counts.get(`${childId}/explore`)).toBe(4);
+      expect(counts.get(`${childId}/report`)).toBe(3);
+      expect(historical(1)).toEqual(accepted.get('explore'));
+      expect(historical(2)).toEqual(accepted.get('assess'));
+      expect(run.cards.readRecordCurrent('project', 'review.md')).toMatchObject({ kind: 'found', value: { projection: { accepted: { author: { kind: 'agent', agent: 'reviewer' }, source_version: 1 } } } });
+    } finally { await run.supervisor.stopProject(); }
+  });
+
   it('batches two independent findings, joins a useful run, then retains evidence through original-owner repair, compaction and STOPPED reentry', async () => {
     let reviewId = '';
     let releaseOwner = '';

@@ -7,4 +7,4 @@ Choose the classification justified by evidence:
 - `blocked`: a required brief deliverable cannot be met within the bounded goal without specific scope correction, access, input or decision.
 - `failed`: conclusive failure.
 
-No classification silently discards outstanding brief scope.
+Record the justified classification and call `emit_result` under the generated contract; do not write the next node's report here. No classification silently discards outstanding brief scope.

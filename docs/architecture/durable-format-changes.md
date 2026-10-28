@@ -23,6 +23,13 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+The current-node handoff instruction clarification from source parent
+`8714c5ae7db2ef8586d327bf6d20e32dab3cc33c` changes selected prose, not durable
+shape, result meaning, workflow identity or source-candidate authority. No family
+discriminator changes: in particular card6, accepted-record5, workflow5,
+execution3 and native-policy1 remain as below. Historical prompt strings remain
+historical; this is not a migration entry or certification of installed adoption.
+
 This table describes the current owning source contracts, not an installed-state
 inventory. Paths/owners are relative to `src/` unless they start with `.saivage`.
 The [historical entries](#historical-source-contract-entries) retain their own

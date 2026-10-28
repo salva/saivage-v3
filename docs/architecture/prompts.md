@@ -398,7 +398,7 @@ dependencies or conceal unfinished acceptance; CANCELLED cannot reopen.
 
 ### Scoped operator policy overrides
 
-Each of the three profiles supplies the same
+Each of the four profiles supplies the same
 `fragments/_shared/operator-policy-overrides.md`. All five shared role hosts
 directly include it once, separately from project-specific guidance. Ordinary
 host-scoped fragment lookup and `compileProjectWorkflows` freeze its selected
@@ -463,20 +463,28 @@ assessment remain binding until their authorized owner changes them. This reusab
 method is prepared with the role, not repeated in each node or entrusted to old
 notices or summaries. It grants Planner no child-brief editing or public notices.
 
-Executor continues actionable permitted current-node work and delivers the complete
-scoped candidate with applicable verification. Research, design, runtime investigation
-and justified no-change need evidence, not manufactured edits or commits. Node-owned
-handoffs, useful retries, exhaustion and unavailable-input outcomes remain distinct;
-incompleteness alone is not conclusive failure. Old correction/status prose does not
+Prepared Planner, Executor and Reviewer roles connect completion of the current
+node's work and required records to an explicit `emit_result` call with a supported
+outcome and concise summary. Successful edits and readiness prose are not handoff
+or acceptance. Further work resolves substantive obligations, new evidence or actual
+refusals, rather than rephrasing readiness. Intermediate handoffs do not wait for
+downstream parent/product acceptance unless the current brief or gates require it;
+terminal completion still needs its actual complete-scope evidence and review.
+Research, design and justified no-change need evidence, not manufactured edits.
+Incompleteness alone is not conclusive failure. Old correction/status prose does not
 select fresh work, but still-applicable requirements, failures and effect/resource
-facts remain consequential. Correction fixes the actual attempted result/records
-from diagnostics; a valid envelope proves neither fulfillment nor impossibility.
+facts remain consequential. Correction fixes actual result/record violations from
+the supplied diagnostics and remaining-attempt contract; a valid envelope proves
+neither fulfillment nor impossibility. Native correction applies this method to
+its authorized source task and `source_ready` verification, not product status or
+subtree completion; checkpoint and optional diagnostics do not supply approval.
 
 Reviewer independently assesses the requested combined outcome/current input against
 every assigned criterion, retaining applicable unchanged evidence rather than
 automatically restarting broad checks at every edit. Historical verdicts and isolated
 green pieces are not fresh acceptance. During existing bounded checks, Oversight
-compares inspected earlier/current evidence to objectives and recurring delivery gaps
+distinguishes successful readiness-only paraphrasing from work resolving real gates
+or refused results, and compares inspected evidence to objectives and delivery gaps
 even when patches, commits or checks show local progress. Qualified normal advice
 acknowledges that progress and asks the nearest eligible responsible Planner to
 reassess approach, decomposition or ownership. Healthy research narrowing uncertainty,
@@ -552,7 +560,8 @@ installed/customized-host adoption remain unchanged.
 
 ## Shipped profiles and customization
 
-`classic` is default; `classic-typed` supplies typed graphs; opt-in `paad-typed`
+`classic` is default; explicitly provisioned `classic-git` adds native source
+ownership to classic graphs; `classic-typed` supplies typed graphs; opt-in `paad-typed`
 uses the same frozen typed config with five prose differences. Packaging compiles
 each registered template standalone, observes the complete selected artifact closure
 and requires physical source/copied output equality. Classic-family shared
@@ -569,8 +578,14 @@ Every shipped project selects `assess-completion` and project plan/recover hosts
 (classic `plan/recover`, typed `specialized-plan/specialized-recover`). Assessment
 is current-node context through turns/summary, not an init reminder. It reconciles
 accepted brief, current status/children, applicable review/evidence and delivered
-owner context, writes current status and chooses replan, necessary review,
+owner context, writes current status and submits replan, necessary review,
 legitimate completion or honest blocker/failure without child dispatch or delivery.
+Reconciled continuing work calls for `replan`, not implementation or further
+readiness polishing inside assessment; no additional review is needed merely to
+return remaining work to planning. Typed research similarly submits evidence to
+assessment, its supported classification to report, and the completed bounded
+report to its parent. It does not invent a research review node or treat report
+completion as downstream independent acceptance. Classic research uses execute.
 Accepted-edge context carries actual Reviewer evidence/immutable links; compaction
 may summarize it, so links do not substitute for needed body reads. STOPPED prepares
 recover from current facts; historical review is not a new activation verdict.

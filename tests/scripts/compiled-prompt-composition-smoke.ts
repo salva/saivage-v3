@@ -66,7 +66,11 @@ const METHOD_SECTION: Record<ShippedRole, string> = {
 };
 
 function roleMethodBlock(promptRoot: string, role: ShippedRole): string {
-  const text = readFileSync(join(promptRoot, 'agents', '_shared', `${role}.md`), 'utf8');
+  const host = readFileSync(join(promptRoot, 'agents', '_shared', `${role}.md`), 'utf8');
+  // Native capability text can occupy the method section; compare its real
+  // fragment bytes, not the unexpanded include spelling, with compiler output.
+  const text = host.replace(/{{>(native-source|native-global)}}/g, (_match, fragment: string) =>
+    readFileSync(join(promptRoot, 'fragments', '_shared', `${fragment}.md`), 'utf8'));
   const start = text.indexOf(`${METHOD_SECTION[role]}\n`);
   if (start < 0) throw new Error(`Missing ${role} method section.`);
   const end = text.indexOf('\n\n', start);
@@ -183,7 +187,7 @@ try {
     for (const [cardType, packagedProcess] of packaged.cardTypes) {
       const sourceProcess = requireValue(source.cardTypes.get(cardType), `Missing source ${templateName}/${cardType} workflow.`);
       for (const [stateId, packagedState] of packagedProcess.states) {
-        if (packagedState.kind !== 'node') continue;
+         if (packagedState.kind !== 'node' || packagedState.execution.kind !== 'agent') continue;
         const sourceState = requireValue(sourceProcess.states.get(stateId), `Missing source ${templateName}/${cardType}/${stateId}.`);
         if (sourceState.kind !== 'node') throw new Error(`Source ${templateName}/${cardType}/${stateId} is not a node.`);
         const packagedContract = describeNodeResultContract(packagedProcess, stateId);
@@ -195,7 +199,15 @@ try {
          if (JSON.stringify(agentExecution(packagedState).agent.tools) !== JSON.stringify(agentExecution(sourceState).agent.tools)) throw new Error(`Source/package selected tools differ for ${templateName}/${cardType}/${stateId}.`);
          const nodeText = requireValue(packagedProcess.processPrompts.get(agentExecution(packagedState).prompt.promptId), `Missing ${templateName}/${cardType}/${stateId} process prompt.`).text;
          if (nodeText.includes('{{')) throw new Error(`Unresolved node syntax for ${templateName}/${cardType}/${stateId}.`);
-         captureComposition(`compiled-${templateName}-${cardType}-${stateId.replace(':', '-')}`, { roleText: packagedInstruction, contract: packagedContract, nodeText, tools: agentExecution(packagedState).agent.tools });
+          const correction = requireValue(packagedProcess.processPrompts.get(agentExecution(packagedState).correctionPrompt.promptId), `Missing ${templateName}/${cardType}/${stateId} correction prompt.`);
+          captureComposition(`compiled-${templateName}-${cardType}-${stateId.replace(':', '-')}`, {
+            template: templateName, cardType, stateId,
+            roleSelection: agentExecution(packagedState).selectedAgentPrompt,
+            nodeSelection: packagedProcess.processPrompts.get(agentExecution(packagedState).prompt.promptId),
+            correctionSelection: correction,
+            roleText: packagedInstruction, contract: packagedContract, nodeText, correctionText: correction.text,
+            tools: agentExecution(packagedState).agent.tools,
+          });
         const role = WORKFLOW_ROLES.find((candidate) => candidate === agentExecution(packagedState).selectedAgentPrompt.reference);
         if (role) {
           composedWorkflowRoles.add(role);
@@ -228,6 +240,14 @@ try {
   const paadWorkflows = compileProjectWorkflows(paadConfig, { defaultPromptRoot: paad.promptRoot, projectRoot, artifactObserver: observeInside(paad.name, paad.promptRoot) });
   const paadSourceWorkflows = compileProjectWorkflows(paadConfig, { defaultPromptRoot: paadSourceRoot, projectRoot, artifactObserver: observeInside('paad source', paadSourceRoot) });
   assertRoleComposition(paad.name, paad.promptRoot, paadSourceRoot, paadWorkflows, paadSourceWorkflows);
+  const native = resolveSystemTemplate('classic-git');
+  const nativeConfig = effectiveSaivageConfigSchema.parse({ ...templateConfig(native),
+    models: structuredClone(baseConfig.models), providers: structuredClone(baseConfig.providers),
+    compaction: structuredClone(baseConfig.compaction) });
+  const nativeSourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', native.name, 'prompts');
+  const nativeWorkflows = compileProjectWorkflows(nativeConfig, { defaultPromptRoot: native.promptRoot, projectRoot, artifactObserver: observeInside(native.name, native.promptRoot) });
+  const nativeSourceWorkflows = compileProjectWorkflows(nativeConfig, { defaultPromptRoot: nativeSourceRoot, projectRoot, artifactObserver: observeInside('native source', nativeSourceRoot) });
+  assertRoleComposition(native.name, native.promptRoot, nativeSourceRoot, nativeWorkflows, nativeSourceWorkflows);
   for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig], [paad, paadConfig]] as const) {
     const custom = structuredClone(config);
     custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, tools: ['read', 'write'], skills: false };
@@ -252,6 +272,11 @@ try {
     const contract = describeNodeResultContract(process, 'node:review');
     const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'project' }, agentExecution(node).agent.name, agentExecution(node).selectedAgentPrompt.compiled, { contractDescription: contract });
     if (text !== independentText.replace('{{contractDescription}}', contract) || text.includes(roleMethodBlock(template.promptRoot, 'reviewer')) || text.includes('{{')) throw new Error('Independent prompt gained implied shipped-role inheritance.');
+    captureComposition(`compiled-${template.name}-custom-review`, {
+      roleSelection: agentExecution(node).selectedAgentPrompt, roleText: text, contract,
+      nodeText: process.processPrompts.get(agentExecution(node).prompt.promptId)!.text,
+      tools: agentExecution(node).agent.tools,
+    });
   }
   const assertPlanningComposition = (templateName: string, packaged: ReturnType<typeof compileProjectWorkflows>, source: ReturnType<typeof compileProjectWorkflows>) => {
     for (const cardType of ['project', 'goal'] as const) {
@@ -287,6 +312,7 @@ try {
   assertPlanningComposition('classic', classicWorkflows, classicSourceWorkflows);
   assertPlanningComposition('classic-typed', typedWorkflows, typedSourceWorkflows);
   assertPlanningComposition(paad.name, paadWorkflows, paadSourceWorkflows);
+  assertPlanningComposition(native.name, nativeWorkflows, nativeSourceWorkflows);
   const architecture = requireValue(typedWorkflows.cardTypes.get('architecture'), 'Missing architecture workflow.');
   for (const nodeId of ['component-review', 'system-review']) {
     const node = requireValue(architecture.states.get(`node:${nodeId}`), `Missing ${nodeId}.`);

@@ -1,5 +1,5 @@
 import { afterEach, expect, test, jest } from '@jest/globals';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -141,6 +141,13 @@ function call(id: string, name: string, args: object) {
   };
 }
 
+function captureComposition(name: string, value: unknown) {
+  const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+  if (!directory) return;
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, `native-correction-${name}.json`), JSON.stringify(value, null, 2));
+}
+
 test.each(['blocked', 'source_ready'] as const)(
   'real correction Executor rejects premature readiness then %s verifies rewritten O through its owner',
   async (completion) => {
@@ -173,6 +180,7 @@ test.each(['blocked', 'source_ready'] as const)(
           stopped();
       },
       provider: scriptedAdmissionProvider(async (input) => {
+        captureComposition(`${completion}-${input.agentName}-${turns + 1}`, input);
         writeFileSync(join(f.root, '..', `${basename(f.root)}-feedback-${input.sessionId.split(':')[1]}-${turns+1}.json`),JSON.stringify(input,null,2));
         if (input.sessionId === 'agent:planner:project') {
           ordinaryTurns++;
@@ -186,11 +194,15 @@ test.each(['blocked', 'source_ready'] as const)(
             outcome: 'source_ready',
             summary: 'Needs verification.',
           });
-        if (turns === 2)
+        if (turns === 2) {
+          const refusal = input.providerConversation.messages.find(row => row.kind === 'tool_result' && row.tool_call_id === 'premature');
+          expect(refusal && JSON.parse(refusal.content)).toMatchObject({ success: false });
+          expect(f.store.read('project')!.git!.correction).not.toBeNull();
           return call('reconstruct', 'run_command', {
             command: `timeout -k 2s 20s bash -c 'git rebase --merge --onto ${f.parentTip} ${f.base} || test -d .git/rebase-merge; printf "resolved c1\\n" > conflict.txt; git add conflict.txt; GIT_EDITOR=true git rebase --continue'`,
             wait: true,
           });
+        }
         if (turns === 3)
           return call('after-rewrite', 'emit_result', {
             outcome: completion,
@@ -206,6 +218,8 @@ test.each(['blocked', 'source_ready'] as const)(
       expect(card.lifecycle.status).toBe(completion === 'blocked' ? 'blocked' : 'failed');
       expect(turns).toBe(3);
       expect(ordinaryTurns).toBe(completion === 'blocked' ? 0 : 1);
+      expect(f.store.readRecordCurrent('project', 'git-correction.md')).toMatchObject({ kind: 'found', value: { projection: null } });
+      expect(f.store.readRecordCurrent('project', 'review.md')).toMatchObject({ kind: 'found', value: { projection: null } });
       if (completion === 'source_ready') expect(card.git!.correction).toBeNull();
       else expect(card.git!.correction?.original_tip).toBe(f.original);
       expect(card.git!.observed_tip).not.toBe(f.original);
@@ -299,7 +313,7 @@ test.each(['repeat', 'ordinary-publication-failure', 'stop-after-publication', '
       summarizerProvider:{...testAutonomousCompaction.summarizerProvider,serializeSummaryRequest:deterministicSummarySerialization,
         completeTurn:async(input:Parameters<typeof testAutonomousCompaction.summarizerProvider.completeTurn>[0])=>{
           preparedRenders.push({kind:'summary',input});
-          return {result:{kind:'message' as const,content:'Prior correction stopped with partial work preserved. Diagnostic observations are historical evidence, not acceptance. Original c2 remains to reconstruct alongside parent-only changes.'},provider_exchanges:[]};
+          return {result:{kind:'message' as const,content:'Historical diagnostic said ready/done/replan/source_ready, but correction stopped with partial work preserved. Diagnostic observations are historical evidence, not acceptance. Original c2 remains to reconstruct alongside parent-only changes.'},provider_exchanges:[]};
         },projectProviderExchanges:()=>{}},
     }:{}),
     workflows: f.workflows,
@@ -487,6 +501,7 @@ test.each(['repeat', 'ordinary-publication-failure', 'stop-after-publication', '
   } finally {
     await supervisor.cleanupForApplicationStop();
     if(mode==='prompt-compaction')writeFileSync(join(f.root,'..',`${basename(f.root)}-actual-compaction-contexts.json`),JSON.stringify(preparedRenders,null,2));
+    if(mode==='prompt-compaction')captureComposition('compaction',preparedRenders);
   }
 }, 900000);
 
@@ -617,6 +632,7 @@ test.each(['root', 'surviving'] as const)(
           finish();
       },
       provider: scriptedAdmissionProvider(async (input, signal) => {
+        captureComposition(`urgent-${target}-${turn + 1}`, input);
         expect(input.sessionId).toBe('agent:executor:project');
         turn++;
         if (turn === 1)
