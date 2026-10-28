@@ -273,4 +273,7 @@ async function restartServer(): Promise<void> {
   background: var(--entry-warn-bg);
 }
 .strip-problem { font-size: 12px; color: var(--text); }
+@media (max-width: 600px) {
+  .strip-row { row-gap: 10px; }
+}
 </style>
