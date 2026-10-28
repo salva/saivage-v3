@@ -52,10 +52,25 @@ if (fatalChild) {
     cpSync(join(tools, 'fixtures'), join(root, 'fixtures'), { recursive: true });
     // Native config is deliberately slow and creates a managed descendant. No
     // successful findings are synthesized. Real fixed helper and ESLint load it.
-    writeFileSync(join(root, 'fixtures/slow.mjs'), `import {spawn} from 'node:child_process';
-import {writeFileSync} from 'node:fs';
+    writeFileSync(join(root, 'fixtures/slow.mjs'), `import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {appendFileSync,existsSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'inherit'});
-writeFileSync(new URL('./entered.json',import.meta.url),JSON.stringify({child:child.pid,parent:process.pid}));
+const marker=new URL('./entered.json',import.meta.url);
+const staging=new URL('./entered.next.json',import.meta.url);
+const prior=existsSync(marker)?readFileSync(marker,'utf8'):null;
+if(prior!==null) assert.equal(prior,'{}');
+const payload=JSON.stringify({child:child.pid,parent:process.pid});
+// Incomplete staging must expose neither partial bytes nor a new canonical file.
+writeFileSync(staging,payload.slice(0,1));
+if(prior===null) assert.equal(existsSync(marker),false);
+else {
+  const retained=readFileSync(marker,'utf8');
+  assert.equal(retained,prior);
+  assert.deepEqual(JSON.parse(retained),{});
+}
+appendFileSync(staging,payload.slice(1));
+renameSync(staging,marker);
 await new Promise(()=>{});
 export default [];
 `);

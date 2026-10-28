@@ -110,6 +110,14 @@ production interruption witness checks timeout report acceptance versus cancelle
 no-acceptance and no assessment. These are executable checks, not promises of a
 passing run or independent model review quality.
 
+The process-edge fixture stages actual PID markers in `entered.next.json` before
+renaming to `entered.json`. Its deterministic incomplete-staging witness preserves
+canonical absence on first entry and the exact parseable `{}` sentinel on cancellation
+entry; the parent reader remains strict. This checks publication isolation, not the
+uncaptured interleaving of the historical CI failure. Retain failed-run evidence;
+final qualification requires the matching-build witness and all six compiled programs,
+plus applicable exact-SHA CI, rather than relabeling earlier results as a green aggregate.
+
 The positive quality production fixtures additionally enter a separate configured
 Reviewer node after assessment. A premature approval is rejected by the ordinary
 updated-review-record gate; the deterministic provider then reads the accepted
