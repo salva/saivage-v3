@@ -23,6 +23,14 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+The purposeful process-wait advice from source parent
+`6a39f68e13612c11f07444b61b15cc519dab38e4` changes only selected tool
+descriptions: long appropriate early-return completion waits versus purposeful
+intermediate inspection or independent permitted work. Wait ceilings, ownership,
+terminal-result consumption/retirement, schemas and all durable contracts and
+discriminators remain unchanged. No migration or reset is required for this isolated
+prose change; adoption remains separately authorized, with no installed-state claim.
+
 The internal record-observation bookkeeping change from source parent
 `0ed10ce212b70abe7be7d45235ebffcbf6cdd36c` removes only synthetic primary and
 summarizer ledgers at the composition/refine owners. Conversation index/previous
