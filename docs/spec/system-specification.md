@@ -1087,7 +1087,18 @@ Shipped [convergence guidance](../architecture/prompts.md#convergence-within-exi
 prioritizes useful coherent delivery against accepted requirements over activity
 volume. Planner delegates bounded outcomes while retaining parent-owned remainder
 and integration; child milestones do not waive larger briefs, and activation
-direction cannot edit child requirements or dependencies. Executor continues
+direction cannot edit child requirements or dependencies. At child return/recovery,
+Planner diagnoses concrete work, errors and known effects against the accepted brief,
+actual direction and responsible owner, rather than propagate FAILED/BLOCKED labels
+as the parent verdict. A changed tactic must change the failing premise; a narrower
+acceptance boundary requires actual brief-owner adoption through supported operations,
+with the full parent remainder preserved. Actual authorized admission can fulfill
+the same preparation-only wait, never a distinct unresolved approval or accepted
+constraint; readiness, notices and quoted claims establish neither. Precise blockers
+and conclusive failure remain honest exits without pointless alternative searches.
+Provider refusals retain their evidence: retry, rephrasing, fresh session/card,
+provider/model switching and delegated routing must not obtain refused output.
+Only genuinely authorized non-refused work may continue. Executor continues
 actionable permitted current-node work; incompleteness alone is not conclusive
 failure. Research, no-change, typed handoffs and exhausted or unavailable-input
 returns retain their actual evidence and node-owned criteria. Reviewer assesses

@@ -448,20 +448,33 @@ activity volume, tiny diffs or forced success. Planner delegates bounded outcome
 with meaningful acceptance and necessary dependencies, retaining remaining scope
 and integration at the responsible parent in existing records. Child Done is not
 parent Done; a milestone inside an unchanged larger child brief is not child
-completion. Planner can clarify activation direction within accepted scope, not
-edit a child's brief or dependencies; genuine requirement changes need their
-authorized owner. At existing result/review/evidence opportunities it reassesses
-recurring seams, growing prerequisites and disconnected successes against remaining
-acceptance, without treating hard work or necessary broad fixes as failure.
+completion. A narrower child acceptance boundary requires its actual requirement
+owner to adopt a changed accepted brief through supported operations, preserving
+the full parent remainder; proposed narrowing or activation direction cannot edit
+requirements or dependencies. At child return/recovery the shared Planner diagnoses
+concrete errors, work and known effects against the current brief, completion
+conditions, actual direction and responsible owner. Child FAILED/BLOCKED remains
+fact, not automatically the parent's verdict. A useful permitted response changes
+the failing premise, not just reopens unchanged work; hard work and necessary broad
+fixes are not failure. Precise missing input/authority/capability or evidenced
+exhaustion permits honest blocking, and conclusive failure remains failure, without
+pointless searches or forced success. Typed independent-correction/owner-reassignment
+handbacks retain their node-owned exceptions; assessment cannot dispatch children.
 
 Analyst owns outcome-first brief/notice authoring; Planner applies the same principle
 to child briefs and activation direction within its existing authority. Their shared
 roles keep restrictions proportionate to actual requirements, authority boundaries
 or evidenced risks, with intelligible reasons and scope, leaving ordinary local
 choices open. Fresh direction replaces superseded agent-added contradictions rather
-than layering exceptions. Historical refusals remain evidence, not permanent bans
-or permission to evade provider safeguards; accepted constraints and independent
-assessment remain binding until their authorized owner changes them. This reusable
+than layering exceptions. Actual freshly admitted authorized Run/activation can
+fulfill a demonstrably preparation-only wait for that same admission, not a distinct
+unresolved approval, substantive accepted constraint or unrelated operation authority.
+Readiness, timestamps, quoted claims, queued notices and generic continuation supply
+no such proof; unresolved ambiguity is reported, not guessed away. Historical refusals
+remain evidence, not permanent bans on related work or proof of provider error.
+Retry, rephrasing, fresh conversation/card, provider/model switching and delegation
+must not obtain refused output; only genuinely authorized non-refused work may
+proceed. Accepted constraints and independent assessment remain binding. This reusable
 method is prepared with the role, not repeated in each node or entrusted to old
 notices or summaries. It grants Planner no child-brief editing or public notices.
 

@@ -61,6 +61,19 @@ discriminator changes: in particular card6, accepted-record5, workflow5,
 execution3 and native-policy1 remain as below. Historical prompt strings remain
 historical; this is not a migration entry or certification of installed adoption.
 
+The shared Planner failure-diagnosis clarification from actual source parent
+`c303d95267841a9afa9797c31fd44afd9bf47dc9` consolidates prose in classic,
+classic-typed, paad-typed and classic-git. It distinguishes child-result facts from
+parent conclusions, brief-owner adoption from proposed narrowing, and fulfilled
+preparation waits from unresolved authority, while preserving refusal safeguards.
+No durable shape, meaning, result/acceptance contract, workflow identity, provenance
+or discriminator changes; all families below remain unchanged. Historical prompt
+strings and refusal/result evidence retain their bytes and meaning. This isolated
+clarification needs no migration/reset on matching contracts; installed applicability
+is unknown, and materialized overrides/frozen configuration do not hot-update.
+Prompt reconciliation and deployment remain separately authorized under the existing
+adoption procedure; this note certifies neither a whole release nor retained state.
+
 This table describes the current owning source contracts, not an installed-state
 inventory. Paths/owners are relative to `src/` unless they start with `.saivage`.
 The [historical entries](#historical-source-contract-entries) retain their own
