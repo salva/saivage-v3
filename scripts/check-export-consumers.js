@@ -223,7 +223,7 @@ function createProgramContext(root, rootFiles, options, tracked, candidates, vir
   return { checker: program.getTypeChecker(), host, kind, options, program, roots: rootFiles, virtualData };
 }
 
-function createPrograms(root, tracked, candidates, failures) {
+function prepareDirectInputs(root, tracked, failures) {
   const tsFiles = [...tracked].filter((file) => TS_EXTENSIONS.test(file)).sort();
   const sfcFiles = [...tracked].filter((file) => SFC_EXTENSION.test(file) && file.startsWith('web/src/')).sort();
   const jsFiles = [...tracked].filter((file) => JS_EXTENSIONS.test(file)).sort();
@@ -235,12 +235,14 @@ function createPrograms(root, tracked, candidates, failures) {
   const virtualData = compileSfcModules(root, sfcFiles, failures);
   const rootOptions = readConfig(root, 'tsconfig.json').options;
   const webOptions = readConfig(root, 'web/tsconfig.json').options;
-  const rootContext = createProgramContext(root, rootFiles, rootOptions, tracked, candidates, virtualData, 'root');
-  const webContext = createProgramContext(root, [...webFiles, ...sfcFiles.map((file) => `${file}${SFC_VIRTUAL_SUFFIX}`)], webOptions, tracked, candidates, virtualData, 'web');
-  const docsContext = createProgramContext(root, docsFiles, rootOptions, tracked, candidates, virtualData, 'docs');
   const jsOptions = { ...rootOptions, allowJs: true, checkJs: false, noEmit: true, declaration: false, outDir: undefined };
-  const jsContext = createProgramContext(root, jsFiles, jsOptions, tracked, candidates, virtualData, 'javascript');
-  return { contexts: [rootContext, webContext, docsContext, jsContext], declarationFiles: tsFiles.filter((file) => DECLARATION_SUFFIX.test(file)), jsFiles, sfcFiles, tsFiles, virtualData };
+  const descriptors = [
+    { kind: 'root', roots: rootFiles, options: rootOptions },
+    { kind: 'web', roots: [...webFiles, ...sfcFiles.map((file) => `${file}${SFC_VIRTUAL_SUFFIX}`)], options: webOptions },
+    { kind: 'docs', roots: docsFiles, options: rootOptions },
+    { kind: 'javascript', roots: jsFiles, options: jsOptions },
+  ];
+  return { descriptors, declarationFiles: tsFiles.filter((file) => DECLARATION_SUFFIX.test(file)), jsFiles, sfcFiles, tsFiles, virtualData };
 }
 
 function modulePath(root, checker, specifier, virtualData) {
@@ -430,7 +432,8 @@ function collectRouteDeclarations(root, tracked, candidates, context, routes, fa
   }
 }
 
-function collectImports(root, tracked, candidates, context, routes, governedKeys, uses, failures, unsupported) {
+function collectImportFacts(root, tracked, candidates, context) {
+  const facts = [];
   const { checker, options, program, virtualData } = context;
   const owned = new Set(context.roots.map((file) => file.endsWith(SFC_VIRTUAL_SUFFIX) ? file.slice(0, -SFC_VIRTUAL_SUFFIX.length) : file));
   for (const sourceFile of program.getSourceFiles()) {
@@ -439,34 +442,10 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
     if (!tracked.has(consumer) || !owned.has(consumer)) continue;
     const kind = isTestModule(consumer) ? 'test' : 'production';
     const observe = (start, node) => {
-      const pending = [start];
-      const visited = new Set();
-      while (pending.length > 0) {
-        const key = pending.pop();
-        if (visited.has(key)) continue;
-        visited.add(key);
-        if (governedKeys.has(key)) addUse(uses, key, kind, location(root, sourceFile, node, virtualData));
-        for (const target of routes.get(key) ?? []) pending.push(target);
-      }
+      facts.push({ type: 'exact-use', key: start, kind, at: location(root, sourceFile, node, virtualData) });
     };
     const unsupportedUse = (module, exportName, node, message) => {
-      if (exportName === '*') {
-        const routedNames = [...routes.keys()].filter((key) => splitSurfaceKey(key).module === module);
-        if (!isGovernedModule(module, candidates) && !routedNames.some((key) => reachesGoverned(key, routes, governedKeys).size > 0)) return;
-        const item = { category: 'unsupported', module, export: '*', consumer: location(root, sourceFile, node, virtualData), message };
-        failures.push(item);
-        unsupported.push(item);
-        return;
-      }
-      const startKeys = exportName === '*'
-        ? [...governedKeys].filter((key) => splitSurfaceKey(key).module === module || reachesGoverned(surfaceKey(module, splitSurfaceKey(key).export), routes, governedKeys).has(key))
-        : [surfaceKey(module, exportName)];
-      const reached = new Set(startKeys.flatMap((key) => [...reachesGoverned(key, routes, governedKeys)]));
-      for (const key of reached) {
-        const item = { category: 'unsupported', ...splitSurfaceKey(key), consumer: location(root, sourceFile, node, virtualData), message };
-        failures.push(item);
-        unsupported.push(item);
-      }
+      facts.push({ type: 'unsupported-use', module, export: exportName, at: location(root, sourceFile, node, virtualData), message });
     };
 
     const visit = (node) => {
@@ -474,8 +453,7 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
         const argument = node.arguments[0];
         if (ts.isStringLiteralLike(argument) && argument.text.startsWith('/') && exactBrowserRootTarget(argument.text, tracked) === false) {
           const item = { category: 'unsupported', module: argument.text, export: '*', consumer: location(root, sourceFile, argument, virtualData), message: 'invalid or unresolved root-relative module specifier' };
-          failures.push(item);
-          unsupported.push(item);
+          facts.push({ type: 'diagnostic', item, unsupported: true });
           return;
         }
         if (!ts.isStringLiteralLike(argument) && ts.isIdentifier(argument)) {
@@ -484,16 +462,14 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
           const initializer = declaration && ts.isVariableDeclaration(declaration) ? declaration.initializer : null;
           if (initializer && ts.isStringLiteralLike(initializer) && initializer.text.startsWith('/')) {
             const item = { category: 'unsupported', module: initializer.text, export: '*', consumer: location(root, sourceFile, argument, virtualData), message: 'computed root-relative dynamic import is unsupported' };
-            failures.push(item);
-            unsupported.push(item);
+            facts.push({ type: 'diagnostic', item, unsupported: true });
             return;
           }
         }
         if (!ts.isStringLiteralLike(argument)) {
           if (isNativePackageBoundary(root, sourceFile, node)) return;
           const item = { category: 'unsupported', module: '<computed-import>', export: '*', consumer: location(root, sourceFile, argument, virtualData), message: 'computed dynamic import is unsupported' };
-          failures.push(item);
-          unsupported.push(item);
+          facts.push({ type: 'diagnostic', item, unsupported: true });
           return;
         }
       }
@@ -517,8 +493,7 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
         const exactRaw = /^import\.meta\.glob\(['"]\.\.\/components\/debug\/\*Panel\.vue['"],\s*\{[\s\S]*eager:\s*true,[\s\S]*query:\s*['"]\?raw['"],[\s\S]*import:\s*['"]default['"][\s\S]*\}\)$/.test(text);
         if (!exactRaw && text.includes('.vue')) {
           const item = { category: 'unsupported', module: 'web/src/**/*.vue', export: '*', consumer: location(root, sourceFile, node, virtualData), message: 'unsupported import.meta.glob form intersects governed SFC modules' };
-          failures.push(item);
-          unsupported.push(item);
+          facts.push({ type: 'diagnostic', item, unsupported: true });
         }
         return;
       }
@@ -542,25 +517,21 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
         }
         if (node.importClause.name) {
           const key = surfaceKey(resolvedModule, 'default');
-          const governed = reachesGoverned(key, routes, governedKeys);
           const references = bindingReferences(checker, node.importClause.name);
-           if (governed.size > 0 && references.length === 0 && !routedLocalNames.has(node.importClause.name.text)) failures.push({ category: 'stale-import', ...splitSurfaceKey(key), consumer: location(root, sourceFile, node.importClause.name, virtualData), message: 'unused default import' });
+          facts.push({ type: 'static-binding', key, named: false, references: references.length, reexported: routedLocalNames.has(node.importClause.name.text), at: location(root, sourceFile, node.importClause.name, virtualData) });
           for (const reference of references) observe(key, reference);
         }
         const bindings = node.importClause.namedBindings;
         if (bindings && ts.isNamedImports(bindings)) {
           for (const element of bindings.elements) {
             const key = surfaceKey(resolvedModule, importedName(element));
-            const governed = reachesGoverned(key, routes, governedKeys);
-             if (isGovernedModule(resolvedModule, candidates) && !governedKeys.has(key) && governed.size === 0) failures.push({ category: 'unresolved-edge', module: resolvedModule, export: importedName(element), consumer: location(root, sourceFile, element, virtualData), message: 'governed import names no export' });
             const references = bindingReferences(checker, element.name);
-             if (governed.size > 0 && references.length === 0 && !routedLocalNames.has(element.name.text)) failures.push({ category: 'stale-import', ...splitSurfaceKey(key), consumer: location(root, sourceFile, element, virtualData), message: 'import binding is never referenced' });
+            facts.push({ type: 'static-binding', key, named: true, references: references.length, reexported: routedLocalNames.has(element.name.text), at: location(root, sourceFile, element, virtualData) });
             for (const reference of references) observe(key, reference);
           }
         } else if (bindings && ts.isNamespaceImport(bindings)) {
-          const names = new Set([...governedKeys].map((key) => splitSurfaceKey(key)).filter((part) => part.module === resolvedModule).map((part) => part.export));
           const references = bindingReferences(checker, bindings.name);
-          if (names.size > 0 && references.length === 0) failures.push({ category: 'stale-import', module: resolvedModule, export: '*', consumer: location(root, sourceFile, bindings.name, virtualData), message: 'namespace import binding is never referenced' });
+          facts.push({ type: 'static-namespace-unused', module: resolvedModule, references: references.length, at: location(root, sourceFile, bindings.name, virtualData) });
           for (const reference of references) {
             const parent = reference.parent;
             if (ts.isPropertyAccessExpression(parent) && parent.expression === reference) {
@@ -583,9 +554,7 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
                 ts.forEachChild(candidate, collectLiterals);
               };
               collectLiterals(evidenceNode);
-              const literals = allLiterals.filter((name) => names.has(name));
-              if (literals.length > 0) for (const name of literals) unsupportedUse(resolvedModule, name, parent, 'reflective namespace use does not establish semantic consumption');
-              else if (allLiterals.length === 0 && !isStringOnlyNegativeAssertion(parent) && !isKnownNonConsumingReflection(parent)) unsupportedUse(resolvedModule, '*', parent, 'whole-module namespace use is unsupported');
+              facts.push({ type: 'static-namespace-reflection', module: resolvedModule, literals: allLiterals, negative: isStringOnlyNegativeAssertion(parent), nonconsuming: isKnownNonConsumingReflection(parent), at: location(root, sourceFile, parent, virtualData) });
             }
           }
         }
@@ -645,9 +614,8 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
             unsupportedUse(targetModule, '*', parent, 'JavaScript dynamic-import namespace bindings are unsupported');
             return;
           }
-          const exported = new Set([...governedKeys].map(splitSurfaceKey).filter((part) => part.module === targetModule).map((part) => part.export));
           const references = bindingReferences(checker, parent.name);
-          if (references.length === 0) failures.push({ category: 'stale-import', module: targetModule, export: '*', consumer: location(root, sourceFile, parent.name, virtualData), message: 'dynamic-import namespace binding is never referenced' });
+          if (references.length === 0) facts.push({ type: 'diagnostic', item: { category: 'stale-import', module: targetModule, export: '*', consumer: location(root, sourceFile, parent.name, virtualData), message: 'dynamic-import namespace binding is never referenced' }, unsupported: false });
           for (const reference of references) {
             const referenceParent = reference.parent;
             if (ts.isPropertyAccessExpression(referenceParent) && referenceParent.expression === reference) observe(surfaceKey(targetModule, referenceParent.name.text), referenceParent.name);
@@ -657,12 +625,11 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
               for (let depth = 0; depth < 4 && evidenceNode.parent && !ts.isStatement(evidenceNode); depth += 1) evidenceNode = evidenceNode.parent;
               const literals = [];
               const collectLiterals = (candidate) => {
-                if (ts.isStringLiteralLike(candidate)) literals.push(candidate);
+                if (ts.isStringLiteralLike(candidate)) literals.push(candidate.text);
                 ts.forEachChild(candidate, collectLiterals);
               };
               collectLiterals(evidenceNode);
-              const literal = literals.find((child) => exported.has(child.text));
-              if (literal) unsupportedUse(targetModule, literal.text, referenceParent, 'reflective dynamic-import use does not establish semantic consumption');
+              facts.push({ type: 'dynamic-namespace-reflection', module: targetModule, literals, at: location(root, sourceFile, referenceParent, virtualData) });
             }
           }
         }
@@ -671,6 +638,74 @@ function collectImports(root, tracked, candidates, context, routes, governedKeys
       ts.forEachChild(node, visit);
     };
     visit(sourceFile);
+  }
+  return facts;
+}
+
+function evaluateImportFacts(facts, candidates, routes, governedKeys, uses, failures, unsupported) {
+  const unsupportedUse = (module, exportName, at, message) => {
+    if (exportName === '*') {
+      const routedNames = [...routes.keys()].filter((key) => splitSurfaceKey(key).module === module);
+      if (!isGovernedModule(module, candidates) && !routedNames.some((key) => reachesGoverned(key, routes, governedKeys).size > 0)) return;
+      const item = { category: 'unsupported', module, export: '*', consumer: at, message };
+      failures.push(item);
+      unsupported.push(item);
+      return;
+    }
+    for (const key of reachesGoverned(surfaceKey(module, exportName), routes, governedKeys)) {
+      const item = { category: 'unsupported', ...splitSurfaceKey(key), consumer: at, message };
+      failures.push(item);
+      unsupported.push(item);
+    }
+  };
+  const directNames = (module) => new Set([...governedKeys].map(splitSurfaceKey).filter((part) => part.module === module).map((part) => part.export));
+  for (const fact of facts) {
+    switch (fact.type) {
+      case 'exact-use': {
+        const pending = [fact.key];
+        const visited = new Set();
+        while (pending.length > 0) {
+          const key = pending.pop();
+          if (visited.has(key)) continue;
+          visited.add(key);
+          if (governedKeys.has(key)) addUse(uses, key, fact.kind, fact.at);
+          for (const target of routes.get(key) ?? []) pending.push(target);
+        }
+        break;
+      }
+      case 'unsupported-use':
+        unsupportedUse(fact.module, fact.export, fact.at, fact.message);
+        break;
+      case 'diagnostic':
+        failures.push(fact.item);
+        if (fact.unsupported) unsupported.push(fact.item);
+        break;
+      case 'static-binding': {
+        const governed = reachesGoverned(fact.key, routes, governedKeys);
+        const surface = splitSurfaceKey(fact.key);
+        if (fact.named && isGovernedModule(surface.module, candidates) && !governedKeys.has(fact.key) && governed.size === 0) failures.push({ category: 'unresolved-edge', ...surface, consumer: fact.at, message: 'governed import names no export' });
+        if (governed.size > 0 && fact.references === 0 && !fact.reexported) failures.push({ category: 'stale-import', ...surface, consumer: fact.at, message: fact.named ? 'import binding is never referenced' : 'unused default import' });
+        break;
+      }
+      case 'static-namespace-unused':
+        if (directNames(fact.module).size > 0 && fact.references === 0) failures.push({ category: 'stale-import', module: fact.module, export: '*', consumer: fact.at, message: 'namespace import binding is never referenced' });
+        break;
+      case 'static-namespace-reflection': {
+        const names = directNames(fact.module);
+        const literals = fact.literals.filter((name) => names.has(name));
+        if (literals.length > 0) for (const name of literals) unsupportedUse(fact.module, name, fact.at, 'reflective namespace use does not establish semantic consumption');
+        else if (fact.literals.length === 0 && !fact.negative && !fact.nonconsuming) unsupportedUse(fact.module, '*', fact.at, 'whole-module namespace use is unsupported');
+        break;
+      }
+      case 'dynamic-namespace-reflection': {
+        const names = directNames(fact.module);
+        const literal = fact.literals.find((name) => names.has(name));
+        if (literal) unsupportedUse(fact.module, literal, fact.at, 'reflective dynamic-import use does not establish semantic consumption');
+        break;
+      }
+      default:
+        throw new Error(`unknown import fact: ${fact.type}`);
+    }
   }
 }
 
@@ -997,49 +1032,88 @@ function currentRepositoryFiles(root) {
   return files.filter((file) => !deleted.has(file));
 }
 
+// This is the sole direct compiler owner. Only selected scalar facts leave it;
+// no context or compiler-backed resolver survives into the next descriptor.
+function extractDirectContext(repositoryRoot, tracked, candidates, discovery, descriptor, virtualData, claimed) {
+  const context = createProgramContext(repositoryRoot, descriptor.roots, descriptor.options, tracked, candidates, virtualData, descriptor.kind);
+  const modules = new Map();
+  for (const module of discovery.files) {
+    if (claimed.has(module)) continue;
+    const lookup = module.endsWith('.vue') ? `${module}${SFC_VIRTUAL_SUFFIX}` : module;
+    const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, lookup));
+    if (!sourceFile) continue;
+    claimed.add(module);
+    const surfaceFailures = [];
+    const exports = [];
+    const exported = getModuleExports(context.checker, sourceFile);
+    let selected = exported;
+    if (module.endsWith('.vue')) {
+      const expected = new Set(['default', ...(virtualData.explicitExports.get(module) ?? [])]);
+      selected = exported.filter((symbol) => expected.has(symbol.getName()));
+      const actual = new Set(selected.map((symbol) => symbol.getName()));
+      if (actual.size !== expected.size || [...expected].some((name) => !actual.has(name))) surfaceFailures.push({ category: 'unsupported', module, export: '*', consumer: module, message: 'SFC effective export parity failed' });
+    }
+    for (const symbol of selected) {
+      const nodes = module.endsWith('.vue') && symbol.getName() === 'default' ? [] : localUse(context.checker, sourceFile, symbol);
+      exports.push({ name: symbol.getName(), locations: nodes.map((node) => location(repositoryRoot, sourceFile, node, virtualData)) });
+    }
+    modules.set(module, { exports, failures: surfaceFailures });
+  }
+  const suffixFailures = [];
+  if (context.kind !== 'javascript') {
+    for (const file of context.roots.filter((item) => TS_EXTENSIONS.test(item) && !item.endsWith(SFC_VIRTUAL_SUFFIX))) {
+      const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, file));
+      if (!sourceFile) throw new Error(`tracked TypeScript-family root is absent from assigned host: ${file}`);
+      if (sourceFile.isDeclarationFile !== DECLARATION_SUFFIX.test(file)) suffixFailures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'compiler declaration status disagrees with exact declaration suffix partition' });
+    }
+  }
+  const routes = new Map();
+  const routeFailures = [];
+  collectRouteDeclarations(repositoryRoot, tracked, candidates, context, routes, routeFailures);
+  const importFacts = collectImportFacts(repositoryRoot, tracked, candidates, context);
+  return { modules, suffixFailures, routes, routeFailures, importFacts };
+}
+
 function analyzeDirectConsumers(repositoryRoot, tracked, candidates, discovery) {
   const surfaces = new Map();
   const local = new Map();
   const failures = [];
-  const ownership = createPrograms(repositoryRoot, tracked, candidates, failures);
-  const programs = ownership.contexts;
+  const ownership = prepareDirectInputs(repositoryRoot, tracked, failures);
+  const claimed = new Set();
+  const modules = new Map();
+  const suffixFailures = [];
+  const routeFailures = [];
+  const routeEdges = new Map();
+  const importFacts = [];
+  for (const descriptor of ownership.descriptors) {
+    const facts = extractDirectContext(repositoryRoot, tracked, candidates, discovery, descriptor, ownership.virtualData, claimed);
+    for (const [module, data] of facts.modules) modules.set(module, data);
+    suffixFailures.push(...facts.suffixFailures);
+    routeFailures.push(...facts.routeFailures);
+    for (const [from, targets] of facts.routes) for (const target of targets) addRoute(routeEdges, from, target);
+    for (const fact of facts.importFacts) importFacts.push(fact);
+  }
+  // Restore discovery/export order, independently of first-containing host order.
   for (const module of discovery.files) {
-    const lookup = module.endsWith('.vue') ? `${module}${SFC_VIRTUAL_SUFFIX}` : module;
-    const context = programs.find(({ program }) => program.getSourceFile(path.join(repositoryRoot, lookup)));
-    if (!context) {
+    const data = modules.get(module);
+    if (!data) {
       if (module.endsWith('.vue') && failures.some((item) => item.module === module && item.category === 'unsupported')) continue;
       throw new Error(`governed module is absent from TypeScript programs: ${module}`);
     }
-    const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, lookup));
-    const exported = getModuleExports(context.checker, sourceFile);
-    let selected = exported;
-    if (module.endsWith('.vue')) {
-      const expected = new Set(['default', ...(ownership.virtualData.explicitExports.get(module) ?? [])]);
-      selected = exported.filter((symbol) => expected.has(symbol.getName()));
-      const actual = new Set(selected.map((symbol) => symbol.getName()));
-      if (actual.size !== expected.size || [...expected].some((name) => !actual.has(name))) failures.push({ category: 'unsupported', module, export: '*', consumer: module, message: 'SFC effective export parity failed' });
-    }
-    for (const symbol of selected) {
-      const key = surfaceKey(module, symbol.getName());
-      surfaces.set(key, { module, export: symbol.getName() });
-      const nodes = module.endsWith('.vue') && symbol.getName() === 'default' ? [] : localUse(context.checker, sourceFile, symbol);
-      local.set(key, nodes.map((node) => location(repositoryRoot, sourceFile, node, context.virtualData)));
+    failures.push(...data.failures);
+    for (const exported of data.exports) {
+      const key = surfaceKey(module, exported.name);
+      surfaces.set(key, { module, export: exported.name });
+      local.set(key, exported.locations);
     }
   }
-  for (const context of programs.filter((item) => item.kind !== 'javascript')) {
-    for (const file of context.roots.filter((item) => TS_EXTENSIONS.test(item) && !item.endsWith(SFC_VIRTUAL_SUFFIX))) {
-      const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, file));
-      if (!sourceFile) throw new Error(`tracked TypeScript-family root is absent from assigned host: ${file}`);
-      if (sourceFile.isDeclarationFile !== DECLARATION_SUFFIX.test(file)) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'compiler declaration status disagrees with exact declaration suffix partition' });
-    }
-  }
+  failures.push(...suffixFailures, ...routeFailures);
   const governedKeys = new Set(surfaces.keys());
-  const routes = new Map();
-  for (const key of governedKeys) if (!routes.has(key)) routes.set(key, new Set());
-  for (const context of programs) collectRouteDeclarations(repositoryRoot, tracked, candidates, context, routes, failures);
+  const routes = new Map([...governedKeys].map((key) => [key, new Set()]));
+  for (const [from, targets] of routeEdges) for (const target of targets) addRoute(routes, from, target);
   const uses = new Map();
   const unsupported = [];
-  for (const context of programs) collectImports(repositoryRoot, tracked, candidates, context, routes, governedKeys, uses, failures, unsupported);
+  evaluateImportFacts(importFacts, candidates, routes, governedKeys, uses, failures, unsupported);
 
   const directClassifications = new Map();
   for (const [key] of surfaces) {
@@ -1055,7 +1129,7 @@ function analyzeDirectConsumers(repositoryRoot, tracked, candidates, discovery) 
     sfcFiles: ownership.sfcFiles,
     tsFiles: ownership.tsFiles,
     virtualData: ownership.virtualData,
-    hostAssignments: Object.fromEntries(programs.map((context) => [context.kind, context.roots])),
+    hostAssignments: Object.fromEntries(ownership.descriptors.map((descriptor) => [descriptor.kind, descriptor.roots])),
   };
 }
 

@@ -47,6 +47,107 @@ function record(result, module, name) {
 }
 
 describe('export consumer checker', () => {
+  it('uses complete later-host routes while preserving first-containing ownership even for empty exports', () => {
+    const result = runFixture({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, module: 'NodeNext', moduleResolution: 'NodeNext', target: 'ES2022', paths: { '@choice/value': ['./src/first.ts'], '@choice/empty': ['./scripts/empty.ts'] } } }),
+      'web/tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, module: 'ESNext', moduleResolution: 'Bundler', target: 'ES2022', paths: { '@choice/value': ['../src/second.ts'], '@choice/empty': ['../src/second.ts'] } } }),
+      'src/first.ts': 'export const first = 1; export const stale = 2;\n',
+      'src/second.ts': 'export const second = 3;\n',
+      'scripts/empty.ts': 'export {};\n',
+      'web/src/owned.ts': "export * from '@choice/value';\n",
+      'web/src/empty.ts': "export * from '@choice/empty';\n",
+      'web/src/value.ts': "export { first, stale } from '../../src/first.js';\n",
+      'docs/.vitepress/theme/barrel.ts': "export { first as routed, stale } from '../../../web/src/value.js';\n",
+      'src/consumer.ts': [
+        "import '../web/src/empty.js'; import '../web/src/owned.js';",
+        "import { routed, stale } from '../docs/.vitepress/theme/barrel.js';",
+        'void routed;',
+        "type Whole = typeof import('../docs/.vitepress/theme/barrel.js');",
+      ].join('\n'),
+    });
+    expect(result.records.filter((item) => item.module === 'web/src/empty.ts')).toEqual([]);
+    expect(result.records.filter((item) => item.module === 'web/src/owned.ts').map((item) => item.export)).toEqual(['first', 'stale']);
+    expect(record(result, 'web/src/value.ts', 'first').directClassification).toBe('production-consumed');
+    expect(record(result, 'web/src/value.ts', 'first').productionLocations).toEqual(['src/consumer.ts:3:6']);
+    expect(record(result, 'src/first.ts', 'first').directClassification).toBe('production-consumed');
+    expect(record(result, 'src/first.ts', 'first').productionLocations).toEqual(['src/consumer.ts:3:6']);
+    expect(result.failures).toContainEqual({ category: 'stale-import', module: 'docs/.vitepress/theme/barrel.ts', export: 'stale', consumer: 'src/consumer.ts:2:18', message: 'import binding is never referenced' });
+    expect(result.failures).toContainEqual({ category: 'unsupported', module: 'docs/.vitepress/theme/barrel.ts', export: '*', consumer: 'src/consumer.ts:4:14', message: 'whole-module type query is unsupported' });
+    expect(result.ownership.hostAssignments.root).toContain('src/consumer.ts');
+    expect(result.ownership.hostAssignments.web).toContain('web/src/empty.ts');
+    expect(result.ownership.hostAssignments.docs).toEqual(['docs/.vitepress/theme/barrel.ts']);
+  });
+
+  it('keeps static multi-literal reflection distinct from first-only dynamic reflection and unused namespaces', () => {
+    const result = runFixture({
+      'src/values.ts': 'export const first = 1; export const second = 2;\n',
+      'scripts/empty.ts': 'export {};\n',
+      'docs/.vitepress/theme/barrel.ts': "export { first as routed } from '../../../src/values.js';\n",
+      'tests/reflection.test.ts': [
+        "import * as ns from '../src/values.js';",
+        "void inspect(ns, 'first', 'second');",
+        "void inspect(ns, 'absent');",
+        'void inspect(ns);',
+        'expect(ns).toHaveProperty(key);',
+        'expect(ns).toBeUndefined();',
+        "const dyn = await import('../src/values.js');",
+        "void inspect(dyn, 'first', 'second');",
+        'void inspect(dyn);',
+        "void inspect(dyn, 'absent');",
+        "import * as unusedStatic from '../scripts/empty.js';",
+        "const unusedDynamic = await import('../scripts/empty.js');",
+        "import * as unusedGoverned from '../src/values.js';",
+        "import * as routed from '../docs/.vitepress/theme/barrel.js';",
+        "void inspect(routed, 'routed');",
+        'void inspect(routed);',
+      ].join('\n'),
+    });
+    expect(result.failures.filter((item) => item.category === 'unsupported')).toEqual([
+      { category: 'unsupported', module: 'docs/.vitepress/theme/barrel.ts', export: '*', consumer: 'tests/reflection.test.ts:16:6', message: 'whole-module namespace use is unsupported' },
+      { category: 'unsupported', module: 'src/values.ts', export: '*', consumer: 'tests/reflection.test.ts:4:6', message: 'whole-module namespace use is unsupported' },
+      { category: 'unsupported', module: 'src/values.ts', export: 'first', consumer: 'tests/reflection.test.ts:2:6', message: 'reflective namespace use does not establish semantic consumption' },
+      { category: 'unsupported', module: 'src/values.ts', export: 'first', consumer: 'tests/reflection.test.ts:8:6', message: 'reflective dynamic-import use does not establish semantic consumption' },
+      { category: 'unsupported', module: 'src/values.ts', export: 'second', consumer: 'tests/reflection.test.ts:2:6', message: 'reflective namespace use does not establish semantic consumption' },
+    ]);
+    expect(result.failures.filter((item) => item.category === 'stale-import')).toEqual([
+      { category: 'stale-import', module: 'scripts/empty.ts', export: '*', consumer: 'tests/reflection.test.ts:12:7', message: 'dynamic-import namespace binding is never referenced' },
+      { category: 'stale-import', module: 'src/values.ts', export: '*', consumer: 'tests/reflection.test.ts:13:13', message: 'namespace import binding is never referenced' },
+    ]);
+    expect(record(result, 'src/values.ts', 'first').classification).toBe('zero-use');
+    expect(record(result, 'src/values.ts', 'second').classification).toBe('zero-use');
+    expect(result.unsupported).toBe(5);
+  });
+
+  it('maps SFC script uses through later docs routes without admitting JavaScript namespace consumption', () => {
+    const result = runFixture({
+      'src/values.ts': 'export const used = 1; export const stale = 2;\n',
+      'docs/.vitepress/theme/barrel.ts': "export { used, stale } from '../../../src/values.js';\n",
+      'web/src/Widget.vue': [
+        '<script lang="ts">export const explicit = 1;</script>',
+        '<script setup lang="ts">',
+        'import { used, stale } from "../../docs/.vitepress/theme/barrel";',
+        'void used;',
+        '</script>',
+      ].join('\n'),
+      'tests/component.js': [
+        'import * as component from "../web/src/Widget.vue";',
+        'void component.explicit;',
+        'const componentAgain = await import("../web/src/Widget.vue");',
+        'void componentAgain.explicit;',
+      ].join('\n'),
+    });
+    expect(record(result, 'src/values.ts', 'used').directClassification).toBe('production-consumed');
+    expect(record(result, 'src/values.ts', 'used').productionLocations).toContain('web/src/Widget.vue:3:10');
+    expect(result.failures).toContainEqual(expect.objectContaining({ category: 'stale-import', module: 'docs/.vitepress/theme/barrel.ts', export: 'stale', consumer: expect.stringMatching(/^web\/src\/Widget\.vue:/) }));
+    expect(result.failures.filter((item) => item.category === 'unsupported')).toEqual([
+      { category: 'unsupported', module: 'web/src/Widget.vue', export: '*', consumer: 'tests/component.js:1:1', message: 'JavaScript default and namespace imports from governed modules are unsupported' },
+      { category: 'unsupported', module: 'web/src/Widget.vue', export: '*', consumer: 'tests/component.js:3:7', message: 'JavaScript dynamic-import namespace bindings are unsupported' },
+    ]);
+    expect(record(result, 'web/src/Widget.vue', 'explicit').directClassification).toBe('zero-use');
+    expect(record(result, 'web/src/Widget.vue', 'default').directClassification).toBe('zero-use');
+    expect(result.failures.some((item) => item.message === 'SFC effective export parity failed')).toBe(false);
+  });
+
   it('semantically checks VitePress theme consumers without exempting their imports or other docs scripts', () => {
     const result = runFixture({
       'src/contracts/a.ts': 'export const used = 1; export const stale = 2;\n',
