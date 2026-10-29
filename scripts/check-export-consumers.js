@@ -187,7 +187,7 @@ function compileSfcModules(root, sfcFiles, failures) {
   return { explicitExports, sourceMaps, syntheticLocations, virtualSources, virtualToCanonical };
 }
 
-function createProgramContext(root, rootFiles, options, tracked, candidates, virtualData, kind) {
+function createSourceHost(root, options, tracked, candidates, virtualData, kind) {
   const host = ts.createCompilerHost(options);
   const originalFileExists = host.fileExists.bind(host);
   const originalReadFile = host.readFile.bind(host);
@@ -214,6 +214,11 @@ function createProgramContext(root, rootFiles, options, tracked, candidates, vir
     const resolved = ts.resolveModuleName(text, containingFile.replace(SFC_VIRTUAL_SUFFIX, ''), options, host).resolvedModule;
     return resolved ? { resolvedModule: resolved } : { resolvedModule: undefined };
   });
+  return host;
+}
+
+function createProgramContext(root, rootFiles, options, tracked, candidates, virtualData, kind) {
+  const host = createSourceHost(root, options, tracked, candidates, virtualData, kind);
   const program = ts.createProgram({ rootNames: rootFiles.map((file) => path.join(root, file)), options, host });
   return { checker: program.getTypeChecker(), host, kind, options, program, roots: rootFiles, virtualData };
 }
@@ -779,67 +784,69 @@ function firstEntityName(name) {
   return current && ts.isIdentifier(current) ? current.text : null;
 }
 
-function createDeclarationClosure(root, tracked, candidates, ownership, surfaces, directClassifications, failures) {
+function emitDeclarationSources(root, rootFiles, options, tracked, candidates, virtualData, kind, outputs, outputOwners, units, diagnosticSeen, failures) {
+  const context = createProgramContext(root, rootFiles, options, tracked, candidates, virtualData, kind);
+  const contextKey = context.kind.replace('declaration-', '');
+  for (const diagnostic of [...context.program.getOptionsDiagnostics(), ...context.program.getGlobalDiagnostics()].filter((item) => item.category === ts.DiagnosticCategory.Error)) {
+    const key = `${contextKey}\0${diagnosticKey(root, diagnostic, outputOwners)}`;
+    if (diagnosticSeen.has(key)) continue;
+    diagnosticSeen.add(key);
+    failures.push(declarationDiagnosticFailure(root, diagnostic, contextKey, null, outputOwners));
+  }
+  for (const module of context.roots) {
+    const sourceFile = context.program.getSourceFile(path.join(root, module));
+    if (!sourceFile) throw new Error(`ordinary declaration candidate is absent from owning program: ${module}`);
+    const unitOutputs = [];
+    const emit = context.program.emit(sourceFile, (fileName, text, _bom, _errors, sourceFiles) => {
+      const absolute = path.resolve(fileName);
+      const attributable = sourceFiles?.some((item) => path.resolve(item.fileName) === path.resolve(sourceFile.fileName)) ?? false;
+      if (!attributable) return;
+      unitOutputs.push({ absolute, fileName, text });
+    }, undefined, true);
+    const primary = unitOutputs.filter((item) => DECLARATION_SUFFIX.test(item.fileName));
+    if (unitOutputs.some((item) => !DECLARATION_SUFFIX.test(item.fileName)) || primary.length !== 1) {
+      failures.push({ category: 'declaration-diagnostic', module, export: '*', consumer: `${module}#declaration-emit`, message: `ordinary candidate emit produced ${primary.length} primary declaration outputs and ${unitOutputs.length - primary.length} unexpected outputs` });
+    }
+    if (primary.length === 1) {
+      outputs.set(primary[0].absolute, primary[0].text);
+      const owner = { module, sourceFileName: sourceFile.fileName, contextKind: context.kind };
+      outputOwners.set(primary[0].absolute, owner);
+      units.set(module, { ...owner, output: primary[0].absolute });
+    }
+    const diagnostics = [
+      ...context.program.getSyntacticDiagnostics(sourceFile),
+      ...context.program.getSemanticDiagnostics(sourceFile),
+      ...context.program.getDeclarationDiagnostics(sourceFile),
+      ...emit.diagnostics,
+    ].filter((item) => item.category === ts.DiagnosticCategory.Error);
+    for (const diagnostic of diagnostics) {
+      const locations = [diagnostic, ...(diagnostic.relatedInformation ?? [])].map((item) => item.file && path.resolve(item.file.fileName));
+      const attributed = diagnostic.file == null || locations.includes(path.resolve(sourceFile.fileName)) || locations.some((file) => file && outputOwners.get(file)?.module === module);
+      if (!attributed) continue;
+      const key = `${module}\0${diagnosticKey(root, diagnostic, outputOwners)}`;
+      if (diagnosticSeen.has(key)) continue;
+      diagnosticSeen.add(key);
+      failures.push(declarationDiagnosticFailure(root, diagnostic, contextKey, module, outputOwners));
+    }
+  }
+}
+
+function createDeclarationClosure(root, tracked, candidates, virtualData, surfaces, directClassifications, failures) {
   const ordinaryCandidates = [...candidates].filter((file) => TS_EXTENSIONS.test(file) && !DECLARATION_SUFFIX.test(file)).sort();
   const rootCandidates = ordinaryCandidates.filter((file) => file.startsWith('src/'));
   const webCandidates = ordinaryCandidates.filter((file) => file.startsWith('web/src/'));
   const rootOptions = declarationOptions(readConfig(root, 'tsconfig.json').options);
   const webOptions = declarationOptions(readConfig(root, 'web/tsconfig.json').options);
-  const contexts = [
-    createProgramContext(root, rootCandidates, rootOptions, tracked, candidates, ownership.virtualData, 'declaration-root'),
-    createProgramContext(root, webCandidates, webOptions, tracked, candidates, ownership.virtualData, 'declaration-web'),
-  ];
   const outputs = new Map();
   const outputOwners = new Map();
   const units = new Map();
   const diagnosticSeen = new Set();
-
-  for (const context of contexts) {
-    const contextKey = context.kind.replace('declaration-', '');
-    for (const diagnostic of [...context.program.getOptionsDiagnostics(), ...context.program.getGlobalDiagnostics()].filter((item) => item.category === ts.DiagnosticCategory.Error)) {
-      const key = `${contextKey}\0${diagnosticKey(root, diagnostic, outputOwners)}`;
-      if (diagnosticSeen.has(key)) continue;
-      diagnosticSeen.add(key);
-      failures.push(declarationDiagnosticFailure(root, diagnostic, contextKey, null, outputOwners));
-    }
-    for (const module of context.roots) {
-      const sourceFile = context.program.getSourceFile(path.join(root, module));
-      if (!sourceFile) throw new Error(`ordinary declaration candidate is absent from owning program: ${module}`);
-      const unitOutputs = [];
-      const emit = context.program.emit(sourceFile, (fileName, text, _bom, _errors, sourceFiles) => {
-        const absolute = path.resolve(fileName);
-        const attributable = sourceFiles?.some((item) => path.resolve(item.fileName) === path.resolve(sourceFile.fileName)) ?? false;
-        if (!attributable) return;
-        unitOutputs.push({ absolute, fileName, text });
-      }, undefined, true);
-      const primary = unitOutputs.filter((item) => DECLARATION_SUFFIX.test(item.fileName));
-      if (unitOutputs.some((item) => !DECLARATION_SUFFIX.test(item.fileName)) || primary.length !== 1) {
-        failures.push({ category: 'declaration-diagnostic', module, export: '*', consumer: `${module}#declaration-emit`, message: `ordinary candidate emit produced ${primary.length} primary declaration outputs and ${unitOutputs.length - primary.length} unexpected outputs` });
-      }
-      if (primary.length === 1) {
-        outputs.set(primary[0].absolute, primary[0].text);
-        const owner = { context, module, sourceFile };
-        outputOwners.set(primary[0].absolute, owner);
-        units.set(module, { ...owner, output: primary[0].absolute });
-      }
-      const diagnostics = [
-        ...context.program.getSyntacticDiagnostics(sourceFile),
-        ...context.program.getSemanticDiagnostics(sourceFile),
-        ...context.program.getDeclarationDiagnostics(sourceFile),
-        ...emit.diagnostics,
-      ].filter((item) => item.category === ts.DiagnosticCategory.Error);
-      for (const diagnostic of diagnostics) {
-        const locations = [diagnostic, ...(diagnostic.relatedInformation ?? [])].map((item) => item.file && path.resolve(item.file.fileName));
-        const attributed = diagnostic.file == null || locations.includes(path.resolve(sourceFile.fileName)) || locations.some((file) => file && outputOwners.get(file)?.module === module);
-        if (!attributed) continue;
-        const key = `${module}\0${diagnosticKey(root, diagnostic, outputOwners)}`;
-        if (diagnosticSeen.has(key)) continue;
-        diagnosticSeen.add(key);
-        failures.push(declarationDiagnosticFailure(root, diagnostic, contextKey, module, outputOwners));
-      }
-    }
-  }
-
+  emitDeclarationSources(root, rootCandidates, rootOptions, tracked, candidates, virtualData, 'declaration-root', outputs, outputOwners, units, diagnosticSeen, failures);
+  emitDeclarationSources(root, webCandidates, webOptions, tracked, candidates, virtualData, 'declaration-web', outputs, outputOwners, units, diagnosticSeen, failures);
+  const sourceHosts = new Map([
+    ['declaration-root', createSourceHost(root, rootOptions, tracked, candidates, virtualData, 'declaration-root')],
+    ['declaration-web', createSourceHost(root, webOptions, tracked, candidates, virtualData, 'declaration-web')],
+  ]);
   const graphOptions = { ...rootOptions, noEmit: true, emitDeclarationOnly: false, allowJs: false };
   const graphHost = ts.createCompilerHost(graphOptions);
   const originalFileExists = graphHost.fileExists.bind(graphHost);
@@ -849,10 +856,10 @@ function createDeclarationClosure(root, tracked, candidates, ownership, surfaces
   graphHost.resolveModuleNameLiterals = (literals, containingFile) => literals.map(({ text }) => {
     const owner = outputOwners.get(path.resolve(containingFile));
     if (owner) {
-      const resolved = owner.context.host.resolveModuleNameLiterals([{ text }], owner.sourceFile.fileName)[0]?.resolvedModule;
+      const resolved = sourceHosts.get(owner.contextKind).resolveModuleNameLiterals([{ text }], owner.sourceFileName)[0]?.resolvedModule;
       if (resolved) {
         const generated = canonical(root, resolved.resolvedFileName);
-        const sourceModule = ownership.virtualData.virtualToCanonical.get(generated) ?? generated;
+        const sourceModule = virtualData.virtualToCanonical.get(generated) ?? generated;
         const targetOutput = units.get(sourceModule)?.output;
         if (targetOutput) return { resolvedModule: { resolvedFileName: targetOutput, extension: ts.Extension.Dts, isExternalLibraryImport: false } };
       }
@@ -865,10 +872,10 @@ function createDeclarationClosure(root, tracked, candidates, ownership, surfaces
   const outgoing = new Map([...surfaces.keys()].map((key) => [key, []]));
 
   const resolveSpecifier = (owner, specifier, exportName) => {
-    const resolved = owner.context.host.resolveModuleNameLiterals([{ text: specifier }], owner.sourceFile.fileName)[0]?.resolvedModule;
+    const resolved = sourceHosts.get(owner.contextKind).resolveModuleNameLiterals([{ text: specifier }], owner.sourceFileName)[0]?.resolvedModule;
     if (!resolved) return null;
     const generated = canonical(root, resolved.resolvedFileName);
-    const module = ownership.virtualData.virtualToCanonical.get(generated) ?? generated;
+    const module = virtualData.virtualToCanonical.get(generated) ?? generated;
     const key = surfaceKey(module, exportName);
     return surfaces.has(key) ? key : null;
   };
@@ -990,11 +997,7 @@ function currentRepositoryFiles(root) {
   return files.filter((file) => !deleted.has(file));
 }
 
-export function checkExportConsumers({ root = process.cwd(), trackedFiles, allowlistPath = 'scripts/export-consumer-allowlist.json' } = {}) {
-  const repositoryRoot = path.resolve(root);
-  const tracked = new Set(trackedFiles ?? currentRepositoryFiles(repositoryRoot));
-  const discovery = discoverOwnership([...tracked]);
-  const candidates = new Set(discovery.files);
+function analyzeDirectConsumers(repositoryRoot, tracked, candidates, discovery) {
   const surfaces = new Map();
   const local = new Map();
   const failures = [];
@@ -1045,7 +1048,25 @@ export function checkExportConsumers({ root = process.cwd(), trackedFiles, allow
     const classification = use.production.size > 0 ? 'production-consumed' : use.test.size > 0 ? 'test-only' : localLocations.length > 0 ? 'local-only' : 'zero-use';
     directClassifications.set(key, classification);
   }
-  const closure = createDeclarationClosure(repositoryRoot, tracked, candidates, ownership, surfaces, directClassifications, failures);
+  return {
+    surfaces, local, failures, governedKeys, uses, unsupported, directClassifications,
+    declarationFiles: ownership.declarationFiles,
+    jsFiles: ownership.jsFiles,
+    sfcFiles: ownership.sfcFiles,
+    tsFiles: ownership.tsFiles,
+    virtualData: ownership.virtualData,
+    hostAssignments: Object.fromEntries(programs.map((context) => [context.kind, context.roots])),
+  };
+}
+
+export function checkExportConsumers({ root = process.cwd(), trackedFiles, allowlistPath = 'scripts/export-consumer-allowlist.json' } = {}) {
+  const repositoryRoot = path.resolve(root);
+  const tracked = new Set(trackedFiles ?? currentRepositoryFiles(repositoryRoot));
+  const discovery = discoverOwnership([...tracked]);
+  const candidates = new Set(discovery.files);
+  const direct = analyzeDirectConsumers(repositoryRoot, tracked, candidates, discovery);
+  const { surfaces, local, failures, governedKeys, uses, unsupported, directClassifications } = direct;
+  const closure = createDeclarationClosure(repositoryRoot, tracked, candidates, direct.virtualData, surfaces, directClassifications, failures);
   const classifications = new Map();
   const records = [...surfaces.entries()].map(([key, surface]) => {
     const use = uses.get(key) ?? { production: new Set(), test: new Set() };
@@ -1088,14 +1109,14 @@ export function checkExportConsumers({ root = process.cwd(), trackedFiles, allow
     allowlistEntries: allowlist.entries.length,
     ownership: {
       candidateFiles: discovery.files,
-      declarationFiles: ownership.declarationFiles,
-      jsConsumerFiles: ownership.jsFiles,
+      declarationFiles: direct.declarationFiles,
+      jsConsumerFiles: direct.jsFiles,
       sfcCandidateFiles: discovery.sfcCandidates,
-      sfcConsumerFiles: ownership.sfcFiles,
-      typescriptConsumerFiles: ownership.tsFiles,
-      typescriptOrdinaryFiles: ownership.tsFiles.filter((file) => !DECLARATION_SUFFIX.test(file)),
+      sfcConsumerFiles: direct.sfcFiles,
+      typescriptConsumerFiles: direct.tsFiles,
+      typescriptOrdinaryFiles: direct.tsFiles.filter((file) => !DECLARATION_SUFFIX.test(file)),
       declarationUnitFiles: closure.declarationUnitFiles,
-      hostAssignments: Object.fromEntries(programs.map((context) => [context.kind, context.roots])),
+      hostAssignments: direct.hostAssignments,
     },
   };
 }
