@@ -74,6 +74,20 @@ is unknown, and materialized overrides/frozen configuration do not hot-update.
 Prompt reconciliation and deployment remain separately authorized under the existing
 adoption procedure; this note certifies neither a whole release nor retained state.
 
+The shared Planner scope-aware reuse clarification from actual source parent
+`76268b510f77d94d92f4f7b791d3f194777fe747` changes only instruction prose:
+accepted assignment, not familiarity or shared files, determines reuse versus a
+distinct bounded task. No durable shape, retained-state interpretation, result or
+acceptance contract, workflow identity or discriminator changes. Card6,
+accepted-record5, record-head3, conversation12, workflow5, shared evidence2 and
+native Git contracts remain unchanged. Future prepared instruction evidence may
+contain the new wording; historical strings retain their bytes and meaning, with
+no retrospective reinterpretation. This isolated clarification needs no migration
+or reset on matching contracts. Installed applicability is unknown; bundled edits
+do not hot-update frozen configuration or materialized/custom hosts. Prompt
+reconciliation and deployment remain separately authorized, and this entry does
+not certify whole-release compatibility.
+
 This table describes the current owning source contracts, not an installed-state
 inventory. Paths/owners are relative to `src/` unless they start with `.saivage`.
 The [historical entries](#historical-source-contract-entries) retain their own
