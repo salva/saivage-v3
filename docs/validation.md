@@ -254,6 +254,22 @@ JS/TS `testMatch` families are `**/__tests__/**/*.[jt]s?(x)` and
 ESNext/NodeNext/isolatedModules, `.js`-relative mapping and enabled diagnostics.
 Isolated transforms do not replace strict `tsc --noEmit` semantic checking.
 
+The five package Jest launchers pass `--no-compilation-cache` directly to Node
+for ESM lifetime/headroom, qualified on Node 24.22.0. Use the package commands for
+equivalent focused execution. This V8 in-process compilation-cache option is
+engine-specific, not a stable Node application API; unsupported engines fail rather
+than falling back. It neither disables Jest/ts-jest's disk transform cache nor sets
+Node's separate disk compile-cache control, `NODE_DISABLE_COMPILE_CACHE=1`, required
+by the native prerequisites above. It is not a production runtime flag and promises
+no memory bound or stronger shutdown guarantee.
+
+Installed Jest workers derive their `execArgv` from the launching Node process,
+so the direct cache argument propagates to forked Jest owners. It is deliberately
+absent from `NODE_OPTIONS`: ordinary standalone Node children spawned with explicit
+argv, including the terminal fixture's `--import tsx` invocation, do not inherit
+it through their copied environment. Compiled native witnesses run outside these
+Jest launchers and retain their own invocation policy.
+
 `workerGracefulExitTimeout:5000` is a finite, concurrent worker-shutdown allowance,
 not a test/hook deadline or speed target. No `forceExit` option is enabled. Jest's
 own fallback may warn about an overdue worker; complete canonical stages with

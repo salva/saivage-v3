@@ -19,7 +19,7 @@ const EXPECTED_NODE_ENGINE = '>=24 <25';
 const EXPECTED_NPM_ENGINE = '>=10 <12';
 const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
 const ROOT_TEST_COMMAND = 'npm run test:parallel && npm run test:terminal-child';
-const PARALLEL_TEST_COMMAND = 'NODE_OPTIONS=--experimental-vm-modules jest';
+const PARALLEL_TEST_COMMAND = 'NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js';
 const TERMINAL_CHILD_TEST_PATH = 'tests/boot/app-terminal-child-process.test.ts';
 const TERMINAL_CHILD_IGNORE_REGEX = String.raw`<rootDir>/tests/boot/app-terminal-child-process\.test\.ts$`;
 const JEST_IGNORE_PATTERNS = [
@@ -27,7 +27,7 @@ const JEST_IGNORE_PATTERNS = [
   '<rootDir>/tests/e2e/',
   TERMINAL_CHILD_IGNORE_REGEX,
 ];
-const TERMINAL_CHILD_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
+const TERMINAL_CHILD_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
 const EXPORT_CONSUMER_COMMAND = 'npm run check:export-consumers';
 const EXPORT_CONSUMER_SCRIPT = 'node scripts/check-export-consumers.js';
 const IMPORT_BOUNDARY_COMMAND = 'npm run test:import-boundaries';

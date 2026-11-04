@@ -150,6 +150,11 @@ Install both root and web dependencies first. Use focused owner tests, then the
 profile appropriate to the change; [Validation](docs/validation.md) owns exact
 coverage, prerequisites, specialized recipes and CI interpretation.
 
+Package Jest commands pass `--no-compilation-cache` directly to Node to improve
+ESM lifetime/headroom, qualified on Node 24.22.0. Use package commands for equivalent
+focused execution. This disables V8's in-process compilation cache, not Node's disk
+compile cache or Jest's transform cache; it is not a production runtime flag.
+
 | Command | Select for |
 | --- | --- |
 | `npm run validate:docs` | Documentation build, contract/parity/link/source/cadence checks; no complete backend or UI suite |

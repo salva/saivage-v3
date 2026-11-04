@@ -8,7 +8,7 @@ import { verifyValidationCadence } from '../../scripts/check-validation-cadence.
 
 const TERMINAL_CHILD_PATH = 'tests/boot/app-terminal-child-process.test.ts';
 const TERMINAL_CHILD_IGNORE_REGEX = String.raw`<rootDir>/tests/boot/app-terminal-child-process\.test\.ts$`;
-const TERMINAL_CHILD_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
+const TERMINAL_CHILD_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
 const JEST_IGNORE_PATTERNS = [
   '<rootDir>/tests/playwright/',
   '<rootDir>/tests/e2e/',
@@ -35,10 +35,10 @@ const PACKAGE_SCRIPTS = {
   typecheck: 'tsc --noEmit',
   build: 'tsc',
   test: 'npm run test:parallel && npm run test:terminal-child',
-  'test:parallel': 'NODE_OPTIONS=--experimental-vm-modules jest',
+  'test:parallel': 'NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js',
   'test:terminal-child': TERMINAL_CHILD_COMMAND,
-  'test:direct': 'NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js',
-  'test:e2e': "NODE_OPTIONS=--experimental-vm-modules jest tests/e2e/ --testPathIgnorePatterns='<rootDir>/tests/playwright/'",
+  'test:direct': 'NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js',
+  'test:e2e': "NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js tests/e2e/ --testPathIgnorePatterns='<rootDir>/tests/playwright/'",
   'audit:root': 'npm audit --audit-level=high --omit=dev',
   'audit:web': 'cd web && npm audit --audit-level=high --omit=dev',
   'audit:security': 'npm run audit:root && npm run audit:web',
@@ -562,6 +562,7 @@ describe('validation cadence guard', () => {
     });
 
     const dedicatedMutations = [
+      ['the old dedicated command without the cache flag', TERMINAL_CHILD_COMMAND.replace(' --no-compilation-cache', ''), 'script "test:terminal-child" must be exactly:'],
       ['a dropped dedicated path', TERMINAL_CHILD_COMMAND.replace(TERMINAL_CHILD_PATH, ''), 'positively own exactly'],
       ['a broadened dedicated path', TERMINAL_CHILD_COMMAND.replace(TERMINAL_CHILD_PATH, 'tests/boot/'), 'positively own exactly'],
       ['a dropped --runTestsByPath owner', TERMINAL_CHILD_COMMAND.replace('--runTestsByPath ', ''), 'through --runTestsByPath'],
@@ -582,6 +583,10 @@ describe('validation cadence guard', () => {
 
     it.each(compositionMutations)('rejects root composition without %s', (_label, test) => {
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, test } }), 'must compose exactly');
+    });
+
+    it('rejects the old ordinary Jest command without the cache flag', () => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:parallel': 'NODE_OPTIONS=--experimental-vm-modules jest' } }), 'script "test:parallel" must be exactly the ordinary parallel Jest command');
     });
 
     it('rejects serialization of the ordinary Jest phase', () => {
