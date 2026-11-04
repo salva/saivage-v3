@@ -93,12 +93,17 @@ Run `saivage init --profile NAME` from the fresh target directory:
 | `classic` (default) | A simpler first project | Planning/review on project and goal; most leaf types use one execute node |
 | `classic-typed` | Specialized work loops | Typed code/test/research/data/doc/ops and architecture graphs using the ordinary engine |
 | `paad-typed` | The same typed graphs with optional adapted planning guidance | Five selected prose paths differ, not tools, routing or outcomes; [attribution and scope](../architecture/prompts.md#optional-paad-typed-guidance) |
+| `classic-git` | Native source ownership on classic graphs | Requires all four explicit `--git-*` provisioning options and clean-repository commissioning described above; not an OFF-profile toggle |
+| `newloop` | Intent-to-delivery quality for code or other assets | Identical typed configuration; eight prose paths foreground critical analysis, progressive planning and substantive assessment; [method and limits](../architecture/prompts.md#optional-newloop-guidance) |
 
 All include nine types: project, goal, architecture, code, test, doc, data, research
 and ops. All specialize root completion with Planner assessment after approved
 review; goals retain their own completion/notification path. The
 [exact graph table](../spec/system-specification.md#shipped-project-completion-and-profile-graphs)
 shows the outcomes rather than relying on role names.
+
+Newloop and PAAD are optional instruction policies, not measured model-quality
+improvements. Newloop remains native-Git OFF and enables no optional quality tools.
 
 `init` with existing configuration preserves it and existing prompt destinations;
 it is not a profile switch/upgrade. Omitting `card_types` selects the complete

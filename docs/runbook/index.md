@@ -65,7 +65,8 @@ Run target-local commands from the exact project root with the identified releas
 
 | Task | Command/location |
 |---|---|
-| Fresh init | `saivage init [--profile classic\|classic-typed\|paad-typed]` |
+| Fresh init (native Git OFF) | `saivage init [--profile classic\|classic-typed\|paad-typed\|newloop]` (`classic` default) |
+| Fresh native Git init | `saivage init --profile classic-git` plus all four explicit [provisioning options](../guides/configuration.md); clean-repository commissioning required |
 | Start server | `saivage start --project-root <absolute-root> --config <absolute-yaml> --host <host> --port <port>` |
 | Read/control live runtime | `saivage status`, `pause`, `resume`, `stop` |
 | Confirm server restart | `saivage restart_server` (bearer mode only) |
@@ -78,6 +79,12 @@ Run target-local commands from the exact project root with the identified releas
 
 The [command-selection matrix](../reference/configuration.md#command-specific-input-selection)
 distinguishes Start, exact-cwd offline commands and ancestor-selected controls.
+Newloop offers the same typed configuration with intent-to-delivery guidance for
+code or other assets, not a new runtime phase or measured model-quality guarantee.
+Existing-config init preserves YAML, prompts and marker; an explicit profile must
+match retained metadata. It cannot switch profiles. Later adoption uses
+[selected-input reconciliation](./state-adoption.md#selected-configuration-and-prompts)
+with separate authorization, not another fresh-init command.
 Do not execute repair/reset/migration from a quick command table: use their complete
 procedures. Starting/restarting a server does not Run a project; an explicit Run
 does not authorize deployment, repair or data loss.

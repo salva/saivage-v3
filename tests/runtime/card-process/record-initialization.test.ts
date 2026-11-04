@@ -71,7 +71,7 @@ describe('selected node-entry record templates', () => {
     expect(() => effectiveSaivageConfigSchema.parse(config)).toThrow(/Duplicate initialized record/);
   });
 
-  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('ships explicit status selection in %s', profile => {
+  it.each(['classic', 'classic-typed', 'paad-typed', 'newloop'] as const)('ships explicit status selection in %s', profile => {
     const template = resolveSystemTemplate(profile);
     const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(template.config), { defaultPromptRoot: template.promptRoot });
     const workflow = workflows.cardTypes.get('project')!;

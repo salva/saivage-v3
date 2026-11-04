@@ -123,6 +123,32 @@ function assertExactTree(root, closure, templateName) {
   assertEqualPaths(walkFiles(root), closure, `System template '${templateName}' prompt tree must contain exactly its compiled closure`);
 }
 
+export const NEWLOOP_PROMPT_DELTAS = Object.freeze([
+  'agents/_shared/executor.md',
+  'agents/_shared/planner.md',
+  'agents/_shared/reviewer.md',
+  'process/_shared/specialized-plan.md',
+  'process/project/specialized-plan.md',
+  'process/_shared/specialized-recover.md',
+  'process/project/specialized-recover.md',
+  'process/_shared/specialized-review.md',
+]);
+
+/** Exact bounded source relationship; no runtime overlay or inheritance. */
+export function assertNewloopPromptParity({ templates = SYSTEM_TEMPLATES } = {}) {
+  const [typed, newloop] = ['classic-typed', 'newloop'].map((name) => {
+    const template = templates.find((entry) => entry.name === name);
+    if (!template) throw new Error(`Newloop parity requires system template '${name}'.`);
+    return template;
+  });
+  if (JSON.stringify(typed.config) !== JSON.stringify(newloop.config)) throw new Error('Newloop configuration differs from classic-typed.');
+  const closure = collectTemplatePromptClosure({ template: typed });
+  assertEqualPaths(collectTemplatePromptClosure({ template: newloop }), closure, 'Newloop selected membership differs');
+  assertExactTree(newloop.promptRoot, closure, newloop.name);
+  const changed = closure.filter((path) => !readFileSync(join(typed.promptRoot, path)).equals(readFileSync(join(newloop.promptRoot, path))));
+  assertEqualPaths(changed, [...NEWLOOP_PROMPT_DELTAS].sort(), 'Newloop must differ at exactly its eight intentional deltas');
+}
+
 function copyTree(sourceRoot, outputRoot, closure, templateName) {
   rmSync(outputRoot, { recursive: true, force: true });
   for (const relativePath of closure) {
@@ -160,6 +186,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES });
     assertPaadTypedPromptParity({ templates: SYSTEM_TEMPLATES });
+    assertNewloopPromptParity({ templates: SYSTEM_TEMPLATES });
     const packaged = copySystemTemplatePrompts();
     console.log(packaged.map((entry) => `Copied ${entry.count} '${entry.name}' prompt artifacts to ${relative(repoRoot, entry.outputRoot)}`).join('\n'));
   } catch (error) {

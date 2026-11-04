@@ -10,6 +10,23 @@ default effective config. Compilation selects its standalone prompt root, includ
 the real Executor correction participant on every type. Selected role overrides
 must retain the `native-source` (card) or `native-global` capability include.
 
+Registered profiles are `classic` (default), `classic-typed`, `paad-typed`,
+`classic-git` and `newloop`. The three typed profiles share the exact frozen
+configuration, including graphs, agents, tools, routes, records and permissions;
+PAAD and newloop select independent prompt closures with five and eight prose
+deltas respectively. Newloop applies critical intent examination, progressive
+planning and evidence-grounded quality assessment to code or other assets, not a
+new workflow format or enforced quality guarantee. All except provision-required
+`classic-git` remain native-Git OFF. See [fresh selection](../guides/configuration.md#choose-a-fresh-profile)
+and [newloop's instruction policy](../architecture/prompts.md#optional-newloop-guidance).
+
+Config-absent init materializes the selected prompts, marker and complete YAML.
+Existing-config init preserves all three; omitted `--profile` preserves selection,
+while an explicit profile must match retained template metadata. Init is not a
+profile switch. Later instruction adoption follows the existing
+[stopped reconciliation procedure](../runbook/state-adoption.md#selected-configuration-and-prompts),
+not a new migration path.
+
 ## Native Git policy declarations
 
 The strict source/effective `git_workflow` input has initial `format_version: 1`.

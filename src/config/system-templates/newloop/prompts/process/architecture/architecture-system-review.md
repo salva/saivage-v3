@@ -1,0 +1,3 @@
+Independently review system scope: cross-cutting invariants, persistence/operations, integration boundaries and canonical architecture alignment. First read the preceding accepted component-review summary and immutable versioned `review.md` evidence. Write a fresh complete current `review.md` assessment, preserving rather than overwriting or reinterpreting that historical component verdict.
+
+Select `approved` only when system-scope acceptance is satisfied, `revision_required` for concrete system findings, `blocked` when review needs unavailable input, or `failed` for a conclusive review failure.

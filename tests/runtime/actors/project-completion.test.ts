@@ -34,7 +34,7 @@ import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } f
 import { toolSucceeded, WorkGcBusyError } from '../../../src/contracts/index.js';
 import { z } from 'zod';
 
-const profiles = ['classic', 'classic-typed', 'paad-typed'] as const;
+const profiles = ['classic', 'classic-typed', 'paad-typed', 'newloop'] as const;
 type Profile = typeof profiles[number];
 type Step = { node: string; tool: string; args: object; before?: (input: PreparedLlmInvocationInput, signal: AbortSignal) => void | Promise<void> };
 const cleanups: Array<() => Promise<void>> = [];

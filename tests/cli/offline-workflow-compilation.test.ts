@@ -80,11 +80,11 @@ describe('offline workflow compilation and publication', () => {
     expect(readProjectIdentity(projectRoot)).toBeNull();
     expect(existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json'))).toBe(false);
   });
-  it('actual PAAD init strictly loads its closure, rejects a different profile, and preserves omitted-profile reinit', async () => {
+  it.each(['paad-typed', 'newloop'] as const)('actual %s init strictly loads its closure, rejects a different profile, and preserves omitted-profile reinit', async (profile) => {
     const projectRoot = root();
     jest.spyOn(console, 'log').mockImplementation(() => {});
-    await command(projectRoot, 'init', '--profile', 'paad-typed');
-    const template = resolveSystemTemplate('paad-typed');
+    await command(projectRoot, 'init', '--profile', profile);
+    const template = resolveSystemTemplate(profile);
     const configPath = join(projectRoot, '.saivage', 'saivage.yaml');
     const promptsRoot = join(projectRoot, '.saivage', 'config', 'prompts');
     const markerPath = join(projectRoot, '.saivage', 'config', 'template.json');
@@ -92,7 +92,7 @@ describe('offline workflow compilation and publication', () => {
     expect(effective.config).toEqual(template.config);
     const emitted = YAML.parse(readFileSync(configPath, 'utf8')) as typeof template.config;
     for (const type of Object.values(emitted.card_types!)) expect(type.workflow.format_version).toBe(5);
-    expect(JSON.parse(readFileSync(markerPath, 'utf8'))).toEqual({ template: 'paad-typed', saivage_version: SAIVAGE_VERSION });
+    expect(JSON.parse(readFileSync(markerPath, 'utf8'))).toEqual({ template: profile, saivage_version: SAIVAGE_VERSION });
     assertTreeEqual(template.promptRoot, promptsRoot);
     const artifacts: Array<{path: string; source: string}> = [];
     compileProjectWorkflows(effective.config, { projectRoot, artifactObserver: artifact => artifacts.push(artifact) });

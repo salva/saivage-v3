@@ -240,6 +240,12 @@ try {
   const paadWorkflows = compileProjectWorkflows(paadConfig, { defaultPromptRoot: paad.promptRoot, projectRoot, artifactObserver: observeInside(paad.name, paad.promptRoot) });
   const paadSourceWorkflows = compileProjectWorkflows(paadConfig, { defaultPromptRoot: paadSourceRoot, projectRoot, artifactObserver: observeInside('paad source', paadSourceRoot) });
   assertRoleComposition(paad.name, paad.promptRoot, paadSourceRoot, paadWorkflows, paadSourceWorkflows);
+  const newloop = resolveSystemTemplate('newloop');
+  const newloopConfig = effectiveSaivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(newloop.config.card_types) });
+  const newloopSourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', newloop.name, 'prompts');
+  const newloopWorkflows = compileProjectWorkflows(newloopConfig, { defaultPromptRoot: newloop.promptRoot, projectRoot, artifactObserver: observeInside(newloop.name, newloop.promptRoot) });
+  const newloopSourceWorkflows = compileProjectWorkflows(newloopConfig, { defaultPromptRoot: newloopSourceRoot, projectRoot, artifactObserver: observeInside('newloop source', newloopSourceRoot) });
+  assertRoleComposition(newloop.name, newloop.promptRoot, newloopSourceRoot, newloopWorkflows, newloopSourceWorkflows);
   const native = resolveSystemTemplate('classic-git');
   const nativeConfig = effectiveSaivageConfigSchema.parse({ ...templateConfig(native),
     models: structuredClone(baseConfig.models), providers: structuredClone(baseConfig.providers),
@@ -248,7 +254,7 @@ try {
   const nativeWorkflows = compileProjectWorkflows(nativeConfig, { defaultPromptRoot: native.promptRoot, projectRoot, artifactObserver: observeInside(native.name, native.promptRoot) });
   const nativeSourceWorkflows = compileProjectWorkflows(nativeConfig, { defaultPromptRoot: nativeSourceRoot, projectRoot, artifactObserver: observeInside('native source', nativeSourceRoot) });
   assertRoleComposition(native.name, native.promptRoot, nativeSourceRoot, nativeWorkflows, nativeSourceWorkflows);
-  for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig], [paad, paadConfig]] as const) {
+  for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig], [paad, paadConfig], [newloop, newloopConfig]] as const) {
     const custom = structuredClone(config);
     custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, tools: ['read', 'write'], skills: false };
     for (const cardType of Object.values(custom.card_types)) for (const node of Object.values(cardType.workflow.nodes)) {
@@ -312,6 +318,7 @@ try {
   assertPlanningComposition('classic', classicWorkflows, classicSourceWorkflows);
   assertPlanningComposition('classic-typed', typedWorkflows, typedSourceWorkflows);
   assertPlanningComposition(paad.name, paadWorkflows, paadSourceWorkflows);
+  assertPlanningComposition(newloop.name, newloopWorkflows, newloopSourceWorkflows);
   assertPlanningComposition(native.name, nativeWorkflows, nativeSourceWorkflows);
   const architecture = requireValue(typedWorkflows.cardTypes.get('architecture'), 'Missing architecture workflow.');
   for (const nodeId of ['component-review', 'system-review']) {

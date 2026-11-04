@@ -23,6 +23,26 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+The opt-in `newloop` profile from actual source parent
+`7f009c9ab72f261ce699523bffd90aecbb5cc084` adds registration and a standalone
+prompt closure with exactly eight original prose deltas from classic-typed.
+It directly reuses classic-typed's frozen configuration: workflow/node/agent
+identities, ordered tools/routes, child permissions, records, initialization and
+feeding are equal. No retained shape or interpretation changes; newloop is an
+already-valid profile/provenance value, not a new durable family or discriminator.
+Workflow5, initializer1, card6, accepted-record5, record-head3, conversation12,
+shared evidence2, execution3 and native-policy1 remain unchanged, as do selectors,
+lifecycle locks and template-marker contracts. Historical prompt strings/results
+are not reinterpreted; no unreleased-cutover exception or deployed-state claim is
+invoked. Evidence owners are `newloop/template.ts`, the registry, compiler-observed
+closure/package parity and composed/scripted tests—not proof of model compliance
+or improved quality. Fresh config-absent init can select newloop; existing-config
+init preserves YAML/prompts/marker and is not a switch. Matching typed contracts
+need no migration solely for this prose change; authorized stopped reconciliation
+and a fresh process still apply. Arbitrary whole-release identities/formats require
+their own assessment, and external migration/reset/deployment authority remains
+separate. See [method and adoption limits](./prompts.md#optional-newloop-guidance).
+
 Work-GC scalability and paused/stopped/offline admission from actual source parent
 `3f7ca83fd3bce0a100a3924134663898bb5bbabf` change no durable grammar, meaning or
 discriminator. Strict index/genesis/physical-row extraction preserves the full

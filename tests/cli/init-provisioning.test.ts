@@ -49,9 +49,9 @@ describe('init provisioning before-effects admission', () => {
     expect(init(root,mismatched).stderr).toContain('conflicts with the existing source policy');
     expect(paths.map(path => readFileSync(path))).toEqual(before);
   });
-  it('preserves existing selection without default reselection and refuses explicit profile conflicts', () => {
+  it.each(['classic-typed', 'newloop'])('preserves existing %s selection without default reselection and refuses explicit profile conflicts', (profile) => {
     const root = mkdtempSync(join(tmpdir(), 'init-profile-'));
-    expect(init(root, ['--profile', 'classic-typed']).status).toBe(0);
+    expect(init(root, ['--profile', profile]).status).toBe(0);
     const configPath = join(root, '.saivage/saivage.yaml');
     const metadata = join(root, '.saivage/config/template.json');
     const head = join(root, '.saivage/cards/project/card-head.json');
@@ -80,6 +80,14 @@ describe('init provisioning before-effects admission', () => {
     expect(existsSync(join(root, '.saivage/config/template.json'))).toBe(false);
     expect(existsSync(join(root, '.saivage/config/prompts/agents'))).toBe(false);
     expect(existsSync(join(root, '.saivage/cards'))).toBe(false);
+  });
+
+  it('rejects native provisioning for fresh newloop before materialization', () => {
+    const root = mkdtempSync(join(tmpdir(), 'init-newloop-off-'));
+    const result = init(root, ['--profile', 'newloop', ...values]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Native provisioning options cannot select an OFF profile');
+    for (const path of ['saivage.yaml', 'config/template.json', 'cards']) expect(existsSync(join(root,'.saivage',path))).toBe(false);
   });
 
   it('does not invent fresh native defaults or reinterpret flags as OFF configuration', () => {

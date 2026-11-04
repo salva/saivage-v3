@@ -118,7 +118,7 @@ function assertPreparedCheck(root: string): void {
 }
 
 describe('OversightSession owned check settlement', () => {
-  it.each(['classic', 'classic-typed', 'paad-typed'])(
+  it.each(['classic', 'classic-typed', 'paad-typed', 'newloop'])(
     'prepares the selected %s global role again on a later no-action check',
     async (profile) => {
       const root = projectRoot();

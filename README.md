@@ -96,9 +96,18 @@ Then follow the [tutorial](docs/guides/getting-started.md) in a disposable targe
 inside the isolated deployment. It separates these decisions:
 
 1. **Initialize** a fresh target with the built `bin/saivage.js init`. The default
-   is `classic`; optional `classic-typed` and
-   [paad-typed](src/config/system-templates/paad-typed/README.md) use typed workflows.
+   is `classic`; optional `classic-typed`,
+   [paad-typed](src/config/system-templates/paad-typed/README.md) and
+   [newloop](src/config/system-templates/newloop/README.md) use identical typed
+   configurations. Newloop foregrounds critical intent examination, design,
+   progressive planning, delivery and evidence-grounded assessment for code **or
+   other assets**, without adding stages or gates. PAAD retains its separate
+   five-path adaptation; newloop has eight original prose deltas. This is source
+   guidance, not proof of model compliance or improved output quality.
+   `classic-git` separately requires the explicit provisioning described above.
    Existing-config init preserves inputs; it is not a profile switch or upgrade.
+   Later adoption requires [separately authorized stopped prompt reconciliation](docs/runbook/state-adoption.md#selected-configuration-and-prompts)
+   and a fresh process, with whole-release identity/format assessment.
    An explicit `--profile` must match its retained template metadata. Fresh init
    compiles the selected source configuration and prompt overrides before writing
    configuration or copying bundle prompts, then reloads canonical inputs.

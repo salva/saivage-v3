@@ -121,9 +121,17 @@ as runtime user, run the selected built entrypoint:
 node "<SAIVAGE_GUEST_PATH>/bin/saivage.js" init
 ```
 
-Select optional `--profile classic-typed` or `--profile paad-typed` only before
-configuration exists. Existing-config init preserves YAML, prompts and marker;
-it does not switch profiles. Preserve configuration, identity, credentials and
+The default is `classic`. Select optional `--profile classic-typed`,
+`--profile paad-typed` or `--profile newloop` only before configuration exists;
+they share typed graphs, while PAAD and newloop supply distinct prose methods.
+Newloop covers code or other assets; source qualification is not evidence of model
+compliance or improved quality. `classic-git` is a separate provision-required
+choice: use its [explicit provisioning and commissioning rules](docs/guides/configuration.md),
+never infer native-Git authority from ordinary setup permission.
+Existing-config init preserves YAML, prompts and marker; an explicit profile must
+match retained template metadata. It does not switch profiles. Later changes use
+[authorized stopped reconciliation](docs/runbook/state-adoption.md#selected-configuration-and-prompts).
+Preserve configuration, identity, credentials and
 generated state. Report pre-existing versus newly published configuration,
 identity and generated state, pre-acquisition identity/lock observation and
 post-validation result separately. See [initialization](docs/runbook/deployment.md#initialize-only-a-fresh-target)

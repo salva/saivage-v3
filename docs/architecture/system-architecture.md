@@ -333,11 +333,16 @@ or card participation. Invocation later binds scopes, not source configuration.
 
 ### Templates and prompt closure
 
-`config/system-templates/registry.ts` explicitly registers classic, classic-typed
-and paad-typed complete frozen configs. There is no scan/loader/manifest.
+`config/system-templates/registry.ts` explicitly registers classic, classic-typed,
+paad-typed, classic-git and newloop. The four OFF profiles expose complete frozen
+configs; classic-git requires its explicit provisioned builder. There is no
+scan/loader/manifest.
 `createClassicConfig` constructs fresh typed declarations then freezes once;
-`OVERSIGHT_ALLOWED_TOOL_NAMES` is the shared contracts-owned allowlist. PAAD reuses
-typed config, not runtime inheritance. Config-absent init materializes the selected
+`OVERSIGHT_ALLOWED_TOOL_NAMES` is the shared contracts-owned allowlist. PAAD and
+newloop directly reuse the same frozen typed config, not runtime inheritance.
+Newloop's independent prompt closure differs in exactly eight method/task hosts;
+graphs, identities, ordered tools/routes, permissions and records remain equal.
+Config-absent init materializes the selected
 complete prompt closure/marker and YAML last; existing config preserves them.
 Runtime follows the instance, not the selected init-profile label. The default
 bundled prompt/card-type source remains classic where the instance omits overrides.
@@ -346,8 +351,12 @@ The compiler exact-selects project-card/project-shared/bundled-card/bundled-shar
 hosts and direct fragments. Global scope uses shared tiers only. It freezes role
 tokens and eagerly renders process text; a typed `global` card is not a global
 host. Packaging compiles each template standalone and checks exact physical
-source/package closure, classic-family shared bytes and PAAD's five explicit
-differences. Compiled composition runs through build, not routine alone.
+source/package closure, classic-family shared bytes, PAAD's five explicit
+differences and newloop's eight explicit differences. Newloop parity independently
+checks config, selected paths and unchanged bytes; it adds no overlay framework.
+Compiled composition runs through build, not routine alone. These checks qualify
+source/package instructions and legal paths, not model compliance or improved
+quality. Installed adoption remains separate.
 [Prompt handling](./prompts.md) owns host tokens, declaration retention,
 customization and prepared-versus-historical explanation.
 
@@ -1599,7 +1608,7 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 ### Agent tools
 
 Rows compare alphabetically normalized default membership, not operational order.
-These default rows and the fixed `shipped-role-inventories` claim cover the three
+These default rows and the fixed `shipped-role-inventories` claim cover the four
 OFF profiles. The provision-required `classic-git` builder derives the same graph:
 its Analyst excludes run_command/wait_process/kill_process and the three default
 MCP tools, while Executor adds `checkpoint_source` and optional git-correction.md
@@ -1628,7 +1637,7 @@ separate claims, not a second executable catalog.
 
 <!-- saivage:value-contract:tool-identities:start -->
 ```text
-tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"executor","tools":["read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"oversight","tools":["get_status","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","glob","grep","read_runtime_events","read_runtime_errors","list_processes_tool","list_agent_sessions","read_agent_session","queue_notification"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","list_observed_collections","query_observed_collections"]},{"name":"reviewer","tools":["read","view_image","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections"]}],"templates":["classic","classic-typed","paad-typed"]}
+tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"executor","tools":["read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"oversight","tools":["get_status","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","glob","grep","read_runtime_events","read_runtime_errors","list_processes_tool","list_agent_sessions","read_agent_session","queue_notification"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","list_observed_collections","query_observed_collections"]},{"name":"reviewer","tools":["read","view_image","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections"]}],"templates":["classic","classic-typed","newloop","paad-typed"]}
 tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","checkpoint_source","code_quality_javascript_eslint","code_quality_python_ruff","code_quality_typescript_eslint","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_observed_collections","list_processes_tool","mcp_catalog_refresh","mcp_server_control","mcp_server_register","mcp_server_replace","mcp_server_unregister","mcp_servers","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","query_observed_collections","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal-and-optional-mcp-and-quality"]}
 tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_back","navigate_workspace","pause_runtime","read_control_actions","reconfigure","restart_server","resume_runtime","show_config","start_project","stop_project"],"plannerOnly":["activate_card","edit_card"]}
 ```

@@ -101,7 +101,7 @@ Usage:
   saivage observed-collections prepare --project-root <absolute-path> --output <fresh-absolute-directory> --executable <absolute-path> --model-directory <absolute-path> --data-directory <existing-absolute-directory> --user <service-user> [--port 19880] [--rest-port 19881] [--grpc-port 19882]
       Prepare private native engine/watcher configuration and systemd units only.
       No source walk, token copy, index creation, network or service action.
-  saivage init [--profile <classic|classic-typed|paad-typed|classic-git>]
+  saivage init [--profile <classic|classic-typed|paad-typed|classic-git|newloop>]
       Native provisioning (classic-git only):
       --git-delivery-branch <name> --git-private-ref-namespace <refs/saivage/...>
       --git-source-roots <JSON-array> --git-excluded-paths <JSON-array>

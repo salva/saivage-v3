@@ -235,12 +235,12 @@ function runtimeHarness(
     actorStore: cards,
     provider: scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
       captureTestComposition(`${basename(root)}-${profile}-${input.agentName}-${++capturedCalls}`, input);
-      if (profile === 'paad-typed') {
+      if (profile === 'paad-typed' || profile === 'newloop') {
         const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
         const process = structural.cardTypes.get(cards.read(cardId)!.type)!;
         // Select by the actual prepared node block rather than infer a node from history.
         const node = [...process.states.values()].find(state => state.kind === 'node' && input.preparedContext!.stableBlocks[1]!.content.startsWith(`Current workflow node '${state.nodeId}':`));
-        if (!node || node.kind !== 'node') throw new Error('Missing prepared PAAD node');
+        if (!node || node.kind !== 'node') throw new Error(`Missing prepared ${profile} node`);
         const contract = describeNodeResultContract(process, `node:${node.nodeId}`);
         const role = renderCompiledPrompt({kind:'workflow-agent', cardType: cards.read(cardId)!.type}, agentExecution(node).agent.name, agentExecution(node).selectedAgentPrompt.compiled, {contractDescription: contract});
         expect(input.systemPrompt).toContain(role);
@@ -356,7 +356,7 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
 }
 
 describe('specialized production card-type flows', () => {
-  it.each(['classic-typed', 'paad-typed'])('%s research readiness requires explicit handoffs again at report, before parent review', async profile => {
+  it.each(['classic-typed', 'paad-typed', 'newloop'])('%s research readiness requires explicit handoffs again at report, before parent review', async profile => {
     const counts = new Map<string, number>();
     const accepted = new Map<string, unknown>();
     let childId = '';
@@ -824,7 +824,7 @@ else throw new Error('Unknown fixture mode');
     assertRecordedNodeInstructions(root, inputs);
   });
 
-  it.each(['classic', 'paad-typed'])('prepares %s goal Planner and independent Reviewer with its own brief, current contract and direct parent direction', async (profile) => {
+  it.each([['classic', false], ['paad-typed', false], ['newloop', false], ['newloop', true]] as const)('prepares %s goal Planner and independent Reviewer with its own brief, current contract and direct parent direction (revision=%s)', async (profile, revision) => {
     let goalId = ''; let parentCalls = 0; let goalCalls = 0; let reviewerCalls = 0;
     const direction = 'Assess this goal only against its accepted brief. No implementation or descendant work is requested; return actual scoped evidence.';
     const run = harness('goal', async input => {
@@ -846,6 +846,10 @@ else throw new Error('Unknown fixture mode');
       expect(input.preparedContext!.stableBlocks.find(block=>block.id.startsWith('parent-direction:'))!.content).toContain(JSON.stringify(direction));
       if (input.agentName === 'reviewer') {
         reviewerCalls++;
+        if (revision && reviewerCalls === 1) return complete(tool('goal-review-gap', 'write', {path:`record:///review.md?card=${goalId}`, content:'The assessment omits why direct evidence suffices for the accepted bounded scope. Revise that reasoning; do not invent implementation work.'}));
+        if (revision && reviewerCalls === 2) return complete(tool('goal-revise', 'emit_result', {outcome:'revision_required',summary:'Explain the bounded direct-evidence assessment.'}));
+        if (revision && reviewerCalls === 3) return complete(tool('goal-fresh-review', 'write', {path:`record:///review.md?card=${goalId}`, content:'Fresh independent review of the revised assessment confirms adequate direct evidence for this assessment-only brief; no implementation is claimed.'}));
+        if (revision && reviewerCalls === 4) return complete(tool('goal-fresh-approved', 'emit_result', {outcome:'approved',summary:'Revised scoped assessment independently approved.'}));
         if (reviewerCalls === 1) return complete(tool('goal-review', 'write', {path:`record:///review.md?card=${goalId}`, content:'Independently assessed the bounded assessment-only brief and accepted status. No implementation or decomposition is required; the scoped assessment is complete.'}));
         if (reviewerCalls === 2) return complete(tool('goal-approved', 'emit_result', {outcome:'approved',summary:'Scoped assessment independently approved.'}));
         throw new Error('Unexpected goal reviewer call');
@@ -854,15 +858,87 @@ else throw new Error('Unknown fixture mode');
       expect(input.agentName).toBe('planner');
       if (goalCalls === 1) return complete(tool('goal-status','write',{path:`record:///status.md?card=${goalId}`,content:'Accepted goal requests assessment only. No implementation or decomposition is necessary; no work is added to manufacture alignment.'}));
       if (goalCalls === 2) return complete(tool('goal-review-admission','emit_result',{outcome:'admit_review',summary:'Assessment complete without unnecessary decomposition; ready for scoped independent review.'}));
+      if (revision && goalCalls === 3) return complete(tool('goal-revised-status','write',{path:`record:///status.md?card=${goalId}`,content:'Revised assessment: the accepted assignment asks only whether decomposition is necessary, not implementation. Its supplied scope and direct examination establish no missing delivery obligation. No unsupported implementation acceptance is claimed.'}));
+      if (revision && goalCalls === 4) return complete(tool('goal-fresh-admission','emit_result',{outcome:'admit_review',summary:'Revised evidence rationale ready for fresh review; historical review is not new acceptance.'}));
       throw new Error('Unexpected goal call');
     }, undefined, 'Assess whether this supplied assessment-only goal needs decomposition. No implementation is requested or accepted by this goal.', profile);
     goalId = run.child.id;
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
-    expect(goalCalls).toBe(2); expect(reviewerCalls).toBe(2); expect(parentCalls).toBe(5);
+    expect(goalCalls).toBe(revision ? 4 : 2); expect(reviewerCalls).toBe(revision ? 4 : 2); expect(parentCalls).toBe(5);
   });
 
-  it.each(['repair', 'already_green'] as const)('PAAD returns a missing owner decision, re-enters after clarification and independently accepts %s', async (mode) => {
+  it('newloop delivers design before implementation, corrects a failed tactic locally, and replans the remaining documentation objective after root review', async () => {
+    let designId = ''; let codeId = ''; let docId = '';
+    const counts = new Map<string, number>();
+    const status = (id: string, content: string) => tool(`status-${id}`, 'write', {path:`record:///status.md?card=${id}`,content});
+    const result = (outcome: string) => tool(`result-${outcome}`, 'emit_result', {outcome,summary:`Scripted legal handoff: ${outcome}.`});
+    const check = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("require('node:assert/strict').equal(require('./answer.cjs'), 42)")}`;
+    const run = harness('architecture', async input => {
+      const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
+      const key = `${cardId}:${input.agentName}`;
+      const count = (counts.get(key) ?? 0) + 1; counts.set(key, count);
+      if (cardId === 'project' && input.agentName === 'reviewer') {
+        const actions = [tool('root-review', 'write', {path:'record:///review.md?card=project',content:'Independent bounded acceptance: design and answer implementation agree on 42 and the actual check passes. The authorized usage documentation is still missing; this is not whole-objective completion.'}), result('approved')];
+        return complete(actions[count - 1]!);
+      }
+      if (cardId === 'project') {
+        const actions = [
+          tool('activate-design', 'activate_card', {card_id:designId,instructions:'Design the bounded answer contract before implementation; obtain both architecture reviews.'}),
+          tool('activate-code', 'activate_card', {card_id:codeId,instructions:'Implement the accepted answer-42 design; diagnose and correct known failed tactics locally.'}),
+          status('project','Design independently accepted and answer implementation verified. Admit bounded delivery review; usage documentation remains part of the full objective.'), result('admit_review'),
+          status('project','Bounded review accepted design/code, not the full objective. Usage documentation remains authorized and actionable; return to plan.'), result('replan'),
+          tool('create-usage', 'create_card', {type:'doc',title:'Answer usage',bootstrap_content:'Write USAGE.md explaining how to load answer.cjs and its fixed answer 42; inspect the actual source and exercise the example.',priority:0,urgency:'normal',depends_on:[codeId]}),
+          tool('activate-usage', 'activate_card', {card_id:docId,instructions:'Deliver the remaining usage documentation against the actual output and exercise its example.'}),
+          status('project','Remaining usage delivered with exercised example. Design/code independent acceptance is retained; no unrelated cleanup or continuing obligation remains.'), result('assess_completion'),
+          status('project','Complete objective now delivered: independently reviewed design/code plus source-consistent usage with exercised example. The earlier bounded review did not approve this later documentation; direct documentation evidence is sufficient for its clear low-risk scope.'), result('complete_direct'),
+        ];
+        if (count === 2) expect(run.cards.read(designId)!.lifecycle.status).toBe('done');
+        if (count === 3) expect(run.cards.read(codeId)!.lifecycle.status).toBe('done');
+        if (count === 8) {
+          expect(latestToolResult(input).success).toBe(true);
+          docId = run.cards.read('project')!.active_child_order.at(-1)!;
+          actions[7] = tool('activate-created-usage', 'activate_card', {card_id:docId,instructions:'Deliver the remaining usage documentation against the actual output and exercise its example.'});
+        }
+        const action = actions[count - 1]; if (!action) throw new Error('Unexpected newloop root call');
+        return complete(action);
+      }
+      if (cardId === designId) {
+        const actions = input.agentName === 'executor'
+          ? [status(designId,'Design: answer.cjs exports the fixed owner answer 42; USAGE.md documents require and its result. Check the actual export. No service or provider work.'),result('ready_for_component_review')]
+          : [tool('component-review','write',{path:`record:///review.md?card=${designId}`,content:'Independent component review: direct constant export is adequate, no needless abstraction; contract and validation fit the intent.'}),result('approved'),tool('system-review','write',{path:`record:///review.md?card=${designId}`,content:'Independent system review: answer and usage responsibilities cover the authorized objective; delivery evidence must follow implementation.'}),result('approved')];
+        return complete(actions[count - 1]!);
+      }
+      if (cardId === codeId) {
+        const actions = [
+          tool('initial-check','run_command',{command:check}),status(codeId,'Initial 0 fails the fixed answer contract.'),result('red_confirmed'),
+          tool('first-tactic','write',{path:'answer.cjs',content:'module.exports = 41;\n'}),tool('first-check','run_command',{command:check}),status(codeId,'First tactic is known incorrect (41); test failed with exit 1. Correct the same implementation, not objective failure.'),result('still_red'),
+          tool('correct-answer','write',{path:'answer.cjs',content:'module.exports = 42;\n'}),tool('corrected-check','run_command',{command:check}),status(codeId,'Corrected answer 42 passes the contract check.'),result('green'),
+          status(codeId,'No structural change justified for a constant export; actual output matches design. Focused check passes, independent parent review remains.'),result('done'),
+        ];
+        if (count === 2 || count === 6) expect(latestToolResult(input)).toMatchObject({success:true,data:{exit_code:1}});
+        if (count === 10) expect(latestToolResult(input)).toMatchObject({success:true,data:{exit_code:0}});
+        return complete(actions[count - 1]!);
+      }
+      expect(cardId).toBe(docId);
+      const actions = [tool('read-actual-answer','read',{path:'answer.cjs'}),tool('write-usage','write',{path:'USAGE.md',content:"Load with `require('./answer.cjs')`; the fixed owner-selected result is 42.\n"}),tool('exercise-example','run_command',{command:check}),status(docId,'Usage matches inspected source and its require example returns 42. No code changes or unrelated documentation work.'),result('done')];
+      return complete(actions[count - 1]!);
+    }, undefined, 'Design the fixed answer-42 module contract with component/system review before implementation.', 'newloop');
+    designId = run.child.id;
+    codeId = run.cards.create({type:'code',parent:'project',title:'Implement fixed answer',bootstrap_content:'After the design child is accepted, implement answer.cjs exporting 42 and verify the fixed contract. Correct known failed tactics locally.',priority:0,urgency:'normal',created_by:'planner',depends_on:[designId]}).id;
+    run.cards.acceptRecord('project','brief.md','Deliver a designed answer.cjs export of 42 and usable USAGE.md. Independently review design/code. Documentation may complete with adequate direct evidence.',{kind:'agent',agent:'analyst'});
+    writeFileSync(join(run.root,'answer.cjs'),'module.exports = 0;\n');
+    expect((await run.supervisor.startProject()).started).toBe(true);
+    await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+    expect(run.cards.read('project')!.lifecycle).toMatchObject({status:'done',result:{node_id:'assess-completion',outcome:'complete_direct'}});
+    expect(run.cards.read(docId)!.lifecycle.status).toBe('done');
+    expect(readFileSync(join(run.root,'answer.cjs'),'utf8')).toBe('module.exports = 42;\n');
+    expect(readFileSync(join(run.root,'USAGE.md'),'utf8')).toContain("require('./answer.cjs')");
+    expect(counts.get(`${codeId}:executor`)).toBe(13);
+    expect(counts.get('project:planner')).toBe(12);
+  });
+
+  it.each((['paad-typed', 'newloop'] as const).flatMap(profile => (['repair', 'already_green'] as const).map(mode => [profile, mode] as const)))('%s returns a missing owner decision, re-enters after clarification and independently accepts %s', async (profile, mode) => {
     let childId = ''; let acceptanceId = ''; let plannerCalls = 0; let codeCalls = 0; let acceptanceCalls = 0;
     const brief = 'Implement the owner-selected answer in answer.cjs. The answer must be supplied by the requirement owner, not chosen by the implementer. Preserve that accepted scope; a later owner clarification supplies only the missing value.';
     const direction = 'Owner clarification in owner-decision.txt supplies answer 42 within the accepted brief. Diagnose before ordinary scoped repair; retain already-green when appropriate. Independent acceptance remains separate.';
@@ -886,7 +962,7 @@ else throw new Error('Unknown fixture mode');
           expect(JSON.stringify(latestToolResult(input))).toContain('Owner answer unavailable');
           expect(JSON.stringify(latestToolResult(input))).toContain('record:///status.md');
           expect(run.cards.read(childId)!.lifecycle).toMatchObject({status:'blocked', result:{node_id:'red',outcome:'blocked'}});
-          captureTestComposition(`paad-${mode}-actual-blocked-parent-return`, input);
+          captureTestComposition(`${profile}-${mode}-actual-blocked-parent-return`, input);
           // Simulate the requirement owner's external clarification, only after the real terminal return.
           writeFileSync(join(run.root, 'owner-decision.txt'), 'Requirement owner decision: answer 42. Existing implementation scope is unchanged.\n');
         }
@@ -918,7 +994,7 @@ else throw new Error('Unknown fixture mode');
         ];
         if (codeCalls === 4) {
           expect(input.preparedContext!.stableBlocks.find(block=>block.id.startsWith('parent-direction:'))!.content).toContain(JSON.stringify(direction));
-          captureTestComposition(`paad-${mode}-clarified-reentry`, input);
+          captureTestComposition(`${profile}-${mode}-clarified-reentry`, input);
         }
         if (codeCalls === 6) expect(latestToolResult(input)).toMatchObject({success:true,data:{exit_code: mode === 'repair' ? 1 : 0}});
         const action = actions[codeCalls - 1]; if (!action) throw new Error('Unexpected PAAD code call');
@@ -938,7 +1014,7 @@ else throw new Error('Unknown fixture mode');
       if (acceptanceCalls === 4 || acceptanceCalls === 7) expect(latestToolResult(input)).toMatchObject({success:true,data:{exit_code:0}});
       const action = actions[acceptanceCalls - 1]; if (!action) throw new Error('Unexpected PAAD acceptance call');
       return complete(action);
-    }, undefined, brief, 'paad-typed');
+    }, undefined, brief, profile);
     childId = run.child.id;
     acceptanceId = run.cards.create({type:'test',parent:'project',title:'Independent fixed answer acceptance',bootstrap_content:'Independently accept the fixed answer.cjs against the requirement owner decision using source inspection and the focused assertion. No implementation or test edits assigned.',priority:0,urgency:'normal',created_by:'planner',depends_on:[childId]}).id;
     const original = `module.exports = ${mode === 'repair' ? 41 : 42};\n`;
@@ -2269,7 +2345,7 @@ else throw new Error('Unknown fixture mode');
     });
   });
 
-  it.each(['classic-typed', 'paad-typed'])('%s cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence', async (profile) => {
+  it.each(['classic-typed', 'paad-typed', 'newloop'])('%s cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence', async (profile) => {
     let plannerCalls = 0;
     let executorCalls = 0;
     let reviewerCalls = 0;
@@ -2526,7 +2602,7 @@ else throw new Error('Unknown fixture mode');
     });
   });
 
-  it.each(['classic-typed', 'paad-typed'])('%s keeps the compiled data node authoritative across compaction and advances schema_ready to validate in one Executor session', async (profile) => {
+  it.each(['classic-typed', 'paad-typed', 'newloop'])('%s keeps the compiled data node authoritative across compaction and advances schema_ready to validate in one Executor session', async (profile) => {
     const retainedHistory =
       'Owner constraint remains applicable. The runtime correction remains unresolved. An earlier implementation idea was proposed, not executed or accepted.';
     const summaryCalls: LlmInvocationInput[] = [];

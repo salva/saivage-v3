@@ -1,0 +1,1 @@
+The accepted review requires revision. Assess every concrete finding as evidence, not a binding remedy. Preserve the immutable versioned `review.md` URL in updated `status.md`, choose the appropriate in-scope correction through the owning Planner's direct children, and explain findings that do not warrant the proposed change. Choose the next outcome from new evidence.

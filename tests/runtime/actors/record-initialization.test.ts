@@ -24,7 +24,7 @@ type Methods = {
   captureRecordHead(name: string): { headId: string; revision: number } | null;
   validateRecords(node: unknown, baseline: Map<string, unknown>): { candidates?: Map<string, any>; violations?: string[] };
 };
-function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic', clean = false, options: { packaged?: boolean; cardType?: 'project' | 'architecture'; nodeId?: 'plan' | 'assess-completion' } = {}) {
+function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' | 'newloop' = 'classic', clean = false, options: { packaged?: boolean; cardType?: 'project' | 'architecture'; nodeId?: 'plan' | 'assess-completion' } = {}) {
   const template = resolveSystemTemplate(profile); const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
   if (!options.packaged) {
     config.card_types.project!.records['status.md']!.initialization = { format_version: 1, template: '{{cardType}}/{{cardId}}/{{cardTitle}}/{{nodeId}}/{{recordName}} ${LITERAL}' };
@@ -43,7 +43,7 @@ function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic'
   return { root, store, runner, read, node, workflows, cardId };
 }
 describe('real node preparation and document lifecycle', () => {
-  it.each((['classic', 'classic-typed', 'paad-typed'] as const).flatMap(profile => (['plan', 'assess-completion'] as const).map(node => [profile, node] as const)))('renders exact entry context once in %s %s and excludes v0 from both gates', (profile, nodeId) => {
+  it.each((['classic', 'classic-typed', 'paad-typed', 'newloop'] as const).flatMap(profile => (['plan', 'assess-completion'] as const).map(node => [profile, node] as const)))('renders exact entry context once in %s %s and excludes v0 from both gates', (profile, nodeId) => {
     const f = fixture(profile, false, { nodeId }); f.runner.prepareRecordRequirements(f.node);
     expect(f.read()).toMatchObject({ state: 'baseline', revision: 1, baseline: { version: 0, content: expect.stringContaining('project/project/') }, accepted: null, draft: null });
     expect(f.read()!.baseline!.content).toContain(`/${nodeId}/status.md \${LITERAL}`);
@@ -62,7 +62,7 @@ describe('real node preparation and document lifecycle', () => {
     expect(accepted.accepted!.source_version).toBe(1); expect(accepted.revision).toBeGreaterThan(1);
   });
 
-  it.each((['classic', 'classic-typed', 'paad-typed'] as const).flatMap(profile =>
+  it.each((['classic', 'classic-typed', 'paad-typed', 'newloop'] as const).flatMap(profile =>
     (['baseline', 'draft', 'accepted', 'empty'] as const).flatMap(state => (['plan', 'assess-completion'] as const).map(node => [profile, state, node] as const))))('does not render or publish in %s for existing %s at %s entry/re-entry', (profile, state, nodeId) => {
     const f = fixture(profile, false, { nodeId });
     if (state === 'accepted') f.store.acceptRecord('project', 'status.md', 'Analyst before workflow', { kind: 'agent', agent: 'analyst' });
@@ -87,7 +87,7 @@ describe('real node preparation and document lifecycle', () => {
     expect(renderCalls).not.toHaveBeenCalled(); expect(readFileSync(path)).toEqual(before);
   });
 
-  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('composes %s roles, nodes, tools, record entry/re-entry and compaction from the final compiled contracts', async profile => {
+  it.each(['classic', 'classic-typed', 'paad-typed', 'newloop'] as const)('composes %s roles, nodes, tools, record entry/re-entry and compaction from the final compiled contracts', async profile => {
     const f = fixture(profile, false, { packaged: true }); const session = 'agent:planner:project' as const;
     const roles = [...f.workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states].flatMap(([stateId, node]) => {
       if (node.kind !== 'node') return [];
@@ -129,7 +129,7 @@ describe('real node preparation and document lifecycle', () => {
   });
 
   it.each([
-    ['classic', 'project'], ['classic-typed', 'architecture'], ['paad-typed', 'architecture'],
+    ['classic', 'project'], ['classic-typed', 'architecture'], ['paad-typed', 'architecture'], ['newloop', 'architecture'],
   ] as const)('requires authored review and preserves accepted evidence on clean re-entry in %s %s', (profile, cardType) => {
     const f = fixture(profile, false, { packaged: true, cardType });
     const workflow = f.workflows.cardTypes.get(cardType)!;

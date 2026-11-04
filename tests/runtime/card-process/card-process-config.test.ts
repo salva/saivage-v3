@@ -31,7 +31,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(renderCompiledPrompt({kind:'record-initializer',cardType:'project'},'status.md',initialized.compiled,{cardType:'project',cardId:'project',cardTitle:'Literal {{cardId}}',nodeId:'plan',recordName:'status.md'})).toBe('project/project/Literal {{cardId}}/plan/status.md ${LITERAL}');
   });
   it('requires recipient-first STOPPED across classic, typed architecture and custom child-bearing workflows without enforcing dispatch tools',()=>{
-    for (const profile of ['classic','classic-typed','paad-typed'] as const) {
+    for (const profile of ['classic','classic-typed','paad-typed','newloop'] as const) {
       const config=effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate(profile).config));
       const compiled=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate(profile).promptRoot});
       for (const [type, process] of compiled.cardTypes) {

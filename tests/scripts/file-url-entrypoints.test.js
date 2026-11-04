@@ -73,7 +73,7 @@ for (const name of ['checkout-ordinary', 'checkout café']) {
       const distRoot = join(fixture, 'dist');
       expect(existsSync(distRoot)).toBe(false);
       const success = runChild(`packaging (${name}) direct invocation`, fixture, process.execPath, args);
-      expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed', 'classic-git']);
+      expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed', 'classic-git', 'newloop']);
       const summaries = [];
       for (const template of SYSTEM_TEMPLATES) {
         const sourceRoot = join(fixture, 'src/config/system-templates', template.name, 'prompts');

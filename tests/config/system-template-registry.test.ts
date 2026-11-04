@@ -12,11 +12,11 @@ import { minimalSystemTemplate,secondSystemTemplate } from '../fixtures/system-t
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 // @ts-expect-error Packaging tooling is JavaScript without a TypeScript declaration.
-import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
+import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, assertNewloopPromptParity, collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
 
 describe('system template registry',()=>{
-  it('registers the three profiles with isolated module-relative prompt roots',()=>{
-    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed','classic-git']);
+  it('registers the profiles with isolated module-relative prompt roots',()=>{
+    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed','classic-git','newloop']);
     expect(new Set(SYSTEM_TEMPLATES.map(template=>template.promptRoot)).size).toBe(SYSTEM_TEMPLATES.length);
     expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic');
     for(const template of SYSTEM_TEMPLATES){
@@ -34,7 +34,7 @@ describe('system template registry',()=>{
 
   it.each(SYSTEM_TEMPLATES)('compiles the scoped status/review starters and existing authorship authority in $name',template=>{
     const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot});
-    const typed=template.name==='classic-typed'||template.name==='paad-typed';
+    const typed=template.name==='classic-typed'||template.name==='paad-typed'||template.name==='newloop';
     const statusNodes:Record<string,string[]>={
       project:['plan','recover','assess-completion'],goal:['plan','recover','handle-notifications'],
       architecture:typed?['draft']:['execute'],code:typed?['red','green','refactor']:['execute'],
@@ -88,7 +88,7 @@ describe('system template registry',()=>{
   });
 
   it('fails unknown names with the exact listing and profile field path',()=>{
-    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed, paad-typed, classic-git.");
+    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed, paad-typed, classic-git, newloop.");
     try { resolveSystemTemplate('Standard'); } catch (error) {
       expect((error as Error & { fieldPath?: string }).fieldPath).toBe('profile');
     }
@@ -148,6 +148,15 @@ describe('system template registry',()=>{
     expect(Object.isFrozen(firstGraph.project!.workflow.nodes)).toBe(true);
     expect(Object.isFrozen(first.agents.analyst!.tools)).toBe(true);
     expect(Object.isFrozen(first.models.routes)).toBe(true);
+  });
+
+  it('keeps newloop on the identical deeply frozen typed config and exact eight-delta closure',()=>{
+    const typed=resolveSystemTemplate('classic-typed');const newloop=resolveSystemTemplate('newloop');
+    expect(newloop.config).toBe(typed.config);
+    expect(Object.isFrozen(newloop.config.card_types!.project!.workflow.nodes)).toBe(true);
+    expect(Object.isFrozen(newloop.config.agents)).toBe(true);
+    expect(collectTemplatePromptClosure({template:newloop})).toEqual(collectTemplatePromptClosure({template:typed}));
+    expect(()=>assertNewloopPromptParity()).not.toThrow();
   });
 
   it('compiles each selected Executor with its observed guidance closure and one rendered outcome contract',()=>{

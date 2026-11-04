@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { SYSTEM_TEMPLATES, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { minimalSystemTemplate, secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
-import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, PAAD_TYPED_PROMPT_DELTAS, collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
+import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, assertNewloopPromptParity, NEWLOOP_PROMPT_DELTAS, PAAD_TYPED_PROMPT_DELTAS, collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
 
 function fail(message) { throw new Error(message); }
 function assert(condition, message) { if (!condition) fail(message); }
@@ -209,11 +209,15 @@ function runCopySystemTemplatePromptsTest() {
 
     const classicRoot = resolveSystemTemplate('classic').promptRoot;
     const typedRoot = resolveSystemTemplate('classic-typed').promptRoot;
-    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed,classic-git', 'registered template order changed');
+    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed,classic-git,newloop', 'registered template order changed');
     const paad = resolveSystemTemplate('paad-typed');
     assert(collectTemplatePromptClosure({ template: paad }).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed selected closure differs');
     assert(walkFiles(paad.promptRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed has missing or unselected artifacts');
     assertPaadTypedPromptParity();
+    const newloop = resolveSystemTemplate('newloop');
+    assertNewloopPromptParity();
+    assert(NEWLOOP_PROMPT_DELTAS.length === 8, 'newloop delta set changed');
+    assert(collectTemplatePromptClosure({ template: newloop }).join('\n') === TYPED_CLOSURE.join('\n'), 'newloop selected closure differs');
     for (const path of PAAD_TYPED_PROMPT_DELTAS) assert(!readFileSync(join(paad.promptRoot, path)).equals(readFileSync(join(typedRoot, path))), `intentional delta is absent: ${path}`);
     assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic') }).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic closure differs from the source-declared lock');
     assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the source-declared lock');
@@ -226,6 +230,7 @@ function runCopySystemTemplatePromptsTest() {
     assertTreesEqual(resolveSystemTemplate('classic-git').promptRoot, join(distRoot, 'src/config/system-templates/classic-git/prompts'));
     const paadOutput = join(distRoot, 'src', 'config', 'system-templates', 'paad-typed', 'prompts');
     assertTreesEqual(paad.promptRoot, paadOutput);
+    assertTreesEqual(newloop.promptRoot, join(distRoot, 'src/config/system-templates/newloop/prompts'));
     const plannerPath = 'agents/_shared/planner.md';
     const notice = readFileSync(join(paad.promptRoot, plannerPath), 'utf8').split('MIT License')[1];
     assert(notice && readFileSync(join(paadOutput, plannerPath), 'utf8').endsWith(notice), 'carried attribution did not survive packaging');
@@ -254,6 +259,29 @@ function runCopySystemTemplatePromptsTest() {
     expectThrows(() => copySystemTemplatePrompts({ templates: [mutated], distRoot }), /ENOENT|execute\.md/u, 'copy accepted a missing selected source artifact');
 
     const paadSource = temporary('saivage-paad-source-');
+    const newloopSource = temporary('saivage-newloop-source-');
+    cpSync(newloop.promptRoot, newloopSource, { recursive: true });
+    const changedNewloop = { ...newloop, promptRoot: newloopSource };
+    const newloopFamily = [resolveSystemTemplate('classic-typed'), changedNewloop];
+    writeFileSync(join(newloopSource, 'extra.md'), 'unselected');
+    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /must contain exactly its compiled closure/u, 'newloop accepted an extra artifact');
+    rmSync(join(newloopSource, 'extra.md'));
+    const neutralNewloop = join(newloopSource, 'fragments/_shared/project-guidance-common.md');
+    writeFileSync(neutralNewloop, `${readFileSync(neutralNewloop, 'utf8')}\ndrift`);
+    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /exactly its eight intentional deltas/u, 'newloop accepted outside-delta drift');
+    cpSync(join(newloop.promptRoot, 'fragments/_shared/project-guidance-common.md'), neutralNewloop);
+    const newloopConfigDrift = { ...changedNewloop, config: structuredClone(newloop.config) };
+    newloopConfigDrift.config.agents.executor.tools.reverse();
+    expectThrows(() => assertNewloopPromptParity({ templates: [newloopFamily[0], newloopConfigDrift] }), /configuration differs/u, 'newloop accepted ordered-tool drift');
+    const newloopPlanner = join(newloopSource, 'agents/_shared/planner.md');
+    const newloopPlannerBytes = readFileSync(newloopPlanner);
+    cpSync(join(typedRoot, 'agents/_shared/planner.md'), newloopPlanner);
+    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /exactly its eight intentional deltas/u, 'newloop accepted a missing intentional delta');
+    writeFileSync(newloopPlanner, `${newloopPlannerBytes.toString()}\n{{> newloop-extra}}\n`);
+    write(newloopSource, 'fragments', '_shared', 'newloop-extra', 'Extra selected artifact.');
+    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /selected membership differs/u, 'newloop accepted extra selected membership');
+    rmSync(newloopPlanner);
+    expectThrows(() => collectTemplatePromptClosure({ template: changedNewloop }), /ENOENT|planner\.md/u, 'newloop accepted a missing selected artifact');
     cpSync(paad.promptRoot, paadSource, { recursive: true });
     const changedPaad = { ...paad, promptRoot: paadSource };
     const family = [resolveSystemTemplate('classic-typed'), changedPaad];

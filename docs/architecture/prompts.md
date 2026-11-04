@@ -14,7 +14,7 @@ composition. It directs useful discovery followed by original inspection, makes
 uneven neural/stale/empty results explicit, and treats retrieved skills as quoted
 evidence rather than activated instructions. It adds no mandatory search ritual,
 Planner detour or role/transition override. Existing convergence-first and operator
-override fragments remain unchanged across classic, typed and PAAD profiles.
+override fragments remain unchanged across all shipped profiles, including newloop.
 
 Saivage selects prompt artifacts while compiling configuration, then prepares the
 selected role and current-node context for actual work. It does not select a role
@@ -400,7 +400,7 @@ dependencies or conceal unfinished acceptance; CANCELLED cannot reopen.
 
 ### Scoped operator policy overrides
 
-Each of the four profiles supplies the same
+Each shipped profile supplies the same
 `fragments/_shared/operator-policy-overrides.md`. All five shared role hosts
 directly include it once, separately from project-specific guidance. Ordinary
 host-scoped fragment lookup and `compileProjectWorkflows` freeze its selected
@@ -577,11 +577,16 @@ installed/customized-host adoption remain unchanged.
 
 `classic` is default; explicitly provisioned `classic-git` adds native source
 ownership to classic graphs; `classic-typed` supplies typed graphs; opt-in `paad-typed`
-uses the same frozen typed config with five prose differences. Packaging compiles
+uses the same frozen typed config with five prose differences; opt-in `newloop`
+uses that exact config with eight original prose differences for intent-to-delivery
+quality across code and other assets. Neither variant changes tools, records,
+routes, identities or native-Git OFF policy. Packaging compiles
 each registered template standalone, observes the complete selected artifact closure
 and requires physical source/copied output equality. Classic-family shared
 agent/fragment membership/bytes and common shared process bytes are checked;
-typed-only paths are allowed. There is no union tree or maintained numeric count.
+typed-only paths are allowed. Newloop has its own bounded config/path/byte parity
+check, separate from PAAD's five-path check. There is no union tree or maintained
+numeric closure count.
 All closures include five shared roles, six project-guidance fragments, the shared
 operator-policy-overrides fragment and graph-selected process hosts. Fresh
 config-absent init materializes the selected closure, marker and YAML last.
@@ -644,6 +649,88 @@ identical; Analyst/Oversight are unchanged. This adapts Curtis “Ovid” Poe's 
 The [profile README](https://github.com/salva/saivage-v3/blob/HEAD/src/config/system-templates/paad-typed/README.md)
 records pinned sources/exclusions. Its full pinned MIT notice travels with Planner;
 it neither replaces Saivage's GPL nor claims endorsement or measured quality.
+
+### Optional newloop guidance
+
+Newloop foregrounds a coherent responsibility loop: critically examine accepted
+intent and current facts, choose an appropriate design/approach, progressively plan
+and deliver, then revise and assess from actual evidence. It is not five mandatory
+stages. The complete standalone physical path set equals classic-typed; only these
+eight paths under `prompts/` differ:
+
+| Path | Effective responsibility |
+| --- | --- |
+| `agents/_shared/planner.md` | Consolidated intent examination, design/planning, direct-child delegation, revision and completion method. |
+| `agents/_shared/executor.md` | Proportionate interpretation, actual output alignment and asset-appropriate production/validation inside the current leaf node. |
+| `agents/_shared/reviewer.md` | Independent bidirectional alignment, verified/deduplicated findings and proportionate quality/debt assessment. |
+| `process/_shared/specialized-plan.md` | Goal's current analysis, useful next slice, delegation and full remaining obligations. |
+| `process/project/specialized-plan.md` | Root version with full objective and assessment handoff, not direct DONE. |
+| `process/_shared/specialized-recover.md` | Recover relevant reasoning/plan/design from current evidence, preserving sound work. |
+| `process/project/specialized-recover.md` | Root recovery with objective and historical-review limits. |
+| `process/_shared/specialized-review.md` | Integrated goal/project assessment and supported verdict. |
+
+All other bytes match classic-typed: Analyst/Oversight, architecture nodes, project
+assessment, notification handling, correction/transition hosts and all seven shared
+fragments. Direct includes and exactly one generated contract token per workflow
+role remain unchanged. Reusable method belongs to prepared roles, today's task to
+the full current-node host—not replaceable project-guidance hooks or init-only
+memory. Primary invocation instructions retain the role method through continuing
+turns, reentry and after compaction. Summary requests instead use summary-specific
+instructions; selected prepared card/current-node/bootstrap context and
+activation-local parent direction where applicable supply read-only orientation,
+not the role method as summarizer instructions or historical evidence. Conditional
+record bodies need not repeat; relevant detail belongs in current records/work
+products and must be read when needed.
+
+Planner tests premises against the intended need and relevant documentation/facts,
+then closes ordinary decisions into work. It retains the full remainder while
+detailing the next slice and executes via direct children, never delivery source
+edits/builds/tests. A bounded architecture/research child can inform later work;
+local design reasoning is also legitimate. Returns distinguish execution mistakes,
+plan gaps, design faults and requirement decisions. Consequential decisions outside
+authority return through truthful BLOCKED with evidence, impact, options and the
+needed decision; parent direction cannot edit a child's accepted brief. Actual
+requirement changes reach their requirement owner. Failed tactics do not imply
+objective failure; conclusive failure remains failure, with no forced success,
+uncertain-effect replay or provider-refusal circumvention.
+
+Assessment relates intent to analysis/design, intent/design to plan, design/plan to
+actual output and useful delivery back to the authorized need. Consistent artifacts
+can share a mistaken premise. Independent examination verifies findings rather than
+echoing author claims or green checks; required acceptance is preserved. Relevant
+quality lenses include behavior, ownership/data, structure/coupling, integration,
+state/error semantics, observability/configuration, security/confidentiality,
+maintainability and applicable accessibility. These are lenses, not mandatory
+specialists, reports or stronger guarantees. Evidence follows asset purpose:
+research needs credible sources/method/limits; documentation needs factual and task
+usability checks; data needs meaning/provenance and required validation; design
+needs system fit/feasibility; operations need authorized observable effects. Code
+commits and test frameworks are not universal obligations. Necessary in-scope
+structural correction can return to ordinary owners, while adequate structure
+merits no change and unrelated cleanup is not a completion gate. Low-risk direct
+completion remains legitimate; it cannot bypass necessary independent assessment.
+
+Conceptual input is Curtis “Ovid” Poe's [PAAD course](https://curtispoe.org/paad/)
+(consulted as v1.24.1, modules 2–4 and 6–9): reality-grounded pushback, intent/action
+and design alignment, structural ownership/quality review, verified independent
+findings, accessibility and missing-context limits. Newloop adapts its
+human-decision-oriented reasoning to autonomous local choices plus accountable
+escalation, not human approval for every step. It imports no specialist quota,
+branch ritual, fixed history scan, report template, universal TDD task rewriting
+or extra recovery/accessibility requirement. Its eight hosts use original local
+wording, not upstream course/skill expression or paad-typed's licensed adaptations.
+The [newloop README](https://github.com/salva/saivage-v3/blob/HEAD/src/config/system-templates/newloop/README.md)
+records choices, attribution and exclusions. PAAD's case reports motivate the
+method; they are not controlled proof of this profile's effectiveness or endorsement.
+
+Offline renders, source/package parity and scripted runtime paths qualify available
+instructions and legal handoffs—not provider delivery, model understanding or
+measured output quality. No durable contract/version changes solely for these
+prose differences. Fresh config-absent init can select `--profile newloop`;
+existing-config init preserves inputs and is not a switch. Matching classic-typed
+contracts/identities need no migration solely for prose adoption, but still require
+separately authorized stopped reconciliation and a fresh process. Whole-release
+identity/format assessment and operational consent remain separate.
 
 ## Loaded configuration and installed adoption
 

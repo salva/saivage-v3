@@ -1,8 +1,9 @@
 import { agentExecution } from '../helpers/workflow-execution.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { env } from 'node:process';
 
 import { AgentExecutor as AgentNodeExecution } from '../../src/runtime/actors/agent-executor.js';
 import type { AcceptedNodeResult, NodeTransition } from '../../src/runtime/actors/node-execution.js';
@@ -157,7 +158,7 @@ describe('shipped project Planner semantic composition', () => {
     expect(new Set(rendered.map(({ instruction, contract }) => instruction.replace(contract, 'GENERATED CONTRACT'))).size).toBe(1);
   });
 
-  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('compiles explicit project-planner plan/recover selection while preserving configured omission in %s', (templateName) => {
+  it.each(['classic', 'classic-typed', 'paad-typed', 'newloop'] as const)('compiles explicit project-planner plan/recover selection while preserving configured omission in %s', (templateName) => {
     const template = resolveSystemTemplate(templateName);
     const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
     const projectPlanner = structuredClone(config.agents.planner!);
@@ -187,7 +188,7 @@ describe('shipped project Planner semantic composition', () => {
     for (const nodeId of ['plan', 'recover']) expect(agentExecution(requireNode(goal, nodeId)).agent.tools.map(({ name }) => name)).not.toContain('reopen_card');
   });
 
-  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('preserves source-derived %s project/goal process composition and transition values', (templateName) => {
+  it.each(['classic', 'classic-typed', 'paad-typed', 'newloop'] as const)('preserves source-derived %s project/goal process composition and transition values', (templateName) => {
     const template = resolveSystemTemplate(templateName);
     const compiled = compile(template);
     const compositions = (['project', 'goal'] as const).map((cardType) => {
@@ -252,6 +253,20 @@ describe('shipped project Planner semantic composition', () => {
       if (templateName !== 'classic')
         expect(routePrompt(process, 'node:review', 'result:revision_required')).toContain('Preserve the immutable versioned `review.md` URL');
       expect(requirePrompt(process, agentExecution(plan).correctionPrompt.promptId)).toBe(readFileSync(process.processPrompts.get(agentExecution(plan).correctionPrompt.promptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
+      const evidence = env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+      if (evidence) {
+        mkdirSync(evidence, {recursive:true});
+        const nodeIds = cardType === 'goal' ? ['plan','recover','review','handle-notifications'] : ['plan','recover','review','assess-completion'];
+        writeFileSync(join(evidence, `planning-transitions-${templateName}-${cardType}.json`), JSON.stringify({
+          kind:'offline-source-rendered-transition-context-not-provider-wire', templateName, cardType,
+          nodes:nodeIds.map(nodeId => {
+            const rendered = renderedNode(template,compiled,cardType,nodeId);
+            return {nodeId,role:rendered.instruction,contract:rendered.contract,node:requirePrompt(process,agentExecution(rendered.node).prompt.promptId),correction:requirePrompt(process,agentExecution(rendered.node).correctionPrompt.promptId)};
+          }),
+          stopped, reviewAdmission, reviewRevision,
+          approval:cardType === 'goal' ? pendingNotificationTransition(process) : transition(process,'review','approved','assess-completion'),
+        },null,2));
+      }
     }
 
     expect(compositions[0]!.instruction.replace(compositions[0]!.contract, 'GENERATED CONTRACT')).toBe(compositions[1]!.instruction.replace(compositions[1]!.contract, 'GENERATED CONTRACT'));
