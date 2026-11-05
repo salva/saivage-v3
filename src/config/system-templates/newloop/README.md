@@ -56,16 +56,16 @@ remains OFF; no provisioning or optional quality tools are enabled.
 
 Only these eight paths under `prompts/` differ from classic-typed:
 
-| Host | Responsibility |
-| --- | --- |
-| `agents/_shared/planner.md` | Consolidated interpretation, design/planning, delegation, revision and completion method. |
-| `agents/_shared/executor.md` | Task interpretation, actual output alignment and asset-appropriate production/validation within the current leaf node. |
-| `agents/_shared/reviewer.md` | Independent alignment, verified findings and proportionate quality/debt assessment. |
-| `process/_shared/specialized-plan.md` | Goal's current analysis, next slice, delegation and full remainder. |
-| `process/project/specialized-plan.md` | Root objective and existing assessment handoff, not direct DONE. |
-| `process/_shared/specialized-recover.md` | Recover relevant reasoning and plan from evidence; retain sound work. |
-| `process/project/specialized-recover.md` | Root recovery with complete objective and historical-review limits. |
-| `process/_shared/specialized-review.md` | Current integrated goal/project assessment and supported verdict. |
+| Host                                     | Responsibility                                                                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `agents/_shared/planner.md`              | Consolidated interpretation, design/planning, delegation, revision and completion method.                              |
+| `agents/_shared/executor.md`             | Task interpretation, actual output alignment and asset-appropriate production/validation within the current leaf node. |
+| `agents/_shared/reviewer.md`             | Independent alignment, verified findings and proportionate quality/debt assessment.                                    |
+| `process/_shared/specialized-plan.md`    | Goal's current analysis, next slice, delegation and full remainder.                                                    |
+| `process/project/specialized-plan.md`    | Root objective and existing assessment handoff, not direct DONE.                                                       |
+| `process/_shared/specialized-recover.md` | Recover relevant reasoning and plan from evidence; retain sound work.                                                  |
+| `process/project/specialized-recover.md` | Root recovery with complete objective and historical-review limits.                                                    |
+| `process/_shared/specialized-review.md`  | Current integrated goal/project assessment and supported verdict.                                                      |
 
 Every other prompt is byte-identical, including Analyst/Oversight, architecture
 nodes, project assessment, notification handling, correction/transition hosts and
