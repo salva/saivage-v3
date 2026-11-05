@@ -158,14 +158,21 @@ close/join the reusable LLM session's lifetime admission or use shutdown disposa
 to finish an accepted turn; failures refuse collection rather than becoming success.
 
 Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
-while execution continues, then holds/parks and freshly marks complete canonical
-references before checking each candidate at use. Selected baseline/draft/accepted
+while execution continues, then holds/parks and freshly consumes canonical sources,
+marking explicit and recognized inferred references before checking each candidate
+at use. Selected baseline/draft/accepted
 history, all indexed conversation originals and raw results, execution selections,
 pending messages, operational dependencies and exact aliases protect work. Strict
 invalid required evidence blocks collection; GC never repairs/truncates it. Unknown
 ownership or surviving writer effects cause retention/refusal, not guessed safety.
-Only eligible unreferenced regular files under work can be removed; directories,
-publication temporaries and canonical/attic/backup data remain untouched.
+Only eligible regular files under work without recognized protections can be removed;
+directories, publication temporaries and canonical/attic/backup data remain untouched.
+Explicit/structured references remain exact; ambiguous free-text filename inference
+uses simple heuristics and can miss genuine references. Rare false negatives can
+make old still-needed work eligible for later explicit deletion. No error rate is
+estimated, and an age cutoff does not protect against this risk. Recognized aliases
+whose scope cannot be resolved remain conservative; this inference exception weakens
+neither strict history/native validation nor writer exclusion or candidate checks.
 
 Only a missing lifecycle lock selects offline CLI GC: exact interactive maintained
 writer-quiescence confirmation precedes existing bound lifecycle exclusion and

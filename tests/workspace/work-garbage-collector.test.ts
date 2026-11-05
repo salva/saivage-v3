@@ -213,11 +213,137 @@ describe('work GC two-phase selection', () => {
     expect(fs.unlinkSync).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps conservative apostrophe-delimited resource/effect prose as retainAll', async () => {
+  it.each(['record', 'conversation'])('selectively previews old work through 5120 characters of possessive %s prose', async source => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/selected.txt', 'selected bytes');
+    const control = work(root, 'cards/project/tmp/control', 'control bytes');
+    const span = ` resource/effect tmp:///project/selected.txt ${'ordinary guidance '.repeat(320)}`.slice(0, 5120);
+    expect(span).toHaveLength(5120);
+    const content = `The owner's${span}child's task uses \`guidance\` and isn't a pathname.`;
+    if (source === 'record') baseline(root, content);
+    else appendConversationBatch({ projectRoot: root }, [message(content)]);
+    const bytes = [selected, control].map(path => readFileSync(path));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(result).toMatchObject({ retained: { protected: 1 }, would_delete_count: 1, deleted_count: 0 });
+    expect([selected, control].map(path => readFileSync(path))).toEqual(bytes);
+  });
+
+  it('protects complete matching-quoted common paths, Unicode and ASCII apostrophes, and escaped double quotes selectively', async () => {
+    const root = fixture();
+    const names = ['single dir/with space.txt', 'double dir/with space.txt', 'backtick dir/with space.txt',
+      "data/O'Brien report.txt", 'data/O’Brien report.txt', 'escaped "name".txt', 'relative-basename.txt'];
+    const selected = names.map(name => work(root, `cards/project/tmp/${name}`));
+    const control = work(root, 'cards/project/tmp/control');
+    baseline(root, [
+      `Keep '${selected[0]}'`,
+      'Keep ".saivage/work/cards/project/tmp/double dir/with space.txt"',
+      'Keep `.saivage/work/cards/project/tmp/backtick dir/with space.txt`',
+      "Keep '.saivage/work/cards/project/tmp/data/O'Brien report.txt'",
+      "Keep '.saivage/work/cards/project/tmp/data/O’Brien report.txt'",
+      `Keep ${JSON.stringify(selected[5])}`,
+      "Keep 'relative-basename.txt'",
+    ].join('\n'));
+    const bytes = [...selected, control].map(path => readFileSync(path));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(result).toMatchObject({ retained: { protected: selected.length }, would_delete_count: 1, deleted_count: 0 });
+    expect([...selected, control].map(path => readFileSync(path))).toEqual(bytes);
+  });
+
+  it('protects structured space-containing paths and word-adjacent explicit URIs independently of the native quote heuristic', async () => {
+    const root = fixture();
+    const names = ['structured/with space.txt', 'uri/with space.txt', 'file/with space.txt', 'project/with space.txt',
+      'system/with space.txt', 'work/with space.txt'];
+    const selected = names.map(name => work(root, `cards/project/tmp/${name}`));
+    const control = work(root, 'cards/project/tmp/control');
+    const uris = ['tmp:///project/uri/with space.txt', `file://${selected[2]}`,
+      'project:///.saivage/work/cards/project/tmp/project/with space.txt',
+      `system:///${selected[4]!.slice(1)}`, 'work:///cards/project/tmp/work/with space.txt'];
+    baseline(root, JSON.stringify({ source_path: selected[0], prose: uris.map(uri => `open(r'${uri}'r'')`).join('\n') }));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(result).toMatchObject({ retained: { protected: selected.length }, would_delete_count: 1, deleted_count: 0 });
+    expect([...selected, control].every(existsSync)).toBe(true);
+  });
+
+  it.each(['r', 'é', '𝒓', '١', '_'])('discloses the accepted free-text word-adjacent native literal miss (%s) without deleting the old needed file', async prefix => {
+    const root = fixture();
+    const needed = work(root, 'cards/project/tmp/data/with space.txt');
+    baseline(root, `open(${prefix}'data/with space.txt'${prefix}'')`);
+    const bytes = readFileSync(needed);
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(result).toMatchObject({ would_delete_count: 1, deleted_count: 0 });
+    expect(readFileSync(needed)).toEqual(bytes);
+  });
+
+  it.each(['realpath', 'fallback lstat'] as const)('retains all on exact %s ENAMETOOLONG without candidate effects', async operation => {
     const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
-    baseline(root, `The owner's ${'ordinary guidance '.repeat(40)}resource/effect belongs to the child's task.`);
-    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result.retained.protected).toBe(1); expect(existsSync(candidate)).toBe(true);
+    const reference = join(root, 'recognized-reference');
+    baseline(root, JSON.stringify({ source_path: reference }));
+    const found = await inventory(root), realpath = fs.realpathSync, stat = fs.lstatSync;
+    const observed: string[] = [];
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path) === reference) {
+        observed.push('realpath');
+        throw Object.assign(new Error('injected reference metadata failure'), { code: operation === 'realpath' ? 'ENAMETOOLONG' : 'ENOENT' });
+      }
+      return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    jest.spyOn(fs, 'lstatSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path) === reference) {
+        observed.push('lstat');
+        throw Object.assign(new Error('injected fallback metadata failure'), { code: 'ENAMETOOLONG' });
+      }
+      return (stat as any)(path, ...args);
+    }) as typeof stat);
+    const unlink = jest.spyOn(fs, 'unlinkSync');
+    const bytes = readFileSync(candidate);
+    const result = await collectWorkGarbage(found, { mode: 'delete' }, context());
+    expect(result).toMatchObject({ retained: { protected: 1 }, deleted_count: 0 });
+    expect(observed).toContain('realpath');
+    expect(observed.includes('lstat')).toBe(operation === 'fallback lstat');
+    expect(unlink).not.toHaveBeenCalled();
+    expect(readFileSync(candidate)).toEqual(bytes);
+  });
+
+  it('conservatively retains a long synthetic backtick path without depending on host path limits', async () => {
+    const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
+    const reference = `data/${'component/'.repeat(80)}${'x'.repeat(531)}`;
+    baseline(root, `Evidence: \`${reference}\``);
+    const found = await inventory(root), realpath = fs.realpathSync;
+    let failures = 0;
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path).endsWith(reference)) {
+        failures++;
+        throw Object.assign(new Error('synthetic long path'), { code: 'ENAMETOOLONG' });
+      }
+      return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    const result = await collectWorkGarbage(found, { mode: 'dry_run' }, context());
+    expect(failures).toBeGreaterThan(0);
+    expect(result).toMatchObject({ retained: { protected: 1 }, would_delete_count: 0, deleted_count: 0 });
+    expect(existsSync(candidate)).toBe(true);
+  });
+
+  it.each([['realpath', 'native'], ['fallback lstat', 'native'], ['realpath', 'file URI'], ['fallback lstat', 'file URI']] as const)('propagates unexpected non-filesystem exceptions from %s for a %s reference', async (operation, spelling) => {
+    const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
+    const reference = join(root, 'recognized-reference');
+    baseline(root, JSON.stringify({ source_path: spelling === 'native' ? reference : `file://${reference}` }));
+    const found = await inventory(root), realpath = fs.realpathSync, stat = fs.lstatSync;
+    const unexpected = new Error('unexpected metadata implementation failure');
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path) === reference) {
+        if (operation === 'realpath') throw unexpected;
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      }
+      return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    jest.spyOn(fs, 'lstatSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path) === reference) throw unexpected;
+      return (stat as any)(path, ...args);
+    }) as typeof stat);
+    const unlink = jest.spyOn(fs, 'unlinkSync');
+    await expect(collectWorkGarbage(found, { mode: 'delete' }, context())).rejects.toBe(unexpected);
+    expect(unlink).not.toHaveBeenCalled();
+    expect(existsSync(candidate)).toBe(true);
   });
 
   it('extracts compacted protected prompts and internal record facts without a model-visible observation ledger', async () => {
@@ -650,15 +776,53 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(second)).toBe(true);
   });
 
-  it.each(['record', 'index', 'execution'] as const)('fails strict %s corruption before any unlink', async kind => {
+  it.each(['record', 'index', 'execution', 'segment'] as const)('fails strict %s corruption even after retain-all before any unlink', async kind => {
     const root = fixture();
     const candidate = work(root, 'cards/project/tmp/garbage');
+    appendConversationBatch({ projectRoot: root }, [message('Retained evidence')]);
+    const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const path = kind === 'record' ? join(cardRecordsRoot(root, 'project'), 'record-generic.json')
-      : kind === 'index' ? cardConversationVersionIndexFile(root, 'project', 'planner') : cardExecutionFile(root, 'project');
+      : kind === 'index' ? cardConversationVersionIndexFile(root, 'project', 'planner')
+      : kind === 'segment' ? cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename)
+      : cardExecutionFile(root, 'project');
     writeFileSync(path, '{broken}\n');
     const bytes = readFileSync(path);
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).rejects.toThrow();
+    const unlink = jest.spyOn(fs, 'unlinkSync');
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).rejects.toThrow();
+    expect(unlink).not.toHaveBeenCalled();
     expect(readFileSync(path)).toEqual(bytes);
+    expect(existsSync(candidate)).toBe(true);
+  });
+
+  it.each(['record', 'index', 'segment'] as const)('fails missing required %s even after retain-all without repair or unlink', async kind => {
+    const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
+    appendConversationBatch({ projectRoot: root }, [message('Retained evidence')]);
+    const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
+    const path = kind === 'record' ? join(cardRecordsRoot(root, 'project'), 'record-brief.json')
+      : kind === 'index' ? cardConversationVersionIndexFile(root, 'project', 'planner')
+      : cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
+    unlinkSync(path);
+    const unlink = jest.spyOn(fs, 'unlinkSync');
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).rejects.toThrow();
+    expect(unlink).not.toHaveBeenCalled();
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(candidate)).toBe(true);
+  });
+
+  it.each(['looping', 'denied'] as const)('retains all for a recognized %s alias despite excluding unrelated possessive prose', async kind => {
+    const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
+    const alias = join(root, 'alias');
+    baseline(root, `The owner's resource/effect belongs to the child's task. Keep project:///alias/file`);
+    if (kind === 'looping') symlinkSync(alias, alias);
+    else {
+      const realpath = fs.realpathSync;
+      jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+        if (String(path) === join(alias, 'file')) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+        return (realpath as any)(path, ...args);
+      }) as typeof realpath);
+    }
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
+    expect(result).toMatchObject({ retained: { protected: 1 }, would_delete_count: 0, deleted_count: 0 });
     expect(existsSync(candidate)).toBe(true);
   });
 

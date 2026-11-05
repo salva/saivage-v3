@@ -180,11 +180,17 @@ under the existing bound lifecycle lock, after exact interactive confirmation
 excluded and all managed/unrelated writers remain quiescent throughout. Disclose
 irreversible deletion and destruction of needed data if writer exclusion is mistaken;
 a missing lock alone proves no containment. Dead/malformed/indeterminate locks refuse,
-never permit takeover. Both entries freshly mark all selected canonical references,
-including linked card/accepted history, all indexed conversation segments and raw
-action/native evidence, plus operational protections, then recheck each exact
-candidate before unlink. Unknown ownership, references or surviving-writer footprint
-requires retention/refusal. Keep directories. Default/explicit dry-run uses the same
+never permit takeover. Both entries freshly consume linked card/accepted history,
+all indexed conversation segments and raw action/native evidence, marking explicit
+selected references, recognized inferred references and operational protections,
+then recheck each exact candidate before unlink. Unknown ownership, unresolved
+recognized reference scope or surviving-writer footprint requires retention/refusal.
+Ambiguous free-text filename inference may use simple documented heuristics and may
+miss genuine references; later explicit GC can delete old still-needed work, with no
+error probability or age-based safety guarantee claimed. This exception does not
+weaken explicit/structured references, strict selected-history/native validation,
+conservative resolution of recognized unknown aliases, writer exclusion or candidate
+checks. Keep directories. Default/explicit dry-run uses the same
 selection without collector file effects; offline preview does publish/release the
 lifecycle lock and prints its result only after successful release. Delete is
 irreversible and has no lossless guarantee. GC has no elapsed deadline or duration

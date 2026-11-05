@@ -619,8 +619,28 @@ It retains internal observations, protected prompts and raw tool/native evidence
 Nested values and text tokens cooperatively yield every 256 visited items; individual
 file reads, JSON parsing and regex operations remain synchronous and indivisible.
 Call-local protection sets test candidate ancestors through the work root rather
-than scanning every mark for each candidate. Reference interpretation is unchanged,
-including conservative retention for ambiguous prose and aliases.
+than scanning every mark for each candidate.
+
+Explicit structured path fields pass their entire exact value to reference handling
+before prose extraction. Recognized `project`, `system`, `work`, `tmp` and `file`
+URIs remain eligible independently of native single-quote boundaries, including
+nested query references. Free-text extraction uses matching backtick, double-quote
+and single-quote delimiters, preserving JSON double-quote escape decoding and the
+independent whole-text bare-token/Markdown-link passes. Inferred native single-quoted
+filenames require no adjacent Unicode letter, number or underscore outside either
+delimiter; word-internal apostrophes remain filename content. Standalone quoted
+space-containing paths are recognized, but language literals such as
+`open(r'data/with space.txt'r'')` may miss the complete filename. This deliberate
+heuristic can expose old needed work to later deletion; no probability or age-based
+safety guarantee is claimed. Long backtick/double-quoted prose can still protect all.
+
+At the reference resolver only, filesystem errors leaving scope unknown from either
+`realpathSync` or its ENOENT fallback `lstatSync`, including ENAMETOOLONG, retain all
+for that collection. Missing suffix/ancestor handling and dangling-alias protection
+remain; unexpected non-filesystem exceptions propagate. This boundary does not catch
+canonical validation, inventory, candidate or publication failures. Retain-all never
+skips required canonical/history/native reads, and recognized unknown aliases stay
+conservative even when unrelated prose guesses are excluded.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
 only the verified live lock endpoint/auth, with no fallback after delegation failure.

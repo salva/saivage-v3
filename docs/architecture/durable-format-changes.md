@@ -23,6 +23,32 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Work-GC free-text reference inference from actual implementation source parent
+`3c7fd8c35ba87a2280ec015a5b3a356da4c888c2` deliberately changes an operational
+heuristic, not durable grammar or declared canonical path/history meaning. Matching
+quote delimiters and native apostrophe boundaries avoid giant possessive-prose
+guesses; word-adjacent native literals can now miss genuine filenames. A later
+explicit GC can delete old still-needed work; no probability or age-based safety
+guarantee is claimed, and code rollback cannot restore deletions. Explicit/structured
+references and strict selected-history/native consumption remain unchanged. Exact
+reference metadata errno from either resolution operation conservatively retains
+all without bypassing canonical validation. Evidence owners are
+`workspace/work-garbage-collector.ts` and its synthetic semantic fixtures; incident
+`ab2e1923` establishes affected source applicability, not installation compatibility
+or live reclaimability.
+
+No migration-required retained shape/meaning change, new GC family, persisted mark
+set or discriminator bump is introduced. Card6, accepted-record5/record-head3,
+conversation12 (index/genesis/envelopes), shared evidence2, execution3, workflow5,
+native-policy1 and lifecycle-lock1 remain unchanged. Historical text, facts,
+provenance and selections are not rewritten or redefined. This isolated change
+requires no conversion/reset on matching contracts, but changes later optional-GC
+risk; deployment/start/GC remain separately authorized. No unreleased-cutover sharing
+or deployment date is asserted. Any otherwise required migration remains an
+explicitly owner-requested external offline operation under the full
+[adoption gates](../runbook/state-adoption.md#explicit-external-offline-migration),
+never core/packaged conversion or format probing.
+
 The opt-in `newloop` profile from actual source parent
 `7f009c9ab72f261ce699523bffd90aecbb5cc084` adds registration and a standalone
 prompt closure with exactly eight original prose deltas from classic-typed.

@@ -200,7 +200,7 @@ export async function inventoryWorkGarbage(
   return { projectRoot, candidates, observed_logical_bytes: bytes, opaque_entries: opaque };
 }
 
-/** Reference interpretation is deliberately conservative; it never reads referenced contents. */
+/** Explicit references stay exact; free-text filename inference is heuristic. Never reads contents. */
 class WorkReferences {
   readonly paths = new Set<string>();
   retainAll = false;
@@ -230,30 +230,37 @@ class WorkReferences {
     let existing = path;
     const suffix: string[] = [];
     for (;;) {
+      let actual: string;
       try {
-        const actual = resolve(realpathSync(existing), ...suffix);
-        if (within(actual, this.root)) this.retainAll = true;
-        if (within(this.root, actual)) this.paths.add(actual);
-        return;
+        try {
+          actual = realpathSync(existing);
+        } catch (error) {
+          if (!missing(error)) throw error;
+          const stat = statOrMissing(existing);
+          if (stat?.isSymbolicLink()) {
+            this.retainAll = true;
+            return;
+          }
+          const parent = dirname(existing);
+          if (parent === existing) {
+            this.retainAll = true;
+            return;
+          }
+          suffix.unshift(relative(parent, existing));
+          existing = parent;
+          continue;
+        }
       } catch (error) {
-        if (!missing(error)) {
-          // A looping/denied alias cannot establish a safe non-work scope.
-          this.retainAll = true;
-          return;
-        }
-        const stat = statOrMissing(existing);
-        if (stat?.isSymbolicLink()) {
-          this.retainAll = true;
-          return;
-        }
-        const parent = dirname(existing);
-        if (parent === existing) {
-          this.retainAll = true;
-          return;
-        }
-        suffix.unshift(relative(parent, existing));
-        existing = parent;
+        if (typeof (error as NodeJS.ErrnoException | null)?.code !== 'string')
+          throw error;
+        // Either metadata operation can leave reference scope unknown (including long paths).
+        this.retainAll = true;
+        return;
       }
+      actual = resolve(actual, ...suffix);
+      if (within(actual, this.root)) this.retainAll = true;
+      if (within(this.root, actual)) this.paths.add(actual);
+      return;
     }
   }
 
@@ -297,11 +304,13 @@ class WorkReferences {
       }
       if (!url) return;
       if (url.protocol === 'file:') {
+        let path: string | undefined;
         try {
-          this.path(fileURLToPath(url));
+          path = fileURLToPath(url);
         } catch {
           this.retainAll = true;
         }
+        if (path !== undefined) this.path(path);
       } else if (/\.saivage|work:|tmp:/u.test(url.pathname)) this.retainAll = true;
       for (const value of url.searchParams.values()) await this.text(value, bases);
       return;
@@ -341,20 +350,44 @@ class WorkReferences {
       }
       if (typeof value === 'string') await this.text(value, bases);
     }
-    // Quotes/backticks preserve spaces; URI/native tokens retain percent bytes distinctly.
+    // Matching delimiters preserve common filenames with spaces. Native single quotes
+    // adjacent to words are deliberately not a programming-language literal grammar.
     const tokens = new Set<string>();
-    for (const match of text.matchAll(/[`']([^`'\n]+)[`']|"([^"\n]+)"|(?:\]\()([^\n]+?)\)/gu)) {
-      await this.visit();
-      const quoted = match[1] ?? match[2] ?? match[3]!;
-      // Apostrophes also delimit ordinary prose, not just filenames. Require path syntax
-      // or a single basename; do not interpret whole quoted sentences/card links as globs.
-      // Exact path-valued fields remain handled above, including names without extensions.
+    const addQuoted = (quoted: string): void => {
       if (
         quoted.includes('/') ||
         /^[\w.*?-]+$/u.test(quoted) ||
         /\.(?:txt|md|jsonl?|log|png|jpg|csv|sh|js|ts|yaml|yml)$/u.test(quoted)
       )
         tokens.add(quoted);
+    };
+    for (const match of text.matchAll(/`([^`\n]+)`|"(?:\\.|[^"\\\n])*"|(?:\]\()([^\n]+?)\)/gu)) {
+      await this.visit();
+      if (match[0].startsWith('"')) {
+        try {
+          addQuoted(JSON.parse(match[0]) as string);
+        } catch {
+          /* Invalid JSON escapes are still ordinary quoted prose. */
+          addQuoted(match[0].slice(1, -1));
+        }
+      } else addQuoted(match[1] ?? match[2]!);
+    }
+    const wordBefore = (index: number): boolean =>
+      /[\p{L}\p{N}_]$/u.test(text.slice(Math.max(0, index - 2), index));
+    const wordAfter = (index: number): boolean =>
+      /^[\p{L}\p{N}_]/u.test(text.slice(index + 1, index + 3));
+    for (let start = 0; start < text.length; start++) {
+      if (text[start] !== "'") continue;
+      await this.visit();
+      const explicitUri = /^(?:project|system|work|tmp|file):\/\//u.test(text.slice(start + 1));
+      if (!explicitUri && wordBefore(start)) continue;
+      for (let end = start + 1; end < text.length && text[end] !== '\n'; end++) {
+        if (text[end] !== "'") continue;
+        if (!explicitUri && wordBefore(end) && wordAfter(end)) continue;
+        if (explicitUri || !wordAfter(end)) addQuoted(text.slice(start + 1, end));
+        start = end;
+        break;
+      }
     }
     for (const match of text.matchAll(
       /(?:[a-z]+:\/\/\/?|\/|\.\.?\/|\.saivage\/)[^\s<>"'`]+|[a-zA-Z0-9_.-]+\/[^\s<>"'`]+|\b[a-zA-Z0-9_-]+\.(?:txt|md|jsonl?|log|png|jpg|csv|sh|js|ts|yaml|yml)\b/gu,

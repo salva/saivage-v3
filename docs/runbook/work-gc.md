@@ -1,6 +1,6 @@
 # Explicit work garbage collection
 
-Use this optional operation to reclaim unreferenced ordinary scratch, captures and
+Use this optional operation to reclaim eligible ordinary scratch, captures and
 webfetch stashes under `.saivage/work/`. It is not startup cleanup, canonical-state
 repair, reset or migration. It never removes directories, publication temporaries,
 attic, backups or canonical history. Deletion is irreversible and not transactional;
@@ -35,6 +35,18 @@ Omitting both effect flags is exactly `--dry-run`. Combining `--dry-run` and
 there is no saved selection, preview replay or confirmation token. The later delete
 always recomputes inventory, fresh references and final identity checks. A reference
 added since preview can protect a formerly eligible file.
+
+Preview first, but neither preview nor an age cutoff proves that selected work is
+unneeded. Explicit/structured paths are protected exactly; filename inference from
+ambiguous free text is heuristic and can miss genuine references. For example, a
+space-containing native path mentioned only as `open(r'data/with space.txt'r'')`
+may be missed and become eligible when old enough. Later explicit delete can
+irreversibly remove old still-needed work. No error probability is estimated.
+Use unambiguous structured path fields or explicit work URIs when recording new
+references, rather than relying on programming-language quote syntax in prose.
+This advice authorizes neither rewriting retained history nor a migration; adopting
+this isolated fix requires no conversion/reset on matching contracts. Source
+completion does not authorize any live operation.
 
 The CLI delegates only through the verified live lifecycle lock's published
 endpoint/auth mode. Dead/malformed/indeterminate ownership or an unavailable
@@ -82,12 +94,13 @@ certify whole-project startup compatibility or authorize start/Run.
    Oversight check precede marking. Already active independent HTTP MCP lifecycle
    calls/reconciliation refuse this attempt before pause, rather than being joined
    or automatically retried. Read-only views and project Stop remain available.
-3. Fresh strict canonical reads protect references in current/linked history,
+3. Fresh strict canonical reads mark explicit and recognized inferred references in current/linked history,
    baseline/draft/accepted records, all indexed conversation segments (including
    pre-compaction originals), raw tool results, pending messages and execution
    evidence. Directory/alias references and operational dependencies also protect
    work. Internal observation facts, protected prompts and complete action/native
-   evidence, including incomplete private indexes/stdout/stderr, remain protected.
+   evidence, including incomplete private indexes/stdout/stderr, retain their exact
+   structured selections. The free-text limitation above does not relax these reads.
    Unresolved native source continuations refuse; GC performs no Git inspection,
    checkpoint or return to force settlement. Corrupt/missing required evidence or torn tails refuse without repair.
    Unknown surviving process/service write footprints retain all potentially
@@ -108,8 +121,12 @@ lock and operator exclusion above. There is no GC elapsed maintenance/header/bod
 total-request deadline or duration setting; connection establishment remains finite.
 Nested extraction and candidate loops yield cooperatively, but individual synchronous
 reads, JSON parsing and regex operations are indivisible. No cancellation latency
-or throughput is promised. Conservative ambiguous prose (including quoted text with
-path syntax) can protect all candidates: a completed preview may reclaim zero bytes.
+or throughput is promised. Conservative ambiguous prose (including backtick/double-quoted
+text with path syntax) can protect all candidates: a completed preview may reclaim
+zero bytes. An unresolved recognized reference, including a path-length filesystem
+error during exact alias metadata resolution, also retains all; this never bypasses
+strict required history/native validation. Conversely, missed prose filenames can
+leave needed work eligible: useful reclamation is not proof of safe inference.
 
 ## Results, cancellation and restoration
 
