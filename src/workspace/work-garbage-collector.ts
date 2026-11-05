@@ -251,8 +251,7 @@ class WorkReferences {
           continue;
         }
       } catch (error) {
-        if (typeof (error as NodeJS.ErrnoException | null)?.code !== 'string')
-          throw error;
+        if (typeof (error as NodeJS.ErrnoException | null)?.code !== 'string') throw error;
         // Either metadata operation can leave reference scope unknown (including long paths).
         this.retainAll = true;
         return;
