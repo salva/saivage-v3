@@ -217,7 +217,7 @@ async function seedRecordEvidence() {
   const initial = supplier({ inputId, conversation: readConversation(root, session) });
   appendConversationBatch({ projectRoot: root }, initial.rows);
   store.acceptRecord(card.id, 'brief.md', 'Accepted B token=record-egress-canary FINAL-RECORD-B-Z', { kind: 'agent', agent: 'analyst' });
-  const tool = workspaceToolBinders.find(tool => tool.name === 'read')!.bind({ projectRoot: root, store, agentName: 'executor', cardId: card.id });
+  const tool = workspaceToolBinders.find(tool => tool.name === 'read')!.bind({ projectRoot: root, store, agentName: 'executor', cardId: card.id, authority: { anchorCardId: card.id, tools: agentExecution(node).agent.tools } });
   const args = { path: `record:///brief.md?card=${card.id}`, metadata_only: true };
   const execution = await tool.executor(args, new AbortController().signal);
   const template = OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE;

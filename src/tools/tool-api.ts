@@ -6,6 +6,7 @@ export {
   invokeTool,
   surfaceToolDefinitions,
   syntheticToolSettlement,
+  ToolArgumentValidationError,
   UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE,
 } from './invocation.js';
 export type { InvocationSurface, ToolSettlementInput, ToolExecutionContext } from './invocation.js';
@@ -19,7 +20,11 @@ export {
   surfaceToolContracts,
 } from './runtime-tool-catalog.js';
 export type { CompiledToolReference } from './runtime-tool-catalog.js';
-export { allowsReachedObject, assertReachedObjectAuthority } from './direct-object-authority.js';
+export {
+  allowsReachedObject,
+  assertReachedObjectAuthority,
+  assertHistoricalObjectAuthority,
+} from './direct-object-authority.js';
 export type { DirectObjectAuthority } from './direct-object-authority.js';
 export { validateProcessToolResult } from './process-tool-result.js';
 export { settleToolActionOutcome } from './tool-result-settlement.js';

@@ -1,8 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import {
-  allowsReachedObject,
-  type DirectObjectAuthority,
-} from '../tools/direct-object-authority.js';
+import { allowsReachedObject, type DirectObjectAuthority } from '../tools/tool-api.js';
 import { cardGitFactsSchema } from '../schemas/index.js';
 
 import {

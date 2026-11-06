@@ -64,3 +64,8 @@ export type {
 } from './analyst-prepare/webfetch.js';
 export { projectNotificationSubmission } from './notification-result-projection.js';
 export { CardExecutionsReadModel } from './read-models/card-executions-read-model.js';
+export { admitRecordMutation, mutateRecord } from './record-mutation-service.js';
+export type {
+  CardAgentRecordMutationPort,
+  RecordMutationAdmissionRequest,
+} from './record-mutation-service.js';

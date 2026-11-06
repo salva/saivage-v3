@@ -14,7 +14,7 @@ model-quality guarantee.
 ## Deliberate PAAD adaptation
 
 The shared current capabilities1 defaults give Planner self/status and immediate
-children/brief, Reviewer self/review*, Executor self/status, global Analyst all/brief
+children/brief, Reviewer self/review\*, Executor self/status, global Analyst all/brief
 and explicit broad reads. A child proposes requirement changes through BLOCKED;
 its parent may amend that same inactive child without weakening upstream obligations.
 Root decisions reach Analyst/operator. Deliberate custom grants may allow other

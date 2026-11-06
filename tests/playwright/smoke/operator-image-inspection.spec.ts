@@ -36,6 +36,7 @@ let sessions: readonly ConversationSessionId[];
 const timestamp = '2026-10-08T00:00:00.000Z';
 const evidence = join(process.cwd(), 'docs/working/2026-10-15-todo-AR03-image-facts/evidence/browser');
 let root: string, app: App, origin: string, cards: CardService;
+let workflows: ReturnType<ReturnType<typeof createResolvedConfigAuthority>['loadEffective']>['workflows'];
 let providerCalls = 0;
 const sink = createServer((_req, res) => { providerCalls++; res.writeHead(500); res.end('Forbidden synthetic provider invocation'); });
 const report: object[] = [];
@@ -67,7 +68,7 @@ function append(session: ConversationSessionId, tool: string, result: ToolResult
   return { requestId, messageId, segmentId: segment.entry.entry_id, version: segment.entry.version };
 }
 async function seed(session: ConversationSessionId, suffix: string) {
-  const execution = await globalWorkspaceObservationToolBinders.find(b => b.name === 'view_image')!.bind({ projectRoot: root, agentName: 'analyst', store: cards }).executor({ path: 'source.png' }, new AbortController().signal, testLlmToolInvocationContext({ sessionId: session, toolName: 'view_image' }));
+  const execution = await globalWorkspaceObservationToolBinders.find(b => b.name === 'view_image')!.bind({ projectRoot: root, agentName: 'analyst', store: cards, authority: { anchorCardId: null, tools: workflows.analyst.tools } }).executor({ path: 'source.png' }, new AbortController().signal, testLlmToolInvocationContext({ sessionId: session, toolName: 'view_image' }));
    const result = settleToolActionOutcome(settleToolExecutionForLlm(execution, testLlmToolInvocationContext({sessionId:session})).providerOutcome).providerResult;
   if (!result.success || result.content?.[0]?.type !== 'image') throw new Error('Missing actual view_image pixels');
   const locator = append(session, 'view_image', result, 'call_0', `view-${suffix}`);
@@ -105,7 +106,7 @@ test.beforeAll(async () => {
     config.oversight.enabled = false; config.mcpServers = {};
   }));
   initializeProject(root);
-  const workflows = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: {} }).loadEffective().workflows;
+  workflows = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: {} }).loadEffective().workflows;
   cards = new CardService(root, workflows);
   const child = cards.create({ type: 'code', parent: 'project', title: 'Synthetic image inspection', bootstrap_content: 'Non-secret synthetic screenshots', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   sessions = [`agent:executor:${child.id}` as ConversationSessionId, 'agent:analyst:global'];

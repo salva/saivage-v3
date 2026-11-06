@@ -17,7 +17,7 @@ it.each([
   ['off', 'pause', 'self'], ['off', 'pause', 'nonself'],
 ])('%s public %s %s uses actual configured tools and owners', (mode, scenario, detail) => {
   const result = spawnSync(process.execPath, [resolve('dist/tests/scripts/public-parent-assignment-smoke.js'), mode!, scenario!, detail!], {
-    encoding: 'utf8', timeout: 60000, env: { ...process.env, TMPDIR: resolve('../tmp') },
+    encoding: 'utf8', timeout: 60000, env: { ...process.env },
   });
   if (process.env.SAIVAGE_TEST_STAGE_TIMING === '1') process.stderr.write(result.stderr ?? '');
   if (result.error || result.status !== 0) throw new Error(`${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);

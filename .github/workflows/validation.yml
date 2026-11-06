@@ -277,6 +277,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Compile backend and E2E fixtures
+        run: npx tsc
+
       - name: Backend E2E suite
         run: npm run test:e2e
 

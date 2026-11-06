@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../../helpers/canonical-project.js';
 import { workflowResult } from '../../helpers/workflow-result.js';
 import { AgentExecutor, type ReviewerSnapshot } from '../../../src/runtime/actors/agent-executor.js';
@@ -14,7 +16,7 @@ afterEach(() => {
 });
 
 function fixture() {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/review-applicability-');
+  const root = mkdtempSync(join(tmpdir(), 'review-applicability-'));
   roots.push(root);
   initProjectTree(root);
   const store = new CardService(root);

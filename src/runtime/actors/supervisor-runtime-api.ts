@@ -4,10 +4,10 @@ import {
   mutateRecord,
   type CardAgentRecordMutationPort,
   type RecordMutationAdmissionRequest,
-} from '../../application/record-mutation-service.js';
-import { parseRecordUrl, RecordUrlInputError } from '../../contracts/record-mutation.js';
+} from '../../application/index.js';
+import { parseRecordUrl, RecordUrlInputError } from '../../contracts/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
-import { ToolArgumentValidationError } from '../../tools/invocation.js';
+import { ToolArgumentValidationError } from '../../tools/tool-api.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';

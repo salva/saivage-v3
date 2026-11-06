@@ -7,10 +7,7 @@ type CompleteRecordReader = Pick<
   CardService,
   'readRecordCurrent' | 'readRecordVersion' | 'readCommittedCardHead'
 >;
-import {
-  assertHistoricalObjectAuthority,
-  type DirectObjectAuthority,
-} from '../tools/direct-object-authority.js';
+import { assertHistoricalObjectAuthority, type DirectObjectAuthority } from '../tools/tool-api.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import {
   buildScopedPathUrl,
