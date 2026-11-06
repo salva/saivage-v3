@@ -277,8 +277,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Compile backend and E2E fixtures
-        run: npx tsc
+      - name: Compile backend/E2E fixtures and package system-template prompts
+        run: npx tsc && npx tsx scripts/copy-system-template-prompts.js
 
       - name: Backend E2E suite
         run: npm run test:e2e
