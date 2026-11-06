@@ -291,6 +291,9 @@ CLI bearer delegation uses `SAIVAGE_API_TOKEN` only when the live lock publishes
 bearer mode. Dead/unverifiable owners or live null endpoints refuse without
 fallback. Only a missing lock permits the interactive bound-lock offline procedure;
 it uses current resolved workflows/prompt closure without init or source commissioning.
+Current operational inputs and selected prompt paths remain protection roots;
+historical configuration/provenance does not add work roots. Current record content
+and effective conversation context protect attachments independently of their age.
 GC response waits have no elapsed deadline; connection establishment remains finite.
 Follow the
 [preview-first procedure](../runbook/work-gc.md); each delete computes a new selection.

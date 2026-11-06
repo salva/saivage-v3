@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree, CardService } from '../helpers/canonical-project.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { acquireRuntimeLifecycleLock, readRuntimeLockStatus, releaseRuntimeLifecycleLock } from '../../src/runtime/lock.js';
-import { appendCardExecutions } from '../../src/persistence/card-execution-log.js';
+import { appendCardExecutions, readCardExecutions } from '../../src/persistence/card-execution-log.js';
 import { cardExecutionFile, runtimeProcessLockFile, globalAgentConversationVersionIndexFile, globalAgentConversationVersionFile, projectIdentityFile, cardRecordHeadFile } from '../../src/persistence/layout.js';
 import { appendConversationBatch, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
@@ -108,15 +108,19 @@ it('losing acquisition after acknowledgement refuses without reroute, takeover o
   } finally { if (winner) releaseRuntimeLifecycleLock(winner); }
 }, 30_000);
 
-it('offline native project retains commissioned captures and never changes delivery source, refs or Git index', async () => {
+it('offline native project collects completed commissioning captures without changing source, refs, evidence or Git index', async () => {
   const root = mkdtempSync(join(tmpdir(), 'gc-offline-native-')); roots.push(root);
   fixtureGit(root, 'init', '-b', 'main'); writeFileSync(join(root, '.gitignore'), '.saivage/\n'); writeFileSync(join(root, 'source.txt'), 'delivery\n');
   fixtureGit(root, 'add', '--all'); fixtureGit(root, 'commit', '-m', 'Fixture delivery');
   expect(publicNativeCli(root, 'init', ...nativeOptions).status).toBe(0);
+  const captures = readCardExecutions(root, 'project').flatMap(row => row.kind === 'native_process_started'
+    ? row.files.map(file => join(root, file.path)) : []);
+  expect(captures.length).toBeGreaterThan(0);
   const selected = [join(root, '.git/HEAD'), join(root, '.git/index'), join(root, 'source.txt'), cardExecutionFile(root, 'project'), join(root, '.saivage/cards/project/card-head.json')].map(path => [path, readFileSync(path)] as const);
   const oid = fixtureGit(root, 'rev-parse', 'main'), garbage = work(root, 'cards/project/tmp/unselected');
   const result = await cli(root, { delete: true });
-  expect(result).toMatchObject({ code: 0, response: { disposition: 'completed' } }); expect(result.response.result.deleted_count).toBe(1); expect(existsSync(garbage)).toBe(false);
+  expect(result).toMatchObject({ code: 0, response: { disposition: 'completed' } }); expect(result.response.result.deleted_count).toBe(captures.length + 1); expect(existsSync(garbage)).toBe(false);
+  expect(captures.some(existsSync)).toBe(false);
   for (const [path, bytes] of selected) expect(readFileSync(path)).toEqual(bytes);
   expect(fixtureGit(root, 'rev-parse', 'main')).toBe(oid);
 }, 45_000);

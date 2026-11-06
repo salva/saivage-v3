@@ -776,7 +776,7 @@ read, moved or normalized. Source completion authorizes no installed operation.
 | `src/runtime/actors/node-execution.ts` | Shared record entry/acceptance, typed inputs and action/agent split. |
 | `src/runtime/records/bootstrap-context.ts` | Same-read bootstrap/conditional record supplier. |
 | `src/runtime/records/record-prompt-content.ts` | Encoded/redacted excerpt construction and disclosure. |
-| `src/runtime/actors/context/composition-projector.ts` | Ordered primary/summary projection and provenance boundary. |
+| `src/utils/context/composition-projector.ts` | Shared pure primary/summary selection and provenance boundary, also used by current-context work protection. |
 | `src/contracts/conversation-validation.ts` | Actual source facts, protection, pairing and coverage. |
 | `src/runtime/actors/compaction/summarizer.ts` | Refine instruction/source composition and source-owned attempt evidence. |
 | `src/application/read-models/agent-operator-read-model.ts` | Current loaded instructions and exact historical/image inspection. |

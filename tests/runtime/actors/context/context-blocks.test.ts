@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import { sha256Hex } from '../../../../src/schemas/index.js';
 import { canonicalJson } from '../../../../src/schemas/index.js';
-import { buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, composedPreparedBlocks, withPreparedRecordBlocks, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, composedPreparedBlocks, withPreparedRecordBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { selectLatestContextBlocks } from '../../../../src/utils/context/composition-projector.js';
 import { type ContextBlock, type ProviderToolDefinition } from '../../../../src/contracts/index.js';
 import type { PreparedCompaction } from '../../../../src/contracts/index.js';
 

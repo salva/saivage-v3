@@ -4,7 +4,10 @@ Use this optional operation to reclaim eligible ordinary scratch, captures and
 webfetch stashes under `.saivage/work/`. It is not startup cleanup, canonical-state
 repair, reset or migration. It never removes directories, publication temporaries,
 attic, backups or canonical history. Deletion is irreversible and not transactional;
-code rollback cannot recover files. Consider a separately prepared preserved backup
+code rollback cannot recover files. Historical card, record and conversation audit
+files remain, but references found only in superseded/compacted-away content or audit
+provenance no longer protect attachments. Their old URLs can stop resolving after
+delete. A current content reference still protects an old attachment. Consider a separately prepared preserved backup
 before destructive use. Preview requires no backup. This operation does not
 replace the stopped/excluded/complete-backup gates for
 [offline operations](./state-adoption.md).
@@ -74,7 +77,8 @@ After confirmation, the CLI exclusively acquires the existing **bound** lifecycl
 lock with null endpoint; identity must already exist. It loads current configuration,
 workflows and prompt closure and uses the same collector, without server/provider/MCP,
 Git commissioning, init or recovery. Valid historical running cards, unmatched calls
-and incomplete native attempts stay unchanged and protect their references. A missing
+and incomplete native attempts stay unchanged; unfinished file selections remain
+protected without recovery or replay. A missing
 lock is not proof of process containment; safety depends on maintained operator
 quiescence. Competing acquisition refuses, never reroutes. Preview also publishes
 and releases this lock, but performs no collector file effects. Results print only
@@ -94,13 +98,18 @@ certify whole-project startup compatibility or authorize start/Run.
    Oversight check precede marking. Already active independent HTTP MCP lifecycle
    calls/reconciliation refuse this attempt before pause, rather than being joined
    or automatically retried. Read-only views and project Stop remain available.
-3. Fresh strict canonical reads mark explicit and recognized inferred references in current/linked history,
-   baseline/draft/accepted records, all indexed conversation segments (including
-   pre-compaction originals), raw tool results, pending messages and execution
-   evidence. Directory/alias references and operational dependencies also protect
-   work. Internal observation facts, protected prompts and complete action/native
-   evidence, including incomplete private indexes/stdout/stderr, retain their exact
-   structured selections. The free-text limitation above does not relax these reads.
+3. Fresh strict canonical reads validate complete linked card/accepted history, all
+   indexed conversation segments and all action/native evidence. Only current
+   semantic card fields/pending bodies, selected record baseline/draft/latest
+   accepted content and current effective conversation context mark references.
+   Effective context includes its selected summary, retained instructions and
+   since-compaction messages/tool payloads, including structured file selections;
+   complete inline process streams need no capture URL. Old originals, superseded
+   summaries, observations and provenance alone do not protect work. An inline
+   accepted action output does not select its producer capture merely by authorship.
+   Unfinished invocation captures/private indexes, current process presentations,
+   directory/alias references and operational dependencies remain protected.
+   The free-text limitation above does not relax these strict historical reads.
    Unresolved native source continuations refuse; GC performs no Git inspection,
    checkpoint or return to force settlement. Corrupt/missing required evidence or torn tails refuse without repair.
    Unknown surviving process/service write footprints retain all potentially

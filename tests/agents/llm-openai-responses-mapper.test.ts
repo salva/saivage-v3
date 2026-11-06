@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
-import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../src/utils/context/composition-projector.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { RESPONSES_A, RESPONSES_B, responsesBundle } from '../helpers/responses-producer-fixture.js';

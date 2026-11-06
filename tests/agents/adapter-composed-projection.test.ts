@@ -3,7 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
-import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../src/utils/context/composition-projector.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
 import { canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';

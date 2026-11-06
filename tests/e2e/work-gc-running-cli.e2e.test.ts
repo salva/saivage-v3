@@ -139,7 +139,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
             '--input-type=module', '-e',
             `import { run } from ${JSON.stringify(pathToFileURL(join(cwd, 'src/cli.ts')).href)}; await run(['node','saivage','gc-work','--dry-run']);`],
           { cwd: root, env: { ...process.env, NODE_OPTIONS: '' }, timeout: 20_000, killSignal: 'SIGKILL' });
-        expect(JSON.parse(child.stdout)).toMatchObject({ disposition: 'completed', result: { would_delete_count: 1 } });
+        expect(JSON.parse(child.stdout)).toMatchObject({ disposition: 'completed', result: { would_delete_count: 2 } });
         expect(child.stderr).toBe('');
         expect(snapshot(join(root, '.saivage'))).toEqual(before);
       }
@@ -147,13 +147,16 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       reports.push(JSON.parse(output.mock.calls.at(-1)![0] as string));
       output.mockRestore();
       expect(reports.at(-1)).toMatchObject({ disposition: 'completed', restoration: 'not_resumed',
-        result: { retained: { protected: 2 } } });
+        result: { retained: { protected: 1 } } });
       expect(app.runtimeApi.getStatus().status).toBe('paused');
       expect(readFileSync(retained, 'utf8')).toBe('historical evidence');
-      expect(readFileSync(historical, 'utf8')).toBe('old accepted evidence');
       expect(existsSync(dirname(garbage))).toBe(true);
-      if (flags.includes('--delete')) expect(existsSync(garbage)).toBe(false);
-      else expect(snapshot(join(root, '.saivage'))).toEqual(before);
+      if (flags.includes('--delete')) {
+        expect(existsSync(garbage)).toBe(false); expect(existsSync(historical)).toBe(false);
+      } else {
+        expect(readFileSync(historical, 'utf8')).toBe('old accepted evidence');
+        expect(snapshot(join(root, '.saivage'))).toEqual(before);
+      }
       // Equivalent independent fixtures exercise the actual CLI filter transport,
       // inventory-to-mark change, strict cutoff and target stop in both effect modes.
       const filterRoot = dirname(garbage);
@@ -164,6 +167,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       }
       // Make the preceding deletion fixture equivalent again, without replaying a preview.
       if (!existsSync(garbage)) writeFileSync(garbage, 'disposable');
+      if (!existsSync(historical)) writeFileSync(historical, 'old accepted evidence');
       const originalRun = app.runWorkGc.bind(app);
       const atInventory = jest.spyOn(app, 'runWorkGc').mockImplementation(input => originalRun({ ...input,
         inventory: async signal => { const found = await input.inventory(signal); appendFileSync(join(filterRoot, 'filter-stale'), 'changed'); return found; },
@@ -176,7 +180,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         await run(['node', 'saivage', 'gc-work', ...flags, '--before', '1970-01-01T00:00:02Z', '--target-bytes', String(total - 4)]);
         const report = JSON.parse(filteredOutput.mock.calls.at(-1)![0] as string) as WorkGcResponse;
         filteredReports.push(report);
-        expect(report.result).toMatchObject({ retained: { protected: 2, recent: 3, stale: 1, target: 1 }, accounted_target_shortfall: 0 });
+        expect(report.result).toMatchObject({ retained: { protected: 1, recent: 4, stale: 1, target: 1 }, accounted_target_shortfall: 0 });
         expect(existsSync(join(filterRoot, 'filter-old-a'))).toBe(!flags.includes('--delete'));
         expect(existsSync(join(filterRoot, 'filter-old-b'))).toBe(true);
       } finally { atInventory.mockRestore(); filteredOutput.mockRestore(); }
@@ -219,7 +223,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         try {
           await run(['node', 'saivage', 'gc-work', '--delete']);
           expect(JSON.parse(freshOutput.mock.calls.at(-1)![0] as string)).toMatchObject({
-            disposition: 'completed', result: { deleted_count: 0, retained: { protected: 3 } },
+            disposition: 'completed', result: { deleted_count: 1, retained: { protected: 2 } },
           });
           expect(readFileSync(garbage, 'utf8')).toBe('disposable');
         } finally { freshOutput.mockRestore(); }
@@ -280,8 +284,8 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
   expect(filteredReports[0]).toEqual(filteredReports[1]);
   expect(filteredReports[2]!.result!.deleted_logical_bytes).toBe(filteredReports[0]!.result!.would_delete_logical_bytes);
   expect(filteredReports[2]!.result!.retained).toEqual(filteredReports[0]!.result!.retained);
-  expect(reports[0]!.result).toMatchObject({ would_delete_count: 1, would_delete_logical_bytes: 10, deleted_count: 0 });
-  expect(reports[2]!.result).toMatchObject({ deleted_count: 1, deleted_logical_bytes: 10, would_delete_count: 0 });
+  expect(reports[0]!.result).toMatchObject({ would_delete_count: 2, would_delete_logical_bytes: 31, deleted_count: 0 });
+  expect(reports[2]!.result).toMatchObject({ deleted_count: 2, deleted_logical_bytes: 31, would_delete_count: 0 });
   expect(reports[2]!.result!.expected_accounted_logical_bytes_remaining)
     .toBe(reports[0]!.result!.expected_accounted_logical_bytes_remaining);
 }, 30_000);

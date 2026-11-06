@@ -560,6 +560,33 @@ export function inspectCardExecutions(projectRoot: string, cardId: string) {
     : inspectGrowingFile(path, bytes, (prefix) => parseRows(cardId, prefix));
 }
 
+/** Already validated evidence: only unfinished owners still select work files.
+ * Completed native candidate/correction facts select Git objects, not old captures or
+ * a reusable work index. Native preservation allocates a fresh index for each call.
+ */
+export function unfinishedExecutionWorkPaths(rows: readonly CardExecutionRow[]): readonly string[] {
+  const unfinished = new Map<string, string[]>();
+  for (const row of rows) {
+    switch (row.kind) {
+      case 'invocation_started':
+      case 'native_started':
+        unfinished.set(row.invocation_id, [...row.artifact_paths]);
+        break;
+      case 'process_started':
+      case 'native_process_started':
+        unfinished.get(row.invocation_id)!.push(...row.files.map((file) => file.path));
+        break;
+      case 'invocation_finished':
+      case 'native_finished':
+        unfinished.delete(row.invocation_id);
+        break;
+      case 'native_process_finished':
+        break;
+    }
+  }
+  return [...unfinished.values()].flat();
+}
+
 /** Direct owner-local consumption; no retained admission or historical business decoder. */
 export function appendCardExecutions(
   projectRoot: string,

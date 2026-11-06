@@ -28,6 +28,7 @@ const EXPLICIT_PUBLIC_ENTRYPOINTS = new Set([
   'tools/prompt-api',
   'tools/tool-api',
   'utils/prompt-api',
+  'utils/context-api',
 ]);
 
 function walk(dir) {

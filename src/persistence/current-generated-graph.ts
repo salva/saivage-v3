@@ -31,7 +31,8 @@ import {
   inspectConversationIndex,
   inspectConversationSegment,
 } from './conversation-file.js';
-import { inspectCardExecutions } from './card-execution-log.js';
+import { inspectCardExecutions, unfinishedExecutionWorkPaths } from './card-execution-log.js';
+import { conversationWorkProtection } from '../utils/context-api.js';
 import { readCanonicalBytesOrMissing } from './growing-file.js';
 import {
   cardRecordsRoot,
@@ -175,7 +176,8 @@ export function initializeAndValidateCurrentGeneratedState(
 
 /**
  * GC-only pure owning reads. No initialization, tail repair, previous-slot consumption or
- * canonical sibling discovery. The callback consumes complete values, never displayed excerpts.
+ * canonical sibling discovery. Strict history consumption is independent of the small
+ * current semantic protection values passed to the callback (never displayed excerpts).
  */
 export async function inspectWorkGcCanonicalState(
   projectRoot: string,
@@ -198,7 +200,6 @@ export async function inspectWorkGcCanonicalState(
       throw new Error('Required GC conversation index is missing.');
     }
     const index = inspectConversationIndex(projectRoot, session, bytes);
-    await reference(index, cardId);
     for (const entry of index.versions) {
       check();
       const inspected = inspectConversationSegment(projectRoot, session, index, entry.version);
@@ -206,16 +207,13 @@ export async function inspectWorkGcCanonicalState(
         throw new Error(
           'GC requires complete selected conversation segments; no tail repair is performed.',
         );
-      // Strict inspection has already validated the complete segment. Extract each source
-      // once, not the derived rounds/calls/preamble and repeated session index.
-      await reference(inspected.projection.genesis, cardId);
-      await reference(inspected.projection.rows, cardId);
+      if (entry.version === index.current_version)
+        await reference(conversationWorkProtection(inspected.projection.conversation), cardId);
       await setImmediate();
     }
   }
   for (const selection of iterateCanonicalLinkedCardHistoryTree(projectRoot)) {
     check();
-    await reference(selection.rows, selection.current.id);
     if (selection.tombstone) continue;
     const card = selection.current;
     owners.add(card.id);
@@ -228,7 +226,19 @@ export async function inspectWorkGcCanonicalState(
       if (!parentType || !workflows.cardTypes.get(parentType)!.permittedChildTypes.has(card.type))
         throw new Error('GC reached an invalid parent/type relationship.');
     }
-    await reference(readPendingCardNotifications(projectRoot, card.id), card.id);
+    await reference(
+      {
+        title: card.title,
+        status_text: card.status_text,
+        summary: card.lifecycle.result?.summary,
+        error: card.lifecycle.error,
+      },
+      card.id,
+    );
+    await reference(
+      readPendingCardNotifications(projectRoot, card.id).map((message) => message.content),
+      card.id,
+    );
     const selectedDefinitions = new Map<string, RecordDefinition>(
       definitions(workflow).map((d) => [d.filename, d]),
     );
@@ -270,10 +280,13 @@ export async function inspectWorkGcCanonicalState(
         throw new Error('Listed GC record head disappeared.');
       if (definition.bootstrap && !current?.accepted)
         throw new Error('Required GC bootstrap record is unavailable.');
-      await reference(current, card.id);
-      for (const version of iterateAuthoredRecordVersions(projectRoot, card, definition)) {
+      if (current)
+        await reference(
+          [current.baseline?.content, current.draft?.content, current.accepted?.content],
+          card.id,
+        );
+      for (const _version of iterateAuthoredRecordVersions(projectRoot, card, definition)) {
         check();
-        await reference(version, card.id);
         await setImmediate();
       }
       await setImmediate();
@@ -281,9 +294,14 @@ export async function inspectWorkGcCanonicalState(
     const executions = inspectCardExecutions(projectRoot, card.id);
     if (executions.tornSuffixLength)
       throw new Error('GC refuses torn execution evidence without mutation.');
-    // Both action and native rows are included, including incomplete native capture/index
-    // selections; execution endpoint links cannot hide selected work files.
-    await reference(executions.projection, card.id);
+    // No record-author/candidate invocation joins: those consumers use inline bytes/Git
+    // facts, not producer captures. Unfinished attempts retain their exact file selections.
+    await reference(
+      unfinishedExecutionWorkPaths(executions.projection).map((path) => ({
+        path: resolve(projectRoot, path),
+      })),
+      card.id,
+    );
     for (const agent of cardConversationAgents(workflow))
       await conversation(cardAgentSessionId(agent, card.id));
     for (const state of workflow.states.values()) {

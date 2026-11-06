@@ -11,6 +11,11 @@ offline migration gates below or a separately consented reset, with matching
 release/configuration/prompt reconciliation. See the
 [format reference](../architecture/durable-format-changes.md).
 
+The later [effective work-GC retention policy](./work-gc.md) adds no conversion on
+matching contracts. It does not waive the authority cutover above: old/mixed state
+still blocks. Separately requested GC delete can remove historical-only work
+attachments without deleting canonical history.
+
 ## Native Git initialization boundaries
 
 The opt-in classic-git profile requires all four explicit init provisioning values

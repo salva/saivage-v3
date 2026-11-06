@@ -17,10 +17,10 @@ import {
 import type { ValidatedConversation } from '../../contracts/index.js';
 import type { ProviderConversationProjection } from '../../contracts/index.js';
 import {
-  composeContextProjection,
+  composeConversationContext,
   providerConversationFromComposedContext,
-} from './context/composition-projector.js';
-import { classifyConversationRowPolicy } from './context/row-policy.js';
+} from '../../utils/context-api.js';
+import { classifyConversationRowPolicy } from '../../utils/context-api.js';
 import type { ContextBlock } from '../../contracts/index.js';
 import {
   appendConversationBatch,
@@ -219,25 +219,8 @@ export function providerConversationProjection(
   conversation: ValidatedConversation,
   preparedDynamicBlocks: readonly ContextBlock[],
 ): ProviderConversationProjection {
-  const genesis = conversation.compactedGenesis;
-  const history = conversation.effectiveCompactedHistory;
   return providerConversationFromComposedContext(
-    composeContextProjection({
-      sourceSessionId: conversation.sourceSessionId,
-      effectiveHistory:
-        genesis && history
-          ? {
-              summaryText: history.summaryText,
-              historyMessageId: `${genesis.id}:compacted-history`,
-              sourceVersion: genesis.sourceVersion,
-              coveredThroughMessageId: genesis.coveredThroughMessageId,
-              requiredModelFacts: history.requiredModelFacts,
-              protectedPrompts: history.protectedPrompts,
-            }
-          : null,
-      dynamicBlocks: preparedDynamicBlocks,
-      uncoveredRows: conversation.sourceRows,
-    }),
+    composeConversationContext(conversation, preparedDynamicBlocks),
   );
 }
 

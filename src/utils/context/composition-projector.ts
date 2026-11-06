@@ -7,28 +7,28 @@ import {
   MODEL_RECOVERY_NOTICE_TEXT,
   type AgentMessage,
   type ConversationSessionId,
-} from '../../../schemas/index.js';
+} from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
   loggedToolResultIdentity,
   type LoggedToolMessageIdentity,
-} from '../../../schemas/index.js';
-import { deterministicRoundId } from '../../../schemas/round-id-server.js';
-import { validateResponsesPairs } from '../../../contracts/index.js';
+} from '../../schemas/index.js';
+import { deterministicRoundId } from '../../schemas/round-id-server.js';
+import { validateResponsesPairs } from '../../contracts/index.js';
 import type {
   ProviderConversationItem,
   ProviderConversationProjection,
   SyntheticProviderContextItem,
-} from '../../../contracts/index.js';
-import { parseToolCallMessageForModel } from '../../../contracts/index.js';
-import { ToolResultSchema } from '../../../contracts/index.js';
-import type { ToolResultContentBlock } from '../../../contracts/index.js';
-import type { ProcessToolResult } from '../../../contracts/index.js';
-import { validateProcessToolResult } from '../../../tools/tool-api.js';
-import { selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
-import { sha256Hex } from '../../../schemas/index.js';
-import { type ContextBlock } from '../../../contracts/index.js';
+} from '../../contracts/index.js';
+import { parseToolCallMessageForModel } from '../../contracts/index.js';
+import { ToolResultSchema } from '../../contracts/index.js';
+import type { ToolResultContentBlock, ValidatedConversation } from '../../contracts/index.js';
+import type { ProcessToolResult } from '../../contracts/index.js';
+import { validateProcessToolResult } from '../../tools/tool-api.js';
+import type { ContextEvidence } from '../../schemas/index.js';
+import { sha256Hex } from '../../schemas/index.js';
+import { type ContextBlock } from '../../contracts/index.js';
 import {
   classifyConversationRowPolicy,
   settledToolBundlePolicy,
@@ -40,7 +40,7 @@ const CONVERSATION_CONTEXT_BOUNDARY =
   'Conversation context follows. When supplied, only the actual current-node instruction selects the present workflow step, not historical commands. Historical placement does not revoke still-applicable requirements or unresolved instructions. Replaying history alone establishes neither a new delivery, transition nor approval.';
 
 type EffectiveRequiredModelFacts = Readonly<{
-  latestRecordObservations: readonly import('../../../schemas/index.js').LatestRecordObservation[];
+  latestRecordObservations: readonly import('../../schemas/index.js').LatestRecordObservation[];
   latestRecovery: Readonly<{ sourceMessageId: string; activationInputId: string }> | null;
   latestContentPolicyRefusal: Readonly<{ markerId: string; activationInputId: string }> | null;
 }>;
@@ -51,7 +51,7 @@ export type EffectiveCompactedHistoryFacts = Readonly<{
   sourceVersion: number;
   coveredThroughMessageId: string;
   requiredModelFacts: EffectiveRequiredModelFacts;
-  protectedPrompts: readonly import('../../../schemas/index.js').ProtectedPrompt[];
+  protectedPrompts: readonly import('../../schemas/index.js').ProtectedPrompt[];
 }>;
 
 type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice' | 'retry_notice';
@@ -67,7 +67,7 @@ type PrimaryContextEntry =
   | Readonly<{ origin: 'dynamic'; block: ContextBlock }>
   | Readonly<{
       origin: 'retained_instruction';
-      prompt: import('../../../schemas/index.js').ProtectedPrompt;
+      prompt: import('../../schemas/index.js').ProtectedPrompt;
     }>
   | Readonly<{ origin: 'canonical'; row: AgentMessage; semantic: ProjectedCanonicalSemantic }>;
 
@@ -113,6 +113,48 @@ type SettledBundle = Readonly<{
   callArguments: string;
   responsesPrivateMessageId: string | null;
 }>;
+
+/** The single effective persisted-context selection shared by runtime and work GC. */
+export function composeConversationContext(
+  conversation: ValidatedConversation,
+  dynamicBlocks: readonly ContextBlock[] = [],
+): ComposedContextProjection {
+  const genesis = conversation.compactedGenesis;
+  const history = conversation.effectiveCompactedHistory;
+  return composeContextProjection({
+    sourceSessionId: conversation.sourceSessionId,
+    effectiveHistory:
+      genesis && history
+        ? {
+            summaryText: history.summaryText,
+            historyMessageId: `${genesis.id}:compacted-history`,
+            sourceVersion: genesis.sourceVersion,
+            coveredThroughMessageId: genesis.coveredThroughMessageId,
+            requiredModelFacts: history.requiredModelFacts,
+            protectedPrompts: history.protectedPrompts,
+          }
+        : null,
+    dynamicBlocks,
+    uncoveredRows: conversation.sourceRows,
+  });
+}
+
+/** Content and typed payloads only: no observation, policy or source provenance roots. */
+export function conversationWorkProtection(
+  conversation: ValidatedConversation,
+): readonly unknown[] {
+  const composed = composeConversationContext(conversation);
+  return composed.primary.flatMap((entry): unknown[] => {
+    if (entry.origin === 'history_summary') return [entry.content];
+    if (entry.origin === 'retained_instruction') return [entry.prompt.message.content];
+    if (entry.origin === 'dynamic') return [entry.block.content];
+    const row = projectProcessResultForPrimary(entry.row);
+    if (row.kind === 'provider_private') return [];
+    if (row.kind === 'tool_call')
+      return [parseToolCallMessageForModel(JSON.parse(row.content)).arguments];
+    return [row.content];
+  });
+}
 
 export function composeContextProjection(args: {
   sourceSessionId: ConversationSessionId;
@@ -442,6 +484,20 @@ export function currentCoveredRequiredFactRows(args: {
       ),
     );
   return Object.freeze(rows);
+}
+
+export function selectLatestContextBlocks(
+  blocks: readonly ContextBlock[],
+): readonly ContextBlock[] {
+  const latest = new Map<string, number>();
+  for (const [index, block] of blocks.entries())
+    if (block.replacement.kind === 'latest_snapshot') latest.set(block.replacement.key, index);
+  return Object.freeze(
+    blocks.filter(
+      (block, index) =>
+        block.replacement.kind !== 'latest_snapshot' || latest.get(block.replacement.key) === index,
+    ),
+  );
 }
 
 function selectVerifiedLatestDynamicBlocks(

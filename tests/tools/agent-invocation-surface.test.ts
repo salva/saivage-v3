@@ -36,7 +36,7 @@ import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.
 import {
   composeContextProjection,
   providerConversationFromComposedContext,
-} from '../../src/runtime/actors/context/composition-projector.js';
+} from '../../src/utils/context/composition-projector.js';
 
 function expectRecordReaderPreparedDelivery(surface: Parameters<typeof surfaceToolDefinitions>[0]) {
   const tools = surfaceToolDefinitions(surface);

@@ -19,7 +19,7 @@ import { buildCandidateRequest } from '../../../../src/agents/candidate-request.
 import { selectLlmProtocolAdapter } from '../../../../src/agents/llm-protocol-adapter.js';
 import { buildAnalystOrientationSnapshot } from '../../../../src/application/read-models/analyst-orientation.js';
 import type { ContextBlock } from '../../../../src/contracts/index.js';
-import { composeContextProjection, providerConversationFromComposedContext } from '../../../../src/runtime/actors/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../../../src/utils/context/composition-projector.js';
 
 const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAccumulatorWithoutProgress>[0], 'progress'>) => createAccumulatorWithoutProgress({ ...args, progress: noCompactionProgress });
 

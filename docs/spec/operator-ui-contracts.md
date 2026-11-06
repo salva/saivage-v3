@@ -256,7 +256,9 @@ submission or completed effect. HTTP held ingress uses 409 `WorkGcBusy` with
 Start/Resume rejection never releases the hold. An ordinary Pause withdraws GC's
 automatic-resume intent; Stop/close/restart cancels GC and defeats that restoration.
 Stopped Start/mutation attempts are still busy; already paused/stopped never auto-resume.
-No transcript, execution-evidence or historical-selection semantics change.
+Canonical transcript, execution-evidence and historical selections remain unchanged.
+Historical-only work attachments may be deleted: use existing unavailable-file
+presentation, without predecessor/capture recovery or a new UI control.
 
 Outstanding named-agent execution includes overload/backoff, not just wire
 consumption. Provider refresh shows advisory cooling/reason/deadline, not a send

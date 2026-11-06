@@ -9,7 +9,7 @@ import { appendConversationBatch, readConversation, readConversationCatalog, rea
 import { foldConversation } from '../../src/application/read-models/agent-conversation-read-model.js';
 import { LOCAL_OMISSION_SUMMARY, compact as compactWithoutProgress, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy, type CompactArgs, type CompactionResult } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
-import { composeContextProjection, providerConversationFromComposedContext, type ComposedContextProjection } from '../../src/runtime/actors/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext, type ComposedContextProjection } from '../../src/utils/context/composition-projector.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';

@@ -3,7 +3,7 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { NO_FRESHNESS_EFFECTS, type ContextBlock, type ToolDefinition } from '../../src/contracts/index.js';
 import { agentMessageSchema, canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, sha256Hex, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
-import { composeContextProjection, providerConversationFromComposedContext, type EffectiveCompactedHistoryFacts } from '../../src/runtime/actors/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext, type EffectiveCompactedHistoryFacts } from '../../src/utils/context/composition-projector.js';
 import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { invocationProviderRegistry } from '../helpers/invocation-provider-fixture.js';

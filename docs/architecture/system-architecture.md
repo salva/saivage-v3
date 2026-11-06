@@ -500,7 +500,11 @@ qualified grammar for compilation, lifecycle, execution evidence and API project
 Execution envelope3 also has logical native start/finish and sequential command
 start/finish rows owned by GitWorkflow. These carry actual native bindings and completed observations,
 not action descriptors or provider turns. The existing complete execution reader
-validates associations and selects exact captures/private-index paths for work GC.
+validates all associations; unfinished invocations select exact captures/private-index
+paths for work GC. Completed evidence alone does not retain attachments. Current
+candidate preparation IDs compare source applicability, not capture ownership;
+native preservation uses a fresh per-invocation index and Git snapshot refs, not a
+previous work index. No authorship-to-producer-capture join is performed.
 Incomplete attempts authorize no continuation. Evidence publication uncertainty
 crosses the application fatal boundary before native follow-up or cleanup. This
 contract does not enable ON before Supervisor lifecycle integration is complete.
@@ -659,9 +663,17 @@ metadata may protect work without outside-work discovery. Fresh candidate identi
 size, timestamps and protection checks immediately precede the final effect switch:
 would-delete attribution or unlink plus directory durability. All directories stay.
 No persistent inventory/report, new durable family or format bump is introduced.
-Reference extraction visits each strict conversation index once and each validated
-segment's genesis and physical rows, not its repeated derived conversation views.
-It retains internal observations, protected prompts and raw tool/native evidence.
+Validation and protection are separate: predecessor content and all indexed segments
+and execution rows are validated, not recursively marked. Current semantic card
+fields/pending bodies and selected record baseline/draft/latest accepted content
+protect work. `src/utils/context/composition-projector.ts` shares pure effective
+conversation selection with runtime: only the current segment's selected summary,
+retained instructions and messages/tool payloads contribute content roots. Metadata,
+observations and source provenance do not. Typed current payload selections remain
+intact; complete inline process streams omit capture URLs as in runtime projection.
+Unfinished execution files, current process presentations and operational inputs
+remain protected; current references can protect old attachments independently.
+Historical canonical bytes stay retained even when their attachments are collected.
 Nested values and text tokens cooperatively yield every 256 visited items; individual
 file reads, JSON parsing and regex operations remain synchronous and indivisible.
 Call-local protection sets test candidate ancestors through the work root rather

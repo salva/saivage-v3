@@ -160,9 +160,15 @@ to finish an accepted turn; failures refuse collection rather than becoming succ
 Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
 while execution continues, then holds/parks and freshly consumes canonical sources,
 marking explicit and recognized inferred references before checking each candidate
-at use. Selected baseline/draft/accepted
-history, all indexed conversation originals and raw results, execution selections,
-pending messages, operational dependencies and exact aliases protect work. Strict
+at use. Current semantic card fields, pending bodies, selected baseline/draft/latest
+accepted record content, and the current conversation segment's effective summary,
+retained instructions and messages/tool payloads protect work. Unfinished execution
+file selections, process presentations, operational dependencies and exact aliases
+also protect it. Superseded content, compacted-away messages and audit provenance or
+observations alone do not; actual current references can still select old attachments.
+All linked card/accepted predecessors, indexed segments and execution streams remain
+strictly consumed without rewriting history. Historical attachment links can stop
+resolving after an explicit delete. Strict
 invalid required evidence blocks collection; GC never repairs/truncates it. Unknown
 ownership or surviving writer effects cause retention/refusal, not guessed safety.
 Only eligible regular files under work without recognized protections can be removed;
@@ -178,15 +184,16 @@ Only a missing lifecycle lock selects offline CLI GC: exact interactive maintain
 writer-quiescence confirmation precedes existing bound lifecycle exclusion and
 generated reads. Dead/malformed/indeterminate owners refuse, and live delegation
 never falls back. Offline GC loads current inputs without server/init/recovery/Git
-commissioning, and preserves historical running/unmatched/native selections without
-settling them. Operator exclusion, not lock absence, covers external writers.
+commissioning, and preserves running/unmatched/native state without settling it.
+Unfinished file selections stay protected. Operator exclusion, not lock absence, covers external writers.
 Preview publishes/releases that lock but has no collector effects; offline results
 follow successful release. Lock-release uncertainty is fatal before further output
 or cleanup for every owner, including app, initializer and repair.
 
-Strict extraction consumes each session index once and each validated segment's
-genesis/physical rows, retaining internal observations and protected prompts rather
-than repeatedly walking derived views. Call-local sets test candidate ancestors;
+Strict extraction consumes each session index once and every indexed segment, but
+marks only current effective context through the same pure selection as runtime.
+Internal observations, source links and compaction bookkeeping are not protection
+roots. Complete inline process results need no capture URLs. Call-local sets test candidate ancestors;
 they confer no later invocation authority. There is no GC elapsed deadline or
 duration knob: the call-owned CLI transport disables response header/body deadlines
 but keeps finite connection establishment. Explicit cancellation is cooperative,
