@@ -702,6 +702,18 @@ conservative even when unrelated prose guesses are excluded.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
 only the verified live lock endpoint/auth, with no fallback after delegation failure.
+The existing application `workGcTask` guard admits synchronously before success
+streaming, including during pre-hold inventory; concurrent requests keep HTTP 409.
+The contract registrar preserves request/auth validation and emits validated
+`application/x-ndjson` frames with no-store/nosniff. Call-local synchronous observers
+merge cumulative counters and monotonic elapsed time, throttling ordinary progress
+without a timer. Backpressure drops snapshots; sink failure/disconnect requests
+cooperative cancellation, not collection mutations. The terminal result waits for
+ordinary restoration and bounded output drain. Fatal uncertainty crosses the fatal
+port before callbacks, output or release; there is no unconditional stream finalizer.
+The incremental client bounds each UTF-8 line to 4096 bytes, validates every frame,
+rejects invalid/truncated/post-terminal frames and requires terminal plus clean EOF.
+CLI signals close online transport too; stdout is final JSON, stderr prompts/progress.
 Its call-owned Undici dispatcher disables header/body deadlines, retains finite
 connection establishment, follows no redirects and retries nothing; other runtime
 requests keep their existing transport. Body transport failure differs from malformed
@@ -1667,7 +1679,7 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 | `GET /api/cards/:id/diff` | Projected card comparison. | `src/contracts/operator-api-runtime-cards.ts:757` |
 | `GET /api/runtime/status` | Supervisor runtime observation. | `src/contracts/operator-api-runtime-cards.ts:774` |
 | `POST /api/runtime/pause` | Bodyless cooperative Pause. | `src/contracts/operator-api-runtime-cards.ts:786` |
-| `POST /api/runtime/gc-work` | Explicit live-server work preview or deletion; collection requires paused/stopped execution. | `src/contracts/operator-api-work-gc.ts:7` |
+| `POST /api/runtime/gc-work` | Authenticated NDJSON progress and terminal result for explicit work preview/deletion; pre-stream busy admission, then paused/stopped collection. | `src/contracts/operator-api-work-gc.ts:9` |
 | `POST /api/runtime/resume` | Bodyless same-Run Resume. | `src/contracts/operator-api-runtime-cards.ts:799` |
 | `POST /api/runtime/stop-project` | Bodyless project containment. | `src/contracts/operator-api-runtime-cards.ts:813` |
 | `POST /api/runtime/restart-server` | Exact-confirmation authenticated restart. | `src/contracts/operator-api-runtime-cards.ts:826` |

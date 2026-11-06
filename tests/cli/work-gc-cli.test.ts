@@ -56,9 +56,9 @@ it('default and explicit preview send the same strict mode only to the published
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString());
     requests.push({ path: request.url, body });
-    reply.writeHead(status, { 'content-type': 'application/json' });
-    reply.end(JSON.stringify(status === 200 ? { mode: body.mode, disposition: 'refused',
-      reason: 'maintenance_refused', restoration: 'not_acquired', result: null } : {}));
+    reply.writeHead(status, { 'content-type': status === 200 ? 'application/x-ndjson' : 'application/json' });
+    reply.end(status === 200 ? JSON.stringify({ type: 'result', response: { mode: body.mode, disposition: 'refused',
+      reason: 'maintenance_refused', restoration: 'not_acquired', result: null } }) + '\n' : '{}');
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address();

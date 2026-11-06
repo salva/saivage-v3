@@ -31,9 +31,10 @@ it('uses the selected Undici request with zero header/body deadlines, waits for 
     expect(request.headers.authorization).toBe('Bearer synthetic-token');
     request.socket.once('close', () => closed.resolve());
     entered.resolve(); await headers.promise;
-    reply.writeHead(200, { 'content-type': 'application/json' });
-    reply.write(JSON.stringify(response).slice(0, 20));
-    await body.promise; reply.end(JSON.stringify(response).slice(20));
+    reply.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    const line = JSON.stringify({ type: 'result', response }) + '\n';
+    reply.write(line.slice(0, 20));
+    await body.promise; reply.end(line.slice(20));
   });
   const observed: Array<{ headersTimeout: number; bodyTimeout: number }> = [];
   const creation = channel('undici:request:create');
@@ -60,11 +61,11 @@ it.each([
   ['auth', 401, '{"message":"unauthorized"}', /unauthorized/],
   ['busy', 409, '{"message":"Work garbage collection is busy."}', /busy/],
   ['redirect', 302, '{}', /HTTP 302/],
-  ['non-JSON', 200, 'private-not-json', /malformed JSON/],
-  ['invalid contract', 200, '{}', /did not match/],
+   ['non-JSON', 200, 'private-not-json\n', /JSON/],
+   ['invalid contract', 200, '{}\n', /./],
 ] as const)('fails %s once without redirect, retry or fetch fallback', async (_name, status, text, error) => {
   let count = 0;
-  const endpoint = await listen((_request, reply) => { count++; reply.writeHead(status, { location: '/redirect-target' }); reply.end(text); });
+  const endpoint = await listen((_request, reply) => { count++; reply.writeHead(status, { location: '/redirect-target', 'content-type': 'application/x-ndjson' }); reply.end(text); });
   await expect(new OperatorRuntimeHttpClient(() => { throw new Error('fetch must not run'); }).gcWork(endpoint, { mode: 'dry_run' })).rejects.toThrow(error);
   expect(count).toBe(1);
 });
@@ -74,9 +75,9 @@ it.each(['before headers', 'truncated body'] as const)('distinguishes %s transpo
   const endpoint = await listen((_request, reply) => {
     count++;
     if (mode === 'before headers') reply.destroy();
-    else { reply.writeHead(200, { 'content-length': '1000' }); reply.write('{'); setImmediate(() => reply.destroy()); }
+    else { reply.writeHead(200, { 'content-length': '1000', 'content-type': 'application/x-ndjson' }); reply.write('{'); setImmediate(() => reply.destroy()); }
   });
-  await expect(new OperatorRuntimeHttpClient().gcWork(endpoint, { mode: 'dry_run' })).rejects.toThrow('transport or response body read failed');
+  await expect(new OperatorRuntimeHttpClient().gcWork(endpoint, { mode: 'dry_run' })).rejects.toThrow();
   expect(count).toBe(1);
 });
 

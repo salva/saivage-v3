@@ -139,6 +139,29 @@ leave needed work eligible: useful reclamation is not proof of safe inference.
 
 ## Results, cancellation and restoration
 
+Online and offline CLI stdout contains exactly one final JSON response; warnings,
+offline acknowledgement prompts and optional progress go to stderr. For example,
+redirect `>gc-result.json 2>gc-progress.log` outside work. Progress is counts-only:
+`phase` (`inventory`, `settling`, `validation_marking`, `selection`, `releasing`),
+monotonic `elapsed_ms`, and available cumulative counters for accounted files/logical
+bytes, opaque entries, validated cards/records/segments/execution rows, references
+examined, candidates processed, and selected/deleted files/logical bytes. Unavailable
+counters are omitted. References examined counts work, not distinct useful references.
+No paths, content, IDs, errors, percentages, ETA or physical free-space claims appear.
+Ordinary snapshots are throttled to at most one per second; phase changes can emit
+immediately. Slow output drops progress rather than buffering snapshots. No heartbeat
+or timely output is guaranteed during indivisible reads/parsing. Sink failure cancels
+cooperatively. Progress is never a final result or deletion authority.
+
+The authenticated POST success response is singular `application/x-ndjson`, with
+strict `{type:"progress",progress:...}` frames followed by exactly one terminal
+`{type:"result",response:...}` frame after ordinary settlement/restoration. Each line
+is at most 4096 UTF-8 bytes including newline. Invalid input/authentication and the
+application's pre-inventory concurrent-operation guard return ordinary HTTP errors
+(400/401/409) before streaming. There is no JSON-success fallback. A broken/fatal
+stream may have no result. The client validates incremental bounded UTF-8 frames and
+requires a complete terminal result and clean EOF; it never buffers the full body.
+
 The CLI prints the bounded response: `mode`, `disposition` (`completed`,
 `interrupted`, `refused`), `reason`, `restoration` and nullable `result`.
 `completed` does not mean every file was eligible or the target was reached.
@@ -164,7 +187,9 @@ Pause withdraws auto-resume intent; Stop/server close/restart or natural Run
 settlement defeats it. Public Start/Resume cannot release the hold. `not_resumed`
 and `not_acquired` are not instructions to start a new Run: inspect current state.
 
-Requester disconnect or Stop cancels online GC; SIGINT/SIGTERM cancels offline GC.
+Requester disconnect or Stop cancels online GC; CLI SIGINT/SIGTERM also closes the
+online transport or cancels offline GC. Client exit/transport failure does not prove
+server settlement or zero deletions.
 Cancellation stops waiting for accepted Analyst work, not that work itself; collection
 must actually settle before release. First failure ends the attempt, without retry,
 compensation or repeat unlink. Publication/deletion-durability uncertainty is fatal

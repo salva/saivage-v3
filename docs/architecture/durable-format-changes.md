@@ -23,6 +23,13 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Work-GC progress/transport from implementation source parent
+`297bab5008403f7b073ace7832407999be1e712d` adds only transient counts callbacks and
+authenticated NDJSON progress/result frames. No durable family, shape, selector or
+discriminator changes; the retention and permissions source boundaries below remain
+unchanged. Matching CLI/server adoption is required for the singular stream protocol;
+this grants no live operation or old-format adoption permission.
+
 Effective work-GC retention from implementation source parent
 `56ace41b72a25866f51f48bd4ea765e8e69bdd60` changes only optional disposable-work
 protection: current semantic selections replace the historical reference union.

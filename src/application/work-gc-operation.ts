@@ -7,6 +7,7 @@ import {
   type WorkGcResponse,
   type WorkGcResult,
   type ApplicationFatalPort,
+  type WorkGcProgressObserver,
 } from '../contracts/index.js';
 import {
   collectWorkGarbage,
@@ -17,6 +18,7 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { SaivageConfig } from '../schemas/index.js';
 import type { CompiledProjectWorkflows, ProcessRunner } from '../runtime/runtime-api.js';
 import type { RuntimeApplication } from './runtime-composition.js';
+import { createWorkGcProgress } from './work-gc-progress.js';
 
 // Compiled contracts contain immutable iterable maps/sets with private storage.
 // Project their entries, not Object.keys (which would silently omit selected inputs).
@@ -97,6 +99,7 @@ export function workGcFailureResponse(
 export async function runWorkGcOperation(input: {
   request: WorkGcRequest;
   signal: AbortSignal;
+  progress?: WorkGcProgressObserver;
   projectRoot: string;
   config: SaivageConfig;
   workflows: CompiledProjectWorkflows;
@@ -105,13 +108,17 @@ export async function runWorkGcOperation(input: {
   fatalPort: ApplicationFatalPort;
   run: RuntimeApplication['runWorkGc'];
 }): Promise<WorkGcResponse> {
+  const cancellation = new AbortController();
+  const signal = AbortSignal.any([input.signal, cancellation.signal]);
+  const progress = createWorkGcProgress(input.progress, (error) => cancellation.abort(error));
   let result: WorkGcResult | null = null;
   let failureReason: WorkGcResponse['reason'] = 'inventory_failed';
   try {
     const completed = await input.run({
-      signal: input.signal,
+      signal,
+      progress,
       inventory: async (signal) => {
-        const inventory = await inventoryWorkGarbage(input.projectRoot, signal);
+        const inventory = await inventoryWorkGarbage(input.projectRoot, signal, progress);
         failureReason = 'maintenance_refused';
         return inventory;
       },
@@ -145,6 +152,7 @@ export async function runWorkGcOperation(input: {
             protection: input.processRunner.workGcProtection(),
             assertCollecting: () => signal.throwIfAborted(),
             fatal: (error) => input.fatalPort.publicationOutcomeUnknown(error),
+            progress,
           },
         );
         return result;
@@ -159,7 +167,7 @@ export async function runWorkGcOperation(input: {
       input.request,
       error,
       failureReason,
-      input.signal.aborted || (error instanceof WorkGcMaintenanceError && error.cancelled),
+      signal.aborted || (error instanceof WorkGcMaintenanceError && error.cancelled),
       error instanceof WorkGcMaintenanceError
         ? error.restoredRunning
           ? 'resumed'

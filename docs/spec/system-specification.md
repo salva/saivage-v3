@@ -209,6 +209,18 @@ failure ends collection; outcome uncertainty is fatal before reporting, cleanup 
 resume. This optional operation introduces no public maintenance status, automatic
 schedule, saved job or durable GC event/report.
 
+GC exposes only transient counts-only progress, throttled without timers to one
+ordinary snapshot per second (phase changes may emit immediately). Inventory,
+settling, validation/marking, selection and releasing report available cumulative
+work, not totals, usefulness, percentages, ETA, paths or physical free space. Slow
+observers drop snapshots; observer failures request cooperative cancellation. The
+authenticated POST uses bounded newline-delimited UTF-8 progress/result frames;
+only its terminal result after ordinary restoration is authoritative. Pre-stream
+application admission retains concurrent-request HTTP 409 even during inventory.
+CLI stdout is one final JSON response, stderr carries prompts/progress. Online and
+offline signals cancel cooperatively; missing terminal output proves no settlement.
+No callback, frame or cleanup follows publication/deletion/release uncertainty.
+
 Analyst tool composition separates the configured policy identity and effective
 selected tools from actual authorship. External credential holders are attributed
 as `{kind:'external-agent',principal}`; the bounded lowercase principal identifies

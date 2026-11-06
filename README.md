@@ -151,6 +151,9 @@ can cease resolving after delete; even current broad references can protect all 
 Collection uses paused/stopped server maintenance or confirmed offline lifecycle
 exclusion. It has no elapsed deadline; cancellation is cooperative. Root package
 dependencies pin the Node-24-compatible direct Undici transport used only for GC.
+The [explicit work-GC CLI](docs/runbook/work-gc.md) reserves stdout for one final
+JSON response after settlement/release; stderr carries bounded counts-only progress
+and offline prompts. Online success uses authenticated NDJSON, not buffered JSON.
 
 | Owner | Exact responsibility |
 | --- | --- |

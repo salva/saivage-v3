@@ -69,3 +69,4 @@ export type {
   CardAgentRecordMutationPort,
   RecordMutationAdmissionRequest,
 } from './record-mutation-service.js';
+export { createWorkGcProgress } from './work-gc-progress.js';

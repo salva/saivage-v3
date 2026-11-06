@@ -72,10 +72,15 @@ import { submitNotificationTool, type QueueNotificationToolInput } from '../tool
 import type { DirectObjectAuthority } from '../tools/tool-api.js';
 
 export interface RuntimeApplication {
-  collectWorkGarbage(request: WorkGcRequest, signal: AbortSignal): Promise<WorkGcResponse>;
+  collectWorkGarbage(
+    request: WorkGcRequest,
+    signal: AbortSignal,
+    progress?: import('../contracts/index.js').WorkGcProgressObserver,
+  ): Promise<WorkGcResponse>;
   assertWorkGcIngressAllowed(): void;
   cancelWorkGc(reason: Error): void;
   runWorkGc<I, T>(input: {
+    progress?: import('../contracts/index.js').WorkGcProgressReporter;
     signal: AbortSignal;
     inventory(signal: AbortSignal): Promise<I>;
     collect(inventory: I, signal: AbortSignal): Promise<T>;
@@ -522,8 +527,16 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     });
   }
   return {
-    collectWorkGarbage(request, signal) {
-      return runWorkGcOperation({ ...services, request, signal, run: this.runWorkGc.bind(this) });
+    collectWorkGarbage(request, signal, progress) {
+      // Synchronous application acceptance, before any route opens its success stream.
+      if (workGcTask) throw new WorkGcBusyError();
+      return runWorkGcOperation({
+        ...services,
+        request,
+        signal,
+        progress,
+        run: this.runWorkGc.bind(this),
+      });
     },
     assertWorkGcIngressAllowed: () => runtimeSupervisor.assertWorkGcIngressAllowed(),
     cancelWorkGc: (reason) => runtimeSupervisor.cancelWorkGc(reason),
@@ -536,6 +549,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         signal.throwIfAborted();
         const inventory = await input.inventory(signal);
         signal.throwIfAborted();
+        input.progress?.({ phase: 'settling' });
         return runtimeSupervisor.withWorkGcMaintenance({
           signal,
           assertEntryIdle: services.assertWorkGcEntryIdle,
@@ -548,6 +562,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           },
           assertReady: services.assertWorkGcReady,
           collect: (heldSignal) => input.collect(inventory, heldSignal),
+          releasing: () => input.progress?.({ phase: 'releasing' }),
         });
       });
       workGcTask = task;

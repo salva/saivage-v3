@@ -12,6 +12,9 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createEventLog } from '../../src/observability/index.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
+import { createWorkGcStream } from '../../src/server/work-gc-stream.js';
+import { WORK_GC_FRAME_MAX_BYTES, type WorkGcProgressObserver } from '../../src/contracts/index.js';
+import { deferred } from '../../src/runtime/actors/deferred.js';
 
 let app: FastifyInstance | undefined;
 let root: string | undefined;
@@ -34,8 +37,11 @@ it('strict route authenticates, rejects invalid filters and maps duplicate GC to
   expect(collect).not.toHaveBeenCalled();
   const response = await app.inject({ ...request, headers });
   expect(response.statusCode).toBe(200);
-  expect(WorkGcResponseSchema.parse(response.json())).toEqual(refusal);
-  collect.mockRejectedValue(new WorkGcBusyError());
+  expect(response.headers['content-type']).toContain('application/x-ndjson');
+  expect(response.headers['cache-control']).toBe('no-store');
+  expect(response.headers['x-content-type-options']).toBe('nosniff');
+  expect(WorkGcResponseSchema.parse(JSON.parse(response.body.trim()).response)).toEqual(refusal);
+  collect.mockImplementation(() => { throw new WorkGcBusyError(); });
   expect((await app.inject({ ...request, headers })).json()).toEqual({ error: 'WorkGcBusy', message: 'Work garbage collection is busy.' });
   expect(collect).toHaveBeenCalledTimes(2);
 });
@@ -53,6 +59,23 @@ it('disconnect cancels the running request signal rather than any accepted turn 
   const task = handler({ body: { mode: 'dry_run' }, request: { raw }, reply: { raw: reply } } as unknown as Parameters<typeof handler>[0]);
   await entry;
   reply.emit('close');
-  expect(await task).toMatchObject({ body: { reason: 'cancelled' } });
+  const descriptor = await task;
+  if (!('workGcStream' in descriptor)) throw new Error('Expected stream');
+  expect(await descriptor.workGcStream.result).toMatchObject({ reason: 'cancelled' });
   expect(collect.mock.calls[0]![1].aborted).toBe(true);
+});
+it('drops optional snapshots under backpressure but delivers one bounded terminal frame', async () => {
+  const result = deferred<WorkGcResponse>();
+  let observe!: WorkGcProgressObserver;
+  const stream = createWorkGcStream({ result: result.promise, observe(sink) { observe = sink; }, cancel() {} }, testApplicationFatalPort);
+  for (let n = 0; n < 10000; n++) observe({ phase: 'inventory', elapsed_ms: n * 1000, accounted_files: n });
+  expect(stream.writableNeedDrain).toBe(true);
+  expect(stream.readableLength + stream.writableLength).toBeLessThan(3 * WORK_GC_FRAME_MAX_BYTES);
+  result.resolve(refusal);
+  let text = '';
+  for await (const chunk of stream) text += String(chunk);
+  const frames = text.trim().split('\n').map(line => JSON.parse(line));
+  expect(frames.length).toBeLessThan(200);
+  expect(frames.at(-1)).toEqual({ type: 'result', response: refusal });
+  expect(frames.filter(frame => frame.type === 'result')).toHaveLength(1);
 });

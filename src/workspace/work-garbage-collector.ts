@@ -11,7 +11,11 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { PublicationOutcomeUnknownError, type WorkGcResult } from '../contracts/index.js';
+import {
+  PublicationOutcomeUnknownError,
+  type WorkGcResult,
+  type WorkGcProgressReporter,
+} from '../contracts/index.js';
 import { cardIdSchema } from '../schemas/index.js';
 import { inspectWorkGcCanonicalState, saivageWorkRoot } from '../persistence/index.js';
 
@@ -40,6 +44,7 @@ interface WorkGcOptions {
 }
 
 export interface WorkGcCollectionContext {
+  readonly progress?: WorkGcProgressReporter;
   readonly workflows: Parameters<typeof inspectWorkGcCanonicalState>[1];
   /** Fresh, exact operational configuration selected by the running composition. No reload. */
   readonly operationalInputs: unknown;
@@ -114,10 +119,23 @@ async function* names(
 export async function inventoryWorkGarbage(
   projectRoot: string,
   signal: AbortSignal,
+  progress: WorkGcProgressReporter = () => {},
 ): Promise<WorkGcInventory> {
   projectRoot = resolve(projectRoot);
   const root = saivageWorkRoot(projectRoot);
-  const check = () => signal.throwIfAborted();
+  const candidates: Candidate[] = [];
+  let opaque = 0;
+  let bytes = 0;
+  const check = () => {
+    signal.throwIfAborted();
+    progress({
+      phase: 'inventory',
+      accounted_files: candidates.length,
+      accounted_logical_bytes: bytes,
+      opaque_entries: opaque,
+    });
+    signal.throwIfAborted();
+  };
   check();
   const parentStat = statOrMissing(dirname(root));
   if (parentStat && (!parentStat.isDirectory() || parentStat.isSymbolicLink()))
@@ -127,9 +145,6 @@ export async function inventoryWorkGarbage(
     throw new Error('Work GC requires an ordinary, non-symlink work root.');
   if (rootStat && rootStat.dev !== parentStat!.dev)
     throw new Error('Work GC refuses an ambiguous work-root filesystem boundary.');
-  const candidates: Candidate[] = [];
-  let opaque = 0;
-  let bytes = 0;
   function ancestorsAreOrdinary(parts: readonly string[]): boolean {
     const parent = statOrMissing(dirname(root));
     if (!parent?.isDirectory() || parent.isSymbolicLink()) return false;
@@ -197,6 +212,7 @@ export async function inventoryWorkGarbage(
   }
   if (rootStat)
     for await (const name of names(root, check, true)) await visit(join(root, name), [name], null);
+  check();
   return { projectRoot, candidates, observed_logical_bytes: bytes, opaque_entries: opaque };
 }
 
@@ -206,9 +222,13 @@ class WorkReferences {
   retainAll = false;
   readonly root: string;
   private visited = 0;
+  report(): void {
+    this.progress({ references_examined: this.visited });
+  }
   constructor(
     readonly projectRoot: string,
     readonly check: () => void,
+    readonly progress: WorkGcProgressReporter = () => {},
   ) {
     this.root = saivageWorkRoot(projectRoot);
   }
@@ -216,6 +236,7 @@ class WorkReferences {
   private async visit(): Promise<void> {
     this.check();
     if (++this.visited % 256 === 0) {
+      this.progress({ references_examined: this.visited });
       await setImmediate();
       this.check();
     }
@@ -461,11 +482,13 @@ async function markCanonical(
               join(refs.root, 'cards', cardId, 'tmp'),
             ],
       ),
+    context.progress,
   );
   context.assertCollecting();
   await setImmediate();
   context.assertCollecting();
   await refs.value(context.operationalInputs);
+  refs.report();
   return owners;
 }
 
@@ -506,7 +529,8 @@ export async function collectWorkGarbage(
   check();
   await setImmediate();
   check();
-  const refs = new WorkReferences(inventory.projectRoot, check);
+  context.progress?.({ phase: 'validation_marking' });
+  const refs = new WorkReferences(inventory.projectRoot, check, context.progress);
   refs.retainAll = context.protection.retainAll;
   for (const path of context.protection.capturePaths) {
     await setImmediate();
@@ -541,12 +565,25 @@ export async function collectWorkGarbage(
   const ordered = [...inventory.candidates].sort(
     (a, b) => a.mtimeMs - b.mtimeMs || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
   );
+  let processed = 0;
+  const progress = () =>
+    context.progress?.({
+      phase: 'selection',
+      candidates_processed: processed,
+      selected_files: selectedCount,
+      selected_logical_bytes: selectedBytes,
+      deleted_files: options.mode === 'delete' ? selectedCount : 0,
+      deleted_logical_bytes: options.mode === 'delete' ? selectedBytes : 0,
+    });
   for (const candidate of ordered) {
     await setImmediate();
     const path = join(root, candidate.path);
     let descriptor: number | undefined;
     try {
       check();
+      progress();
+      check();
+      processed++;
       if (candidate.owner !== null && !owners.has(candidate.owner)) {
         retained.opaque++;
         continue;
@@ -588,8 +625,10 @@ export async function collectWorkGarbage(
     }
     selectedCount++;
     selectedBytes += candidate.size;
+    progress();
   }
   try {
+    progress();
     check();
   } catch (error) {
     if (error instanceof PublicationOutcomeUnknownError) context.fatal(error);

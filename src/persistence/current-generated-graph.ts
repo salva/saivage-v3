@@ -41,6 +41,7 @@ import {
 } from './layout.js';
 import { readProviderExchangeEntries } from './provider-exchange-log.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import type { WorkGcProgressReporter } from '../contracts/index.js';
 
 const STRICT_FAILURE_PROCEDURE =
   'Startup will not manufacture authority or use previous slots. Keep the service stopped, disable restarts, positively verify no owning process, preserve a fresh complete stopped-project backup, then use separately consented exact-target saivage repair where supported and restart separately. Unsupported damage may require an explicitly authorized whole-generated-state reset.';
@@ -184,7 +185,19 @@ export async function inspectWorkGcCanonicalState(
   workflows: CompiledProjectWorkflows,
   check: () => void,
   reference: (value: unknown, cardId: string | null) => Promise<void>,
+  progress: WorkGcProgressReporter = () => {},
 ): Promise<Set<string>> {
+  let cards = 0;
+  let records = 0;
+  let segments = 0;
+  let executionRows = 0;
+  const report = () =>
+    progress({
+      validated_cards: cards,
+      validated_records: records,
+      validated_segments: segments,
+      validated_execution_rows: executionRows,
+    });
   const owners = new Set<string>();
   const types = new Map<string, string>();
   async function conversation(session: ConversationSessionId, optional = false): Promise<void> {
@@ -209,11 +222,15 @@ export async function inspectWorkGcCanonicalState(
         );
       if (entry.version === index.current_version)
         await reference(conversationWorkProtection(inspected.projection.conversation), cardId);
+      segments++;
+      report();
       await setImmediate();
     }
   }
   for (const selection of iterateCanonicalLinkedCardHistoryTree(projectRoot)) {
     check();
+    cards++;
+    report();
     if (selection.tombstone) continue;
     const card = selection.current;
     owners.add(card.id);
@@ -289,11 +306,15 @@ export async function inspectWorkGcCanonicalState(
         check();
         await setImmediate();
       }
+      if (current) records++;
+      report();
       await setImmediate();
     }
     const executions = inspectCardExecutions(projectRoot, card.id);
     if (executions.tornSuffixLength)
       throw new Error('GC refuses torn execution evidence without mutation.');
+    executionRows += executions.projection.length;
+    report();
     // No record-author/candidate invocation joins: those consumers use inline bytes/Git
     // facts, not producer captures. Unfinished attempts retain their exact file selections.
     await reference(

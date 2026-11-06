@@ -88,3 +88,9 @@ with separate authorization, not another fresh-init command.
 Do not execute repair/reset/migration from a quick command table: use their complete
 procedures. Starting/restarting a server does not Run a project; an explicit Run
 does not authorize deployment, repair or data loss.
+## Work-GC output
+
+Explicit [work garbage collection](./work-gc.md) streams optional counts-only
+progress to CLI stderr; stdout contains only the final JSON result after ordinary
+settlement/release. Signals cancel both delegated and offline calls cooperatively;
+lost output does not certify server settlement or zero deletion.

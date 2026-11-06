@@ -70,6 +70,35 @@ export const WorkGcResponseSchema = z
   });
 export type WorkGcResponse = z.infer<typeof WorkGcResponseSchema>;
 export type WorkGcResult = z.infer<typeof WorkGcResultSchema>;
+/** Transient work counters, not totals, retention reasons or physical disk usage. */
+const WorkGcProgressSchema = z
+  .object({
+    phase: z.enum(['inventory', 'settling', 'validation_marking', 'selection', 'releasing']),
+    elapsed_ms: count,
+    accounted_files: count.optional(),
+    accounted_logical_bytes: count.optional(),
+    opaque_entries: count.optional(),
+    validated_cards: count.optional(),
+    validated_records: count.optional(),
+    validated_segments: count.optional(),
+    validated_execution_rows: count.optional(),
+    references_examined: count.optional(),
+    candidates_processed: count.optional(),
+    selected_files: count.optional(),
+    selected_logical_bytes: count.optional(),
+    deleted_files: count.optional(),
+    deleted_logical_bytes: count.optional(),
+  })
+  .strict();
+export type WorkGcProgress = z.infer<typeof WorkGcProgressSchema>;
+type WorkGcProgressUpdate = Partial<Omit<WorkGcProgress, 'elapsed_ms'>>;
+export type WorkGcProgressObserver = (progress: WorkGcProgress) => void;
+export type WorkGcProgressReporter = (update: WorkGcProgressUpdate) => void;
+export const WORK_GC_FRAME_MAX_BYTES = 4096;
+export const WorkGcFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('progress'), progress: WorkGcProgressSchema }).strict(),
+  z.object({ type: z.literal('result'), response: WorkGcResponseSchema }).strict(),
+]);
 export const WorkGcBusyErrorSchema = z
   .object({
     error: z.literal('WorkGcBusy'),

@@ -380,3 +380,5 @@ export {
   WORK_GC_BUSY_ERROR,
 } from './work-gc.js';
 export type { WorkGcRequest, WorkGcResponse, WorkGcResult } from './work-gc.js';
+export { WorkGcFrameSchema, WORK_GC_FRAME_MAX_BYTES } from './work-gc.js';
+export type { WorkGcProgress, WorkGcProgressObserver, WorkGcProgressReporter } from './work-gc.js';

@@ -27,11 +27,15 @@ function work(root: string, path: string) {
 }
 async function cli(root: string, options: { delete?: boolean; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
   const entry = resolve(options.fault ? 'tests/fixtures/offline-gc-child.ts' : 'src/cli.ts');
-  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ');
+  const stdoutPath = join(root, `cli-${randomUUID()}.stdout`), stderrPath = join(root, `cli-${randomUUID()}.stderr`);
+  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ') + ` >'${stdoutPath}' 2>'${stderrPath}'`;
   const child = spawn('script', ['-qefc', command, '/dev/null'], { cwd: root, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', sent = false, lockObserved = false;
   const watchdog = setTimeout(() => child.kill('SIGKILL'), 20_000);
   const observe = setInterval(() => {
+    if (!sent && existsSync(stderrPath) && readFileSync(stderrPath, 'utf8').includes('to confirm:')) {
+      sent = true; options.beforeAck?.(); child.stdin.write(options.eof ? '\u0004' : `${options.phrase ?? `GC OFFLINE QUIESCENT ${root}`}\n`);
+    }
     if (!options.onLock || lockObserved || !existsSync(runtimeProcessLockFile(root))) return;
     const status = readRuntimeLockStatus(root);
     if (status.kind !== 'live') return;
@@ -46,8 +50,11 @@ async function cli(root: string, options: { delete?: boolean; phrase?: string; e
   child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
   try {
     const code = await new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done); });
+    const stdout = existsSync(stdoutPath) ? readFileSync(stdoutPath, 'utf8') : '';
+    const stderr = existsSync(stderrPath) ? readFileSync(stderrPath, 'utf8') : '';
+    output = stdout + stderr + output;
     const row = output.split(/\r?\n/).find(line => line.startsWith('{"mode":'));
-    return { code, output, response: row ? JSON.parse(row) : null, lockObserved };
+    return { code, output, stdout, stderr, response: row ? JSON.parse(row) : null, lockObserved };
   } finally { clearInterval(observe); clearTimeout(watchdog); }
 }
 
@@ -70,6 +77,10 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
   const selected = [index, ...captures, cardExecutionFile(root, 'project'), join(root, '.saivage/cards/project/card-head.json'), globalAgentConversationVersionIndexFile(root, 'analyst')].map(path => [path, readFileSync(path)] as const);
   const preview = await cli(root);
   expect(preview).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed' } });
+  expect(JSON.parse(preview.stdout)).toEqual(preview.response);
+  expect(preview.stderr).toContain('to confirm:');
+  expect(preview.stderr).toContain('"phase":"inventory"');
+  expect(preview.stderr).toContain('"phase":"releasing"');
   expect(existsSync(runtimeProcessLockFile(root))).toBe(false); expect(existsSync(garbage)).toBe(true);
   const deletion = await cli(root, { delete: true });
   expect(deletion).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed' } });
