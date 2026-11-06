@@ -69,7 +69,7 @@ import {
   projectMcpToolCallArgumentsForOutbound,
   projectMcpConnectionDefinitionForOutbound,
 } from './mcp-invocation-outbound.js';
-import { projectHistoricalToolResultForOutbound } from './tool-result-settlement.js';
+import { projectHistoricalToolResultForOutbound } from '../contracts/index.js';
 
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
 

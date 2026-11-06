@@ -1,12 +1,9 @@
-import {
-  ProcessToolResultSchema,
-  ToolResultSchema,
-  type ProcessToolResult,
-} from '../contracts/index.js';
+import { ProcessToolResultSchema, type ProcessToolResult } from './operator-api-processes.js';
+import { ToolResultSchema } from './tool-result.js';
 import { canonicalJson } from '../schemas/index.js';
 import { redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
-import { DISCOVERY_RESPONSE_MAX_BYTES } from './response-packer.js';
-import { settledSuccessBytes } from './tool-result-settlement.js';
+import { DISCOVERY_RESPONSE_MAX_BYTES } from './builtin-tool-inputs.js';
+import { settledSuccessBytes } from './tool-result-projection.js';
 
 function assertStableHead(head: string, stream: 'stdout' | 'stderr'): void {
   const stable = redactTextWithStablePrefixesForOutbound(head);
@@ -22,9 +19,8 @@ export function validateProcessToolResult(value: unknown): ProcessToolResult {
   const data = ProcessToolResultSchema.parse(value);
   assertStableHead(data.stdout, 'stdout');
   assertStableHead(data.stderr, 'stderr');
-
   const bytes = settledSuccessBytes(data);
-  if (Buffer.byteLength(bytes, 'utf8') > DISCOVERY_RESPONSE_MAX_BYTES) {
+  if (new TextEncoder().encode(bytes).byteLength > DISCOVERY_RESPONSE_MAX_BYTES) {
     throw new Error(
       'Process result exceeded the complete successful provider-envelope byte limit.',
     );

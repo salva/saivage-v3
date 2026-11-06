@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { RecordMutationSuccessSchema } from '../../../src/contracts/record-mutation.js';
-import { validateProcessToolResult } from '../../../src/tools/process-tool-result.js';
+import { validateProcessToolResult } from '../../../src/contracts/index.js';
 import { installOperatorRestRoutes, smokeCardId, publicToolPolicies } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';

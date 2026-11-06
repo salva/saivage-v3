@@ -15,7 +15,7 @@ import {
   utf8SafePreview,
 } from '../../src/tools/response-packer.js';
 import { utf8SafeSlice } from '../../src/utils/index.js';
-import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
+import { settledSuccessBytes } from '../../src/contracts/index.js';
 import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
 import { redactTextForOutbound, redactTextWithStablePrefixesForOutbound } from '../../src/redaction/index.js';
 

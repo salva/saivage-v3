@@ -10,7 +10,7 @@ import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provi
 
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
-import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
+import { settledSuccessBytes } from '../../src/contracts/index.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });

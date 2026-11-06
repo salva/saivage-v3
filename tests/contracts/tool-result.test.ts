@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { ToolResultSchema, toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 
 describe('ToolResult authority', () => {

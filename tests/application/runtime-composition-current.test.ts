@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { appendConversationBatch, publishConversationImage } from '../../src/persistence/session-api.js';
 import { toolContentSucceeded, toolSucceeded } from '../../src/contracts/index.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { chatSuccess } from '../helpers/invocation-provider-fixture.js';

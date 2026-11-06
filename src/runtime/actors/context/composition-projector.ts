@@ -25,7 +25,7 @@ import { parseToolCallMessageForModel } from '../../../contracts/index.js';
 import { ToolResultSchema } from '../../../contracts/index.js';
 import type { ToolResultContentBlock } from '../../../contracts/index.js';
 import type { ProcessToolResult } from '../../../contracts/index.js';
-import { validateProcessToolResult } from '../../../tools/tool-api.js';
+import { validateProcessToolResult } from '../../../contracts/index.js';
 import { selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
 import { sha256Hex } from '../../../schemas/index.js';
 import { type ContextBlock } from '../../../contracts/index.js';

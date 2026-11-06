@@ -91,7 +91,7 @@ function hasAtMostThirtyLines(value: string): boolean {
 const processOutputHeadSchema = z
   .string()
   .refine(
-    (value) => Buffer.byteLength(value, 'utf8') <= 2_048,
+    (value) => new TextEncoder().encode(value).byteLength <= 2_048,
     'process output head must not exceed 2048 UTF-8 bytes',
   )
   .refine(hasAtMostThirtyLines, 'process output head must not exceed 30 lines');

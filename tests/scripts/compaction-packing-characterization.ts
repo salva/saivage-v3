@@ -17,7 +17,7 @@ import { agentMessageSchema, type AgentMessage } from '../../src/schemas/index.j
 import { createSequentialRefineAccumulator } from '../../src/runtime/actors/compaction/refine-accumulator.js';
 import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import {
   ACTIVITY_ROW_POLICY,
   TEXT_ROW_POLICY,

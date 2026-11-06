@@ -87,6 +87,9 @@ hold. Existing pause observation remains truthful, not a claim that all filesyst
 writers are frozen; a separate ordinary Pause withdraws GC auto-resume intent.
 An already stopped project stays stopped, but Start and mutations still receive
 busy refusals during its hold. No duration/countdown or automatic completion is promised.
+Historical inspection must not imply attachment availability: explicit GC can remove
+historical-only work while leaving canonical history intact. Current references still
+protect old files; no new UI control or availability guarantee is introduced.
 
 The operator observes autonomous engineering work lasting hours or days
 and steers it by asking the Analyst. They may

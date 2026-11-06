@@ -8,7 +8,7 @@ import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { toolContentSucceeded } from '../../src/contracts/index.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 
 const SESSION = 'agent:planner:project' as const;

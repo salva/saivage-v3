@@ -16,7 +16,7 @@ import { publishConversationImage } from '../../../src/persistence/session-api.j
 import { projectNativeMcpResult } from '../../../src/tools/mcp-native-result.js';
 import { settleToolExecutionForLlm } from '../../../src/tools/invocation.js';
 import { testLlmToolInvocationContext } from '../../helpers/llm-test-helpers.js';
-import { settleToolActionOutcome } from '../../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../../src/contracts/index.js';
 import { agentMessageSchema, cardParentId, canonicalJson, sha256Hex, STRUCTURAL_ROW_POLICY, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { ToolResultSchema } from '../../../src/contracts/tool-result.js';
 import { ViewImageDataSchema } from '../../../src/contracts/view-image.js';

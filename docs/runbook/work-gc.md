@@ -13,6 +13,13 @@ Task-justified external command directories are outside `gc-work` coverage. Thei
 task owner handles owned cleanup and keeps needed evidence and its location clear
 before disposal; this operation neither inventories nor collects those directories.
 
+Retention follows current semantic use, not the union of historical references.
+After separately authorized deletion, historical-only attachments/captures may be
+irretrievably unavailable even though canonical card, record, conversation and
+execution histories remain unchanged. Current explicit references still protect
+equally old files. Broad current references or unresolved aliases can retain all
+work; this policy promises neither reclamation nor historical attachment availability.
+
 ## Preview first, delete separately
 
 From the identified project root, using the matching release:
@@ -73,8 +80,8 @@ exclusion can destroy needed data. There is no unattended confirmation flag.
 After confirmation, the CLI exclusively acquires the existing **bound** lifecycle
 lock with null endpoint; identity must already exist. It loads current configuration,
 workflows and prompt closure and uses the same collector, without server/provider/MCP,
-Git commissioning, init or recovery. Valid historical running cards, unmatched calls
-and incomplete native attempts stay unchanged and protect their references. A missing
+Git commissioning, init or recovery. Valid running cards, current unmatched calls
+and unfinished native attempts stay unchanged and protect current selections. A missing
 lock is not proof of process containment; safety depends on maintained operator
 quiescence. Competing acquisition refuses, never reroutes. Preview also publishes
 and releases this lock, but performs no collector file effects. Results print only
@@ -94,13 +101,15 @@ certify whole-project startup compatibility or authorize start/Run.
    Oversight check precede marking. Already active independent HTTP MCP lifecycle
    calls/reconciliation refuse this attempt before pause, rather than being joined
    or automatically retried. Read-only views and project Stop remain available.
-3. Fresh strict canonical reads mark explicit and recognized inferred references in current/linked history,
-   baseline/draft/accepted records, all indexed conversation segments (including
-   pre-compaction originals), raw tool results, pending messages and execution
-   evidence. Directory/alias references and operational dependencies also protect
-   work. Internal observation facts, protected prompts and complete action/native
-   evidence, including incomplete private indexes/stdout/stderr, retain their exact
-   structured selections. The free-text limitation above does not relax these reads.
+3. Fresh strict canonical reads validate linked card/accepted history, every indexed
+   conversation segment and complete action/native evidence. Marking instead uses
+   current card content and pending message bodies; selected record baseline, open
+   draft and latest accepted content; current conversation effective summary,
+   retained protected instruction contents and semantic source-row payloads; and
+   unfinished execution artifact/capture/private-index selections. Existing retained
+   process captures, directory/alias references and operational dependencies also
+   protect work. Historical content, internal observations and producer provenance
+   alone do not. The free-text limitation above does not relax strict validation.
    Unresolved native source continuations refuse; GC performs no Git inspection,
    checkpoint or return to force settlement. Corrupt/missing required evidence or torn tails refuse without repair.
    Unknown surviving process/service write footprints retain all potentially

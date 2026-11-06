@@ -2,8 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import type { ProcessToolResult } from '../../src/contracts/operator-api-processes.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES } from '../../src/contracts/builtin-tool-inputs.js';
-import { validateProcessToolResult } from '../../src/tools/process-tool-result.js';
-import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
+import { validateProcessToolResult, settledSuccessBytes } from '../../src/contracts/index.js';
 
 const ID = 'proc-0123456789ab';
 
@@ -29,6 +28,11 @@ describe('process tool result semantic acceptance', () => {
   it.each(['stdout', 'stderr'] as const)('enforces the independent %s byte boundary', (stream) => {
     expect(validateProcessToolResult(result({ [stream]: 'x'.repeat(2_048) }))).toEqual(result({ [stream]: 'x'.repeat(2_048) }));
     expect(() => validateProcessToolResult(result({ [stream]: 'x'.repeat(2_049) }))).toThrow(/2048 UTF-8 bytes/u);
+  });
+
+  it.each(['stdout', 'stderr'] as const)('preserves the UTF-8 %s boundary for multibyte heads', stream => {
+    expect(validateProcessToolResult(result({ [stream]: 'é'.repeat(1024) }))).toEqual(result({ [stream]: 'é'.repeat(1024) }));
+    expect(() => validateProcessToolResult(result({ [stream]: 'é'.repeat(1024) + 'x' }))).toThrow(/2048 UTF-8 bytes/u);
   });
 
   it.each(['stdout', 'stderr'] as const)('enforces the independent %s line boundary', (stream) => {

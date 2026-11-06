@@ -1,12 +1,4 @@
-import { canonicalJson } from '../schemas/index.js';
-import {
-  ToolResultSchema,
-  assertToolActionOutcome,
-  toolSucceeded,
-  type ToolActionOutcome,
-  type ToolResult,
-  type ToolResultContentBlock,
-} from '../contracts/index.js';
+import { settleToolActionOutcome } from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
 import type { ToolExecutionResult } from './invocation.js';
 
@@ -30,60 +22,4 @@ export function projectExternalToolResult(
       : [{ type: 'text' as const, text: settled.settledResultBytes }],
     isError: !settled.providerResult.success,
   };
-}
-
-interface SettledToolResultProjection {
-  readonly providerResult: ToolResult;
-  readonly settledResultBytes: string;
-}
-
-function projectOutcome(outcome: ToolActionOutcome): ToolResult {
-  assertToolActionOutcome(outcome);
-  return ToolResultSchema.parse(
-    outcome.kind === 'succeeded'
-      ? {
-          success: true,
-          ...(outcome.content === undefined ? {} : { content: projectContent(outcome.content) }),
-          ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }),
-        }
-      : {
-          success: false,
-          error: projectDynamicForOutbound(outcome.error),
-          ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }),
-        },
-  );
-}
-
-export function settleToolActionOutcome(outcome: ToolActionOutcome): SettledToolResultProjection {
-  const providerResult = projectOutcome(outcome);
-  return Object.freeze({ providerResult, settledResultBytes: canonicalJson(providerResult) });
-}
-
-export function settledSuccessBytes(data: unknown): string {
-  return settleToolActionOutcome(toolSucceeded(data)).settledResultBytes;
-}
-
-export function projectHistoricalToolResultForOutbound(value: unknown): ToolResult {
-  const result = ToolResultSchema.parse(value);
-  return ToolResultSchema.parse(
-    result.success
-      ? {
-          success: true,
-          ...(result.content === undefined ? {} : { content: projectContent(result.content) }),
-          ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
-        }
-      : {
-          success: false,
-          error: projectDynamicForOutbound(result.error),
-          ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
-        },
-  );
-}
-
-function projectContent(content: readonly ToolResultContentBlock[]) {
-  return content.map((block) =>
-    block.type === 'text'
-      ? { type: 'text' as const, text: projectDynamicForOutbound(block.text) }
-      : block,
-  );
 }

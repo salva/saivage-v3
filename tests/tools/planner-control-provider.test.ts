@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { invokeToolForLlm, surfaceToolDefinitions } from '../../src/tools/invocation.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import {
   plannerControlToolBinders,

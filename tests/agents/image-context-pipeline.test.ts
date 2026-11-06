@@ -65,7 +65,7 @@ import { executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt
 import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
 import { ProviderTurnFailure, LlmRequestError } from '../../src/contracts/index.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';

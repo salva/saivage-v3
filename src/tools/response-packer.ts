@@ -1,7 +1,7 @@
 import { canonicalJson } from '../schemas/index.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES } from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
-import { settledSuccessBytes } from './tool-result-settlement.js';
+import { settledSuccessBytes } from '../contracts/index.js';
 import { utf8SafeSlice } from '../utils/index.js';
 
 export { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES };

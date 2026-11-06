@@ -35,7 +35,7 @@ import {
   type CollectionPosition,
 } from './response-packer.js';
 import { projectBoundedCardSummary } from './card-section-projection.js';
-import { settledSuccessBytes } from './tool-result-settlement.js';
+import { settledSuccessBytes } from '../contracts/index.js';
 
 type CardInspectionStore = Pick<
   CardService,

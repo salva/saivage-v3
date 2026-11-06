@@ -23,6 +23,25 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Current-only work retention from source parent
+`678b8bff375306a94866409d5672f075deeaec4b` changes collector liveness policy only:
+historical content/producer provenance alone no longer retains work attachments.
+Current semantic references, including references to old files, still protect them;
+complete required canonical history validation is unchanged. Evidence owners are
+`persistence/current-generated-graph.ts`, `persistence/work-gc-protection.ts` and the
+pure process-result validation/settlement contracts. Canonical history, selectors,
+compaction meaning and persisted bytes are unchanged. Separately authorized GC may
+irreversibly remove historical-only attachments; no reclaim amount is guaranteed.
+
+No durable bump or conversion is required solely for this collector policy. Source
+families remain card-head1/history6, record-head3/accepted6, conversation
+index/genesis/envelope13, execution3, shared logs2, workflow6 and capabilities1;
+raw artifacts retain their existing owning descriptors. This is not an extension
+of an assumed unreleased cutover or proof of installation compatibility. Earlier
+authority-adoption installed applicability remains unknown. No deployment, live GC,
+migration or reset is authorized by this source change; whole-release adoption
+still follows the [separate gates](../runbook/state-adoption.md).
+
 Configured direct-object authority cutover from source parent
 `e1307b9b12a43df80396747af18b33d49457191b`: accepted-record **5→6** adds
 `card-agent {agent,card_id}` factual origin, including framework draft close and

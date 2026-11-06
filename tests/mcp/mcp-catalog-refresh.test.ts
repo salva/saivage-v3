@@ -12,7 +12,7 @@ import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createServer, closeServer, listen, readJsonRequest, waitFor } from '../helpers/production-composition-e2e.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 import Fastify from 'fastify';

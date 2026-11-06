@@ -19,10 +19,13 @@ import {
   ExternalAnalystExecutionError,
   type ExternalAnalystOperations,
 } from '../application/index.js';
-import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
+import {
+  PublicationOutcomeUnknownError,
+  settleToolActionOutcome,
+  type ApplicationFatalPort,
+} from '../contracts/index.js';
 import {
   projectExternalToolResult,
-  settleToolActionOutcome,
   surfaceToolDefinitions,
   type ToolSettlementInput,
 } from '../tools/tool-api.js';

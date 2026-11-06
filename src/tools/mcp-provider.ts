@@ -26,7 +26,7 @@ import { redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
 import { projectNativeMcpResult } from './mcp-native-result.js';
 import { ImageInputError } from './image-input-error.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
-import { settledSuccessBytes } from './tool-result-settlement.js';
+import { settledSuccessBytes } from '../contracts/index.js';
 import { projectOutboundSource } from '../observability/index.js';
 
 const MCP_ERROR_MAX_BYTES = 512;

@@ -3,7 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import type { ToolInvocationProjectionInput } from '../../src/contracts/tool-invocation-projection.js';
 import type { ToolResult } from '../../src/contracts/index.js';
 import { toolSucceeded, toolFailed } from '../../src/contracts/index.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../src/contracts/result-envelope.js';
 import { parseConversationSessionId } from '../../src/schemas/index.js';
 import { buildRuntimeToolCatalog } from '../../src/tools/runtime-tool-catalog.js';

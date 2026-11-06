@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { defineTool, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, surfaceToolDefinitions, syntheticToolSettlement, executedToolOutcome, ToolArgumentValidationError, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';

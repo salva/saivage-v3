@@ -500,7 +500,8 @@ qualified grammar for compilation, lifecycle, execution evidence and API project
 Execution envelope3 also has logical native start/finish and sequential command
 start/finish rows owned by GitWorkflow. These carry actual native bindings and completed observations,
 not action descriptors or provider turns. The existing complete execution reader
-validates associations and selects exact captures/private-index paths for work GC.
+validates associations; work GC protects exact captures/private-index paths of
+unfinished invocations, not completed historical producer provenance alone.
 Incomplete attempts authorize no continuation. Evidence publication uncertainty
 crosses the application fatal boundary before native follow-up or cleanup. This
 contract does not enable ON before Supervisor lifecycle integration is complete.
@@ -659,9 +660,21 @@ metadata may protect work without outside-work discovery. Fresh candidate identi
 size, timestamps and protection checks immediately precede the final effect switch:
 would-delete attribution or unlink plus directory durability. All directories stay.
 No persistent inventory/report, new durable family or format bump is introduced.
-Reference extraction visits each strict conversation index once and each validated
-segment's genesis and physical rows, not its repeated derived conversation views.
-It retains internal observations, protected prompts and raw tool/native evidence.
+Validation and work liveness are separate. `persistence/work-gc-protection.ts`
+projects semantic payloads from the current segment's already validated
+`ValidatedConversation`: effective summary, retained protected instruction contents
+and source rows. It neither recomputes compaction nor imports provider composition.
+Current card/notification bodies and selected baseline/draft/latest accepted record
+content contribute roots; historical content and observation/provenance wrappers do
+not. Complete history and execution validation still runs. Only unfinished execution
+artifact/capture selections contribute execution roots; authored-output provenance
+alone does not retain its producer's captures. Existing process and operational
+owners retain their protections. Current references to older files still protect them.
+The complete pure process-result validator and settlement projection live under
+`contracts/process-result-validation.ts` and `contracts/tool-result-projection.ts`;
+runtime composition keeps its existing semantics and shares that validator. Completed,
+fully inline process streams need not retain capture URLs. Historical-only attachments
+can disappear after explicit deletion without changing canonical history.
 Nested values and text tokens cooperatively yield every 256 visited items; individual
 file reads, JSON parsing and regex operations remain synchronous and indivisible.
 Call-local protection sets test candidate ancestors through the work root rather

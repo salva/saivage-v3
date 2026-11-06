@@ -15,7 +15,7 @@ import { conversationImageFile } from '../../../src/persistence/layout.js';
 import { globalWorkspaceObservationToolBinders } from '../../../src/tools/workspace-provider.js';
 import { projectNativeMcpResult } from '../../../src/tools/mcp-native-result.js';
 import { settleToolExecutionForLlm } from '../../../src/tools/invocation.js';
-import { settleToolActionOutcome } from '../../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../../src/contracts/index.js';
 import { agentMessageSchema, STRUCTURAL_ROW_POLICY, type ConversationSessionId } from '../../../src/schemas/index.js';
 import type { ToolResult } from '../../../src/contracts/tool-result.js';
 import type { ImageDescriptor } from '../../../src/contracts/image.js';

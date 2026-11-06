@@ -3,7 +3,7 @@ import { McpServerControlArgumentsSchema, McpToolsArgumentsSchema, McpCatalogRef
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { McpInvokeError } from '../../src/mcp/tool-api.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';

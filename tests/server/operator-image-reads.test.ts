@@ -46,7 +46,7 @@ import {
 } from '../helpers/llm-test-helpers.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
 import { globalWorkspaceObservationToolBinders } from '../../src/tools/workspace-provider.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { settleToolExecutionForLlm } from '../../src/tools/invocation.js';
 import { toolRowPolicies, ACTIVITY_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
 import { type ImageDescriptor } from '../../src/contracts/index.js';

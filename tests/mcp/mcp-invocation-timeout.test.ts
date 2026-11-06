@@ -10,7 +10,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';

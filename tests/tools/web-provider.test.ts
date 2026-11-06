@@ -11,7 +11,7 @@ import { webToolBinders, type WebProviderContext } from '../../src/tools/web-too
 import { workspaceToolBinders, type WorkspaceProviderContext } from '../../src/tools/workspace-provider.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { WebfetchDataSchema, WebfetchTextDataSchema } from '../../src/contracts/webfetch.js';
-import { projectHistoricalToolResultForOutbound } from '../../src/tools/tool-result-settlement.js';
+import { projectHistoricalToolResultForOutbound } from '../../src/contracts/index.js';
 import { CardService, initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { CardService as ConfiguredCardService } from '../../src/cards/card-service.js';

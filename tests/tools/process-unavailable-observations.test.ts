@@ -6,7 +6,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { processToolBinders, type ProcessProviderContext } from '../../src/tools/process-provider.js';
 import { globalObservationToolBinders, type GlobalObservationToolContext } from '../../src/tools/global-observation-tools.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { buildProcessView } from '../../src/application/read-models/process-view.js';
 import { appendConversationBatch, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { cardConversationVersionFile } from '../../src/persistence/layout.js';

@@ -20,7 +20,7 @@ import {
   type ToolSettlementInput,
 } from '../../tools/tool-api.js';
 import type { ToolResult } from '../../contracts/index.js';
-import { settleToolActionOutcome } from '../../tools/tool-api.js';
+import { settleToolActionOutcome } from '../../contracts/index.js';
 import {
   appendConversationBatch,
   type ConversationFileContext,

@@ -45,7 +45,7 @@ import {
   type PreparedFetchedRecord,
 } from '../application/index.js';
 import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/index.js';
-import { settledSuccessBytes } from './tool-result-settlement.js';
+import { settledSuccessBytes } from '../contracts/index.js';
 import { beginOutboundHttp, projectOutboundSource } from '../observability/index.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;

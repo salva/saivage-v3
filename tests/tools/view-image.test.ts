@@ -9,7 +9,7 @@ import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 import { workspaceToolBinders, globalWorkspaceObservationToolBinders } from '../../src/tools/workspace-provider.js';
 import { materializeConversationImage, publishConversationImage } from '../../src/persistence/session-api.js';
 import { conversationImageFile } from '../../src/persistence/layout.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { settleToolExecutionForLlm } from '../../src/tools/invocation.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { MAX_IMAGE_SOURCE_BYTES, ToolResultSchema, assertViewImageResult, rasterReservation, imageAccountingBytes, imageEstimatedTokens, viewImageInputSchema } from '../../src/contracts/index.js';

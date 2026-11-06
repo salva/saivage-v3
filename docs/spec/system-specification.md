@@ -160,9 +160,12 @@ to finish an accepted turn; failures refuse collection rather than becoming succ
 Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
 while execution continues, then holds/parks and freshly consumes canonical sources,
 marking explicit and recognized inferred references before checking each candidate
-at use. Selected baseline/draft/accepted
-history, all indexed conversation originals and raw results, execution selections,
-pending messages, operational dependencies and exact aliases protect work. Strict
+at use. Current live card content, pending notification bodies, selected record
+baseline/open draft/latest accepted content, current conversation effective summary,
+retained protected instruction contents and semantic source-row payloads protect work.
+Unfinished execution selections, retained process-owner captures, operational
+dependencies and exact aliases also protect work. Historical content, internal
+observations and producer provenance alone do not protect attachments. Strict
 invalid required evidence blocks collection; GC never repairs/truncates it. Unknown
 ownership or surviving writer effects cause retention/refusal, not guessed safety.
 Only eligible regular files under work without recognized protections can be removed;
@@ -184,9 +187,14 @@ Preview publishes/releases that lock but has no collector effects; offline resul
 follow successful release. Lock-release uncertainty is fatal before further output
 or cleanup for every owner, including app, initializer and repair.
 
-Strict extraction consumes each session index once and each validated segment's
-genesis/physical rows, retaining internal observations and protected prompts rather
-than repeatedly walking derived views. Call-local sets test candidate ancestors;
+Strict extraction consumes each session index and every indexed segment completely,
+as well as linked card history, selected record predecessors and complete execution
+evidence, independently of marking. Only the current segment's already-derived
+owning selection supplies conversation roots; GC does not recompute compaction.
+Current references protect old files regardless of age. Separately authorized
+deletion may irreversibly remove historical-only attachments while canonical history
+bytes and selections remain unchanged; historical URLs need not keep resolving.
+Call-local sets test candidate ancestors;
 they confer no later invocation authority. There is no GC elapsed deadline or
 duration knob: the call-owned CLI transport disables response header/body deadlines
 but keeps finite connection establishment. Explicit cancellation is cooperative,

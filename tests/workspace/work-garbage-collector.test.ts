@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import {
   appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync,
@@ -78,6 +78,33 @@ function message(content: string): ReturnType<typeof agentMessageSchema.parse> {
     round_id: `r-user-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-10-24T00:00:00.000Z' });
 }
 
+async function canonicalBytes(root: string): Promise<Map<string, Buffer>> {
+  const bytes = new Map<string, Buffer>(), read = fs.readFileSync;
+  const prefixes = ['cards', 'agents', 'logs'].map(name => join(root, '.saivage', name) + '/');
+  const spy = jest.spyOn(fs, 'readFileSync').mockImplementation(((path: any, ...args: any[]) => {
+    const value = (read as any)(path, ...args);
+    if (prefixes.some(prefix => String(path).startsWith(prefix))) bytes.set(String(path), Buffer.from(value));
+    return value;
+  }) as typeof read);
+  try {
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async () => {});
+  } finally { spy.mockRestore(); }
+  expect(bytes.size).toBeGreaterThan(0);
+  return bytes;
+}
+
+function toolExchange(tool: string, content: string, argumentsText = '{}') {
+  const policy = toolRowPolicies({ content, template: OPERATIONAL_RESULT_POLICY_TEMPLATE });
+  const inputId = randomUUID(), callId = 'current-call';
+  return [
+    agentMessageSchema.parse({ ...message(''), id: `${inputId}:tool-call:${callId}`, role: 'assistant', kind: 'tool_call',
+      tool, tool_call_id: callId, context_policy: policy.call,
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: tool, arguments: argumentsText } }] }) }),
+    agentMessageSchema.parse({ ...message(content), id: `${inputId}:tool-result:${callId}`, role: 'tool', kind: 'tool_result',
+      tool, tool_call_id: callId, context_policy: policy.result }),
+  ];
+}
+
 describe('work GC two-phase selection', () => {
   it.each([[8, 4, 1000], [32, 16, 4000]])('bounded scale: %i linked cards, %i segments/session, %i candidates', async (cardCount, segmentCount, candidates) => {
     const root = fixture(), cards = new CardService(root);
@@ -136,7 +163,7 @@ describe('work GC two-phase selection', () => {
       inventoryMs: inventoried - started, markingAndSelectionMs: performance.now() - inventoried, heapBytes: process.memoryUsage().heapUsed }));
   }, 60_000);
 
-  it('preserves the interpreted source union of a derived segment including cwd and named literal context', async () => {
+  it('marks current semantic content without marking index, genesis or whole row envelopes', async () => {
     const root = fixture();
     const cwd = join(root, '.saivage/work/cards/project/tmp/context');
     const selected = ['relative-name', 'quoted space.txt', 'query.txt'].map(name => work(root, `cards/project/tmp/context/${name}`));
@@ -162,9 +189,10 @@ describe('work GC two-phase selection', () => {
     expect(current.retained.protected).toBe(selected.length);
     const sources: unknown[] = [];
     await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { sources.push(value); });
-    expect(sources).toContainEqual(segment.index);
-    expect(sources).toContainEqual(segment.genesis);
-    expect(sources).toContainEqual(segment.rows);
+    expect(sources).toContain(row.content);
+    expect(sources).not.toContainEqual(segment.index);
+    expect(sources).not.toContainEqual(segment.genesis);
+    expect(sources).not.toContainEqual(segment.rows);
     expect(sources).not.toContainEqual(segment);
     console.info('GC union evidence', JSON.stringify({ oldResolutions, sourceResolutions: resolutions, unionSize: observed.size }));
   });
@@ -346,9 +374,10 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(candidate)).toBe(true);
   });
 
-  it('extracts compacted protected prompts and internal record facts without a model-visible observation ledger', async () => {
+  it('protects inherited instructions and effective summary, not internal record facts or old summaries', async () => {
     const root = fixture(), inputId = randomUUID();
     const retained = work(root, 'cards/project/tmp/protected-prompt.txt');
+    const summarized = work(root, 'cards/project/tmp/effective-summary.txt');
     const garbage = work(root, 'cards/project/tmp/control');
     const { DURABLE_PRIMARY_CONTENT_POLICY } = await import('../../src/schemas/index.js');
     const { deriveRequiredModelFacts, selectConversationProtection } = await import('../../src/contracts/conversation-validation.js');
@@ -367,25 +396,28 @@ describe('work GC two-phase selection', () => {
     const entryId = randomUUID();
     publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
       identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(2, entryId) },
-      history: { summaryText: 'Prior task summarized.', protectedPrompts: [...protectedPrompts], requiredModelFacts: facts },
+      history: { summaryText: 'Prior task: tmp:///project/effective-summary.txt', protectedPrompts: [...protectedPrompts], requiredModelFacts: facts },
       cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
     });
     const current = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const sources: unknown[] = [];
     await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { sources.push(value); });
     expect(facts.latestRecordObservations).toHaveLength(1);
-    expect(sources).toContainEqual(current.genesis);
+    expect(sources).toContain(row.content);
+    expect(sources).toContain(current.conversation.effectiveCompactedHistory!.summaryText);
+    expect(sources).not.toContainEqual(current.genesis);
+    expect(sources).not.toContainEqual(facts);
     const { providerConversationProjection } = await import('../../src/runtime/actors/conversation-session.js');
     expect(JSON.stringify(providerConversationProjection(current.conversation, []))).not.toContain('latestRecordObservations');
     expect((await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context())).would_delete_count).toBe(1);
     expect((await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).deleted_count).toBe(1);
-    expect(existsSync(retained)).toBe(true); expect(existsSync(garbage)).toBe(false);
+    expect(existsSync(retained)).toBe(true); expect(existsSync(summarized)).toBe(true); expect(existsSync(garbage)).toBe(false);
     const oldest = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
     appendFileSync(oldest, '{malformed}\n'); const bytes = readFileSync(oldest);
     await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).rejects.toThrow();
     expect(readFileSync(oldest)).toEqual(bytes);
   });
-  it('selectively retains commissioned bootstrap commands and an incomplete native index through strict canonical reads', async () => {
+  it('releases completed bootstrap captures but retains an incomplete native index through strict canonical reads', async () => {
     const root = publicNativeProject();
     roots.push(root);
     // Preserve this public commissioning fixture as qualification evidence.
@@ -409,7 +441,7 @@ describe('work GC two-phase selection', () => {
       card_id: 'project', timestamp: '2026-10-27T00:00:00.000Z', kind: 'native_started', step: 'captureRebase',
       binding: { origin: 'activation', activation_id: randomUUID(), parent_card_id: null,
         node: { node_id: 'git-rebase-correction', ordinal: 1 } }, artifact_paths: [indexRelative] }]);
-    const selected = [...captures, index, cardExecutionFile(root, 'project'),
+    const selected = [index, cardExecutionFile(root, 'project'),
       join(root, '.saivage/cards/project/card-head.json'), join(root, '.git/HEAD'),
       join(root, 'source.txt')].map(path => [path, readFileSync(path)] as const);
     const garbage = work(root, 'cards/project/tmp/unselected-control');
@@ -419,10 +451,11 @@ describe('work GC two-phase selection', () => {
     const gitIndex = readFileSync(join(root, '.git/index'));
     const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: Date.now() + 1000 },
       context({ workflows: fresh.workflows, operationalInputs: { config: fresh.config } }));
-    expect(preview.would_delete_count).toBe(1);
+    expect(preview.would_delete_count).toBe(1 + captures.length);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: Date.now() + 1000 },
       context({ workflows: fresh.workflows, operationalInputs: { config: fresh.config } }));
-    expect(result.deleted_count).toBe(1);
+    expect(result.deleted_count).toBe(1 + captures.length);
+    expect(captures.every(path => !existsSync(path))).toBe(true);
     expect(existsSync(garbage)).toBe(false);
     for (const [path, bytes] of selected) expect(readFileSync(path)).toEqual(bytes);
     expect(fixtureGit(root, 'rev-parse', ref)).toBe(oid);
@@ -449,7 +482,7 @@ describe('work GC two-phase selection', () => {
     expect([index, ...captures].every(existsSync)).toBe(true);
     expect(existsSync(garbage)).toBe(false);
   });
-  it('retains terminal capture URLs hidden by primary projection and typed webfetch/source query selections', async () => {
+  it('releases fully inline terminal captures like runtime while retaining typed webfetch/source query selections', async () => {
     const root = fixture(), processId = 'proc-0123456789ab';
     const captures = ['stdout', 'stderr'].map(stream => work(root, `processes/${processId}/${stream}.log`, 'output'));
     const stash = work(root, 'tmp/stash/webfetch-1-0123456789abcdef.txt', 'downloaded');
@@ -477,9 +510,49 @@ describe('work GC two-phase selection', () => {
     baseline(root, JSON.stringify({ webfetch, image: { source_path: 'tmp:///project/source%20image.png' },
       endpoint: `https://example.invalid/api/files/image?path=${encodeURIComponent('tmp:///project/query-source.png')}` }));
     const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(deleted.deleted_count).toBe(1);
-    expect([...captures, stash, image, querySource].every(existsSync)).toBe(true);
+    expect(deleted.deleted_count).toBe(3);
+    expect(captures.every(path => !existsSync(path))).toBe(true);
+    expect([stash, image, querySource].every(existsSync)).toBe(true);
     expect(existsSync(garbage)).toBe(false);
+  });
+
+  it.each([
+    ['running', true, true], ['exited', false, true], ['exited', true, false], ['exited', true, true],
+  ] as const)('collector stream liveness equals primary runtime projection: %s stdout=%s stderr=%s', async (status, stdout_complete, stderr_complete) => {
+    const root = fixture(), processId = 'proc-0123456789ab';
+    const captures = (['stdout', 'stderr'] as const).map(stream => work(root, `processes/${processId}/${stream}.log`, 'output'));
+    const content = JSON.stringify({ success: true, data: { process_id: processId, status, exit_code: status === 'running' ? null : 0,
+      stdout: 'output', stderr: 'output', stdout_complete, stderr_complete, stdout_bytes: 6, stderr_bytes: 6,
+      stdout_url: `work:///processes/${processId}/stdout.log`, stderr_url: `work:///processes/${processId}/stderr.log` } });
+    const rows = toolExchange('run_command', content);
+    appendConversationBatch({ projectRoot: root }, rows);
+    const primary = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: 'agent:planner:project', effectiveHistory: null, dynamicBlocks: [], uncoveredRows: rows }));
+    const visible = JSON.stringify(primary);
+    const retained = [visible.includes('stdout_url'), visible.includes('stderr_url')];
+    const deletion = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(deletion.deleted_count).toBe(retained.filter(value => !value).length);
+    expect(captures.map(existsSync)).toEqual(retained);
+  });
+
+  it('selects current typed result data/content and unmatched arguments without scanning call policy or row provenance', async () => {
+    const root = fixture();
+    const names = ['result-data', 'result-text', 'call-argument', 'provenance-only'];
+    const paths = names.map(name => work(root, `cards/project/tmp/${name}.txt`));
+    const image = { id: randomUUID(), mime_type: 'image/png', width: 1, height: 1, byte_length: 1, sha256: 'a'.repeat(64) };
+    const content = JSON.stringify({ success: true, data: { source_path: 'tmp:///project/result-data.txt' }, content: [
+      { type: 'text', text: 'tmp:///project/result-text.txt' }, { type: 'image', image },
+    ] });
+    const rows = toolExchange('read', content);
+    appendConversationBatch({ projectRoot: root }, rows);
+    const unmatched = toolExchange('read', JSON.stringify({ success: true }), JSON.stringify({ path: 'tmp:///project/call-argument.txt' }))[0]!;
+    appendConversationBatch({ projectRoot: root }, [unmatched]);
+    const values: unknown[] = [];
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { values.push(value); });
+    expect(values).toContainEqual(image);
+    expect(values).not.toContainEqual(rows[0]!.context_policy);
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(result.deleted_count).toBe(1);
+    expect(paths.map(existsSync)).toEqual([true, true, true, false]);
   });
 
   it('parses nested JSON as values rather than treating quoted instruction prose as a giant filesystem path', async () => {
@@ -676,14 +749,16 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(protectedPath) && existsSync(garbage)).toBe(true);
   });
 
-  it('retains references only in original pre-compaction history, accepted predecessors, draft and pending mailbox', async () => {
+  it('actually deletes only old history-only attachments, preserving current old references, recent files and every canonical byte', async () => {
     const root = fixture();
-    const names = ['original', 'accepted-old', 'accepted-current', 'draft', 'pending'];
+    const names = ['original', 'accepted-old', 'accepted-current', 'draft', 'pending', 'card-old', 'card-current', 'older-producer', 'context-current'];
     const paths = names.map(name => work(root, `cards/project/tmp/${name}.txt`));
-    const garbage = work(root, 'cards/project/tmp/garbage');
+    const recent = work(root, 'cards/project/tmp/recent', 'recent', 3000);
     const cards = new CardService(root);
-    cards.acceptRecord('project', 'review-extra.md', 'tmp:///project/accepted-old.txt', { kind: 'agent', agent: 'analyst' });
-    cards.acceptRecord('project', 'review-extra.md', 'tmp:///project/accepted-current.txt', { kind: 'agent', agent: 'analyst' });
+    cards.editCard('project', { title: 'tmp:///project/card-old.txt' });
+    cards.editCard('project', { title: 'tmp:///project/card-current.txt' });
+    cards.acceptRecord('project', 'review-extra.md', 'tmp:///project/accepted-old.txt tmp:///project/older-producer.txt', { kind: 'agent', agent: 'analyst' });
+    cards.acceptRecord('project', 'review-extra.md', 'tmp:///project/accepted-current.txt tmp:///project/older-producer.txt', { kind: 'agent', agent: 'analyst' });
     cards.openRecord('project', 'review-extra.md');
     cards.editRecord('project', 'review-extra.md', 'tmp:///project/draft.txt');
     cards.enqueueNotification('project', { id: randomUUID(), content: 'tmp:///project/pending.txt', created_at: '2026-10-24T00:00:00.000Z' });
@@ -697,10 +772,46 @@ describe('work GC two-phase selection', () => {
       cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
     });
     expect(JSON.stringify(readCurrentConversationSegment(root, 'agent:planner:project'))).not.toContain('original.txt');
-    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result.deleted_count).toBe(1);
+    appendConversationBatch({ projectRoot: root }, [message('tmp:///project/context-current.txt')]);
+    const before = await canonicalBytes(root);
+    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(preview).toMatchObject({ would_delete_count: 3, deleted_count: 0, retained: { protected: 6, recent: 1 } });
     expect(paths.every(existsSync)).toBe(true);
-    expect(existsSync(garbage)).toBe(false);
+    expect(await canonicalBytes(root)).toEqual(before);
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: 2000 }, context());
+    expect(result.deleted_count).toBe(3);
+    for (const [i, name] of names.entries())
+      expect(existsSync(paths[i]!)).toBe(!['original', 'accepted-old', 'card-old'].includes(name));
+    expect(existsSync(recent)).toBe(true);
+    expect(await canonicalBytes(root)).toEqual(before);
+  });
+
+  it.each(['card', 'record', 'conversation'] as const)('still refuses malformed consumed historical %s before deletion', async kind => {
+    const root = fixture(), cards = new CardService(root);
+    const candidate = work(root, 'cards/project/tmp/garbage');
+    cards.editCard('project', { title: 'historical-card-marker' });
+    cards.editCard('project', { title: 'current title' });
+    cards.acceptRecord('project', 'review-extra.md', 'historical-record-marker', { kind: 'agent', agent: 'analyst' });
+    cards.acceptRecord('project', 'review-extra.md', 'current record', { kind: 'agent', agent: 'analyst' });
+    const row = message('historical-conversation-marker');
+    appendConversationBatch({ projectRoot: root }, [row]);
+    const old = readCurrentConversationSegment(root, 'agent:planner:project')!;
+    const entryId = randomUUID();
+    publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
+      identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(2, entryId) },
+      history: { summaryText: 'summary', protectedPrompts: [], requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } },
+      cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
+    });
+    const consumed = await canonicalBytes(root);
+    const path = kind === 'conversation' ? cardConversationVersionFile(root, 'project', 'planner', old.entry.filename)
+      : [...consumed].find(([, bytes]) => bytes.toString().includes(`historical-${kind}-marker`))![0];
+    expect(path).toBeDefined();
+    writeFileSync(path, '{malformed historical}\n');
+    const unlink = jest.spyOn(fs, 'unlinkSync');
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).rejects.toThrow();
+    expect(unlink).not.toHaveBeenCalled();
+    expect(readFileSync(path, 'utf8')).toBe('{malformed historical}\n');
+    expect(existsSync(candidate)).toBe(true);
   });
 
   it('never inspects filtered record/temp entries or enumerates canonical history siblings', async () => {
@@ -850,6 +961,45 @@ describe('work GC two-phase selection', () => {
     expect(result.deleted_count).toBe(1);
     expect([capture, stderr, active, activeErr, dependency].every(existsSync)).toBe(true);
     expect(existsSync(garbage)).toBe(false);
+  });
+
+  it.each([false, true])('completed action-output authorship alone never selects captures (current body reference: %s)', async referenced => {
+    const root = fixture(), cards = new CardService(root), invocation = randomUUID(), activation = randomUUID();
+    const processId = 'proc-123456789abc', timestamp = '2026-10-24T00:00:00.000Z';
+    const files = (['stdout', 'stderr'] as const).map(stream => ({ kind: 'capture' as const, stream,
+      path: `.saivage/work/cards/project/processes/${processId}/${stream}.log` }));
+    const paths = files.map(file => work(root, file.path.slice('.saivage/work/'.length)));
+    const content = referenced ? `Keep work:///cards/project/processes/${processId}/stdout.log` : 'Accepted inline output only';
+    const output = { source: 'command-stdout' as const, size_bytes: Buffer.byteLength(content), sha256: createHash('sha256').update(content).digest('hex') };
+    const identity = { invocation_id: invocation, card_id: 'project', timestamp };
+    appendCardExecutions(root, 'project', [
+      { ...identity, row_id: randomUUID(), kind: 'invocation_started', operation: 'shell.run', contract_version: 1,
+        provider: { kind: 'builtin', name: 'shell' }, binding: { kind: 'node', activation_id: activation, node_id: 'run', ordinal: 0 },
+        output_source: 'command-stdout', artifact_paths: [], input: [], config: [], shell: { script: 'echo inline', cwd: '/unrelated', argv: [], env: {} } },
+      { ...identity, row_id: randomUUID(), kind: 'process_started', process_id: processId, files },
+      { ...identity, row_id: randomUUID(), kind: 'invocation_finished', disposition: 'returned', summary: 'Complete output',
+        leader_exit: { exit_code: 0, signal: null, observed_at: timestamp }, leader_error: null, interruption: null, timeout_reason: null,
+        process: { id: processId, group: 'absent', group_diagnostic: null, stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null },
+        outcome: 'passed', values: [], files, output, absent_artifacts: [], external_effects: 'unknown' },
+    ]);
+    cards.acceptRecord('project', 'review-extra.md', content, { kind: 'action-output', operation: 'shell.run', contract_version: 1,
+      provider: { kind: 'builtin', name: 'shell' }, activation_id: activation, invocation_id: invocation, node_id: 'run', ordinal: 0,
+      process_id: processId, outcome: 'passed', output, leader_exit: { exit_code: 0, signal: null } });
+    const before = await canonicalBytes(root);
+    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
+    expect(preview.would_delete_count).toBe(referenced ? 1 : 2);
+    const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(deleted.deleted_count).toBe(preview.would_delete_count);
+    expect(existsSync(paths[0]!)).toBe(referenced);
+    expect(existsSync(paths[1]!)).toBe(false);
+    expect(await canonicalBytes(root)).toEqual(before);
+    // Completed historical execution grammar remains strict even though it marks no work.
+    appendFileSync(cardExecutionFile(root, 'project'), '{malformed historical}\n');
+    const control = work(root, 'cards/project/tmp/control');
+    const unlink = jest.spyOn(fs, 'unlinkSync');
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).rejects.toThrow();
+    expect(unlink).not.toHaveBeenCalled();
+    expect(existsSync(control)).toBe(true);
   });
 
   it('unknown process footprints and unresolved aliases retain all, while cancellation stops before effects', async () => {

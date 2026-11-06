@@ -6,7 +6,7 @@ import { TransportError } from '../../src/mcp/errors.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';

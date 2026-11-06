@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { cardIdSchema } from '../../src/schemas/card-id.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { invokeToolForLlm, llmToolDefinition } from '../../src/tools/invocation.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';

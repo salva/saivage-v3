@@ -8,7 +8,7 @@ import {
   utf8ByteLength,
   utf8SafePreview,
 } from './response-packer.js';
-import { settledSuccessBytes } from './tool-result-settlement.js';
+import { settledSuccessBytes } from '../contracts/index.js';
 
 export function projectBoundedCardSummary(input: {
   base: Record<string, unknown>;

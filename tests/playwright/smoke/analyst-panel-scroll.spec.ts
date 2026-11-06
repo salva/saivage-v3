@@ -3,7 +3,7 @@ import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { installOperatorRestRoutes, publicToolPolicies } from './fixtures/operator-rest-fixtures.js';
 import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenBeforeNavigation, waitForRuntimePair } from './fixtures/operator-preview-sync.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
-import { validateProcessToolResult } from '../../../src/tools/process-tool-result.js';
+import { validateProcessToolResult } from '../../../src/contracts/index.js';
 
 const syntheticToken = 'synthetic-playwright-token';
 const sessionId = 'agent:analyst:global';

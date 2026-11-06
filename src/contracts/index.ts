@@ -173,7 +173,6 @@ export {
   toolSucceeded,
   toolRecordSucceeded,
   toolContentSucceeded,
-  assertToolActionOutcome,
 } from './tool-result.js';
 export {
   ImageDescriptorSchema,
@@ -380,3 +379,9 @@ export {
   WORK_GC_BUSY_ERROR,
 } from './work-gc.js';
 export type { WorkGcRequest, WorkGcResponse, WorkGcResult } from './work-gc.js';
+export { validateProcessToolResult } from './process-result-validation.js';
+export {
+  settleToolActionOutcome,
+  settledSuccessBytes,
+  projectHistoricalToolResultForOutbound,
+} from './tool-result-projection.js';

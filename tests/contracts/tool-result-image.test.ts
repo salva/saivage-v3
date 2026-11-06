@@ -1,6 +1,6 @@
 import { expect, it } from '@jest/globals';
 import { ToolResultSchema, toolContentSucceeded, toolSucceeded, type ToolActionOutcome, providerItemImageDescriptors } from '../../src/contracts/index.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 
 const image = { id: '11111111-1111-4111-8111-111111111111', mime_type: 'image/png' as const, width: 10, height: 5, byte_length: 100, sha256: 'a'.repeat(64) };
 

@@ -33,7 +33,7 @@ import {
   type ToolExecutionResult,
 } from './invocation.js';
 import { certifiedPrefixEndpoints } from './response-packer.js';
-import { validateProcessToolResult } from './process-tool-result.js';
+import { validateProcessToolResult } from '../contracts/index.js';
 
 const PROCESS_OUTPUT_HEAD_MAX_BYTES = 2_048;
 const PROCESS_ERROR_MAX_BYTES = 512;

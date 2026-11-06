@@ -28,7 +28,7 @@ import { type ContextBlock } from '../../../../src/contracts/index.js';
 import { buildContentPolicyRefusalMessage } from '../../../../src/runtime/actors/content-policy-messages.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
 import { toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
-import { settledSuccessBytes } from '../../../../src/tools/tool-result-settlement.js';
+import { settledSuccessBytes } from '../../../../src/contracts/index.js';
 import { buildAnalystOrientationSnapshot } from '../../../../src/application/read-models/analyst-orientation.js';
 import { deriveRequiredModelFacts, selectConversationProtection, validateConversation, validateCompactedHistorySuccessor } from '../../../../src/contracts/conversation-validation.js';
 import { providerConversationProjection } from '../../../../src/runtime/actors/conversation-session.js';

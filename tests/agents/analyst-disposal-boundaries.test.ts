@@ -15,7 +15,7 @@ import type { RestartPort } from '../../src/contracts/index.js';
 import { readConversation, type ConversationFileContext } from '../../src/persistence/conversation-file.js';
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { toolSucceeded, type ToolActionOutcome } from '../../src/contracts/tool-result.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';

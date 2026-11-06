@@ -27,7 +27,7 @@ import {
 import { globalObservationToolBinders, type GlobalObservationToolContext } from '../../src/tools/global-observation-tools.js';
 import { AnalystTurnBusyError } from '../../src/runtime/runtime-api.js';
 import { toolFailed } from '../../src/contracts/tool-result.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 import { z } from 'zod';
 import { AnalystRuntime, AnalystSession } from '../../src/runtime/actors/analyst-session.js';

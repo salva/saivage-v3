@@ -180,10 +180,19 @@ under the existing bound lifecycle lock, after exact interactive confirmation
 excluded and all managed/unrelated writers remain quiescent throughout. Disclose
 irreversible deletion and destruction of needed data if writer exclusion is mistaken;
 a missing lock alone proves no containment. Dead/malformed/indeterminate locks refuse,
-never permit takeover. Both entries freshly consume linked card/accepted history,
-all indexed conversation segments and raw action/native evidence, marking explicit
-selected references, recognized inferred references and operational protections,
-then recheck each exact candidate before unlink. Unknown ownership, unresolved
+never permit takeover. Both entries freshly validate complete linked card/accepted
+history, all indexed conversation segments and raw action/native evidence. Mark only
+current semantic roots: live card content and pending notification bodies; selected
+record baseline, open draft and latest accepted content; the current conversation
+segment's owning effective summary, retained protected instruction contents and
+semantic source-row payloads; unfinished execution selections; and existing
+process-owner and operational protections. Historical content, internal observations
+and producer provenance alone do not retain attachments or authorize producer-history
+joins. Current explicit references protect equally old files. Historical-only
+attachments may irreversibly disappear after separately authorized deletion;
+canonical histories remain unchanged. Mark explicit and recognized inferred
+references from those roots, then recheck each exact candidate before unlink.
+Unknown ownership, unresolved
 recognized reference scope or surviving-writer footprint requires retention/refusal.
 Ambiguous free-text filename inference may use simple documented heuristics and may
 miss genuine references; later explicit GC can delete old still-needed work, with no

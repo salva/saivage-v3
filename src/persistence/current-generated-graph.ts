@@ -40,6 +40,7 @@ import {
 } from './layout.js';
 import { readProviderExchangeEntries } from './provider-exchange-log.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { conversationWorkReferences } from './work-gc-protection.js';
 
 const STRICT_FAILURE_PROCEDURE =
   'Startup will not manufacture authority or use previous slots. Keep the service stopped, disable restarts, positively verify no owning process, preserve a fresh complete stopped-project backup, then use separately consented exact-target saivage repair where supported and restart separately. Unsupported damage may require an explicitly authorized whole-generated-state reset.';
@@ -175,7 +176,7 @@ export function initializeAndValidateCurrentGeneratedState(
 
 /**
  * GC-only pure owning reads. No initialization, tail repair, previous-slot consumption or
- * canonical sibling discovery. The callback consumes complete values, never displayed excerpts.
+ * canonical sibling discovery. Validate complete histories; mark only current semantic payloads.
  */
 export async function inspectWorkGcCanonicalState(
   projectRoot: string,
@@ -198,7 +199,6 @@ export async function inspectWorkGcCanonicalState(
       throw new Error('Required GC conversation index is missing.');
     }
     const index = inspectConversationIndex(projectRoot, session, bytes);
-    await reference(index, cardId);
     for (const entry of index.versions) {
       check();
       const inspected = inspectConversationSegment(projectRoot, session, index, entry.version);
@@ -206,18 +206,19 @@ export async function inspectWorkGcCanonicalState(
         throw new Error(
           'GC requires complete selected conversation segments; no tail repair is performed.',
         );
-      // Strict inspection has already validated the complete segment. Extract each source
-      // once, not the derived rounds/calls/preamble and repeated session index.
-      await reference(inspected.projection.genesis, cardId);
-      await reference(inspected.projection.rows, cardId);
+      if (entry.version === index.current_version)
+        for (const value of conversationWorkReferences(inspected.projection.conversation)) {
+          check();
+          await reference(value, cardId);
+        }
       await setImmediate();
     }
   }
   for (const selection of iterateCanonicalLinkedCardHistoryTree(projectRoot)) {
     check();
-    await reference(selection.rows, selection.current.id);
     if (selection.tombstone) continue;
     const card = selection.current;
+    await reference([card.title, card.status_text], card.id);
     owners.add(card.id);
     types.set(card.id, card.type);
     const workflow = workflows.cardTypes.get(card.type);
@@ -228,7 +229,8 @@ export async function inspectWorkGcCanonicalState(
       if (!parentType || !workflows.cardTypes.get(parentType)!.permittedChildTypes.has(card.type))
         throw new Error('GC reached an invalid parent/type relationship.');
     }
-    await reference(readPendingCardNotifications(projectRoot, card.id), card.id);
+    for (const notification of readPendingCardNotifications(projectRoot, card.id))
+      await reference(notification.content, card.id);
     const selectedDefinitions = new Map<string, RecordDefinition>(
       definitions(workflow).map((d) => [d.filename, d]),
     );
@@ -270,10 +272,13 @@ export async function inspectWorkGcCanonicalState(
         throw new Error('Listed GC record head disappeared.');
       if (definition.bootstrap && !current?.accepted)
         throw new Error('Required GC bootstrap record is unavailable.');
-      await reference(current, card.id);
-      for (const version of iterateAuthoredRecordVersions(projectRoot, card, definition)) {
+      if (current)
+        await reference(
+          [current.baseline?.content, current.draft?.content, current.accepted?.content],
+          card.id,
+        );
+      for (const _version of iterateAuthoredRecordVersions(projectRoot, card, definition)) {
         check();
-        await reference(version, card.id);
         await setImmediate();
       }
       await setImmediate();
@@ -281,9 +286,30 @@ export async function inspectWorkGcCanonicalState(
     const executions = inspectCardExecutions(projectRoot, card.id);
     if (executions.tornSuffixLength)
       throw new Error('GC refuses torn execution evidence without mutation.');
-    // Both action and native rows are included, including incomplete native capture/index
-    // selections; execution endpoint links cannot hide selected work files.
-    await reference(executions.projection, card.id);
+    // Complete grammar was consumed above. Only unfinished logical invocations select work.
+    // Current Git candidate preparation IDs are compared as identities by the native consumer;
+    // they do not select old execution captures or private indexes.
+    const unfinished = new Set<string>();
+    for (const row of executions.projection) {
+      check();
+      if (row.kind === 'invocation_started' || row.kind === 'native_started')
+        unfinished.add(row.invocation_id);
+      else if (row.kind === 'invocation_finished' || row.kind === 'native_finished')
+        unfinished.delete(row.invocation_id);
+      await setImmediate();
+    }
+    for (const row of executions.projection) {
+      check();
+      if (unfinished.has(row.invocation_id)) {
+        if (row.kind === 'invocation_started' || row.kind === 'native_started')
+          for (const path of row.artifact_paths)
+            await reference({ path: resolve(projectRoot, path) }, card.id);
+        else if (row.kind === 'process_started' || row.kind === 'native_process_started')
+          for (const file of row.files)
+            await reference({ path: resolve(projectRoot, file.path) }, card.id);
+      }
+      await setImmediate();
+    }
     for (const agent of cardConversationAgents(workflow))
       await conversation(cardAgentSessionId(agent, card.id));
     for (const state of workflow.states.values()) {

@@ -20,7 +20,7 @@ import {
 import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
 import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
-import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
+import { settledSuccessBytes } from '../../src/contracts/index.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-18T00:00:00.000Z';

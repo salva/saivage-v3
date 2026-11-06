@@ -12,7 +12,7 @@ import {testApplicationFatalPort} from '../../helpers/test-application-fatal-por
 import {scriptedAdmissionProvider,testCompactor,unusedSummarizerProvider} from '../../helpers/llm-test-helpers.js';
 import {executedNoneSettlement,type ExecutedToolSettlement} from '../../../src/tools/invocation.js';
 import {toolSucceeded} from '../../../src/contracts/tool-result.js';
-import {settleToolActionOutcome} from '../../../src/tools/tool-result-settlement.js';
+import {settleToolActionOutcome} from '../../../src/contracts/index.js';
 
 const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});

@@ -294,6 +294,9 @@ it uses current resolved workflows/prompt closure without init or source commiss
 GC response waits have no elapsed deadline; connection establishment remains finite.
 Follow the
 [preview-first procedure](../runbook/work-gc.md); each delete computes a new selection.
+Protection follows current semantic roots, not historical provenance, without a new
+configuration option. Complete required history remains strictly validated; old files
+with current references remain protected, while historical-only attachments may vanish.
 
 ### YAML keys
 
