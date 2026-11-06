@@ -29,12 +29,12 @@ test.each(['native-direct','native-reviewed','native-replan','off-direct','off-r
   const config=effectiveSaivageConfigSchema.parse(parse(readFileSync(join(root,'.saivage/saivage.yaml'),'utf8')));
   config.models=structuredClone(TEST_SAIVAGE_CONFIG.models); config.providers=structuredClone(TEST_SAIVAGE_CONFIG.providers);
   config.compaction=structuredClone(TEST_SAIVAGE_CONFIG.compaction);
-  for(const agent of Object.values(config.agents)) agent.tools=agent.tools.filter(tool=>tool!=='view_image');
+  for(const agent of Object.values(config.agents)) agent.capabilities.grants = agent.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(tool=>tool!=='view_image') })).filter((grant) => grant.tools.length > 0);
   const compiled=compileProjectWorkflows(config,{projectRoot:root}), registry=new ProviderRegistry(config);
   const workflows=bindRuntimeWorkflows(compiled,new ModelRouter(registry),registry,config.compaction.context_utilization_fraction,{internalAnalystEnabled:true});
   const cards=new CardService(root,compiled,NO_FRESHNESS_EFFECTS);
-  const goal=cards.create({parent:'project',type:'goal',title:'Bounded aggregate',bootstrap_content:'Preserve the documented oracle.',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
-  const leaf=cards.create({parent:goal.id,type:'code',title:'Bounded leaf',bootstrap_content:'Complete a no-source-change qualification.',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+  const goal=cards.create({parent:'project',type:'goal',title:'Bounded aggregate',bootstrap_content:'Preserve the documented oracle.',priority:0,urgency:'normal',created_by:'analyst',bootstrap_author:{kind:'agent',agent:'analyst'},depends_on:[]});
+  const leaf=cards.create({parent:goal.id,type:'code',title:'Bounded leaf',bootstrap_content:'Complete a no-source-change qualification.',priority:0,urgency:'normal',created_by:'planner',bootstrap_author:{kind:'agent',agent:'planner'},depends_on:[]});
   const processes=createTestProcessRunner(root), counts=new Map<string,number>();
   const renders:unknown[]=[];
   let rootCandidate: unknown;
@@ -75,7 +75,7 @@ test.each(['native-direct','native-reviewed','native-replan','off-direct','off-r
           const review=cards.readRecordCurrent('project','review.md');
           if(review.kind!=='found'||!review.value.projection?.accepted)throw new Error('Missing independent review');
           rootReview=review.value.projection.accepted;
-          expect(rootReview).toMatchObject({author:{kind:'agent',agent:'reviewer'},source_version:1});
+          expect(rootReview).toMatchObject({author:{kind:'card-agent',agent:'reviewer',card_id:'project'},source_version:1});
           expect(JSON.stringify(input.providerConversation)).toContain(review.value.projection.acceptedVersionUrl!);
           return call('write',{path:'record:///status.md?card=project',content:'Bounded candidate accepted; continuing authorized scope remains. Ready to replan, not project DONE.'});
         }

@@ -25,7 +25,7 @@ async function fixture(mode:'external'|'both'='external',providerPort=1, customi
   const config=productionTestConfig(providerPort,config=>{
     if(mode==='external') {
       config.models.routes[config.agents[config.analyst_agent]!.model_route]!.candidates=['unavailable-analyst-model'];
-      config.agents[config.analyst_agent]!.tools.push('view_image','mcp_catalog_refresh');
+      config.agents[config.analyst_agent]!.capabilities.grants.push({tools:['view_image'],resources:[{kind:'workspace'}]},{tools:['mcp_catalog_refresh']});
     }
     customize?.(config);
   });
@@ -338,7 +338,7 @@ it('freshly denies a prepared external Webfetch record save after an intervening
 },60_000);
 
 it.each(['writer','lifecycle'] as const)('preserves the shared %s record gate for external authority without changing accepted content',async gate=>{
-  const f=await fixture('external',1,config=>{if(gate==='writer')config.agents[config.analyst_agent]!.record_writes=['review-*.md'];});
+  const f=await fixture('external',1,config=>{if(gate==='writer')for(const grant of config.agents[config.analyst_agent]!.capabilities.grants)if(grant.tools.some((name)=>['write','edit','webfetch'].includes(name)))for(const resource of grant.resources??[])if(resource.kind==='record')resource.patterns=['review-*.md'];});
   const cards=f.app.server.runtimeApplication.cardStore;
   if(gate==='lifecycle')cards.setStatus('project','cancelled');
   const before=cards.readRecordCurrent('project','brief.md');

@@ -1,3 +1,4 @@
+import { testNotificationAuthority } from '../../helpers/capability-grants.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -191,7 +192,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     const entered = deferred<void>(), release = deferred<void>();
     const f = fixture(profile, [{ node: 'plan', tool: 'activate_card', args: { card_id: 'card-a', instructions: 'Implement the bounded existing brief.' },
       before: async () => { entered.resolve(); await release.promise; } }]);
-    f.cards.create({ type: 'code', parent: 'project', title: 'Existing child', bootstrap_content: 'Bounded implementation.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    f.cards.create({ type: 'code', parent: 'project', title: 'Existing child', bootstrap_content: 'Bounded implementation.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await entered.promise;
     const identity = (f.supervisor as unknown as { runIdentity: object }).runIdentity;
     let marked = false;
@@ -239,9 +240,9 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
       entered.resolve(); await new Promise<void>(resolve => signal.addEventListener('abort', () => { aborted.resolve(); resolve(); }, { once: true }));
       await release.promise; throw signal.reason;
     } }]);
-    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await entered.promise;
-    const urgent = f.supervisor.submitNotification(child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent correction', created_at: new Date().toISOString() }, 'urgent');
+    const urgent = f.supervisor.submitNotification(testNotificationAuthority(), child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent correction', created_at: new Date().toISOString() }, 'urgent');
     await aborted.promise;
     let marked = false;
     const gc = f.supervisor.withWorkGcMaintenance({ signal: new AbortController().signal,
@@ -289,7 +290,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
        } }, result('assess-completion', 'replan'),
       { node: 'plan', tool: 'activate_card', args: { card_id: 'card-a', instructions: 'Continue the existing authorized beta/accessibility scope under its accepted brief; retain open root R1 and distinguish inventory evidence from product acceptance.' } }];
     const f = fixture(profile, steps);
-    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Existing beta/accessibility implementation', bootstrap_content: 'Implement the remaining authorized scope.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Existing beta/accessibility implementation', bootstrap_content: 'Implement the remaining authorized scope.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     expect(child.id).toBe('card-a');
     const owner = await f.launch(); await f.atEnd;
     expect(f.supervisor.getActorRuntimeReadModel().cards.find(card => card.cardId === 'project')!.processState).toMatchObject({ kind: 'node', nodeId: 'plan' });
@@ -297,9 +298,9 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     expect(f.cards.read('project')!.lifecycle.status).toBe('running');
     expect(f.cards.read(child.id)!.lifecycle.status).toBe('running');
     expect(f.cards.read('project')!.active_child_order).toEqual([child.id]);
-    expect(f.record('review.md')!.accepted).toMatchObject({ content: report, author: { kind: 'agent', agent: 'reviewer' } });
+    expect(f.record('review.md')!.accepted).toMatchObject({ content: report, author: { kind: 'card-agent', agent: 'reviewer', card_id: 'project' } });
     const readReport = f.requests.flatMap(input => input.providerConversation.messages).find(message => message.role === 'tool' && message.tool_call_id === 'step-5')!;
-    expect(JSON.parse(readReport.content)).toMatchObject({ success: true, data: { content: { content: report }, content_author: { kind: 'agent', agent: 'reviewer' } } });
+    expect(JSON.parse(readReport.content)).toMatchObject({ success: true, data: { content: { content: report }, content_author: { kind: 'card-agent', agent: 'reviewer', card_id: 'project' } } });
      expect(f.record('status.md')!.accepted!.content).toContain('card-a');
      expect(f.record('status.md')!.accepted!.source_version).toBe(2);
      const replanned = f.requests.filter(input => input.sessionId === 'agent:planner:project' && nodeOf(input) === 'plan').at(-1)!;
@@ -317,13 +318,13 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     f.cards.acceptRecord('project', 'brief.md', 'Deliver the finite build-A objective, with independent product acceptance. No continuing work.', { kind: 'agent', agent: 'analyst' });
     const owner = await f.launch();
     await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'done', result: { executor: { kind: 'agent', agent: 'reviewer' }, node_id: 'review', outcome: 'approved', summary: 'Independent complete-objective verdict.', records: [{ name: 'status.md', version: 2 }] } });
-    expect(f.record('status.md')!.accepted).toMatchObject({ author: { kind: 'agent', agent: 'planner' }, source_version: 2 });
-    expect(f.record('review.md')!.accepted).toMatchObject({ author: { kind: 'agent', agent: 'reviewer' }, source_version: 1 });
+    expect(f.record('status.md')!.accepted).toMatchObject({ author: { kind: 'card-agent', agent: 'planner', card_id: 'project' }, source_version: 2 });
+    expect(f.record('review.md')!.accepted).toMatchObject({ author: { kind: 'card-agent', agent: 'reviewer', card_id: 'project' }, source_version: 1 });
     const assessment = f.requests.find(input => nodeOf(input) === 'assess-completion')!;
     expect(JSON.stringify(assessment.providerConversation)).toContain('record:///review.md?card=project&v=1');
     expect(JSON.stringify(assessment.providerConversation)).toContain('Independent complete-objective verdict.');
     const readResult = f.requests.flatMap(input => input.providerConversation.messages).find(message => message.role === 'tool' && message.tool_call_id === 'step-5')!;
-    expect(JSON.parse(readResult.content)).toMatchObject({ success: true, data: { version: 1, content_author: { kind: 'agent', agent: 'reviewer' }, content: { content: 'Independent product acceptance of complete finite objective on build-A.' } } });
+    expect(JSON.parse(readResult.content)).toMatchObject({ success: true, data: { version: 1, content_author: { kind: 'card-agent', agent: 'reviewer', card_id: 'project' }, content: { content: 'Independent product acceptance of complete finite objective on build-A.' } } });
     const history = f.cards.readRecordHistory('project', 'review.md');
     expect(history.kind === 'found' && history.value.catalog.versions).toHaveLength(1);
     capture(`${profile}-reviewed`, f.requests);
@@ -346,7 +347,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
       write('assess-completion', 'Planner must not replace independent verdict.', 'review.md'),
       write('assess-completion', 'Accepted bounded review retained. New owner context leaves explicit authorized work; continue planning.'), result('assess-completion', 'replan')];
     const f = fixture(profile, steps);
-    steps[3]!.before = async () => { await f.supervisor.submitNotification('project', { id: '11111111-1111-4111-8111-111111111111', content: 'Owner clarification: accepted inventory is not beta; accessibility remains authorized.', created_at: new Date().toISOString() }, 'normal'); };
+    steps[3]!.before = async () => { await f.supervisor.submitNotification(testNotificationAuthority(), 'project', { id: '11111111-1111-4111-8111-111111111111', content: 'Owner clarification: accepted inventory is not beta; accessibility remains authorized.', created_at: new Date().toISOString() }, 'normal'); };
     const owner = await f.launch(); await Promise.race([f.atEnd, owner.settlement.promise.then(outcome => { capture(`${profile}-pending-failure`, { outcome, requests: f.requests }); throw new Error(JSON.stringify(outcome)); })]);
     const assessments = f.requests.filter(input => nodeOf(input) === 'assess-completion');
     expect(JSON.stringify(assessments[0]!.providerConversation)).toContain('Owner clarification: accepted inventory is not beta');
@@ -370,7 +371,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     const prior = f.cards.acceptRecord('project', 'review.md', 'Historical bounded inventory review, not current activation acceptance.', { kind: 'agent', agent: 'reviewer' }).accepted;
     f.cards.setStatus('project', 'running'); f.cards.stopRunning('project');
     const owner = await f.launch();
-    await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'failed', result: { kind: 'runtime-failure', summary: "Promoted node 'review' has no accepted result." } });
+    await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'failed', result: { kind: 'runtime-failure', summary: "Promoted review 'review' has no accepted snapshot." } });
     expect(nodeOf(f.requests[0]!)).toBe('recover');
     expect(f.record('review.md')!.accepted).toEqual(prior);
     const last = JSON.stringify(f.requests.at(-1)!.providerConversation);
@@ -382,7 +383,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     const f = fixture(profile, [write('plan', 'Candidate direct closure.'), result('plan', 'assess_completion'),
       write('assess-completion', 'No delivery for existing child; closure attempt must be rejected.'), result('assess-completion', 'complete_direct'),
       result('assess-completion', 'replan')]);
-    f.cards.create({ type: 'code', parent: 'project', title: 'Unfinished child', bootstrap_content: 'Required implementation.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    f.cards.create({ type: 'code', parent: 'project', title: 'Unfinished child', bootstrap_content: 'Required implementation.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await f.atEnd;
     expect(nodeOf(f.requests.at(-1)!)).toBe('plan');
     expect(f.cards.read('project')!.lifecycle.status).toBe('running');
@@ -399,9 +400,9 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
       enter(); await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     } }, write('recover', 'Urgent descendant correction received; investigate existing scope.'), result('recover', 'assess_completion'),
       write('assess-completion', 'Urgent correction requires existing child work; return to plan.'), result('assess-completion', 'replan')]);
-    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await entered;
-    await f.supervisor.submitNotification(child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent beta evidence correction.', created_at: new Date().toISOString() }, 'urgent');
+    await f.supervisor.submitNotification(testNotificationAuthority(), child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent beta evidence correction.', created_at: new Date().toISOString() }, 'urgent');
     await f.atEnd;
     expect(f.requests.map(nodeOf)).toEqual(['plan', 'recover', 'recover', 'assess-completion', 'assess-completion', 'plan']);
     expect(JSON.stringify(f.requests[1]!.providerConversation)).toContain(`for descendant '${child.id}'`);
@@ -437,7 +438,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
       signal: new AbortController().signal, progress: noCompactionProgress });
     expect(compacted.kind).toBe('compacted');
     const successor = readCurrentConversationSegment(f.root, session)!;
-    expect(successor.index.format_version).toBe(12); expect(successor.entry.version).toBe(source.entry.version + 1);
+    expect(successor.index.format_version).toBe(13); expect(successor.entry.version).toBe(source.entry.version + 1);
     expect(readHistoricalConversationSegment(f.root, session, source.entry.version).rows).toEqual(source.rows);
     const primary = providerConversationProjection(successor.conversation, composedPreparedBlocks(preparedContext));
     const successorRequest = { ...input, providerConversation: primary };

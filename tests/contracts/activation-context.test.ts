@@ -89,7 +89,7 @@ describe('explicit activation and public notification contract', () => {
   });
   it('has no card notification binder while preserving global selection', () => {
     expect(() => resolveRuntimeTool('card', 'queue_notification')).toThrow();
-    expect(resolveRuntimeTool('global', 'queue_notification').name).toBe('queue_notification');
+    expect(resolveRuntimeTool('global', 'queue_notification', [{kind:'card',scopes:['all']}]).name).toBe('queue_notification');
   });
   it('allows renamed selected globals but rejects every nonselected producer', () => {
     const config = effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
@@ -112,7 +112,7 @@ describe('explicit activation and public notification contract', () => {
     config.agents.unused = { ...config.agents['chosen-oversight']! };
     expect(() => compileProjectWorkflows(config)).toThrow(/configured Analyst or Oversight/);
     delete config.agents.unused;
-    config.agents.planner!.tools.push('queue_notification');
+    config.agents.planner!.capabilities.grants.push({ tools: ['queue_notification'], resources: [{ kind: 'card', scopes: ['all'] }] });
     expect(() => compileProjectWorkflows(config)).toThrow(/configured Analyst or Oversight/);
   });
 });

@@ -43,6 +43,7 @@ import sharp from 'sharp';
 import { conversationImageFile } from '../../src/persistence/layout.js';
 import { materializeConversationImage } from '../../src/persistence/session-api.js';
 import { globalWorkspaceObservationToolBinders } from '../../src/tools/workspace-provider.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
@@ -468,7 +469,7 @@ describe('operator chat route request contracts', () => {
     const registry = invocationProviderRegistry([candidate], { 'image-test': { transportProtocol: 'openai-responses' } });
     const provider = createInvocationServiceProvider(new InvocationService({ projectRoot, registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS }), projectRoot);
     const cardStore = new CardService(projectRoot);
-    const tool = globalWorkspaceObservationToolBinders.find(binder => binder.name === 'view_image')!.bind({ projectRoot, store: cardStore, agentName: 'analyst' });
+    const tool = globalWorkspaceObservationToolBinders.find(binder => binder.name === 'view_image')!.bind({ projectRoot, store: cardStore, agentName: 'analyst', authority: testWorkspaceAuthority() });
     const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[tool.name, tool]]), providers: [{ providerName: 'workspace', tools: [tool] }] };
     let physicalPath = '';
     const changes = {

@@ -8,6 +8,7 @@ const openSync = jest.fn(fs.openSync);
 const readFileSync = jest.fn(fs.readFileSync);
 jest.unstable_mockModule('node:fs', () => ({ ...fs, realpathSync, openSync, readFileSync }));
 const { readProject, globProject, grepProject } = await import('../../src/tools/project-file-tools.js');
+const { testWorkspaceAuthority } = await import('../helpers/capability-grants.js');
 const { buildScopedPathUrl } = await import('../../src/contracts/scoped-path-url.js');
 const systemUrl = (path: string) => buildScopedPathUrl('system', path.split('/').filter(Boolean));
 const roots: string[] = [];
@@ -43,9 +44,9 @@ describe('agent filesystem confidentiality before content access', () => {
         for (const path of [target, alias, systemUrl(target), systemUrl(alias)]) {
           openSync.mockClear();
           readFileSync.mockClear();
-          await expect(readProject({ projectRoot }, { path })).rejects.toThrow(/blocked for security/);
-          await expect(globProject({ projectRoot }, { directory: path, pattern: '*' })).rejects.toThrow(/blocked for security/);
-          await expect(grepProject({ projectRoot }, { path, pattern: '.' })).rejects.toThrow(/blocked for security/);
+          await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path })).rejects.toThrow(/blocked for security/);
+          await expect(globProject({ authority: testWorkspaceAuthority(), projectRoot }, { directory: path, pattern: '*' })).rejects.toThrow(/blocked for security/);
+          await expect(grepProject({ authority: testWorkspaceAuthority(), projectRoot }, { path, pattern: '.' })).rejects.toThrow(/blocked for security/);
           expect(openSync).not.toHaveBeenCalled();
           expect(readFileSync).not.toHaveBeenCalled();
         }
@@ -55,7 +56,7 @@ describe('agent filesystem confidentiality before content access', () => {
     fs.mkdirSync(join(sibling, '.saivage-other'));
     const safe = join(sibling, '.saivage-other', 'credentials-not-secret.txt');
     fs.writeFileSync(safe, 'ordinary');
-    await expect(readProject({ projectRoot }, { path: safe })).resolves.toMatchObject({ data: { content: { content: 'ordinary' } } });
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path: safe })).resolves.toMatchObject({ data: { content: { content: 'ordinary' } } });
   });
 
   it('filters aliases from directory entries before content reads and never follows encountered directory symlinks', async () => {
@@ -66,8 +67,8 @@ describe('agent filesystem confidentiality before content access', () => {
     fs.symlinkSync(join(sibling, '.env'), join(sibling, 'alias-file'));
     fs.symlinkSync(join(sibling, '.saivage'), join(sibling, 'alias-directory'));
     for (const path of [sibling, systemUrl(sibling)]) {
-      await expect(readProject({ projectRoot }, { path })).resolves.toMatchObject({ data: { total_entries: 1, entries: { items: [{ name: 'safe.txt', type: 'file' }] } } });
-      const result = await grepProject({ projectRoot }, { path, pattern: '.' });
+      await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path })).resolves.toMatchObject({ data: { total_entries: 1, entries: { items: [{ name: 'safe.txt', type: 'file' }] } } });
+      const result = await grepProject({ authority: testWorkspaceAuthority(), projectRoot }, { path, pattern: '.' });
       expect(JSON.stringify(result)).not.toContain('synthetic private sentinel');
       expect(result).toMatchObject({ matches: { total: 1 } });
     }
@@ -76,7 +77,7 @@ describe('agent filesystem confidentiality before content access', () => {
     const lexicalSecret = join(sibling, '.env.alias');
     fs.symlinkSync(harmless, lexicalSecret);
     realpathSync.mockClear();
-    await expect(readProject({ projectRoot }, { path: lexicalSecret })).rejects.toThrow(/blocked for security/);
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path: lexicalSecret })).rejects.toThrow(/blocked for security/);
     expect(realpathSync).not.toHaveBeenCalled();
   });
 
@@ -92,9 +93,9 @@ describe('agent filesystem confidentiality before content access', () => {
     try {
       for (const target of [deniedDirectory, deniedFile]) {
         for (const path of [target, systemUrl(target)]) {
-          await expect(readProject({ projectRoot }, { path })).rejects.toMatchObject({ code: 'EACCES' });
-          await expect(globProject({ projectRoot }, { directory: path, pattern: '*' })).rejects.toMatchObject({ code: 'EACCES' });
-          await expect(grepProject({ projectRoot }, { path, pattern: '.' })).rejects.toMatchObject({ code: 'EACCES' });
+          await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path })).rejects.toMatchObject({ code: 'EACCES' });
+          await expect(globProject({ authority: testWorkspaceAuthority(), projectRoot }, { directory: path, pattern: '*' })).rejects.toMatchObject({ code: 'EACCES' });
+          await expect(grepProject({ authority: testWorkspaceAuthority(), projectRoot }, { path, pattern: '.' })).rejects.toMatchObject({ code: 'EACCES' });
         }
       }
     } finally {
@@ -111,9 +112,9 @@ describe('agent filesystem confidentiality before content access', () => {
       return fs.realpathSync(path);
     }) as typeof fs.realpathSync);
     for (const path of [denied, systemUrl(denied)]) {
-      await expect(readProject({ projectRoot }, { path })).rejects.toMatchObject({ code: 'EACCES' });
-      await expect(globProject({ projectRoot }, { directory: path, pattern: '*' })).rejects.toMatchObject({ code: 'EACCES' });
-      await expect(grepProject({ projectRoot }, { path, pattern: '.' })).rejects.toMatchObject({ code: 'EACCES' });
+      await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path })).rejects.toMatchObject({ code: 'EACCES' });
+      await expect(globProject({ authority: testWorkspaceAuthority(), projectRoot }, { directory: path, pattern: '*' })).rejects.toMatchObject({ code: 'EACCES' });
+      await expect(grepProject({ authority: testWorkspaceAuthority(), projectRoot }, { path, pattern: '.' })).rejects.toMatchObject({ code: 'EACCES' });
     }
     expect(openSync).not.toHaveBeenCalled();
   });

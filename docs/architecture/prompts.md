@@ -46,6 +46,23 @@ conversation. `NodeExecution` owns acceptance independently of prompt execution.
 
 ### Context owners and lifetimes
 
+Tool definitions render concise selected clauses beside their descriptions, from
+the same compiled capabilities used at the effect owners: for example records
+self/status.md and children/brief.md are separate alternatives, not a cross-product.
+The harness binds the card anchor; globals have none. Role text describes bundled
+parent-owned assignments without forbidding deliberate custom self-bootstrap grants.
+The child proposes a requirement change and uses its supported BLOCKED handoff;
+the parent accepts/rejects against upstream obligations and may amend the same
+inactive child. Root decisions reach Analyst/operator. Fresh activation reads the
+current accepted requirements, not a historical review or frozen own brief.
+
+Automatic bootstrap, declared record prompts and descendant context are workflow
+inputs, not hidden calls to scoped read tools. Global evidence may mention other
+cards. Direct-object grants therefore provide neither information-flow isolation
+nor shell containment. Role/node/fragment, generated result/tool contracts, record
+feeds, continuation/reentry and summary context must be reviewed together; rendered
+offline evidence establishes composition, not model understanding or compliance.
+
 | Context | Selection / lifetime | Meaning |
 | --- | --- | --- |
 | Role, node outcome contract where applicable, ordered tools | Compiled/bound agent; prepared for the selected node or global operation | Reusable method and permitted surface; not init-only memory. |
@@ -97,7 +114,7 @@ reference share applicable overrides. Independent content needs independent
 references. An independently named agent selecting `planner` receives that host's
 includes; a custom `project-planner` reference receives only includes it contains.
 
-Within workflow input format 5, agent-node `execution` contains `agent`, static `prompt`
+Within workflow input format 6, agent-node `execution` contains `agent`, static `prompt`
 and durable `correction_prompt`. Action execution has neither. Process references
 remain on declarations; the compiled workflow's `processPrompts` map owns bodies.
 There is no runtime workflow-family lookup or prompt manifest.
@@ -202,7 +219,7 @@ agents:
 card_types:
   code:
     workflow:
-      format_version: 5
+      format_version: 6
       entries:
         STOPPED:
           node: red

@@ -3,7 +3,14 @@ import { relative, resolve } from 'node:path';
 import type { AgentName, RecordDefinition } from '../schemas/index.js';
 import type { RecordProjection } from '../persistence/index.js';
 import type { CardService } from '../cards/store-api.js';
-type CompleteRecordReader = Pick<CardService, 'readRecordCurrent' | 'readRecordVersion'>;
+type CompleteRecordReader = Pick<
+  CardService,
+  'readRecordCurrent' | 'readRecordVersion' | 'readCommittedCardHead'
+>;
+import {
+  assertHistoricalObjectAuthority,
+  type DirectObjectAuthority,
+} from '../tools/direct-object-authority.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import {
   buildScopedPathUrl,
@@ -37,6 +44,7 @@ type ResolvedScopedPath =
   | ({ kind: 'record' } & ResolvedRecordReadTarget);
 
 export interface ResolveScopedPathContext {
+  selection?: { readonly authority: DirectObjectAuthority; readonly tool: string };
   projectRoot: string;
   agent?: ScopedAgentContext;
   fail: ScopedPathErrorFactory;
@@ -87,15 +95,6 @@ function resolveContained(
   return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
 }
 
-export function assertRecordWrite(
-  currentCardId: string | undefined,
-  cardId: string,
-  fail: ScopedPathErrorFactory,
-): void {
-  if (!currentCardId) throw fail('Record writes require an active card context.');
-  if (cardId !== currentCardId) throw fail('Agents may write records only for their current card.');
-}
-
 export function resolveRecordWriteTarget(
   ctx: ResolveScopedPathContext,
   raw: string,
@@ -141,6 +140,12 @@ export function resolveRecordReadTarget(
     if (!(error instanceof RecordUrlInputError)) throw error;
     throw ctx.fail(error.message);
   }
+  if (ctx.selection)
+    assertHistoricalObjectAuthority(ctx.selection.authority, ctx.records, ctx.selection.tool, {
+      kind: 'record',
+      cardId: parsed.cardId,
+      name: parsed.name,
+    });
   const result =
     parsed.version === null
       ? ctx.records.readRecordCurrent(parsed.cardId, parsed.name)

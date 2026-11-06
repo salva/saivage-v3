@@ -21,7 +21,7 @@ entry refusal may have the truthful runtime-owned `git-workflow-blocked` result,
 without pretending to be an agent/action outcome. Native ON execution requires
 explicit provisioning, successful commissioning and eligible compiled configuration.
 
-Workflow5 structurally compiles ON correction as the configured card Executor in
+Workflow6 structurally compiles ON correction as the configured card Executor in
 the same state table, with `git-correction` purpose and source_ready/blocked/failed
 results. Only native ownership may enter it and return to the saved ordinary entry
 after verification. It has no product DONE route, mandatory diagnostic output or
@@ -110,14 +110,14 @@ no UI, log, backup or readiness observation promises losslessness or complete ef
 
 Default roles are configured responsibilities, not a hard-coded privilege system:
 
-| Default agent | Card tools and scope | Record writes | Child ceiling |
+| Default agent | Card tools and scope | Record write scopes | Creation |
 | --- | --- | --- | --- |
-| Analyst | `create_card`, `reorder_child`, `reopen_card`, `cancel_card`, `delete_card`; root `start_project`; no `activate_card`/`edit_card` | `write`, `edit`; `brief.md` | true |
-| Planner | `create_card`, `edit_card`, `cancel_card`, `activate_card`, `reopen_card`, `reorder_child`; no delete | `write`, `edit`; `brief.md`, `status.md` | true |
-| Reviewer | No card lifecycle/structure tools | `write`, `edit`; `review.md`, `review-*.md` | false |
-| Executor | No card lifecycle/structure tools | `write`, `edit`; `status.md` | false |
+| Analyst | `create_card`, `reorder_child`, `reopen_card`, `cancel_card`, `delete_card`: all; root `start_project`; no `activate_card`/`edit_card` | all: `brief.md` | selected parent + type permissions |
+| Planner | create/reorder: self; edit/cancel/activate/reopen: children; no delete | self: `status.md`; children: `brief.md` | selected self + type permissions |
+| Reviewer | No card lifecycle/structure tools | self: `review.md`, `review-*.md` | unavailable |
+| Executor | No card lifecycle/structure tools | self: `status.md` | unavailable |
 
-`can_create_children` intersects `create_card` and the parent's permitted types;
+The compiled `create_card` grant intersects the parent's permitted types;
 it grants neither reopening nor activation. Reviewer/Executor settle configured
 outcomes rather than dispatching children. Configured names remain identities.
 
@@ -361,14 +361,15 @@ synchronous publication/acceptance section does not undo factual effects. Spawn,
 capture or cleanup failure publishes nothing. Publication uncertainty is fatal
 before follow-up reads, writes, logging, acknowledgement or cleanup.
 
-The existing publisher writes an immutable accepted5 artifact and fresh selecting
+The existing publisher writes an immutable accepted6 artifact and fresh selecting
 head, independent of capture retention. Each new invocation may publish equal
 text as a new positive document version; agent no-op rejection is unchanged.
 Normal updated-head, export, descendant and promotion gates still run. A later
 gate failure leaves the factual report available but does not grant DONE. Action
 acceptance returns ordinary immutable record links, never closes a fake draft.
 
-Accepted `author` is agent (`agent`), external-agent (`principal`), runtime
+Accepted `author` is card-agent (`agent`, actual author `card_id`), historical agent
+(`agent`), external-agent (`principal`), runtime
 (`purpose:bootstrap|repair`) or action-output. Action provenance contains the exact
 operation/contract/provider, activation, invocation, node and ordinal, actual
 nullable process/leader facts, output source/byte size/SHA256 and outcome. Strict
@@ -561,7 +562,7 @@ aggregate permission implied by a role name.
 | Analyst reorder | Explicit non-running parent while intervention-ready | Exact active-child permutation and no running member in any requested active child's subtree | Real parent-only reorder followed by changed propagation/notification and ordinary audited invocation settlement |
 | Planner activate | Immediate child through the exact active parent owner and invocation lease | Compiled activation type; target entry status; every dependency exactly done; exact Supervisor owner/currentness admission | Running publication and child execution ownership |
 | Analyst delete | Explicit global non-root subtree while intervention-ready | No running member; complete survivor-dependency and ordering preflight | Permanent tombstones in dependent-before-dependency and child-before-parent order; this is not cancellation |
-| Record mutation | Current active linked target; card-scoped agents only their own card | Matching `record_writes`; every operation-required tool (`write`, `edit`, and prepared Analyst Webfetch requirements as applicable); Analyst lifecycle effect support and no existing workflow draft | Card-agent draft publication, or direct Analyst acceptance followed by record change propagation |
+| Record mutation | Current canonically linked target and actual bound caller | Every required selected tool must match the same record relationship/name clause; live card activation, inactive nonself target, or Analyst admission as appropriate | Self draft; nonself card acceptance with BLOCKED→CHANGED only; existing broader Analyst propagation retained |
 | Analyst non-record write/edit | No intervention-readiness requirement; OFF permits mid-run. ON source destinations additionally require final synchronous stopped/clean delivery admission. Ordinary cancellation, permissions, and path admission apply | Existing project/scoped-file routing, not record authority | One file mutation and one `workspace.write`/`workspace.edit` audit append attempt; no ancestor propagation |
 
 For both reorder callers, an identity filtered active order succeeds with `changed:0` and appends no parent or child version.
@@ -581,8 +582,11 @@ Semantic inspection exposes existing safe evidence and coverage, never inferred
 completion, replay permission or fresh enrichment. See the
 [conversation UI contract](operator-ui-contracts.md#conversation-readers).
 
-Record tool possession plus a matching `record_writes` glob is necessary but not complete admission.
-The current URL must resolve to an active linked card, card-scoped authority cannot cross cards, all operation-required tools must be present, Analyst lifecycle admission must be supported, and an Analyst mutation must find no open workflow draft.
+Selected tools plus a matching record clause are necessary but not complete admission.
+The current URL must resolve to a canonically linked card; scope and name must match
+within each required tool's same clause. Self writes draft; authorized inactive
+nonself and Analyst writes directly accept without adopting another owner's draft.
+Runtime/lifecycle admission, native ownership and GC exclusion remain independent.
 Content-specific checks then reject absent edit content, missing or multiple old strings, empty results, and unchanged content.
 
 Deletion is not cancellation, reopening is not activation, and creation authority is not dispatch authority.
@@ -835,13 +839,37 @@ No `next_role`, retry count, reviewer phase, recovery cursor, or autonomous-roun
 
 ### Record URLs and mutation admission
 
+Agent authority is the singular capabilities1 contract: selected tool AND matching
+direct-resource clause AND ordinary functional/runtime admission. Card/record scope
+unions are self, immediate children, strict descendants (not self) and all, evaluated
+against fresh canonical membership. Globals have no relative anchor and accept only
+all. Scope and record pattern must match within the same clause; no cross-product
+of separate clauses is allowed. Default Planner owns self status and immediate-child
+briefs; child assignment-change proposals return BLOCKED for parent acceptance or
+rejection on that same inactive child. Parent amendments cannot weaken upstream
+obligations; root decisions reach Analyst/operator. Deliberate custom grants,
+including self bootstrap drafts, remain legal.
+
+The [direct-object matrix](../reference/configuration.md#direct-object-capabilities)
+defines each builtin's resource: card inspection/history/control, record history,
+mixed record/workspace file operations, optional Webfetch saves and targetless
+global/control/process/MCP surfaces. Collections filter before totals/cursors and
+related summaries; exact denied targets refuse. Creation/reorder target the existing
+parent; deletion authorizes every supplied root before its normal cascade preflight.
+All does not grant missing tools, grandchild activation or ownership takeover.
+Automatic bootstrap/record/descendant feeds and broad global evidence are workflow
+inputs, not direct scoped reads. This policy is neither an information-flow sandbox
+nor containment of trusted shell agents. Action outputs, initializers, hooks and
+internal publishers retain their explicit non-model owners.
+
 Authored records have exact owner heads named injectively from safe record names and immutable accepted predecessor documents.
 Card-type declarations provide ordered metadata hints and exactly one bootstrap; an undeclared valid name resolves deterministically to Markdown with schema `authored-record.v1`.
 Each record owns `records/record-<stem>.json`. Opening, editing, closing, and discarding advance its mutable revision on actual mutation. The head contains the sole current draft and latest accepted reference; accepted bodies live only in immutable `records/accepted/<UUID>.json` documents. Public `v=N` selects exactly an accepted document version, never a draft transition or mutable head revision. Accepted document versions are consecutive from 1, independently of mutable revision; absent selectors are not found, not rounded to a nearby acceptance.
 Discard clears the draft while preserving the accepted selection. There is no retained open/edit/discard or draft history.
 The schema string is opaque identity/guidance and never executable validation.
 Card creation first publishes the bootstrap's accepted document1, then its selecting
-head. Child acceptance records the actual creating agent or external credential
+head. Child acceptance records the actual creating card-agent (including its author
+card), global agent or external credential
 holder; project bootstrap is runtime/bootstrap and synthetic discard is runtime/
 repair. Optional heads remain absent until mutation; empty-after-discard is distinct
 from absence. Startup validates records at their owning consumption scope and
@@ -850,22 +878,41 @@ creates no missing authority.
 The reusable current URL is exactly `record:///<name>?card=<card-id>` for read, write, and edit; ordered `&v=N` is explicit read-only history.
 Extra parameters, historical mutation targets, fragments, noncanonical versions, and old head-token forms are rejected inputs.
 For `write` and `edit`, malformed URL/encoding/identity/version and historical targets return the strict `record_mutation_invalid_target` failure with only the requested `operation` and a fixed safe diagnostic, before card or record I/O. A selector is always explicit, including for the root: `record:///status.md?card=project`; no current-card inference or URL normalization exists. The ordinary failed tool result settles the call and permits correction in the same activation; rejection neither mutates a record, propagates a change, nor marks a record written. Ordinary conversation settlement and Analyst error auditing still publish their own evidence and can themselves fail fatally.
-After target validation, mutation admission first proves the active card, then applies cross-card scope, writer glob, required-tool, and Analyst lifecycle gates in that order using the reached card.
+After target validation, mutation consumes the canonically reached card and the actual
+bound compiled capability, checking every required tool and its relationship/name
+clause together. It never reconstructs permission from an agent name or session string.
 Every denial precedes definition and record-state I/O.
 Only an authorized request resolves the definition and classifies current/open-conflict state; the reached card is ordinary call-local data, not write authority, and each later public open/edit/close/discard freshly admits the current card.
 Requirements govern entry and acceptance, not free-name admission.
-Card-agent mutations resolve or open the current cycle and leave a draft; an admitted first mutation publishes the exact record head only after its owner establishes absence. An existing path object is never absence.
+Self card-agent mutations resolve or open the current cycle and leave a draft,
+including an expressly configured self bootstrap grant. Framework preparation,
+close and discard use the same compiled self grants. Already-admitted own-draft
+work may settle during cooperative Pause, with current owner/node, compiled grant
+and cancellation/halt checks intact; the next provider dispatch remains gated.
+Nonself mutations directly accept any matching record, not just brief.md. For
+nonself acceptance the bound runtime entry requires
+the actual current caller/node, open admission, no cancellation/halt, no collecting
+GC or overlapping native work, and no active/paused/settling target owner. Durable
+RUNNING refuses even without an owner. BACKLOG/CHANGED/BLOCKED/STOPPED are eligible;
+DONE/FAILED need a separately legal explicit reopen; CANCELLED refuses. Another
+card's draft conflicts and is never adopted/discarded. Nonself acceptance never
+enters caller draft tracking. After known acceptance only BLOCKED becomes CHANGED;
+other eligible statuses remain unchanged. The strict `card_acceptance` result carries
+the closed accepted selection, exact head UUID/revision and honest known propagation
+disposition. There is no implicit activation, notification acknowledgement or replay.
+An admitted first mutation publishes the exact record head only after its owner
+establishes absence. An existing path object is never absence.
 Analyst mutations reject an existing workflow draft and directly publish one accepted document, then one head selecting it and clearing draft, advancing revision once. Successful acceptance invokes existing record-specific changed propagation. Successive corrections while CHANGED remain admitted without activation; each success can produce fresh target/ancestor notices, without repeated changed transitions or cross-edit deduplication. Webfetch retains read-only pre-network preflight and fresh final admission.
 Invalid-target, denial, absent-content, open-conflict, unchanged, old-string missing/multiple, empty-result, and current-state-unavailable outcomes are strict structured failures; there is no recoverable stale result. Existing non-publication card/classification read failures return `current_state_unavailable` with restart required, not invalid-target. Unexpected mutation errors and publication uncertainty retain their escaping boundaries; no failed result is fabricated after an uncertain effect.
 
 ### Record entry preparation and acceptance gates
 
-Every agent-node requirement is `{mode:'clean'|'continue',gate:'exists'|'updated'}` and must match the node agent's record-write glob so framework close has valid attribution. The exact action stdout binding has its separate declared authority.
+Every agent-node requirement is `{mode:'clean'|'continue',gate:'exists'|'updated'}` and must match the node agent's compiled self record write/edit capability so framework close has valid attribution. The exact action stdout binding has its separate declared authority.
 `clean + exists`, `clean + updated`, and `continue + updated` require the direct `write` tool; `continue + exists` may omit it unless the node selects initialization.
 Neither `edit` nor `webfetch` substitutes for `write`, and a record-targeted Webfetch additionally requires both `webfetch` and `write`.
 ::: v-pre
 
-Declared non-bootstrap records may define optional/null `initialization:{format_version:1,template}`. Nodes select an ordered duplicate-free `initialize_records` list independently of completion requirements. Each selection requires a declared initializer, matching `record_writes` and direct `write`. Old `{content,at}` input is rejected. The narrow template host admits `cardType`, `cardId`, `cardTitle`, `nodeId`, `recordName` and existing direct fragment includes; unavailable/malformed macros or nested includes fail compilation. Within record initializer declarations, `card_types.<type>.records.<name>.initialization.template` is the literal content path; `${NAME}` remains literal, including in fragments. The [configuration reference](../reference/configuration.md#owners-and-selected-input) owns the complete environment-expansion boundary. Inserted values are never reparsed. `{{...}}` is template syntax, not literal Markdown.
+Declared non-bootstrap records may define optional/null `initialization:{format_version:1,template}`. Nodes select an ordered duplicate-free `initialize_records` list independently of completion requirements. Each selection requires a declared initializer and matching self record `write` capability. Old `{content,at}` input is rejected. The narrow template host admits `cardType`, `cardId`, `cardTitle`, `nodeId`, `recordName` and existing direct fragment includes; unavailable/malformed macros or nested includes fail compilation. Within record initializer declarations, `card_types.<type>.records.<name>.initialization.template` is the literal content path; `${NAME}` remains literal, including in fragments. The [configuration reference](../reference/configuration.md#owners-and-selected-input) owns the complete environment-expansion boundary. Inserted values are never reparsed. `{{...}}` is template syntax, not literal Markdown.
 
 :::
 
@@ -880,7 +927,7 @@ At selected node entry, initialization precedes ordinary requirement preparation
 
 Creation, startup, reads, free writes and configuration replacement never initialize automatically. Complete card-type definitions select their own initializers without per-field overlay; compilation freezes templates and fragment closure for the process. Replacement affects only future absent-head entries. Existing-YAML init does not upgrade definitions. All shipped profiles explicitly select brief-relative status starters at responsible work nodes and neutral, unassessed review starters at review nodes, including both architecture reviews in the typed profiles. Bootstrap briefs are excluded. Starters do not satisfy authored completion or acceptance; review still requires a fresh assessment. There are no mandatory headings or engine-special record behaviors. Configurable record initialization is delivered at selected node entry, not by a card-creation hook.
 
-Record heads use strict `format_version:3`, including previous slots. A nullable baseline contains `version:0,created_at,content,content_sha256` and cannot coexist with a draft or acceptance. Opening consumes it into draft `version:0,target_version:1`; an ordinary changed nonempty edit advances the draft to its target. Untemplated drafts start directly at 1; clean after accepted n targets n+1. Integrity hashes remain, but no seed fingerprint or `unfilled` flag exists. Accepted artifacts use format 5 with discriminated author and consecutive document numbering independent of head revisions: first acceptance 1, next 2 regardless of intervening opens, edits or discards. Direct Analyst acceptance of changed baseline content creates accepted1; bootstrap and repair supplied content remain factual accepted1, never v0. A bound completed output-capable action may accept equal baseline or accepted text as new factual output, without relaxing agent no-op rejection.
+Record heads use strict `format_version:3`, including previous slots. A nullable baseline contains `version:0,created_at,content,content_sha256` and cannot coexist with a draft or acceptance. Opening consumes it into draft `version:0,target_version:1`; an ordinary changed nonempty edit advances the draft to its target. Untemplated drafts start directly at 1; clean after accepted n targets n+1. Integrity hashes remain, but no seed fingerprint or `unfilled` flag exists. Accepted artifacts use format 6 with discriminated author and consecutive document numbering independent of head revisions: first acceptance 1, next 2 regardless of intervening opens, edits or discards. Direct Analyst acceptance of changed baseline content creates accepted1; bootstrap and repair supplied content remain factual accepted1, never v0. A bound completed output-capable action may accept equal baseline or accepted text as new factual output, without relaxing agent no-op rejection.
 
 `exists` requires non-whitespace positive-version effective authored content; baseline0/draft0 cannot borrow eligibility from accepted backing. `updated` additionally requires a different head identity and mutable record revision above the baseline captured **after** initialization and explicit clean/open preparation. Initialization/opening alone satisfies neither gate. Ordinary A→B→A edits retain revision-based eligibility; no text fingerprint certifies authorship or adequacy. The same predicate governs required/free-draft finalization and close. Gate rejection uses ordinary corrective diagnostics; meaningful adequacy remains validation/review work.
 
@@ -1010,7 +1057,7 @@ deduplication, reload, or readiness guarantee is added; invalid configuration
 continues to reject normally.
 Template definitions contain complete card types, workflows, and record declarations only; agents, routes, providers, compaction, server, and MCP remain global and references from the resolved definitions are validated against them.
 Source resolution produces exactly one complete effective `card_types` map before compilation, and only that map reaches runtime consumers and outbound effective-config projections.
-An agent owns its prompt, ordered tools, duplicate-free `record_writes` patterns, model route, skill capability, `global | card` session scope, and child-creation ceiling.
+An agent owns its prompt, ordered versioned capability grants, model route, skill selection and `global | card` session scope. Grants jointly select tools and their direct objects; there is no separate record-writer or child-creation ceiling.
 Each effective card type owns permitted child types, declared record metadata with exactly one bootstrap record, and a graph whose four entries are `BACKLOG | CHANGED | BLOCKED | STOPPED`.
 Each workflow designates one existing card-scoped notification recipient. Agent
 nodes select one card-scoped named agent, node/correction prompts, `{mode,gate}`
@@ -1180,6 +1227,16 @@ After all read-only gates, recipient terminal candidates with pending context re
 Intermediate edges retain the same close/settle/node-local cleanup ordering.
 
 Reviewer stale rejection discards the stale open review, captures one new exact descendant context and semantic snapshot pair, appends that exact refreshed context, replaces the comparison snapshot, and continues the same node.
+
+Later terminal promotion of an accepted descendant-freshness review compares its
+original configured descendant records and required bootstrap observations,
+including exact record head and accepted-entry identities. Ordered root/descendant
+card IDs and selected immutable ordinary entry UUID/version must match; mailbox-only
+card head UUID/revision changes do not invalidate promotion. Current-review checks
+remain exact-head based. Changed reviewed inputs refuse the old promotion through
+the current node's ordinary violation continuation: obtain a fresh review (or
+replan first when work remains). Native source verification does not replace this
+input check; it runs after writer settlement and again before terminal effects.
 A later semantic change may reject again; unchanged refreshed context may succeed.
 
 ## Conversations and instruction evidence
@@ -3211,7 +3268,7 @@ Explicit content is selector-bound and strict.
 `card.json` returns `{kind:'card-current',head_id,card_id,version_seq,history_version,updated_at,card}`,
 with exact current selection identity/revision/time and queue-free fields.
 `card.json?v=N` selects exact immutable ordinary revision N. Its wrapper is
-`{format_version:5,kind,entry_id,card_id,version,published_at,card,change}`;
+`{format_version:6,kind,entry_id,card_id,version,published_at,card,change}`;
 tombstones substitute `final_card` and retain `prior_card_version`. Historical
 wrappers retain publication identity/time and ordinary nullable change, never
 pending fields. Current retained tombstones return their terminal historical wrapper.
@@ -3451,7 +3508,7 @@ Every child reference is unique and names a key in the same map.
 Compilation preserves declaration order in one immutable map and one ordered all-key vocabulary.
 There is no planning/terminal family or autonomous role classifier.
 Nodes reference card-scoped named agents; the configured global Analyst uses one global named session plus explicit parent/card targets.
-Creation authority is the named agent's global `can_create_children` and `create_card` ceiling intersected with the selected parent's compiled `permitted_child_types`; activation separately requires `activate_card`.
+Creation authority is the named agent's compiled `create_card` grant on the existing parent intersected with that parent's `permitted_child_types`; activation separately requires its own selected `activate_card` grant and functional immediate-parent admission.
 Default Planner retains 21 tools, Reviewer 13 without MCP, Executor 20 and Analyst 45.
 Analyst/Executor select `mcp_server_control`, `mcp_tools` and `mcp_tool_call` as independent permissions; explicitly configured Reviewer may select them, but Oversight admits none. Annotations are descriptive only.
 
@@ -3519,7 +3576,7 @@ Planner reflects purposefully when child results, review findings, blockers, or 
 
 An explicit operator override of the reuse/anti-cloning policy under the shared scoped-override rule may instead request supported cancellation and fresh replacement with the same intended assignment, without invented novelty. There is no atomic recreation, history transfer, automatic dependency rewiring or inherited acceptance: the replacement has a new identity, cancellation does not delete or erase the old card, and useful work, failed checks, review findings, refusal facts and accepted records retain their true applicability while unresolved obligations remain outstanding. Ordinary caller-specific tool and lifecycle limits, including terminal cancellation and DONE dependencies, still apply.
 
-Root reactivates an actionable BLOCKED goal or reopens its own DONE/FAILED goal so that goal's Planner can repair its children; root has no grandchild reopening authority. Planner exhausts reasonable in-scope tools and strategies before blocking. Real owner decisions, unavailable resources or configured capabilities, and materially exhausted strategies are escalated; ordinary correction and routine engineering judgment are not. Existing tool admission remains authoritative: Planner cannot reparent, cannot edit a child's brief or dependencies, and can choose dependencies only among existing immediate siblings at child creation. Fake metadata, pretend credit, weakened acceptance, cancelling failures to hide progress, and bypass of refusal, cancellation, or security limits remain forbidden.
+Root reactivates an actionable BLOCKED goal or reopens its own DONE/FAILED goal so that goal's Planner can repair its children; root has no grandchild reopening authority. Planner exhausts reasonable in-scope tools and strategies before blocking. Real owner decisions, unavailable resources or configured capabilities, and materially exhausted strategies are escalated; ordinary correction and routine engineering judgment are not. Existing tool admission remains authoritative: Planner cannot reparent or edit dependencies, and can choose dependencies only among existing immediate siblings at child creation. Permitted brief amendments use record write/edit on the same inactive child, not metadata or activation direction. Fake metadata, pretend credit, weakened upstream acceptance, cancelling failures to hide progress, and bypass of refusal, cancellation, or security limits remain forbidden.
 
 Planner and Executor author current `status.md` as a synthesis against the accepted brief, not a diary or prepended continuation inventory. Conversation is the work history: its timeline must not be relocated into a separate log/history record or document; actual deliverables and necessary primary evidence remain permitted work products and records. Status distinguishes actual delivery from proposals/in-progress work, acceptance from still-unaccepted work, and names remaining obligations and next scoped actions. Superseded current sections are consolidated while actionable scope, material decisions/blockers/uncertainty, partial or failed validation qualifications, exact source/release/artifact identities and evidence applicability remain explicit. Preserve current resource ownership, unresolved effects and applicable cumulative accounting when needed for current conclusions or safe continuation; consolidation neither confirms release/cleanup nor restarts an accounting period. A passing check on another input does not resolve a prior gap. Existing work products and retained accepted record history supply detail through precise references; references must not hide outstanding work or load-bearing qualifications. This guidance imposes no fixed headings, length quota, new artifact-per-action requirement or acceptance gate, and a summary cannot replace substantive required deliverables. A genuinely complete status still states delivery/acceptance and supporting evidence. See the single [illustrative before/after example](../architecture/prompts.md#illustrative-status-consolidation). No historical content, permissions, record mechanics or retention rules change; Reviewer independently evaluates evidence and writes its own review, not status.
 

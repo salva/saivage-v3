@@ -116,7 +116,7 @@ for (const language of ['javascript', 'typescript', 'python'] as const) {
         const review = fixture.cards.readRecordCurrent('project', 'review.md');
         assert.equal(review.kind, 'found');
         if (review.kind !== 'found') throw new Error('Missing accepted review');
-        assert.deepEqual(review.value.projection!.accepted!.author, { kind: 'agent', agent: 'reviewer' });
+        assert.deepEqual(review.value.projection!.accepted!.author, { kind: 'card-agent', agent: 'reviewer', card_id: 'project' });
       }
       assert.deepEqual(await get(`${prefix}/versions/1`), historical);
     } catch (error) {

@@ -50,7 +50,7 @@ source refs/OIDs and redact ref text; no source bytes, approval or helper phase 
 stored there. Supervisor owns runtime source sequencing and activation frontiers;
 held or mismatched source blocks further execution.
 
-Workflow5 adds the correction participant to the existing compiled state table,
+Workflow6 retains the correction participant in the existing compiled state table,
 not another engine. Structural declaration compilation selects actual task/feedback
 prompts and named agent sessions; runtime compilation and binding enforce ON eligibility.
 Generated native transitions distinguish entry, verified saved-entry return and
@@ -438,8 +438,17 @@ Updated acceptance requires a different UUID and greater revision; effective
 baseline0/draft0/empty content is ineligible.
 
 Reviewer context/snapshot uses one call-local root-inclusive subtree projection,
-preserving each card and record head UUID/revision plus accepted entry/version.
-Acceptance independently rereads it. A stale review discards written drafts,
+preserving each card's selected ordinary entry UUID/version and current head
+UUID/revision, plus configured descendant record observations and deduplicated
+required bootstraps (accepted entry/version and current record head UUID/revision).
+Current review acceptance independently rereads and compares exact observations.
+A later terminal `latest_node` promotion uses the original review node's inputs:
+ordered card IDs/ordinary references and all exact record tuples must still match.
+Mailbox-only card selector publications do not invalidate that accepted review;
+ordinary card or record changes do. Native promotion checks after awaited writer
+settlement before source selection/verification, then again before final effects.
+A mismatch remains an ordinary violation at assessment, allowing fresh review or
+replanning, not automatic replay. A stale current review discards written drafts,
 reprepares clean requirements, captures refreshed context and corrects the same
 node under original entry baselines. This is not an atomic filesystem snapshot or
 remembered admission. The one joint 16-rearm budget covers malformed/plaintext
@@ -542,6 +551,43 @@ selection removes create only when no permitted child creation remains. The boun
 surface supplies actual definitions/capabilities; generated strict `emit_result`
 is appended separately. Exact object/schema rejection enters the shared correction
 loop; terminal settlement parses accepted, error or pending-notification variants.
+
+Card direct-object authority comes from the selected compiled tool clauses and a
+harness-bound activation card; global actors have no relative anchor. Inspection
+and history consumers use one canonical-membership relationship predicate, filtering
+collection and related-card rows before projection and pagination. Planner parent
+creation/order and child metadata effects, Analyst card mutations, Supervisor child
+controls, native checkpoints and model-origin notification publication consume the
+bound capability at their owning operation. Scope never relaxes immediate-parent,
+activation, lifecycle, native-source or GC admission. External Analyst ceilings
+intersect actual configured grants. Internal `notifyCard` publishers remain explicit
+runtime operations, not model grants; authenticated operator read APIs remain
+operator reads. Selected clauses are rendered beside bound tool descriptions.
+
+Workspace tools resolve logical record versus ordinary workspace destinations before
+content access. Record directories and searches pass the bound tool's clauses into
+the canonical declared-record reader, filtering names and reached relationships
+before selected heads/bodies, totals, cursors or metadata projection. Ordinary file
+reads, writes, edits, patches and images require that tool's workspace clause;
+existing path, secret, attic, native-source and tmp ownership rules still apply.
+Every patch destination is admitted before effects. Optional no-save Webfetch needs
+only tool selection; saves require both its own destination clause and the selected
+write destination clause before network access and freshly at final save. Global
+workspace adapters preserve the bound global grants and existing Analyst audit.
+
+Card record tools carry those exact references through a bound activation-local
+record-mutation port. Supervisor consumes the actual live node ordinal, agent and
+activation anchor before the record effect; the service then consumes fresh linked
+target state and scope/name clauses together. Self writes remain drafts (including
+configured self bootstrap); nonself writes accept matching inactive records without
+entering caller draft tracking. Target ownership, pause/settlement, cancellation,
+halt, GC collection and native operations remain admission blockers. Only a known
+nonself acceptance can change target BLOCKED to CHANGED; other eligible resting
+statuses remain. Known later lifecycle failure returns partial propagation, while
+publication uncertainty permits no follow-up. Accepted-record6 records factual
+card-agent origin; conversation13 carries strict `card_acceptance` results. Record
+head3, global OperationAuthor, app/provider evidence and action/internal publishers
+remain distinct and unchanged.
 
 `invokeToolForLlm` is the required complete LLM-context boundary; only
 `ConversationLLMActor.toolInvocationContext` constructs that context. External
@@ -690,12 +736,12 @@ running/stopped, reopen blocked/done/failed and reject cancelled. Descendant
 completion is done-or-cancelled; dependency completion is done. Projected operator
 actions do not substitute for caller admission.
 
-Record mutation first proves active reached card and cross-card/name-glob/required-
-tool/lifecycle authority before record definition/state reads. Later writes prove
-authority afresh. Card agents own drafts/framework close; Analyst directly accepts
-with open-draft conflict. Webfetch-to-record requires Webfetch+write admission before
-network and fresh readiness/resolver/mutation afterward, not retained preflight
-authority. Invalid/historical mutation targets return content-free typed rejection.
+Record mutation consumes canonical relationship, same-clause name and every required
+tool at use before record definition/state reads. Self card-agent writes draft;
+inactive authorized nonself and Analyst writes directly accept with open-draft
+conflict. Webfetch intersects its own destination and write grants pre-network and
+freshly at publication, never retaining preflight authority. Invalid/historical
+mutation targets return content-free typed rejection.
 Current URLs are reusable mutation targets; immutable accepted URLs are evidence.
 Record-specific changed propagation and generic reopen remain distinct: target/
 ancestor reopening and notices depend on precise source status and stop at the first
@@ -1641,10 +1687,10 @@ not default grants. Shared reopen spelling never aliases scoped contracts.
 <!-- saivage:agent-tools:start -->
 | Agent | Tools | Source |
 |---|---|---|
-| `planner` | `activate_card,cancel_card,create_card,diff_card_versions,edit,edit_card,get_card,get_card_version,get_tree,glob,grep,list_card_versions,list_cards,list_observed_collections,query_observed_collections,read,read_record_version,reopen_card,reorder_child,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:198` |
-| `executor` | `apply_patch,diff_card_versions,edit,get_card_version,glob,grep,kill_process,list_card_versions,list_observed_collections,mcp_server_control,mcp_tool_call,mcp_tools,query_observed_collections,read,read_record_version,run_command,skill,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:255` |
-| `reviewer` | `diff_card_versions,edit,get_card_version,glob,grep,list_card_versions,list_observed_collections,query_observed_collections,read,read_record_version,skill,view_image,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:230` |
-| `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card_versions,edit,get_card,get_card_version,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_versions,list_cards,list_observed_collections,list_processes_tool,mcp_server_control,mcp_tool_call,mcp_tools,navigate_back,navigate_workspace,pause_runtime,query_observed_collections,queue_notification,read,read_agent_session,read_control_actions,read_record_version,read_runtime_errors,read_runtime_events,reconfigure,reopen_card,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:132` |
+| `planner` | `activate_card,cancel_card,create_card,diff_card_versions,edit,edit_card,get_card,get_card_version,get_tree,glob,grep,list_card_versions,list_cards,list_observed_collections,query_observed_collections,read,read_record_version,reopen_card,reorder_child,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:214` |
+| `executor` | `apply_patch,diff_card_versions,edit,get_card_version,glob,grep,kill_process,list_card_versions,list_observed_collections,mcp_server_control,mcp_tool_call,mcp_tools,query_observed_collections,read,read_record_version,run_command,skill,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:245` |
+| `reviewer` | `diff_card_versions,edit,get_card_version,glob,grep,list_card_versions,list_observed_collections,query_observed_collections,read,read_record_version,skill,view_image,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:231` |
+| `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card_versions,edit,get_card,get_card_version,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_versions,list_cards,list_observed_collections,list_processes_tool,mcp_server_control,mcp_tool_call,mcp_tools,navigate_back,navigate_workspace,pause_runtime,query_observed_collections,queue_notification,read,read_agent_session,read_control_actions,read_record_version,read_runtime_errors,read_runtime_events,reconfigure,reopen_card,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:153` |
 | `oversight` | `diff_card_versions,get_card,get_card_version,get_status,get_tree,glob,grep,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,queue_notification,read,read_agent_session,read_record_version,read_runtime_errors,read_runtime_events` | `src/contracts/oversight-tool-policy.ts:2` |
 <!-- saivage:agent-tools:end -->
 
@@ -1688,8 +1734,8 @@ map. These are field inventories, not defaults or permission grants.
 <!-- saivage:config-schema:start -->
 | Section | Fields | Source |
 |---|---|---|
-| `top-level` | `agents,analyst_agent,card_types,compaction,git_workflow,mcpServers,models,oversight,providers,server` | `src/schemas/saivage-config.ts:591` |
-| `agents.entry` | `can_create_children,model_route,prompt,quality_tools,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:443` |
+| `top-level` | `agents,analyst_agent,card_types,compaction,git_workflow,mcpServers,models,oversight,providers,server` | `src/schemas/saivage-config.ts:596` |
+| `agents.entry` | `capabilities,model_route,prompt,quality_tools,session,skills` | `src/schemas/saivage-config.ts:529` |
 | `git_workflow.variant1` | `enabled,format_version` | `src/schemas/saivage-config.ts:260` |
 | `git_workflow.variant2` | `correction,delivery_branch,enabled,excluded_paths,format_version,integration,preservation,private_ref_namespace,review_bindings,source_roots` | `src/schemas/saivage-config.ts:262` |
 | `git_workflow.variant2.preservation` | `interrupted_rebase,source_checkpoint` | `src/schemas/saivage-config.ts:277` |

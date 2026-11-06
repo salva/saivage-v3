@@ -110,7 +110,7 @@
           <text :x="nodePoint(node.node_id).x + 12" :y="nodePoint(node.node_id).y + 63">
             {{
               node.execution.kind === 'agent'
-                ? `tools: ${node.execution.tools.length}`
+                ? `tools: ${node.execution.capabilities.grants.flatMap((grant) => grant.tools).length}`
                 : `${node.execution.provider.kind}: ${node.execution.provider.name}`
             }}
           </text>
@@ -287,7 +287,7 @@ function childLabel(node: Graph['nodes'][number]): string {
 function nodeDescription(node: Graph['nodes'][number]): string {
   const execution = node.execution;
   return execution.kind === 'agent'
-    ? `${node.node_id} node, agent ${execution.agent_name}, model route ${execution.model.route}, ${execution.tools.length} tools, requirements ${requirementLabel(node)}`
+    ? `${node.node_id} node, agent ${execution.agent_name}, model route ${execution.model.route}, ${execution.capabilities.grants.flatMap((grant) => grant.tools).length} tools, requirements ${requirementLabel(node)}`
     : `${node.node_id} action node, ${execution.action}, contract ${execution.contract_version}, ${execution.provider.kind} ${execution.provider.name}, requirements ${requirementLabel(node)}`;
 }
 function entryDescription(entry: Graph['entries'][number]): string {

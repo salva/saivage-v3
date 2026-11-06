@@ -19,7 +19,9 @@ and [prompt handling](../../../../docs/architecture/prompts.md).
   closes ordinary choices autonomously into useful work. Necessary decisions
   outside its authority return through existing BLOCKED outcomes with evidence,
   impact and options. Parent direction cannot amend a child's accepted brief;
-  requirement changes must reach the actual requirement owner.
+  requirement changes must reach the actual requirement owner. With bundled grants,
+  the parent can accept a proposal by writing the same inactive child's brief;
+  it cannot weaken its own upstream obligations. Root decisions reach Analyst/operator.
 - Planner connects the full outcome to a workable approach and a detailed next
   slice, leaving later slices coarse when appropriate. It executes that plan
   through direct children, not implementation edits/builds/tests. An architecture
@@ -47,6 +49,13 @@ and [prompt handling](../../../../docs/architecture/prompts.md).
   not a new completion gate.
 
 ## Exact source differences
+
+All five registered profiles now share the singular capabilities1 grammar:
+Planner self/status and children/brief, Reviewer self/review*, Executor self/status,
+global Analyst all/brief, broad explicit reads. Custom scopes may grant self
+bootstrap drafts. Workflow6/accepted-record6/conversation13 require separately
+authorized input/prompt and retained-state adoption; record-head3 stays unchanged.
+This cutover does not redesign the profile's graph or prove installed compatibility.
 
 The [template](./template.ts) selects its own complete standalone physical prompt
 tree and directly reuses `CLASSIC_TYPED_TEMPLATE.config`, the same deeply frozen

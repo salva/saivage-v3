@@ -1,4 +1,5 @@
 import { agentExecution, directEdge } from '../../helpers/workflow-execution.js';
+import { setRecordWriteGrants, writeRecordPatterns } from '../../helpers/capability-grants.js';
 import { afterEach,describe,expect,it } from '@jest/globals';
 import { mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,7 +51,7 @@ describe('named-agent card-type workflow compilation',()=>{
       expect(()=>compileProjectWorkflows(broken,{defaultPromptRoot:resolveSystemTemplate(profile).promptRoot})).toThrow(/entries\.STOPPED must target a node run by notification recipient/);
     }
     const custom=source();
-    custom.agents.advisor={...custom.agents.planner!,tools:custom.agents.planner!.tools.filter((tool)=>tool!=='activate_card'&&tool!=='create_card'),can_create_children:false,model_route:'planner'};
+    custom.agents.advisor={...custom.agents.planner!,capabilities:{format_version:1,grants:custom.agents.planner!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((tool)=>tool!=='activate_card'&&tool!=='create_card')})).filter((grant)=>grant.tools.length>0)},model_route:'planner'};
     const goal=custom.card_types.goal!;
     goal.workflow.notification_recipient='advisor';
     for(const node of Object.values(goal.workflow.nodes)) if(agentExecution(node).agent==='planner') agentExecution(node).agent='advisor';
@@ -120,14 +121,21 @@ describe('named-agent card-type workflow compilation',()=>{
       expect.objectContaining({source_node_id:'review',outcome:'approved',condition:'pending_notifications',prompt:{reference:'review-to-notifications',compactable:false,compaction_key:' notification key '}}),
     ]));
   });
-  it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false,canCreateChildren:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)})).toBe(renderCompiledPrompt({kind:'global-agent'},compiled.oversight.name,compiled.oversightPrompt.compiled,{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)}));});
+  it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)})).toBe(renderCompiledPrompt({kind:'global-agent'},compiled.oversight.name,compiled.oversightPrompt.compiled,{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)}));});
   it('admits configured Oversight subsets without requiring or restoring the shipped full policy',()=>{
     for(const tools of [[], ['get_card', 'queue_notification']]){
-      const config=source();config.agents.oversight!.tools=tools;
+      const config=source();config.agents.oversight!.capabilities.grants=config.agents.oversight!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((tool)=>tools.includes(tool))})).filter((grant)=>grant.tools.length>0);
       expect(compileProjectWorkflows(config).oversight.tools.map((tool)=>tool.name)).toEqual(tools);
     }
   });
-  it('rejects every invalid selected Oversight authority even while disabled',()=>{failure((value)=>{value.oversight.enabled=false;value.oversight.agent=value.analyst_agent;value.agents.oversight!.tools=[];},/must differ/);failure((value)=>{value.oversight.enabled=false;value.agents.oversight!.session='card';value.agents.oversight!.tools=[];},/global session/);failure((value)=>{value.agents.oversight!.can_create_children=true;},/can_create_children/);failure((value)=>{value.agents.oversight!.record_writes=['status.md'];},/no record_writes/);failure((value)=>{value.agents.oversight!.skills=true;value.agents.oversight!.tools.push('skill');},/skills: false/);failure((value)=>{value.agents.oversight!.tools=['run_command'];},/forbidden/);});
+  it('rejects every invalid selected Oversight authority even while disabled',()=>{
+    failure((value)=>{value.oversight.enabled=false;value.oversight.agent=value.analyst_agent;value.agents.oversight!.capabilities.grants=[];},/must differ/);
+    failure((value)=>{value.oversight.enabled=false;value.agents.oversight!.session='card';value.agents.oversight!.capabilities.grants=[];},/global session/);
+    failure((value)=>{value.agents.oversight!.capabilities.grants.push({tools:['create_card'],resources:[{kind:'card',scopes:['all']}]});},/forbidden/);
+    failure((value)=>{value.agents.oversight!.capabilities.grants.push({tools:['write'],resources:[{kind:'record',scopes:['all'],patterns:['status.md']}]});},/forbidden/);
+    failure((value)=>{value.agents.oversight!.skills=true;value.agents.oversight!.capabilities.grants.push({tools:['skill']});},/skills: false/);
+    failure((value)=>{value.agents.oversight!.capabilities.grants=[{tools:['run_command']}];},/forbidden/);
+  });
   it('requires the complete Oversight section and validates its disabled route without provider I/O',()=>{
     const missing=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete missing.oversight;
     expect(()=>saivageConfigSchema.parse(missing)).toThrow();
@@ -251,10 +259,10 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(graphs.map((graph)=>graph.card_type)).toEqual(['project','leaf-plan']);
     const projectPlan=graphs[0]!.nodes.find((node)=>node.node_id==='plan')!;
     const leafPlan=graphs[1]!.nodes.find((node)=>node.node_id==='plan')!;
-    expect(agentExecution(projectPlan).tools).toContain('create_card');
-    expect(agentExecution(leafPlan).tools).not.toContain('create_card');
+    expect(agentExecution(projectPlan).capabilities.grants.flatMap((grant)=>grant.tools)).toContain('create_card');
+    expect(agentExecution(leafPlan).capabilities.grants.flatMap((grant)=>grant.tools)).not.toContain('create_card');
     const leafState=bound.cardTypes.get('leaf-plan')!.states.get('node:plan')!;if(leafState.kind!=='node')throw new Error('missing leaf plan node');
-    expect(agentExecution(leafPlan).tools).toEqual(agentExecution(leafState).agent.tools.filter((tool)=>tool.name!=='create_card').map((tool)=>tool.name));
+    expect(agentExecution(leafPlan).capabilities.grants.flatMap((grant)=>grant.tools)).toEqual(agentExecution(leafState).agent.tools.filter((tool)=>tool.name!=='create_card').map((tool)=>tool.name));
   });
   it.each([
     ['backlog','BACKLOG'],['running',null],['blocked','BLOCKED'],['changed','CHANGED'],['stopped','STOPPED'],['done',null],['failed',null],['cancelled',null],
@@ -395,7 +403,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reopen_card','reorder_child','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','read_record_version','websearch','webfetch','list_observed_collections','query_observed_collections']);
     expect(compiled.agents.get('reviewer')?.tools.map((tool)=>tool.name)).not.toContain('mcp_tool_call');
     expect(compiled.agents.get('executor')?.tools.map((tool)=>tool.name)).toContain('mcp_tool_call');
-    expect(compiled.agents.get('analyst')?.tools.map((tool)=>tool.name)).toEqual(source().agents.analyst!.tools);
+    expect(compiled.agents.get('analyst')?.tools.map((tool)=>tool.name)).toEqual(source().agents.analyst!.capabilities.grants.flatMap((grant)=>grant.tools));
     expect(compiled.agents.get('analyst')?.tools[2]?.name).toBe('reopen_card');
   });
 
@@ -583,8 +591,7 @@ describe('named-agent card-type workflow compilation',()=>{
 
   it('rejects missing agents, invalid record-write authority, invalid child authority, and graph defects',()=>{
     failure((value)=>{agentExecution(value.card_types.code!.workflow.nodes.execute!).agent='missing';},/missing agent/);
-    failure((value)=>{value.agents.executor!.record_writes=[];},/record_writes authority/);
-    failure((value)=>{value.agents.planner!.can_create_children=false;},/cannot list create_card/);
+    failure((value)=>{setRecordWriteGrants(value.agents.executor!,[]);},/self write/);
     failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges={loop:{target:{node:'execute'},prompt:{reference:'execute',compactable:true}}};},/no path to a terminal/);
   });
 
@@ -599,11 +606,11 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('rejects unknown and wrong-scope tools during offline structural compilation',()=>{
-    expect(source().agents.analyst!.tools).toContain('reopen_card');
-    failure((value)=>{value.agents.planner!.tools.push('get_status');},/unknown tool 'get_status' for card session scope/);
-    const selected=source();selected.agents.planner!.tools=selected.agents.planner!.tools.filter((name)=>name!=='reopen_card');expect(compileProjectWorkflows(selected).agents.get('planner')!.tools.map(({name})=>name)).not.toContain('reopen_card');
-    failure((value)=>{value.agents.analyst!.tools.push('activate_card');},/unknown tool 'activate_card' for global session scope/);
-    failure((value)=>{value.agents.reviewer!.tools.push('not_a_tool');},/unknown tool 'not_a_tool' for card session scope/);
+    expect(source().agents.analyst!.capabilities.grants.flatMap((grant)=>grant.tools)).toContain('reopen_card');
+    failure((value)=>{value.agents.planner!.capabilities.grants.push({tools:['get_status']});},/unknown tool 'get_status' for card session scope/);
+    const selected=source();selected.agents.planner!.capabilities.grants=selected.agents.planner!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((name)=>name!=='reopen_card')})).filter((grant)=>grant.tools.length>0);expect(compileProjectWorkflows(selected).agents.get('planner')!.tools.map(({name})=>name)).not.toContain('reopen_card');
+    failure((value)=>{value.agents.analyst!.capabilities.grants.push({tools:['activate_card'],resources:[{kind:'card',scopes:['all']}]});},/unknown tool 'activate_card' for global session scope/);
+    failure((value)=>{value.agents.reviewer!.capabilities.grants.push({tools:['not_a_tool']});},/unknown tool 'not_a_tool' for card session scope/);
   });
 
   it('uses intentionally local export and latest-node promotion validation',()=>{
@@ -628,24 +635,24 @@ describe('named-agent card-type workflow compilation',()=>{
 
   it('compiles strict record-write patterns, generic requirements, and the exact capability matrix',()=>{
     const defaults=compileProjectWorkflows(source());
-    expect(defaults.agents.get('analyst')!.recordWrites.map(({source})=>source)).toEqual(['brief.md']);
-    expect(defaults.agents.get('reviewer')!.recordWrites.map(({source})=>source)).toEqual(['review.md','review-*.md']);
-    expect(defaults.agents.get('reviewer')!.recordWrites[1]!.matcher.test('review-notes-1.md')).toBe(true);
+    expect(writeRecordPatterns(defaults.agents.get('analyst')!).map(({source})=>source)).toEqual(['brief.md']);
+    expect(writeRecordPatterns(defaults.agents.get('reviewer')!).map(({source})=>source)).toEqual(['review.md','review-*.md']);
+    expect(writeRecordPatterns(defaults.agents.get('reviewer')!)[1]!.matcher.test('review-notes-1.md')).toBe(true);
     expect(defaults.cardTypes.get('goal')!.states.get('node:review')).toMatchObject({requirements:[{mode:'clean',gate:'updated'}]});
-    failure((value)=>{value.agents.executor!.record_writes.push('status.md');},/duplicate 'status.md'/);
+    failure((value)=>{setRecordWriteGrants(value.agents.executor!,[{kind:'record',scopes:['self'],patterns:['status.md','status.md']}]);},/Duplicate record pattern/);
     expect(saivageConfigSchema.safeParse({...structuredClone(DEFAULT_SAIVAGE_CONFIG),agents:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents),executor:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents.executor!),record_writes:['status?.md']}}}).success).toBe(false);
 
     for(const [mode,gate,needsWrite] of [['clean','exists',true],['clean','updated',true],['continue','updated',true],['continue','exists',false]] as const){
-      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),tools:value.agents.executor!.tools.filter((tool)=>tool!=='write'&&tool!=='edit'),record_writes:['notes.md']};const execute=value.card_types.code!.workflow.nodes.execute!;agentExecution(execute).agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges)){const target=directEdge(edge).target;if('terminal'in target)target.export_records=['notes.md'];}
+      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),capabilities:{format_version:1,grants:[{tools:['edit'],resources:[{kind:'record',scopes:['self'],patterns:['notes.md']}]}]},skills:false};const execute=value.card_types.code!.workflow.nodes.execute!;agentExecution(execute).agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges)){const target=directEdge(edge).target;if('terminal'in target)target.export_records=['notes.md'];}
       value.card_types.code!.records['status.md']!.initialization=null;
       execute.initialize_records=[];
       if(needsWrite)expect(()=>compileProjectWorkflows(value)).toThrow(/requires the write tool/);else expect(()=>compileProjectWorkflows(value)).not.toThrow();
-      if(needsWrite){value.agents.matrix!.tools.push('write');const node=compileProjectWorkflows(value).cardTypes.get('code')!.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');expect(node.requirements[0]!.definition).toMatchObject({name:'notes.md',schema:'authored-record.v1',declared:false});}
+      if(needsWrite){value.agents.matrix!.capabilities.grants[0]!.tools.push('write');const node=compileProjectWorkflows(value).cardTypes.get('code')!.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');expect(node.requirements[0]!.definition).toMatchObject({name:'notes.md',schema:'authored-record.v1',declared:false});}
     }
   });
 
   it('requires descendant-context records across the transitive declared closure without glob coupling',()=>{
-    const value=source();value.agents.reviewer!.record_writes=['review.md'];
+    const value=source();setRecordWriteGrants(value.agents.reviewer!,[{kind:'record',scopes:['self'],patterns:['review.md']}]);
     expect(()=>compileProjectWorkflows(value)).not.toThrow();
     delete value.card_types.architecture!.records['status.md'];
     value.card_types.architecture!.workflow.nodes.execute!.record_prompts = [];

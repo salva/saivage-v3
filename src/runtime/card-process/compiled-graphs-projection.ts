@@ -1,5 +1,5 @@
 import { DebugGraphsResponseSchema, type DebugGraphsResponse } from '../../contracts/index.js';
-import { effectiveCardNodeToolReferences } from '../../tools/tool-api.js';
+import { effectiveCardNodeToolReferences, toolCapabilityResources } from '../../tools/tool-api.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 import { workflowEdge, workflowEntryTarget } from './workflow-topology.js';
 import {
@@ -60,7 +60,15 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
           max_tokens: agent.model.maxTokens,
         },
         skills: agent.skills,
-        tools: agent.tools.map(({ name }) => name),
+        capabilities: {
+          format_version: 1 as const,
+          grants: agent.tools.map((reference) => ({
+            tools: [reference.name],
+            ...(reference.resources.length
+              ? { resources: toolCapabilityResources(reference) }
+              : {}),
+          })),
+        },
       };
     },
   );
@@ -110,11 +118,18 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
                 max_tokens: execution.agent.model.maxTokens,
               },
               skills: execution.agent.skills,
-              tools: effectiveCardNodeToolReferences(
-                execution.agent.tools,
-                node.childCreationTypes,
-              ).map((reference) => reference.name),
-              record_write_patterns: execution.agent.recordWrites.map(({ source }) => source),
+              capabilities: {
+                format_version: 1 as const,
+                grants: effectiveCardNodeToolReferences(
+                  execution.agent.tools,
+                  node.childCreationTypes,
+                ).map((reference) => ({
+                  tools: [reference.name],
+                  ...(reference.resources.length
+                    ? { resources: toolCapabilityResources(reference) }
+                    : {}),
+                })),
+              },
             };
       return {
         node_id: node.nodeId,

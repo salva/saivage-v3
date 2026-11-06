@@ -31,6 +31,13 @@ are current requirements, not an implementation plan or evidence of conformance.
 
 ## Purpose and acceptance
 
+Operators need to inspect selected tool resource grants in workflow/configuration
+views and distinguish the actual author card of a card-agent record acceptance
+from its target. Default parent-owned child briefs and self status must remain
+understandable without suggesting universal parent-only authority for custom
+configurations. This requires no new editor, approval dashboard or operator auth
+change; record history and existing read/navigation surfaces remain available.
+
 The UI's prime directive is to let the operator **see and understand what is going on**
 and **take action through the Analyst**—directing, questioning, and requesting mutations—
 without taking over autonomous engineering work.

@@ -1,3 +1,4 @@
+import { testNotificationAuthority } from '../../helpers/capability-grants.js';
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -101,7 +102,7 @@ function fixture(definition?: OperationDefinition, script = 'printf "real action
   const processes = createTestProcessRunner(root);
   let providerCalls = 0;
   let childId = '';
-  if (attachment?.child) childId = cards.create({ type: 'goal', parent: 'project', title: 'Hook child', bootstrap_content: 'Finite child', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+  if (attachment?.child) childId = cards.create({ type: 'goal', parent: 'project', title: 'Hook child', bootstrap_content: 'Finite child', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }).id;
   const provider = jest.fn(async () => {
     if (attachment?.child && ++providerCalls === 1) return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const,
       function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId, instructions: 'Complete the finite check.' }) } }] }, provider_exchanges: [] };
@@ -314,7 +315,7 @@ it.each(['missing', 'directory'] as const)('rejects a %s completed capture witho
 
 it('keeps the factual report when a later real descendant gate refuses DONE', async () => {
   const f = fixture(undefined, 'printf report', false, false, false, {}, {}, undefined, true);
-  f.cards.create({ type: 'goal', parent: 'project', title: 'Incomplete child', bootstrap_content: 'Work remains', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  f.cards.create({ type: 'goal', parent: 'project', title: 'Incomplete child', bootstrap_content: 'Work remains', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   const owner = await launch(f);
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'failed', result: { summary: expect.stringContaining('descendant') } });
   expect(acceptedReport(f)!.accepted).toMatchObject({ content: 'report', source_version: 1, author: { kind: 'action-output' } });
@@ -607,12 +608,12 @@ it('cancelCard retains an urgent retiring action and its first interruption with
       throw signal.reason;
     } };
   const f = fixture(definition, '', false, true);
-  const child = f.cards.create({ type: 'goal', parent: 'project', title: 'Urgent context target', bootstrap_content: 'No active child invocation.', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  const child = f.cards.create({ type: 'goal', parent: 'project', title: 'Urgent context target', bootstrap_content: 'No active child invocation.', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   const owner = await launch(f);
   let urgent: Promise<unknown> | undefined; let cancellation: Promise<unknown> | undefined;
   try {
     await entered.promise;
-    urgent = f.supervisor.submitNotification(child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent new context', created_at: new Date().toISOString() }, 'urgent');
+    urgent = f.supervisor.submitNotification(testNotificationAuthority(), child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent new context', created_at: new Date().toISOString() }, 'urgent');
     void urgent.catch(() => undefined);
     await aborted.promise;
     const urgentReason = interruption;
@@ -693,7 +694,7 @@ it.each(['Stop', 'shutdown', 'urgent'] as const)('joins a real action command on
   if (mode === 'Stop') await expect(f.supervisor.stopProject()).resolves.toMatchObject({ contained: true });
   else if (mode === 'shutdown') await expect(f.supervisor.cleanupForApplicationStop()).resolves.toBeUndefined();
   else {
-    await expect(f.supervisor.submitNotification('project', { id: '11111111-1111-4111-8111-111111111111', content: 'Urgent new context', created_at: new Date().toISOString() }, 'urgent')).resolves.toMatchObject({ queued: true });
+    await expect(f.supervisor.submitNotification(testNotificationAuthority(), 'project', { id: '11111111-1111-4111-8111-111111111111', content: 'Urgent new context', created_at: new Date().toISOString() }, 'urgent')).resolves.toMatchObject({ queued: true });
     await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'stopped' });
     await new Promise<void>((resolve, reject) => {
       const deadline = Date.now() + 3000;

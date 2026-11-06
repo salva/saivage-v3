@@ -1,4 +1,5 @@
 import { emptyToolInputSchema, toolSucceeded } from '../contracts/index.js';
+import type { DirectObjectAuthority } from './direct-object-authority.js';
 import {
   defineToolBinder,
   executeToolAction,
@@ -6,7 +7,10 @@ import {
 } from './invocation.js';
 
 export interface NativeSourceProviderContext {
-  checkpointSource(): Promise<{ branch_ref: string; observed_tip: string }>;
+  readonly authority: DirectObjectAuthority;
+  checkpointSource(
+    authority: DirectObjectAuthority,
+  ): Promise<{ branch_ref: string; observed_tip: string }>;
 }
 export const nativeSourceToolBinders = [
   defineToolBinder({
@@ -16,6 +20,8 @@ export const nativeSourceToolBinders = [
     inputSchema: () => emptyToolInputSchema,
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     executor: (context: NativeSourceProviderContext) =>
-      executeToolAction('none', async () => toolSucceeded(await context.checkpointSource())),
+      executeToolAction('none', async () =>
+        toolSucceeded(await context.checkpointSource(context.authority)),
+      ),
   }),
 ];

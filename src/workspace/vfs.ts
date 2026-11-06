@@ -12,7 +12,7 @@ import { effectiveRecordContent } from '../persistence/index.js';
 import type { CardService } from '../cards/store-api.js';
 type CompleteRecordReader = Pick<
   CardService,
-  'readRecordCurrent' | 'readRecordVersion' | 'listDeclaredRecordMetadata'
+  'readRecordCurrent' | 'readRecordVersion' | 'listDeclaredRecordMetadata' | 'readCommittedCardHead'
 >;
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import {
@@ -39,6 +39,10 @@ import {
 type VfsMode = 'read' | 'write' | 'search';
 
 interface VfsContext {
+  selection?: {
+    readonly authority: import('../tools/direct-object-authority.js').DirectObjectAuthority;
+    readonly tool: string;
+  };
   projectRoot: string;
   agent?: { cardId?: string; agentName?: AgentName };
   fail: (message: string) => Error;
@@ -399,7 +403,7 @@ function recordSummaries(
   reader: CompleteRecordReader,
   cardId: string,
 ): RecordSummary[] {
-  const result = reader.listDeclaredRecordMetadata(cardId);
+  const result = reader.listDeclaredRecordMetadata(cardId, undefined, ctx.selection);
   if (result.kind === 'card-not-found') throw ctx.fail('Card not found.');
   return result.value.definitions.map(({ definition, classification }) => {
     const latest = classification.kind === 'present' ? classification.projection : null;
@@ -452,7 +456,11 @@ export async function visitScopedFiles(
   const resolved = resolveAgentReadPath(ctx, raw, 'search');
 
   if (resolved.kind === 'record') {
-    const metadata = ctx.records!.listDeclaredRecordMetadata(resolved.cardId);
+    const metadata = ctx.records!.listDeclaredRecordMetadata(
+      resolved.cardId,
+      undefined,
+      ctx.selection,
+    );
     if (metadata.kind === 'card-not-found') throw ctx.fail('Card not found.');
     for (const { classification } of [...metadata.value.definitions].sort((a, b) =>
       compareStrings(a.definition.filename, b.definition.filename),

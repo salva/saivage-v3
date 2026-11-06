@@ -1,3 +1,4 @@
+import { testNotificationAuthority } from '../../helpers/capability-grants.js';
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -119,7 +120,7 @@ function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'acti
   cards.acceptRecord('project', 'brief.md', 'FULL CURRENT ACCEPTED BRIEF: implement the bounded request.', { kind: 'agent', agent: 'analyst' });
   cards.acceptRecord('project', 'status.md', 'Immutable factual predecessor evidence.', { kind: 'agent', agent: 'analyst' });
   const childId = parent ? cards.create({ type: 'goal', parent: 'project', title: 'Bounded child',
-    bootstrap_content: 'FULL CURRENT ACCEPTED BRIEF: implement the bounded child request.', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id : null;
+    bootstrap_content: 'FULL CURRENT ACCEPTED BRIEF: implement the bounded child request.', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }).id : null;
   const processes = createTestProcessRunner(root);
   const requests: PreparedLlmInvocationInput[] = [];
   const provider = jest.fn(async (input: PreparedLlmInvocationInput, _signal: AbortSignal) => {
@@ -283,7 +284,7 @@ it('publishes literal correction policy from a compiled declaration after an act
 
 it('uses actual urgent routing and retains queued context and recovery ahead of fresh selected data', async () => {
   const f = fixture();
-  const child = f.cards.create({ type: 'goal', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Finite child request', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  const child = f.cards.create({ type: 'goal', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Finite child request', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   let entered!: () => void;
   const first = new Promise<void>(resolve => { entered = resolve; });
   f.provider.mockImplementationOnce(async (_input, signal?: AbortSignal) => {
@@ -293,7 +294,7 @@ it('uses actual urgent routing and retains queued context and recovery ahead of 
     throw new Error('Unreachable aborted provider');
   });
   const owner = await launch(f); await first;
-  await f.supervisor.submitNotification(child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent bounded correction', created_at: new Date().toISOString() }, 'urgent');
+  await f.supervisor.submitNotification(testNotificationAuthority(), child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent bounded correction', created_at: new Date().toISOString() }, 'urgent');
   await expect(owner.settlement.promise).resolves.toMatchObject({ status: 'blocked' });
   expect(f.requests).toHaveLength(2);
   const rows = readConversation(f.root, 'agent:planner:project').sourceRows;
@@ -346,7 +347,7 @@ it.each(['covered', 'suffix'] as const)('compacts actual recorded selected facts
     input, summarizerProvider: summarizer, signal: new AbortController().signal, progress: noCompactionProgress });
   expect(result.kind).toBe('compacted');
   const successor = readCurrentConversationSegment(f.root, prepared.sessionId)!;
-  expect(successor.index.format_version).toBe(12);
+  expect(successor.index.format_version).toBe(13);
   expect(successor.entry.version).toBe(source.entry.version + 1);
   expect(readHistoricalConversationSegment(f.root, prepared.sessionId, source.entry.version).rows).toEqual(sourceRows);
   expect(sourceRows.some(row => row.content === historical)).toBe(true);

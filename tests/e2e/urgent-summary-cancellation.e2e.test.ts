@@ -147,7 +147,7 @@ describe('offline urgent cancellation through summary, Analyst and HTTP owners',
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       const leaf = cards.create({
@@ -157,7 +157,7 @@ describe('offline urgent cancellation through summary, Analyst and HTTP owners',
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       const session = `agent:executor:${leaf.id}` as const;

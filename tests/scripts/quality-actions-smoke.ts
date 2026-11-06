@@ -61,10 +61,10 @@ try {
     assert.equal(finish.output?.source, 'returned-text');
     const toolName = `code_quality_${language}_${suffix}` as QualityToolName;
     const toolConfig = structuredClone(TEST_SAIVAGE_CONFIG);
-    toolConfig.agents[toolConfig.analyst_agent]!.tools.push(toolName);
+    toolConfig.agents[toolConfig.analyst_agent]!.capabilities.grants.push({ tools: [toolName] });
     toolConfig.agents[toolConfig.analyst_agent]!.quality_tools = qualityToolBindingsSchema.parse({ format_version: 1, [toolName]: config });
     const otherAgent = Object.values(toolConfig.agents).find((agent) => agent.session === 'card')!;
-    otherAgent.tools.push(toolName);
+    otherAgent.capabilities.grants.push({ tools: [toolName] });
     otherAgent.quality_tools = qualityToolBindingsSchema.parse({ format_version: 1,
       [toolName]: { ...config, source_paths: ['never-select-this-other-agent-scope'] } });
     const toolWorkflows = compileProjectWorkflows(toolConfig);

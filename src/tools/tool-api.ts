@@ -14,9 +14,13 @@ export {
   BoundAgentToolSet,
   effectiveCardNodeToolReferences,
   resolveRuntimeTool,
+  toolCapabilityResources,
+  toolAllowsSelfRecord,
   surfaceToolContracts,
 } from './runtime-tool-catalog.js';
 export type { CompiledToolReference } from './runtime-tool-catalog.js';
+export { allowsReachedObject, assertReachedObjectAuthority } from './direct-object-authority.js';
+export type { DirectObjectAuthority } from './direct-object-authority.js';
 export { validateProcessToolResult } from './process-tool-result.js';
 export { settleToolActionOutcome } from './tool-result-settlement.js';
 export type { QueueNotificationToolInput } from './notification-tool.js';

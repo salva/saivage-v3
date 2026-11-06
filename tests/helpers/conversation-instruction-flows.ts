@@ -124,7 +124,7 @@ export async function createInstructionFlow(scene: InstructionScene) {
       bootstrap_content: `Synthetic ${scene} acceptance.`,
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
       depends_on: [],
     });
     const starts: Array<{

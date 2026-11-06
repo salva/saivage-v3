@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import {
+  allowsReachedObject,
+  type DirectObjectAuthority,
+} from '../tools/direct-object-authority.js';
 import { cardGitFactsSchema } from '../schemas/index.js';
 
 import {
@@ -285,6 +289,7 @@ interface CardInspectionListRow {
   readonly activeChildrenCount: number;
 }
 interface CardInspectionTreeRow extends CardInspectionListRow {
+  readonly ordinary: { readonly entry_id: string; readonly version: number };
   readonly relativeDepth: number;
   readonly activeDescendantCount: number;
 }
@@ -540,6 +545,7 @@ export class CardService {
   listDeclaredRecordMetadata(
     cardId: string,
     instrumentation?: CanonicalReadInstrumentation,
+    selection?: { readonly authority: DirectObjectAuthority; readonly tool: string },
   ): CardDeclaredRecordMetadataResult {
     const reached = readActiveCardPath(this.projectRoot, cardId, instrumentation);
     if (!reached) return { kind: 'card-not-found' };
@@ -549,19 +555,29 @@ export class CardService {
       value: {
         card,
         headId: reached.fold.selection.head_id,
-        definitions: this.recordDefinitionsFor(card).map((definition) => {
-          const classification = classifyCurrentAuthoredRecord(
-            this.projectRoot,
-            card,
-            definition,
-            instrumentation,
-          );
-          if (classification.kind !== 'present' && definition.bootstrap)
-            throw new Error(
-              `Card '${cardId}' required bootstrap record '${definition.filename}' is unavailable.`,
+        definitions: this.recordDefinitionsFor(card)
+          .filter(
+            (definition) =>
+              !selection ||
+              allowsReachedObject(selection.authority, selection.tool, {
+                kind: 'record',
+                cardId: card.id,
+                name: definition.filename,
+              }),
+          )
+          .map((definition) => {
+            const classification = classifyCurrentAuthoredRecord(
+              this.projectRoot,
+              card,
+              definition,
+              instrumentation,
             );
-          return { definition, classification };
-        }),
+            if (classification.kind !== 'present' && definition.bootstrap)
+              throw new Error(
+                `Card '${cardId}' required bootstrap record '${definition.filename}' is unavailable.`,
+              );
+            return { definition, classification };
+          }),
       },
     };
   }

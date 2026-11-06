@@ -1,3 +1,4 @@
+import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,8 +62,8 @@ describe('Stage-I versioned compaction', () => {
         priority: 50, urgency: 'normal', created_by: 'external:operator-one', depends_on: [] });
       expect(store.readRecordCurrent(child.id, 'brief.md')).toMatchObject({kind:'found',value:{projection:{accepted:{author:{kind:'external-agent',principal:'operator-one'}}}}});
       const surface = buildInvocationSurfaceFixture('planner', [
-        bindToolProvider('cards', cardInspectionToolBinders, {store, cardTypeVocabulary:store.workflows.cardTypeVocabulary}),
-        bindToolProvider('workspace', workspaceToolBinders, {projectRoot:root, cardId:'project', agentName:'planner', store}),
+        bindToolProvider('cards', cardInspectionToolBinders, {store, authority:broadInspectionAuthority(), cardTypeVocabulary:store.workflows.cardTypeVocabulary}),
+         bindToolProvider('workspace', workspaceToolBinders, {authority:testWorkspaceAuthority('project'), projectRoot:root, cardId:'project', agentName:'planner', store}),
       ]);
       appendRound(root, 1);
       const results: string[] = [];
@@ -78,7 +79,7 @@ describe('Stage-I versioned compaction', () => {
         results.push(facts.settledResultBytes);
       }
       const before = readCurrentConversationSegment(root, SESSION)!;
-      expect(before.genesis.format_version).toBe(12);
+      expect(before.genesis.format_version).toBe(13);
       const recordResult = before.rows.find(row=>row.kind==='tool_result' && row.tool==='read')!;
       expect(recordResult.record_observations?.length).toBeGreaterThan(0);
       expect(recordResult.record_observations?.every(({observed})=>!('author' in observed))).toBe(true);
@@ -94,7 +95,7 @@ describe('Stage-I versioned compaction', () => {
       expect(result.kind).toBe('compacted');
       for (const content of results) expect(summaryInputs.some(text=>text.includes(content))).toBe(true);
       expect(readHistoricalConversationSegment(root,SESSION,1).rows.filter(row=>row.kind==='tool_result').map(row=>row.content)).toEqual(results);
-      expect(readCurrentConversationSegment(root,SESSION)!.genesis.format_version).toBe(12);
+      expect(readCurrentConversationSegment(root,SESSION)!.genesis.format_version).toBe(13);
     } finally {rmSync(root,{recursive:true,force:true});}
   });
 
@@ -919,3 +920,4 @@ function composedProjectionBytes(projection: ReturnType<typeof providerConversat
     ? [item.kind, item.origin, item.block_identity, item.role, item.content]
     : [item.id, item.role, item.kind, item.content])), 'utf8');
 }
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';

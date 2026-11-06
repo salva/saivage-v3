@@ -34,7 +34,7 @@ function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' | 'newloop'
   const root = mkdtempSync(join(tmpdir(), 'record-baseline-')); roots.push(root); publishInitialProjectRuntime(root, workflows);
   const store = new CardService(root, workflows);
   const cardId = options.cardType === 'architecture'
-    ? store.create({ type: 'architecture', parent: 'project', title: 'Architecture {{nodeId}}', bootstrap_content: 'Accepted architecture scope', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id
+    ? store.create({ type: 'architecture', parent: 'project', title: 'Architecture {{nodeId}}', bootstrap_content: 'Accepted architecture scope', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }).id
     : 'project';
   const runner = new AgentNodeExecution({ cardId, store } as never, {} as never) as unknown as Methods;
   const node = workflows.cardTypes.get(options.cardType ?? 'project')!.states.get(options.cardType === 'architecture' ? 'node:draft' : `node:${options.nodeId ?? 'plan'}`)!;
@@ -153,7 +153,7 @@ describe('real node preparation and document lifecycle', () => {
     f.store.editRecord(f.cardId, 'review.md', 'Independent assessment against the accepted scope, with evidence.');
     expect(f.runner.validateRecords(first, baseline).candidates?.size).toBe(1);
     const accepted = f.store.closeRecord(f.cardId, 'review.md', 'reviewer').accepted!;
-    expect(accepted).toMatchObject({ source_version: 1, author: { kind: 'agent', agent: 'reviewer' }, content: 'Independent assessment against the accepted scope, with evidence.' });
+    expect(accepted).toMatchObject({ source_version: 1, author: { kind: 'card-agent', agent: 'reviewer', card_id: f.cardId }, content: 'Independent assessment against the accepted scope, with evidence.' });
     const render = jest.fn((render: () => string) => render());
     const initialize = f.store.initializeRecord.bind(f.store);
     jest.spyOn(f.store, 'initializeRecord').mockImplementation((id, name, renderTemplate) => initialize(id, name, () => render(renderTemplate)));

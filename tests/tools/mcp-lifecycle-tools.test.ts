@@ -117,11 +117,11 @@ describe('independent configured MCP admissions', () => {
     expect(startServer).toHaveBeenCalledTimes(2);
     for (const tool of ['mcp_server_control', 'mcp_tools', 'mcp_tool_call']) {
       const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
-      config.agents.oversight!.tools.push(tool);
+      config.agents.oversight!.capabilities.grants.push({ tools: [tool] });
       expect(() => compileProjectWorkflows(config as never)).toThrow(`oversight.agent tool '${tool}' is forbidden`);
     }
     const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
-    config.agents.reviewer!.tools.push('mcp_server_control', 'mcp_tools');
+    config.agents.reviewer!.capabilities.grants.push({ tools: ['mcp_server_control', 'mcp_tools'] });
     const reviewer = compileProjectWorkflows(config as never).agents.get('reviewer')!;
     expect(await call(reviewer.tools.filter(tool => ['mcp_server_control', 'mcp_tools'].includes(tool.name)).map(tool => tool.name), port,
       'mcp_server_control', {serverName:'one',action})).toMatchObject({success:true});

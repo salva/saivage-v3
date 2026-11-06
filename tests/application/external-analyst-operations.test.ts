@@ -65,18 +65,21 @@ it('waits for accepted external tool effects and receipts without cancelling or 
   await operations.invoke('demo', {});
   expect(executor).toHaveBeenCalledTimes(2);
 });
-function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvocation) {
+function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvocation, omittedTools: string[] = []) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'external-analyst-'));
   roots.push(projectRoot); initProjectTree(projectRoot);
   const config = structuredClone(TEST_SAIVAGE_CONFIG);
-  config.agents.analyst!.tools.push('view_image');
+  config.agents.analyst!.capabilities.grants.push({ tools: ['view_image'], resources: [{ kind: 'workspace' }] });
+  config.agents.analyst!.capabilities.grants = config.agents.analyst!.capabilities.grants
+    .map((grant) => ({ ...grant, tools: grant.tools.filter((name) => !omittedTools.includes(name)) }))
+    .filter(({ tools }) => tools.length > 0);
   const workflows = compileProjectWorkflows(config);
   const store = new CardService(projectRoot,workflows);
   const notifyCard = jest.fn((cardId: string, notification: Parameters<CardService['enqueueNotification']>[1]) => {
     store.enqueueNotification(cardId, notification);
     return {ok:true as const, notificationId:notification.id};
   });
-  const submitNotification = jest.fn(async (cardId: string, notification: Parameters<typeof notifyCard>[1]) => ({
+  const submitNotification = jest.fn(async (_authority: import('../../src/tools/direct-object-authority.js').DirectObjectAuthority, cardId: string, notification: Parameters<typeof notifyCard>[1]) => ({
     ...notifyCard(cardId,notification), queued:true as const, cardId,
     interruption:{status:'not_requested' as const},
   }));
@@ -103,6 +106,17 @@ function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvoca
   return {projectRoot,store,surface,call,submitNotification};
 }
 
+it('intersects the external ceiling with actual configured global tools without inventing omitted tools', async () => {
+  const f = fixture(['create_card', 'get_card'], unusedMcpToolInvocation, ['create_card']);
+  const create = jest.spyOn(f.store, 'create');
+  expect([...f.surface.tools.keys()]).toEqual(['get_card']);
+  expect(await f.call('create_card', { parent: 'project', type: 'code', title: 'Denied', bootstrap_content: 'Requirements' }))
+    .toMatchObject({ kind: 'unsupported_tool' });
+  expect(create).not.toHaveBeenCalled();
+  expect(await f.call('get_card', { id: 'project', section: 'summary' }))
+    .toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'succeeded' } } });
+});
+
 it('uses the real selected surface for external create/bootstrap/record/notification attribution without a transcript', async () => {
   const f=fixture(['create_card','write','read','queue_notification','delete_card']);
   const index=globalAgentConversationVersionIndexFile(f.projectRoot,'analyst');
@@ -119,7 +133,7 @@ it('uses the real selected surface for external create/bootstrap/record/notifica
   expect(cardVersionArtifactSchema.safeParse({...artifact,format_version:4}).success).toBe(false);
   const accepted=bootstrap.value.projection!.accepted!;
   const acceptedArtifact=JSON.parse(readFileSync(cardAcceptedRecordFile(f.projectRoot,child.id,accepted.source_entry_id),'utf8'));
-  expect(acceptedArtifact.format_version).toBe(5);
+  expect(acceptedArtifact.format_version).toBe(6);
   expect(authoredRecordVersionArtifactSchema.safeParse({...acceptedArtifact,format_version:4}).success).toBe(false);
   expect(await f.call('write',{path:'record:///brief.md?card=card-a',content:'Corrected external requirements'})).toMatchObject({kind:'executed',execution:{providerOutcome:{kind:'succeeded'}}});
   const corrected=f.store.readRecordCurrent(child.id,'brief.md');
@@ -127,7 +141,7 @@ it('uses the real selected surface for external create/bootstrap/record/notifica
   const read=await f.call('read',{path:'record:///brief.md?card=card-a'});
   expect(read).toMatchObject({kind:'executed',execution:{providerOutcome:{kind:'succeeded'}}});
   expect(await f.call('queue_notification',{card_id:'project',kind:'context',body:'External note',urgency:'normal'})).toMatchObject({kind:'executed',execution:{providerOutcome:{kind:'succeeded'}}});
-  expect(f.submitNotification.mock.calls.at(-1)?.[1].source).toBe('external:operator-one');
+   expect(f.submitNotification.mock.calls.at(-1)?.[2].source).toBe('external:operator-one');
   expect(await f.call('delete_card',{ids:[child.id]})).toMatchObject({kind:'executed',execution:{providerOutcome:{kind:'succeeded'}}});
   const deletedHead=JSON.parse(readFileSync(cardHeadFile(f.projectRoot,child.id),'utf8'));
   const tombstone=cardTombstoneArtifactSchema.parse(JSON.parse(readFileSync(cardHistoryFile(f.projectRoot,child.id,deletedHead.ordinary.entry_id),'utf8')));
@@ -146,7 +160,7 @@ it('rejects guessed omitted tools and effective webfetch/write conjunctions with
   expect(await f.call('webfetch',{url:42})).toMatchObject({kind:'rejected_before_execution',providerOutcome:{kind:'failed',error:'Tool arguments do not match the selected tool schema.'}});
   expect(await f.call('write',{path:'record:///brief.md?card=project',content:'unauthorized'})).toMatchObject({kind:'unsupported_tool'});
   const services=createAnalystMutationServices({store:f.store,configAuthority:testConfigAuthority(f.projectRoot),
-    author:{kind:'external-agent',principal:'operator-one'},allowedTools:['webfetch'],
+    author:{kind:'external-agent',principal:'operator-one'},authority:{anchorCardId:null,tools:f.store.workflows.analyst.tools.filter(({name})=>name==='webfetch')},
     notifyCard:()=>{throw new Error('Unexpected notification.');},submitNotification:async()=>{throw new Error('Unexpected notification.');},cancelCard:async()=>{throw new Error('Unexpected cancellation.');}});
   expect(services.recordMutations.admitWrite('record:///brief.md?card=project')).toMatchObject({ok:false,audit_outcome:'denied',result:{data:{reason:'tool_not_authorized'}}});
   expect(services.recordMutations.write('record:///brief.md?card=project','unauthorized',['write','webfetch'])).toMatchObject({success:false,data:{reason:'tool_not_authorized'}});

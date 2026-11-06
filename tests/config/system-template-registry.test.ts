@@ -1,4 +1,5 @@
 import { agentExecution } from '../helpers/workflow-execution.js';
+import { writeRecordPatterns } from '../helpers/capability-grants.js';
 import { templateConfig } from '../helpers/system-template-config.js';
 import { describe,expect,it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
@@ -28,7 +29,7 @@ describe('system template registry',()=>{
   it('accepts the registered templates at load-time validation',()=>{
     expect(()=>validateSystemTemplates(SYSTEM_TEMPLATES)).not.toThrow();
     for (const template of SYSTEM_TEMPLATES) {
-      for (const type of Object.values(templateConfig(template).card_types!)) expect(type.workflow.format_version).toBe(5);
+      for (const type of Object.values(templateConfig(template).card_types!)) expect(type.workflow.format_version).toBe(6);
     }
   });
 
@@ -59,7 +60,7 @@ describe('system template registry',()=>{
         }
         if(status||review){
           expect(agentExecution(node).agent.tools.map(tool=>tool.name)).toContain('write');
-          expect(agentExecution(node).agent.recordWrites.map(pattern=>pattern.source)).toContain(status?'status.md':'review.md');
+          expect(writeRecordPatterns(agentExecution(node).agent).map(pattern=>pattern.source)).toContain(status?'status.md':'review.md');
         }
       }
       expect([...workflow.states.values()].filter(node=>node.kind==='node'&&node.initializeRecords.some(record=>record.name==='status.md')).map(node=>node.kind==='node'?node.nodeId:'').sort())
@@ -67,11 +68,11 @@ describe('system template registry',()=>{
       expect([...workflow.states.values()].filter(node=>node.kind==='node'&&node.initializeRecords.some(record=>record.name==='review.md')).map(node=>node.kind==='node'?node.nodeId:'').sort())
         .toEqual([...reviewNodes].sort());
     }
-    expect(workflows.agents.get('planner')!.recordWrites.map(pattern=>pattern.source)).toEqual(['brief.md','status.md']);
-    expect(workflows.agents.get('executor')!.recordWrites.map(pattern=>pattern.source)).toEqual(template.name==='classic-git'?['status.md','git-correction.md']:['status.md']);
-    expect(workflows.agents.get('reviewer')!.recordWrites.map(pattern=>pattern.source)).toEqual(['review.md','review-*.md']);
-    expect(workflows.analyst.recordWrites.map(pattern=>pattern.source)).toEqual(['brief.md']);
-    expect(workflows.oversight.recordWrites).toEqual([]);
+    expect(writeRecordPatterns(workflows.agents.get('planner')!).map(pattern=>pattern.source)).toEqual(['status.md','brief.md']);
+    expect(writeRecordPatterns(workflows.agents.get('executor')!).map(pattern=>pattern.source)).toEqual(template.name==='classic-git'?['status.md','git-correction.md']:['status.md']);
+    expect(writeRecordPatterns(workflows.agents.get('reviewer')!).map(pattern=>pattern.source)).toEqual(['review.md','review-*.md']);
+    expect(writeRecordPatterns(workflows.analyst).map(pattern=>pattern.source)).toEqual(['brief.md']);
+    expect(writeRecordPatterns(workflows.oversight)).toEqual([]);
   });
   it.each([0,-1,Number.POSITIVE_INFINITY])('rejects invalid required Oversight interval %s',(interval)=>{const value=structuredClone(resolveSystemTemplate('classic').config);value.oversight.interval_seconds=interval;expect(effectiveSaivageConfigSchema.safeParse(value).success).toBe(false);});
 
@@ -142,11 +143,11 @@ describe('system template registry',()=>{
     expect(second).toEqual(first);
     expect(first.agents).not.toBe(second.agents);
     expect(first.models.routes).not.toBe(second.models.routes);
-    expect(first.agents.oversight!.tools).not.toBe(second.agents.oversight!.tools);
-    expect(first.agents.oversight!.tools).toEqual(OVERSIGHT_ALLOWED_TOOL_NAMES);
+    expect(first.agents.oversight!.capabilities).not.toBe(second.agents.oversight!.capabilities);
+    expect(first.agents.oversight!.capabilities.grants.flatMap((grant)=>grant.tools)).toEqual(OVERSIGHT_ALLOWED_TOOL_NAMES);
     expect(first.card_types).toBe(firstGraph);
     expect(Object.isFrozen(firstGraph.project!.workflow.nodes)).toBe(true);
-    expect(Object.isFrozen(first.agents.analyst!.tools)).toBe(true);
+    expect(Object.isFrozen(first.agents.analyst!.capabilities)).toBe(true);
     expect(Object.isFrozen(first.models.routes)).toBe(true);
   });
 

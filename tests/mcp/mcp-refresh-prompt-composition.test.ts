@@ -15,7 +15,7 @@ it.each(SYSTEM_TEMPLATES)('renders $name selected role/generated-contract/node c
   const root = mkdtempSync(join(tmpdir(), 'mcp-refresh-prompt-'));
   try {
     const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
-    config.agents.executor!.tools.push('mcp_catalog_refresh');
+    config.agents.executor!.capabilities.grants.push({ tools: ['mcp_catalog_refresh'] });
     const compiled = compileProjectWorkflows(config, { projectRoot: root, defaultPromptRoot: template.promptRoot });
     const renders: Array<{ role: string; roleText: string; nodeText?: string; toolNames: string[] }> = [];
     for (const role of ['executor', 'reviewer']) {

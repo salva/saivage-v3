@@ -35,6 +35,7 @@ const { AnalystSession } = await import('../../src/runtime/actors/analyst-sessio
 const { testApplicationFatalPort } = await import('../helpers/test-application-fatal-port.js');
 const { workflowResult } = await import('../helpers/workflow-result.js');
 const { cardHeadFile } = await import('../../src/persistence/layout.js');
+const { testWorkspaceAuthority } = await import('../helpers/capability-grants.js');
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { CardNotification } from '../../src/schemas/index.js';
@@ -50,7 +51,7 @@ function harness(notify = jest.fn((_id: string, notice: CardNotification) => ({ 
   const cards = new CardService(projectRoot);
   const readiness = jest.fn();
   const context = {
-    projectRoot, actor: 'analyst', surface: 'web-chat', sessionId: 'agent:analyst:global', store: cards,
+    authority: testWorkspaceAuthority(), policyAgentName: 'analyst', projectRoot, actor: 'analyst', surface: 'web-chat', sessionId: 'agent:analyst:global', store: cards,
     cardTypeVocabulary: [...cards.workflows.cardTypes.keys()],
     interventionReadiness: { assertInterventionReady: readiness },
     runtime: { notifyCard: notify }, analystMutations: testAnalystMutationServices(projectRoot, cards, notify),

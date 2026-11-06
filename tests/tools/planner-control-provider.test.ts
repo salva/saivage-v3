@@ -1,3 +1,4 @@
+import { testPlannerAuthority, testNotificationAuthority } from '../helpers/capability-grants.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -119,14 +120,14 @@ describe('planner control provider ownership delegation', () => {
         result: workflowResult('DONE', childCardId),
       }),
     );
-    const cancelChild = jest.fn(
-      async ({ childCardId }: { childCardId: string; reason: string }) => ({
+    const cancelChild = jest.fn<PlannerControlProviderContext['parentControl']['cancelChild']>(
+      async ({ childCardId }) => ({
         card_id: childCardId,
         status: 'cancelled' as const,
         cancelled_card_ids: [childCardId],
       }),
     );
-    const reopenChild = jest.fn(({ childCardId }: { childCardId: string }) => ({
+    const reopenChild = jest.fn<PlannerControlProviderContext['parentControl']['reopenChild']>(({ childCardId }) => ({
       card_id: childCardId,
       status: 'changed' as const,
     }));
@@ -141,6 +142,7 @@ describe('planner control provider ownership delegation', () => {
         agentName: 'planner',
         projectRoot: '/project',
         parentCardId: PARENT,
+        authority: testPlannerAuthority(PARENT),
         sessionId: `agent:planner:${PARENT}`,
         store,
         parentControl: { activateChild, cancelChild, reopenChild },
@@ -178,6 +180,7 @@ describe('planner control provider ownership delegation', () => {
       ),
     ).resolves.toMatchObject({ success: true, data: { card_id: CHILD, outcome: 'done' } });
     expect(test.activateChild).toHaveBeenCalledWith({
+      authority: testPlannerAuthority(PARENT),
       childCardId: CHILD,
       instructions: '  Complete the child task.\n',
       invocation: expect.any(ChildInvocationLease),
@@ -255,7 +258,7 @@ describe('planner control provider ownership delegation', () => {
         context,
       ),
     ).resolves.toMatchObject({ success: true });
-    expect(test.cancelChild).toHaveBeenCalledWith({ childCardId: CHILD, reason: 'obsolete' });
+    expect(test.cancelChild).toHaveBeenCalledWith({ authority: testPlannerAuthority(PARENT), childCardId: CHILD, reason: 'obsolete' });
     expect(test.store.read).not.toHaveBeenCalled();
   });
 
@@ -268,7 +271,7 @@ describe('planner control provider ownership delegation', () => {
     await expect(
       settleToolForLlm(test.surface, 'reopen_card', { card_id: CHILD }, context),
     ).resolves.toEqual({ success: true, data: { card_id: CHILD, status: 'changed' } });
-    expect(test.reopenChild).toHaveBeenCalledWith({ childCardId: CHILD });
+    expect(test.reopenChild).toHaveBeenCalledWith({ authority: testPlannerAuthority(PARENT), childCardId: CHILD });
     expect(test.store.read).not.toHaveBeenCalled();
   });
 
@@ -292,8 +295,9 @@ describe('planner control provider ownership delegation', () => {
     expect(test.reopenChild).not.toHaveBeenCalled();
   });
 
-  it('returns a current-parent zero-change reorder without card or notification follow-on work', async () => {
+  it('authorizes the current parent before zero-change reorder without notification follow-on work', async () => {
     const test = harness();
+    jest.mocked(test.store.read).mockReturnValue({ id: PARENT } as CardRecord);
     jest.mocked(test.store.reorderChildren).mockReturnValue({ ok: true, changed: 0 });
     const context = testLlmToolInvocationContext({
       sessionId: `agent:planner:${PARENT}`,
@@ -304,7 +308,7 @@ describe('planner control provider ownership delegation', () => {
     ).resolves.toEqual({ success: true, data: { parent_id: PARENT, changed: 0 } });
     expect(test.store.reorderChildren).toHaveBeenCalledTimes(1);
     expect(test.store.reorderChildren).toHaveBeenCalledWith(PARENT, []);
-    expect(test.store.read).not.toHaveBeenCalled();
+    expect(test.store.read).toHaveBeenCalledWith(PARENT);
     expect(test.submitNotification).not.toHaveBeenCalled();
   });
 
@@ -381,6 +385,7 @@ describe('planner control provider ownership delegation', () => {
       test.submitNotification.mockResolvedValue(ownerResult);
       await expect(
         submitNotificationTool(
+          testNotificationAuthority(),
           { card_id: CHILD, kind: 'context', body: 'body', urgency: 'normal' },
           test.submitNotification,
           new AbortController().signal,
@@ -514,6 +519,7 @@ describe('planner control provider ownership delegation', () => {
       agentName: 'planner',
       projectRoot: root,
       parentCardId: 'project',
+      authority: testPlannerAuthority('project'),
       sessionId: 'agent:planner:project',
       store,
       parentControl: {
@@ -671,6 +677,7 @@ describe('planner control provider ownership delegation', () => {
         agentName: 'planner',
         projectRoot: '/project',
         parentCardId: PARENT,
+        authority: testPlannerAuthority(PARENT),
         sessionId: `agent:planner:${PARENT}`,
         store: store as unknown as CardService,
         parentControl: {

@@ -15,6 +15,15 @@ import { canonicalJson } from '../../src/schemas/index.js';
 import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { readProject } from '../../src/tools/project-file-tools.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
+import { admitRecordMutation, mutateRecord } from '../../src/application/record-mutation-service.js';
+
+function recordBinding(store: CardService, agent = 'planner') {
+  return { authority: { anchorCardId: 'project', tools: store.workflows.agents.get(agent)!.tools }, recordMutations: {
+    admit: (request: Parameters<typeof admitRecordMutation>[1]) => admitRecordMutation(store, request),
+    mutate: (request: Parameters<typeof mutateRecord>[1]) => mutateRecord(store, request),
+  } };
+}
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -22,7 +31,7 @@ afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop(
 describe('workspace tool settlement', () => {
   it('preserves logical current/historical/absent record observations without giving physical paths provenance', async () => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-read-provenance-')); roots.push(root); initProjectTree(root);
-    const store = new CardService(root); const ctx = { projectRoot: root, cardId: 'project', agentName: 'planner' as const, store };
+    const store = new CardService(root); const ctx = { ...recordBinding(store), projectRoot: root, cardId: 'project', agentName: 'planner' as const, store };
     const current = await readProject(ctx, { path: 'record:///brief.md?card=project' });
     const data = current.data as { head_id: string; revision: number; accepted_version_url: string };
     expect(data.head_id).toEqual(expect.any(String)); expect(data.revision).toBeGreaterThan(0);
@@ -51,8 +60,8 @@ describe('workspace tool settlement', () => {
     writeFileSync(join(work, 'projection.txt'), `needle ${sentinel}`);
     const store = new CardService(root);
     const providers = [
-      { actor: 'executor', provider: bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'executor', store }) },
-      { actor: 'analyst', provider: bindToolProvider('workspace', globalWorkspaceObservationToolBinders, { projectRoot: root, agentName: 'analyst', store }) },
+      { actor: 'executor', provider: bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(store, 'executor'), projectRoot: root, cardId: 'project', agentName: 'executor', store }) },
+      { actor: 'analyst', provider: bindToolProvider('workspace', globalWorkspaceObservationToolBinders, { authority: testWorkspaceAuthority(), projectRoot: root, agentName: 'analyst', store }) },
     ] as const;
     for (const { actor, provider } of providers) {
       const surface = buildInvocationSurfaceFixture(actor, [provider]);
@@ -99,15 +108,15 @@ describe('workspace tool settlement', () => {
     const fault = kind === 'unexpected' ? new Error('mutation fault') : new PublicationOutcomeUnknownError();
     jest.spyOn(cards, 'editRecord').mockImplementation(() => { throw fault; });
     const written = jest.fn();
-    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, onRecordWritten: written })]);
-    await expect(invokeToolForLlm(surface, 'write', { path: 'record:///brief.md?card=project', content: 'changed' }, testLlmToolInvocationContext({ toolName: 'write' }))).rejects.toBe(fault);
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(cards), projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, onRecordWritten: written })]);
+    await expect(invokeToolForLlm(surface, 'write', { path: 'record:///status.md?card=project', content: 'changed' }, testLlmToolInvocationContext({ toolName: 'write' }))).rejects.toBe(fault);
     expect(written).not.toHaveBeenCalled();
   });
   it.each(['write', 'edit'] as const)('settles invalid record %s and leaves an existing head unchanged', async (name) => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-invalid-record-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const written = jest.fn();
-    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, onRecordWritten: written })]);
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(cards), projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, onRecordWritten: written })]);
     const before = cards.readRecordCurrent('project', 'brief.md');
     for (const path of ['record:///brief.md', 'record:///%ZZ?card=project', 'record:///brief.md?card=project&v=1']) {
       const args = name === 'write' ? { path, content: 'changed' } : { path, old_string: 'Goal', new_string: 'changed' };
@@ -122,7 +131,7 @@ describe('workspace tool settlement', () => {
   });
   it('settles the exact work root directory and metadata locators with observational evidence', async () => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-work-root-')); roots.push(root); initProjectTree(root);
-    const surface = buildInvocationSurfaceFixture('reviewer', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'reviewer', store: new CardService(root) })]);
+    const surface = buildInvocationSurfaceFixture('reviewer', [bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(new CardService(root), 'reviewer'), projectRoot: root, cardId: 'project', agentName: 'reviewer', store: new CardService(root) })]);
     const definition = surface.tools.get('read')!;
     const contract = compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate);
     for (const args of [{ path: 'work:///' }, { path: 'work:///', metadata_only: true }]) {
@@ -146,7 +155,7 @@ describe('workspace tool settlement', () => {
     ['edit', { path: 'record:///brief.md?card=project', old_string: 'x', new_string: 'y' }],
   ])('settles denied record %s as one top-level failure', async (name, args) => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-settlement-')); roots.push(root); initProjectTree(root);
-    const provider = bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'reviewer', store: new CardService(root) });
+    const provider = bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(new CardService(root), 'reviewer'), projectRoot: root, cardId: 'project', agentName: 'reviewer', store: new CardService(root) });
     const surface = buildInvocationSurfaceFixture('reviewer', [provider]);
     const settlement = await invokeToolForLlm(surface, name, args, testLlmToolInvocationContext({ toolName: name }));
     const definition = surface.tools.get(name)!;
@@ -160,7 +169,7 @@ describe('workspace tool settlement', () => {
 
   it('settles filesystem write and edit as singular successes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-settlement-')); roots.push(root); initProjectTree(root);
-    const provider = bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) });
+    const provider = bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(new CardService(root)), projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
     for (const [name, args] of [['write', { path: 'sample.txt', content: 'before' }], ['edit', { path: 'sample.txt', old_string: 'before', new_string: 'after' }]] as const) {
       const settlement = await invokeToolForLlm(surface, name, args, testLlmToolInvocationContext({ toolName: name }));
@@ -173,13 +182,13 @@ describe('workspace tool settlement', () => {
 
   it('settles a successful record write as one top-level success', async () => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-settlement-')); roots.push(root); initProjectTree(root);
-    const provider = bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) });
+    const provider = bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(new CardService(root)), projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
     const definition = surface.tools.get('write')!;
     const settlement = await invokeToolForLlm(
       surface,
       'write',
-      { path: 'record:///brief.md?card=project', content: 'updated brief' },
+      { path: 'record:///status.md?card=project', content: 'updated status' },
       testLlmToolInvocationContext({ toolName: 'write' }),
     );
     const facts = settleToolResultForConversation(
@@ -192,8 +201,8 @@ describe('workspace tool settlement', () => {
       success: true,
       data: {
         card_id: 'project',
-        name: 'brief.md',
-        current_url: 'record:///brief.md?card=project',
+        name: 'status.md',
+        current_url: 'record:///status.md?card=project',
         written: true,
       },
     });
@@ -205,9 +214,9 @@ describe('workspace tool settlement', () => {
   it.each(['glob', 'grep'] as const)('settles invalid %s collection positions as bounded failures for autonomous and Analyst binders', async (name) => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-settlement-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const analystContext = { projectRoot: root, cardId: 'project', actor: 'analyst', policyAgentName: 'analyst', store: cards, runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
+    const analystContext = { authority: testWorkspaceAuthority(), projectRoot: root, cardId: 'project', actor: 'analyst', policyAgentName: 'analyst', store: cards, runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
     const providers = [
-      bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards }),
+      bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(cards), projectRoot: root, cardId: 'project', agentName: 'planner', store: cards }),
       bindToolProvider('workspace', analystWorkspaceToolBinders, analystContext),
     ];
     const args = name === 'glob'
@@ -227,7 +236,7 @@ describe('workspace tool settlement', () => {
   it.each(['glob', 'grep'] as const)('enforces consumed-item byte boundaries for real %s workspace binding', async (name) => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-search-boundary-')); roots.push(root); initProjectTree(root);
     writeFileSync(join(root, 'match🚀.txt'), 'needle preview', 'utf8');
-    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) })]);
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(new CardService(root)), projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) })]);
     const item = name === 'glob' ? 'match🚀.txt' : { path: 'match🚀.txt', line: 1, preview: 'needle preview' };
     const bytes = Buffer.from(canonicalJson(projectDynamicForOutbound(item)), 'utf8');
     const astral = bytes.indexOf(Buffer.from('🚀', 'utf8'));
@@ -258,8 +267,8 @@ describe('workspace tool settlement', () => {
     writeFileSync(join(root, 'generated', 'stale.txt'), 'needle stale');
     const cards = new CardService(root);
     const providers = [
-      { actor: 'planner', provider: bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards }) },
-      { actor: 'analyst', provider: bindToolProvider('workspace', analystWorkspaceToolBinders, { projectRoot: root, cardId: 'project', actor: 'analyst', policyAgentName: 'analyst', store: cards, runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext) },
+      { actor: 'planner', provider: bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(cards), projectRoot: root, cardId: 'project', agentName: 'planner', store: cards }) },
+      { actor: 'analyst', provider: bindToolProvider('workspace', analystWorkspaceToolBinders, { authority: testWorkspaceAuthority(), projectRoot: root, cardId: 'project', actor: 'analyst', policyAgentName: 'analyst', store: cards, runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext) },
     ] as const;
     for (const { actor, provider } of providers) {
       const surface = buildInvocationSurfaceFixture(actor, [provider]);
@@ -282,7 +291,7 @@ describe('workspace tool settlement', () => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-search-policy-')); roots.push(root); initProjectTree(root);
     writeFileSync(join(root, '.saivage-search-ignore'), bytes);
     writeFileSync(join(root, 'visible.txt'), 'needle');
-    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) })]);
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(new CardService(root)), projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) })]);
     const settlement = await invokeToolForLlm(surface, 'glob', { directory: '.', pattern: '**/*' }, testLlmToolInvocationContext({ toolName: 'glob' }));
     const definition = surface.tools.get('glob')!;
     const facts = settleToolResultForConversation('glob', compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate), settlement);

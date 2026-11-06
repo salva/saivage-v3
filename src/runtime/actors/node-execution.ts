@@ -22,7 +22,7 @@ import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { isEligibleRecordContent, type CurrentRecordProjection } from '../../persistence/index.js';
 import { PublicationOutcomeUnknownError } from '../../contracts/index.js';
-import { AgentExecutor } from './agent-executor.js';
+import { AgentExecutor, type ReviewerSnapshot } from './agent-executor.js';
 import {
   agentCanWriteRecord,
   runtimeAgentBinding,
@@ -43,6 +43,7 @@ export interface AcceptedNodeResult {
   readonly event: string;
   readonly summary: string;
   readonly acceptedRecords: readonly Readonly<{ name: string; url: string; version: number }>[];
+  readonly reviewerSnapshot?: ReviewerSnapshot;
 }
 export type NodeExecutionResult =
   | AcceptedNodeResult
@@ -60,7 +61,7 @@ export interface NodeExecutionHost {
   assertCurrentActivation(input: CardActivationInput): void;
   assertCurrentNode(ordinal: number): void;
   assertPromotionAvailable(transition: CompiledProcessTransition): void;
-  promotedSource(transition: CompiledProcessTransition): AcceptedSource | null;
+  promotedResult(transition: CompiledProcessTransition): AcceptedNodeResult | null;
   claimResultHandoff(ordinal: number): void;
   claimedNodeInterruption(ordinal: number): boolean;
   retainSettlementFailure(error: unknown): void;
@@ -169,14 +170,14 @@ export class NodeExecution {
       },
       reprepareRecords: () => {
         finalizationBegun = true;
-        this.discardWrittenRecords(writtenRecords);
+        this.discardWrittenRecords(node, writtenRecords);
         this.prepareRecordRequirements(node);
         finalizationBegun = false;
       },
       finalizeRecords: () => {
         if (finalizationBegun) return;
         finalizationBegun = true;
-        this.discardWrittenRecords(writtenRecords);
+        this.discardWrittenRecords(node, writtenRecords);
       },
       accept: (candidate, stale, beforeClaim) =>
         this.acceptCandidate(
@@ -463,6 +464,22 @@ export class NodeExecution {
         `Compiled node '${node.nodeId}' has invalid target '${route.targetStateId}'.`,
       );
     let source: AcceptedSource | null = null;
+    const promotion = route.semantic.terminalBehavior?.promotion;
+    const promotionViolation = (): string | null => {
+      if (target.kind !== 'terminal' || promotion?.kind !== 'latest-node') return null;
+      const reviewedNode = process.states.get(`node:${promotion.nodeId}`);
+      if (!reviewedNode || reviewedNode.kind !== 'node')
+        throw new Error(`Promoted node '${promotion.nodeId}' is not configured.`);
+      if (!reviewedNode.descendantContext?.requireUnchangedUntilAccept) return null;
+      const accepted = this.host.promotedResult(route);
+      if (!accepted?.reviewerSnapshot)
+        throw new Error(`Promoted review '${promotion.nodeId}' has no accepted snapshot.`);
+      return this.agentExecutor.reviewPromotionViolation(
+        input.card.id,
+        reviewedNode,
+        accepted.reviewerSnapshot,
+      );
+    };
     if (input.nativeSource) {
       const review = this.deps.workflows.gitPolicy!.review_bindings[input.card.type];
       const approvedReview =
@@ -490,6 +507,8 @@ export class NodeExecution {
         args.signal.throwIfAborted();
         this.host.assertCurrentActivation(input);
         this.host.assertCurrentNode(args.nodeOrdinal);
+        const applicability = promotionViolation();
+        if (applicability) return { violations: [applicability], message: applicability };
         if (prepares) {
           const prepared = await input.nativeSource.prepareCandidate(args.nodeOrdinal);
           args.signal.throwIfAborted();
@@ -499,7 +518,9 @@ export class NodeExecution {
             return { violations: [prepared.refusal.summary], message: prepared.refusal.summary };
           source = prepared.source;
         } else {
-          source = approvedReview ? reviewSource : this.host.promotedSource(route);
+          source = approvedReview
+            ? reviewSource
+            : (this.host.promotedResult(route)?.source ?? null);
           if (!source)
             return {
               violations: ['No current reviewed source is available.'],
@@ -529,6 +550,8 @@ export class NodeExecution {
     if ('violations' in records) return { ...records, message: 'Record validation failed.' };
     const stale = reviewerStaleReason();
     if (stale) return { stale };
+    const applicability = promotionViolation();
+    if (applicability) return { violations: [applicability], message: applicability };
     if (target.kind === 'terminal' && target.terminal === 'DONE') {
       const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
       if (blocker) {
@@ -757,10 +780,12 @@ export class NodeExecution {
     }
     return accepted;
   }
-  private discardWrittenRecords(writtenRecords: Set<string>): void {
+  private discardWrittenRecords(node: CompiledNodeContract, writtenRecords: Set<string>): void {
     const names = [...writtenRecords].sort();
     writtenRecords.clear();
     for (const filename of names) {
+      if (!agentCanWriteRecord(requireAgentExecution(node).agent, filename))
+        throw new Error(`Compiled node agent cannot discard record '${filename}'.`);
       const result = this.deps.store.readRecordCurrent(this.deps.cardId, filename);
       if (result.kind === 'found' && result.value.projection?.state === 'open')
         this.deps.store.discardRecord(this.deps.cardId, filename);

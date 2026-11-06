@@ -42,7 +42,7 @@ describe('search result actor/provider envelope', () => {
       writeFileSync(join(root, 'match.txt'), `${contextual} ${'dense '.repeat(90)} needle`, 'utf8');
     }
 
-    const provider = bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) });
+    const provider = bindToolProvider('workspace', workspaceToolBinders, { authority: testWorkspaceAuthority('project'), projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
     const definition = surface.tools.get(toolName)!;
     const contract = compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate);
@@ -98,3 +98,4 @@ function invocation(contract: ReturnType<typeof compileInvocationToolContract>):
     capabilityRequest: { requiresTools: true }, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
   };
 }
+import { testWorkspaceAuthority } from '../../helpers/capability-grants.js';

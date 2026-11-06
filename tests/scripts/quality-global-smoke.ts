@@ -5,8 +5,6 @@ import { createServer } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startApp } from '../../src/boot/app.js';
-import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
-import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import { cardExecutionFile, cardHeadFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
 import { productionTestConfig, writeProductionConfig, initializeProject, listen, closeServer,
@@ -36,7 +34,7 @@ const mcpPort = await listen(reservation);
 await closeServer(reservation);
 const config = productionTestConfig(providerPort, (config) => {
   const analyst = config.agents[config.analyst_agent]!;
-  analyst.tools.push(toolName, 'code_quality_python_ruff');
+  analyst.capabilities.grants.push({ tools: [toolName, 'code_quality_python_ruff'] });
   analyst.quality_tools = { format_version: 1,
     [toolName]: { cwd: 'fixtures', native_config: 'fixtures/eslint.config.mjs', source_paths: ['fixtures/defect.js'],
       exclusions: [], node_binary: process.execPath, eslint_module: 'node_modules/eslint', timeout_ms: 30000, terminate_grace_ms: 100 },
@@ -44,7 +42,7 @@ const config = productionTestConfig(providerPort, (config) => {
       exclusions: [], ruff_binary: join(tools, 'venv/bin/ruff'), timeout_ms: 30000, terminate_grace_ms: 100 },
   };
   const other = Object.values(config.agents).find((agent) => agent.session === 'card')!;
-  other.tools.push(toolName);
+  other.capabilities.grants.push({ tools: [toolName] });
   other.quality_tools = { format_version: 1, [toolName]: { ...analyst.quality_tools[toolName]!, source_paths: ['wrong-policy-agent'] } };
 });
 cpSync(join(tools, 'node_modules'), join(root, 'node_modules'), { recursive: true });
@@ -60,16 +58,6 @@ let stopped = false;
 try {
   const endpoint = app.server.analystMcpEndpoint!;
   const runtime = app.server.runtimeApplication;
-  const selectedTool = runtime.externalAnalystOperations!.surface.tools.get(toolName)!;
-  const originalExecutor = selectedTool.executor;
-  Object.defineProperty(selectedTool, 'executor', { value: async (...args: Parameters<typeof originalExecutor>) => {
-    try { return await originalExecutor(...args); }
-    catch (error) {
-      if (error instanceof PublicationOutcomeUnknownError) throw error;
-      console.error(`[quality fixture executor] ${redactTextForOutbound(error instanceof Error ? error.message : String(error)).slice(0, 2000)}`);
-      throw error;
-    }
-  } });
   const runner = runtime.processRunner;
   const spawn = runner.spawnCaptured.bind(runner);
   let launches = 0;

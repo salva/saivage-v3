@@ -8,6 +8,7 @@ import { appendConversationBatch, readConversation, readHistoricalConversationSe
 import { versionFilename } from '../../src/persistence/canonical-conversation-artifacts.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { readProject, writeProject } from '../../src/tools/project-file-tools.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 import { workspaceToolBinders } from '../../src/tools/workspace-provider.js';
 import { toolSucceeded } from '../../src/contracts/tool-result.js';
 import { buildSettledToolResult } from '../../src/runtime/actors/llm-delivery-log.js';
@@ -35,7 +36,7 @@ function project() {
   const projectRoot = mkdtempSync(join(tmpdir(), 'record-observation-foundation-'));
   roots.push(projectRoot); initProjectTree(projectRoot);
   const store = new CardService(projectRoot);
-  return { projectRoot, store, agentName: 'planner' as const, cardId: 'project' };
+  return { authority: testWorkspaceAuthority('project'), projectRoot, store, agentName: 'planner' as const, cardId: 'project' };
 }
 function policy() {
   const resultPolicyTemplate = OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE;
@@ -98,7 +99,7 @@ describe('owning record observations', () => {
     appendConversationBatch({ projectRoot: ctx.projectRoot }, rows);
     const source = readConversation(ctx.projectRoot, SESSION);
     expect(source.physicalRows).toEqual(rows);
-    expect(readHistoricalConversationSegment(ctx.projectRoot, SESSION, 1).genesis.format_version).toBe(12);
+    expect(readHistoricalConversationSegment(ctx.projectRoot, SESSION, 1).genesis.format_version).toBe(13);
     const request = openAIChatAdapter.buildRequestBody({ candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, systemPrompt: 'Record facts.',
       providerConversation: providerConversationProjection(source, []),
       options: { providerSessionId: 'record-proof', inputId: INPUT, temperature: 0, max_tokens: 512, contract_id: 'record-proof', contractName: 'record-proof', terminalToolOffered: [], tools: [], tool_choice: 'auto' },
@@ -119,7 +120,7 @@ describe('owning record observations', () => {
     expect(retained.rows).toEqual(rows);
     expect(JSON.parse(foldHistoricalConversationRows(retained.rows)[1]!.content).data).toEqual(oldData);
     const genesis = readHistoricalConversationSegment(ctx.projectRoot, SESSION, 2).genesis;
-    expect(genesis.format_version).toBe(12);
+    expect(genesis.format_version).toBe(13);
     expect(segmentContext(genesis)!.required_model_facts.latestRecordObservations).toHaveLength(facts.latestRecordObservations.length);
     expect(() => providerConversationProjection(compacted, [])).not.toThrow();
   });
@@ -150,7 +151,7 @@ describe('owning record observations', () => {
     const nested = buildSettledToolResult({ session_id: SESSION, source_input_id: INPUT, tool_call_id: 'baseline-read', tool_name: 'read', resultPolicy: policy(), settlement: { kind: 'executed', execution } });
     expect(nested.message.record_observations![0]!.observed.selection).toMatchObject({ kind: 'baseline', version: 0 });
     expect(() => conversationSegmentEnvelopeSchema.parse({ version: 11, type: 'conversation-segment', rows: [nested.message] })).toThrow();
-    expect(conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [nested.message] }).version).toBe(12);
+    expect(conversationSegmentEnvelopeSchema.parse({ version: 13, type: 'conversation-segment', rows: [nested.message] }).version).toBe(13);
     ctx.store.openRecord('project', 'status.md');
     const read = await readProject(ctx, { path: 'record:///status.md?card=project', metadata_only: true });
     const observed = read.record_observations[0]!;
@@ -164,15 +165,16 @@ describe('owning record observations', () => {
     publishCompactedConversationSegment({ projectRoot: ctx.projectRoot }, SESSION, { identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: TS, filename: versionFilename(2, entryId) }, history, cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' } });
     expect(readConversation(ctx.projectRoot, SESSION).effectiveRequiredModelFacts.latestRecordObservations[0]!.observation.observed.selection).toEqual(observed.selection);
     const genesis = readHistoricalConversationSegment(ctx.projectRoot, SESSION, 2).genesis;
-    expect(conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [genesis] }).version).toBe(12);
-    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [{ ...genesis, format_version: 11 }] })).toThrow();
+    expect(conversationSegmentEnvelopeSchema.parse({ version: 13, type: 'conversation-segment', rows: [genesis] }).version).toBe(13);
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 13, type: 'conversation-segment', rows: [{ ...genesis, format_version: 12 }] })).toThrow();
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [genesis] })).toThrow();
     if (genesis.kind !== 'compacted_segment_genesis') throw new Error('Missing compacted genesis');
     const oldGenesis = { ...genesis, compaction: { ...genesis.compaction, requiredModelFacts: { ...genesis.compaction.requiredModelFacts,
       latestRecordObservations: genesis.compaction.requiredModelFacts.latestRecordObservations.map(item => ({ ...item, observation: { ...item.observation, observed: { ...item.observation.observed, selection: { ...item.observation.observed.selection, unfilled: true } } } })),
     } } };
-    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [oldGenesis] })).toThrow();
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 13, type: 'conversation-segment', rows: [oldGenesis] })).toThrow();
     const old = { ...row, record_observations: row.record_observations!.map(item => ({ ...item, observed: { ...item.observed, selection: { ...item.observed.selection, unfilled: true } } })) };
-    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [old] })).toThrow();
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 13, type: 'conversation-segment', rows: [old] })).toThrow();
   });
   it('admits excerpt only for a selected body, independently of source identity', () => {
     const source = { kind: 'prompt', input_id: INPUT, node_id: 'plan', reference: 'changed-record' };
@@ -230,8 +232,10 @@ describe('owning record observations', () => {
 
   it('projects known mutation output without any follow-up read and keeps failed tools unobserved', async () => {
     const ctx = project();
+    const bound = { ...ctx, authority: {anchorCardId:ctx.cardId, tools:ctx.store.workflows.agents.get(ctx.agentName)!.tools},
+      recordMutations: {admit:(request: Parameters<typeof admitRecordMutation>[1])=>admitRecordMutation(ctx.store,request),mutate:(request: Parameters<typeof mutateRecord>[1])=>mutateRecord(ctx.store,request)} };
     const read = jest.spyOn(ctx.store, 'readRecordCurrent');
-    const result = await writeProject(ctx, { path: 'record:///status.md?card=project', content: 'Draft status' });
+    const result = await writeProject(bound, { path: 'record:///status.md?card=project', content: 'Draft status' });
     expect(result.kind).toBe('applied');
     expect(read).not.toHaveBeenCalled();
     if (result.kind !== 'applied' || !('record_observations' in result)) throw new Error('Expected known record mutation.');
@@ -347,3 +351,4 @@ describe('source-derived facts and independent protection', () => {
     expect(() => conversationVersionIndexSchema.parse({ format_version: 8, kind: 'conversation-version-index', session_id: SESSION, created_at: TS, versions: [], current_version: null, current_filename: null })).toThrow();
   });
 });
+import { admitRecordMutation, mutateRecord } from '../../src/application/record-mutation-service.js';

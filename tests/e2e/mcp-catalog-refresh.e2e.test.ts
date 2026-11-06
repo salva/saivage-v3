@@ -110,11 +110,11 @@ it('uses ordinary opted-in card refresh with frozen gateways, retained observati
   try {
     const mcpPort = await listen(mcp); const providerPort = await listen(provider);
     writeProductionConfig(root, productionTestConfig(providerPort, config => {
-      config.agents.executor = { ...config.agents.executor!, tools: ['write', 'mcp_tools', 'mcp_catalog_refresh', 'mcp_tool_call'], skills: false };
-      config.agents.reviewer = { ...config.agents.reviewer!, tools: ['read', 'write'], skills: false };
+      config.agents.executor = { ...config.agents.executor!, capabilities: {format_version:1,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_catalog_refresh','mcp_tool_call']}]}, skills: false };
+      config.agents.reviewer = { ...config.agents.reviewer!, capabilities: {format_version:1,grants:[{tools:['read'],resources:[{kind:'record',scopes:['all'],patterns:['*']}]},{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['review.md','review-*.md']}]}]}, skills: false };
       config.card_types.project = {
         permitted_child_types: [], records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-        workflow: { format_version: 5,
+        workflow: { format_version: 6,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: {

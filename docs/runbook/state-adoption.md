@@ -1,5 +1,16 @@
 # State adoption, repair and reset
 
+The configured direct-object authority source cutover from `e1307b9b` requires
+capabilities1/workflow6, accepted-record6 and conversation13 together; record-head3
+is unchanged. New card-agent record origins identify the actual author card, not
+the target. Historical agent authors are not relabeled. Strict nonself mutation
+results use `card_acceptance`. Installed applicability is unknown. Old/mixed
+inputs/state remain a stopped blocker: source completion authorizes no conversion,
+deployment, reset or binary-only rollback. Use the separately authorized external
+offline migration gates below or a separately consented reset, with matching
+release/configuration/prompt reconciliation. See the
+[format reference](../architecture/durable-format-changes.md).
+
 ## Native Git initialization boundaries
 
 The opt-in classic-git profile requires all four explicit init provisioning values
@@ -15,10 +26,11 @@ an existing ref reusable. Preserve failure evidence and obtain the appropriate
 reset/recovery authorization; do not infer that generic reset advice removes Git
 refs or guarantees lossless recovery.
 
-The native-source dependent cutover requires immutable card format6 (from5),
+The earlier native-source dependent cutover required immutable card format6 (from5),
 including nullable Git facts on OFF/bootstrap/repair cards. Old retained card5
 is a strict blocker, not automatically filled with null. Card heads remain1;
-accepted records5 and conversation12 are unchanged. Execution evidence now requires
+accepted records5 and conversation12 were unchanged at that boundary (the later
+authority cutover above requires6/13). Execution evidence requires
 format3 (from2), including unchanged action meanings and distinct native evidence.
 Old execution2 is rejected even for OFF projects; no implicit conversion occurs. The dependent
 workflow input cutover is now4→5 for compiler-owned correction interpretation,

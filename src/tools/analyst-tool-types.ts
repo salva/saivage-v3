@@ -28,6 +28,7 @@ export interface SafeToolData {
 }
 
 export interface ToolContext {
+  authority?: import('./direct-object-authority.js').DirectObjectAuthority;
   assertGlobalSourceWrite?: (absolutePath: string) => void;
   cardTypeVocabulary: readonly CardTypeName[];
   projectRoot: string;

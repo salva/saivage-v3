@@ -137,6 +137,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       cardTypeVocabulary: vocabulary,
     };
     const cardContext: CardToolBindingContext = {
+      recordMutations: UNUSED_CARD_RECORD_MUTATIONS,
       quality,
       retrieval,
       scope: 'card',
@@ -168,7 +169,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       expect(coveredTools.has(key)).toBe(false);
       coveredTools.add(key);
       const runtimeContext: RuntimeToolBindingContext = entry.group.scope === 'global' ? globalContext : cardContext;
-      const definition = entry.binder.bind(entry.group.context(runtimeContext));
+      const definition = entry.binder.bind(entry.group.context({ ...runtimeContext, authority: { anchorCardId: runtimeContext.scope === 'card' ? runtimeContext.cardId : null, tools: [] } }));
       expect(definition.name).toBe(entry.binder.name);
       expectObjectSchema(llmToolDefinition(definition).function.parameters, key);
     }
@@ -208,3 +209,4 @@ describe('zodToJsonSchemaMini production surface canary', () => {
   });
 });
 import { templateConfig } from '../helpers/system-template-config.js';
+import { UNUSED_CARD_RECORD_MUTATIONS } from '../helpers/capability-grants.js';

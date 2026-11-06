@@ -1,4 +1,5 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
+import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,7 +20,7 @@ describe('card inspection authored-record summaries', () => {
     const root=mkdtempSync(join(tmpdir(),'saivage-card-workflow-budget-'));roots.push(root);initProjectTree(root);
     const cards=new CardService(root);
     const binder=cardInspectionToolBinders.find(({name})=>name==='get_card');if(!binder)throw new Error('missing get_card binder');
-    const tool=binder.bind({store:cards,cardTypeVocabulary:cards.workflows.cardTypeVocabulary,currentProcessPosition:()=>({detail:'x'.repeat(600)})});
+    const tool=binder.bind({store:cards,authority:broadInspectionAuthority(),cardTypeVocabulary:cards.workflows.cardTypeVocabulary,currentProcessPosition:()=>({detail:'x'.repeat(600)})});
     const full=await tool.executor(tool.inputSchema.parse({id:'project',section:'workflow',response_bytes:32768}),new AbortController().signal);
     if(full.providerOutcome.kind!=='succeeded')throw new Error(full.providerOutcome.error);
     const innerBytes=Buffer.byteLength(JSON.stringify(full.providerOutcome.data),'utf8');
@@ -34,7 +35,7 @@ describe('card inspection authored-record summaries', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const normalSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] })]);
+    const normalSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, authority: broadInspectionAuthority(), cardTypeVocabulary: ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] })]);
     const result = await invokeTestTool(normalSurface, 'get_card', { id: 'project', section: 'records' });
     const data = result.data as { content: { items: Array<{ name: string; state: string; revision: number | null; current_url: string; accepted_version_url: string | null }> } };
     expect(data.content.items.map(({ name }) => name)).toEqual(['brief.md', 'status.md', 'review.md']);
@@ -48,7 +49,7 @@ describe('card inspection authored-record summaries', () => {
 
     const hostile = new Error('HOSTILE_CARD_INSPECTION_READ');
     cards.listDeclaredRecordMetadata = (() => { throw hostile; }) as CardService['listDeclaredRecordMetadata'];
-    const surface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] })]);
+    const surface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, authority: broadInspectionAuthority(), cardTypeVocabulary: ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] })]);
 
     await expect(invokeTestTool(surface, 'get_card', { id: 'project', section: 'records' })).rejects.toBe(hostile);
   });

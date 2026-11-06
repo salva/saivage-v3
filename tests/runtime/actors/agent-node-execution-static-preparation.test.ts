@@ -397,7 +397,7 @@ function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[
   const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
   appendFileSync(
     cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename),
-    `${JSON.stringify({ version: 12, type: 'conversation-segment', rows })}\n`,
+    `${JSON.stringify({ version: 13, type: 'conversation-segment', rows })}\n`,
   );
 }
 

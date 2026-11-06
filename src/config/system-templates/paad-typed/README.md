@@ -13,6 +13,16 @@ model-quality guarantee.
 
 ## Deliberate PAAD adaptation
 
+The shared current capabilities1 defaults give Planner self/status and immediate
+children/brief, Reviewer self/review*, Executor self/status, global Analyst all/brief
+and explicit broad reads. A child proposes requirement changes through BLOCKED;
+its parent may amend that same inactive child without weakening upstream obligations.
+Root decisions reach Analyst/operator. Deliberate custom grants may allow other
+scopes, including self bootstrap drafts. Workflow6/accepted-record6/conversation13
+require separately authorized input/prompt and retained-state adoption; record-head3
+is unchanged and installation applicability remains unknown. No graph redesign is
+part of that authority cutover.
+
 Prior art: Curtis "Ovid" Poe's **PAAD — Pushback, Alignment, Architecture,
 Discipline**, pinned to
 [`0d97d5f0da8b7982ecb86a3ee66f83cac2bda76b`](https://github.com/Ovid/paad/tree/0d97d5f0da8b7982ecb86a3ee66f83cac2bda76b).

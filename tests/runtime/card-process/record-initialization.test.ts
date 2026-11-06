@@ -51,8 +51,8 @@ describe('selected node-entry record templates', () => {
     const config = source();
     config.card_types.project!.records['unused.md'] = { format: 'markdown', schema: 'unused.v1', bootstrap: false, initialization: { format_version: 1, template: 'unused' } };
     config.card_types.project!.workflow.nodes.plan!.initialize_records = ['unused.md'];
-    expect(() => compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config))).toThrow(/record_writes authority/);
-    config.agents.planner!.record_writes.push('unused.md');
+    expect(() => compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config))).toThrow(/self write capability/);
+    for (const grant of config.agents.planner!.capabilities.grants) if (grant.tools.some((name) => ['write', 'edit', 'webfetch'].includes(name))) grant.resources!.push({ kind: 'record', scopes: ['self'], patterns: ['unused.md'] });
     expect(compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config)).cardTypes.get('project')!.records.get('unused.md')!.initialization).not.toBeNull();
     config.card_types.project!.workflow.nodes.plan!.initialize_records = ['missing.md'];
     expect(() => compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config))).toThrow(/declared nonbootstrap initializer/);

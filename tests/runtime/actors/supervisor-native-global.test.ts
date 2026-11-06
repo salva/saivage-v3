@@ -8,7 +8,7 @@ import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervis
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { canonicalValueSha256 } from '../../../src/schemas/index.js';
-import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS, testAnalystMutationServices } from '../../helpers/canonical-project.js';
 import { cleanupTestProcessRunners, createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
@@ -17,7 +17,9 @@ import { assertCleanGitDelivery, nativeGitRefs } from '../../../src/runtime/git-
 import type { GitWorkflowPolicy } from '../../../src/runtime/card-process/card-process-config.js';
 import { createObservedCollections } from '../../../src/retrieval/index.js';
 import { writeProject, editProject, applyProjectPatch } from '../../../src/tools/project-file-tools.js';
+import { testWorkspaceAuthority } from '../../helpers/capability-grants.js';
 import { webToolBinders } from '../../../src/tools/web-tools.js';
+import { analystWorkspaceToolBinders } from '../../../src/tools/workspace-provider.js';
 import { bindToolProvider } from '../../helpers/bind-tool-provider.js';
 import { buildInvocationSurfaceFixture } from '../../helpers/invocation-surface-fixture.js';
 import { invokeTestTool } from '../../helpers/invoke-test-tool.js';
@@ -74,7 +76,7 @@ function fixture(on = true) {
       signal.throwIfAborted();
       return { result: { kind: 'tool_calls', tool_calls: [{ id: `read-${calls}`, type: 'function', function: { name: 'get_card', arguments: JSON.stringify({ card_id: 'project' }) } }] }, provider_exchanges: [] };
     }) });
-  const context = { projectRoot: root, agentName: 'analyst' as const, store, assertGlobalSourceWrite: supervisor.assertGlobalSourceWrite.bind(supervisor) };
+  const context = { authority: testWorkspaceAuthority(), projectRoot: root, agentName: 'analyst' as const, store, assertGlobalSourceWrite: supervisor.assertGlobalSourceWrite.bind(supervisor) };
   return { root, tip, branch, store, processes, supervisor, context, entered, release, paused, calls: () => calls };
 }
 
@@ -176,8 +178,13 @@ test.each([true, false])('starting/paused/held final destinations and deferred w
     expect(readFileSync(join(f.root, 'unrelated/note'), 'utf8')).toBe('permitted');
     // Record effects retain their own owner, without consuming source admission.
     const gate = jest.fn(() => { throw new Error('source gate must not classify records'); });
-    const records = { ...f.context, assertGlobalSourceWrite: gate };
-    await writeProject(records, { path: 'record:///brief.md?card=project', content: 'record owner decides' });
+    const records = { ...f.context, policyAgentName: 'analyst', actor: 'analyst', surface: 'web-chat', assertGlobalSourceWrite: gate,
+      interventionReadiness: { assertInterventionReady() {} },
+      runtime: { notifyCard() { throw new Error('Unexpected notification.'); } },
+      analystMutations: testAnalystMutationServices(f.root, f.context.store, () => { throw new Error('Unexpected notification.'); }),
+    };
+    const recordTools = buildInvocationSurfaceFixture('analyst', [bindToolProvider('workspace', analystWorkspaceToolBinders, records as never)]);
+    expect(await invokeTestTool(recordTools, 'write', { path: 'record:///brief.md?card=project', content: 'record owner decides' })).toMatchObject({ success: true });
     expect(gate).not.toHaveBeenCalled();
     await f.supervisor.stopProject();
     if (on) await expect(writeProject(f.context, { path: 'source.txt', content: 'no' })).rejects.toThrow(/delivery selection/);

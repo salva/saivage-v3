@@ -299,7 +299,7 @@ function harness(
     bootstrap_content: brief,
     priority: 0,
     urgency: 'normal',
-    created_by: 'planner',
+    created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
     depends_on: [],
   });
   return { ...runtimeHarness(root, config, provider, summary, profile), child };
@@ -453,7 +453,7 @@ describe('specialized production card-type flows', () => {
       expect(counts.get(`${childId}/report`)).toBe(3);
       expect(historical(1)).toEqual(accepted.get('explore'));
       expect(historical(2)).toEqual(accepted.get('assess'));
-      expect(run.cards.readRecordCurrent('project', 'review.md')).toMatchObject({ kind: 'found', value: { projection: { accepted: { author: { kind: 'agent', agent: 'reviewer' }, source_version: 1 } } } });
+      expect(run.cards.readRecordCurrent('project', 'review.md')).toMatchObject({ kind: 'found', value: { projection: { accepted: { author: { kind: 'card-agent', agent: 'reviewer', card_id: 'project' }, source_version: 1 } } } });
     } finally { await run.supervisor.stopProject(); }
   });
 
@@ -639,7 +639,7 @@ describe('specialized production card-type flows', () => {
     }, { calls: summaryCalls, content: summary }, 'Independently classify arithmetic coverage, then assess finite release, encoding and dependent publication semantics on the exact candidate named by parent. Release must be true, encoding utf8, publication requires both; arithmetic is 4. Original owners alone repair. Required final full gate covers all four; retain applicable unchanged evidence. No whole-product expansion.');
     reviewId = run.child.id;
     for (const name of ['release', 'encoding']) {
-      const owner = run.cards.create({ type: 'ops', parent: 'project', title: `${name} original owner`, bootstrap_content: `Deliver candidate A ${name}.cjs, then correct independently reported defects in that file when directed. Preserve other owners' files and arithmetic; focused author checks are not independent acceptance.`, priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+      const owner = run.cards.create({ type: 'ops', parent: 'project', title: `${name} original owner`, bootstrap_content: `Deliver candidate A ${name}.cjs, then correct independently reported defects in that file when directed. Preserve other owners' files and arithmetic; focused author checks are not independent acceptance.`, priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' }, depends_on: [] });
       if (name === 'release') releaseOwner = owner.id;
       else encodingOwner = owner.id;
     }
@@ -686,7 +686,7 @@ else throw new Error('Unknown fixture mode');
     expect(run.cards.read(reviewId)!.lifecycle).toMatchObject({ status: 'done', result: { node_id: 'verify', outcome: 'done' } });
     expect(run.cards.read('project')!.lifecycle).toMatchObject({ status: 'done', result: { node_id: 'review', outcome: 'approved' } });
     expect(run.cards.readRecordVersion(reviewId, 'status.md', Number(findingsUrl.match(/&v=(\d+)$/u)![1]))).toMatchObject({
-      kind: 'found', value: { projection: { versionUrl: findingsUrl, artifact: { accepted: { content: findings, author: { kind: 'agent', agent: 'executor' } } } } },
+      kind: 'found', value: { projection: { versionUrl: findingsUrl, artifact: { accepted: { content: findings, author: { kind: 'card-agent', agent: 'executor', card_id: reviewId } } } } },
     });
     const rows = readConversation(run.root, cardAgentSessionId('executor', reviewId)).physicalRows;
     const writes = rows.filter(({ kind, tool }) => kind === 'tool_call' && tool === 'write');
@@ -788,7 +788,7 @@ else throw new Error('Unknown fixture mode');
     const structural = compileProjectWorkflows(config, { defaultPromptRoot: resolveSystemTemplate('classic').promptRoot });
     publishInitialProjectRuntime(root, structural);
     const cards = new CardService(root, structural);
-    const child = cards.create({ type: 'test', parent: 'project', title: 'Classic finite assessment', bootstrap_content: 'Inspect the supplied caller agreement only; no implementation or broad gate is required by this assessment-only brief.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = cards.create({ type: 'test', parent: 'project', title: 'Classic finite assessment', bootstrap_content: 'Inspect the supplied caller agreement only; no implementation or broad gate is required by this assessment-only brief.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' }, depends_on: [] });
     let parentCalls = 0;
     let childCalls = 0;
     const inputs: Array<{ node: string; input: LlmInvocationInput }> = [];
@@ -925,7 +925,7 @@ else throw new Error('Unknown fixture mode');
       return complete(actions[count - 1]!);
     }, undefined, 'Design the fixed answer-42 module contract with component/system review before implementation.', 'newloop');
     designId = run.child.id;
-    codeId = run.cards.create({type:'code',parent:'project',title:'Implement fixed answer',bootstrap_content:'After the design child is accepted, implement answer.cjs exporting 42 and verify the fixed contract. Correct known failed tactics locally.',priority:0,urgency:'normal',created_by:'planner',depends_on:[designId]}).id;
+    codeId = run.cards.create({type:'code',parent:'project',title:'Implement fixed answer',bootstrap_content:'After the design child is accepted, implement answer.cjs exporting 42 and verify the fixed contract. Correct known failed tactics locally.',priority:0,urgency:'normal',created_by:'planner',bootstrap_author:{kind:'agent',agent:'planner'},depends_on:[designId]}).id;
     run.cards.acceptRecord('project','brief.md','Deliver a designed answer.cjs export of 42 and usable USAGE.md. Independently review design/code. Documentation may complete with adequate direct evidence.',{kind:'agent',agent:'analyst'});
     writeFileSync(join(run.root,'answer.cjs'),'module.exports = 0;\n');
     expect((await run.supervisor.startProject()).started).toBe(true);
@@ -1016,7 +1016,7 @@ else throw new Error('Unknown fixture mode');
       return complete(action);
     }, undefined, brief, profile);
     childId = run.child.id;
-    acceptanceId = run.cards.create({type:'test',parent:'project',title:'Independent fixed answer acceptance',bootstrap_content:'Independently accept the fixed answer.cjs against the requirement owner decision using source inspection and the focused assertion. No implementation or test edits assigned.',priority:0,urgency:'normal',created_by:'planner',depends_on:[childId]}).id;
+    acceptanceId = run.cards.create({type:'test',parent:'project',title:'Independent fixed answer acceptance',bootstrap_content:'Independently accept the fixed answer.cjs against the requirement owner decision using source inspection and the focused assertion. No implementation or test edits assigned.',priority:0,urgency:'normal',created_by:'planner',bootstrap_author:{kind:'agent',agent:'planner'},depends_on:[childId]}).id;
     const original = `module.exports = ${mode === 'repair' ? 41 : 42};\n`;
     writeFileSync(join(run.root, 'answer.cjs'), original);
     const acceptedBrief = run.cards.readRecordCurrent(childId, 'brief.md');
@@ -1469,7 +1469,7 @@ else throw new Error('Unknown fixture mode');
         'Deliver A.cjs; correct verified release defects into combined B.cjs when directed. Preserve arithmetic and caller semantics; run author checks. Independent acceptance belongs to the test child.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     }).id;
     writeFileSync(join(run.root, 'caller.txt'), caller);
@@ -1683,7 +1683,7 @@ else throw new Error('Unknown fixture mode');
       bootstrap_content: 'Confirm the supplied fixture with meaningful focused coverage.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
     let oldPlannerCalls = 0;
@@ -1860,7 +1860,7 @@ else throw new Error('Unknown fixture mode');
       bootstrap_content: 'Verify the already-covered baseline.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
     let pendingResolve!: () => void;

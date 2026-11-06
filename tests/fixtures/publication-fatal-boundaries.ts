@@ -69,7 +69,7 @@ if (mode === 'native-source-head' || mode === 'native-parent-delivery-head' || m
   config.models = structuredClone(TEST_SAIVAGE_CONFIG.models);
   config.providers = structuredClone(TEST_SAIVAGE_CONFIG.providers);
   config.compaction = structuredClone(TEST_SAIVAGE_CONFIG.compaction);
-  for (const agent of Object.values(config.agents)) agent.tools = agent.tools.filter(tool => tool !== 'view_image');
+  for (const agent of Object.values(config.agents)) agent.capabilities.grants = agent.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(tool => tool !== 'view_image') })).filter((grant) => grant.tools.length > 0);
   const compiled = compileProjectWorkflows(config, { projectRoot: root });
   const registry = new ProviderRegistry(config);
   const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });

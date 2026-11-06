@@ -6,6 +6,7 @@ import { join, parse, relative, resolve, sep } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { displayPathForResolved, listScopedPath, resolveScopedPath, visitFiles, visitScopedFiles } from '../../src/workspace/vfs.js';
 import { authorizeWriteProject, editProject, readProject as readWithObservations, writeProject } from '../../src/tools/project-file-tools.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 const readProject = async (...args: Parameters<typeof readWithObservations>) => (await readWithObservations(...args)).data;
 import { buildScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
 import { cardNamespace } from '../../src/persistence/layout.js';
@@ -104,18 +105,18 @@ describe('workspace VFS and project-file security', () => {
     writeFileSync(join(root, '.env'), 'SECRET=hidden');
     writeFileSync(join(root, 'target.txt'), 'safe');
     symlinkSync(join(root, 'target.txt'), join(root, 'link.txt'));
-    await expect(readProject({ projectRoot: root }, { path: '../outside' })).rejects.toThrow(/inside the project root|escapes|traversal/);
-    await expect(readProject({ projectRoot: root }, { path: '.env' })).rejects.toThrow(/blocked for security/);
-    await expect(writeProject({ projectRoot: root, agentName: 'executor' }, { path: '.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
-    await expect(writeProject({ projectRoot: root, agentName: 'executor' }, { path: 'project:///.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
-    await expect(writeProject({ projectRoot: root, agentName: 'executor' }, { path: 'link.txt', content: 'x' })).rejects.toThrow(/symlink/);
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: '../outside' })).rejects.toThrow(/inside the project root|escapes|traversal/);
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: '.env' })).rejects.toThrow(/blocked for security/);
+    await expect(writeProject({ authority: testWorkspaceAuthority(), projectRoot: root, agentName: 'executor' }, { path: '.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
+    await expect(writeProject({ authority: testWorkspaceAuthority(), projectRoot: root, agentName: 'executor' }, { path: 'project:///.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
+    await expect(writeProject({ authority: testWorkspaceAuthority(), projectRoot: root, agentName: 'executor' }, { path: 'link.txt', content: 'x' })).rejects.toThrow(/symlink/);
   });
 
   it('classifies protected scoped writes by destination while retaining only tmp capability', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-vfs-security-'));
     roots.push(root);
     initProjectTree(root);
-    const ctx = { projectRoot: root, agentName: 'executor' as const, cardId: 'card-a' };
+    const ctx = { authority: testWorkspaceAuthority('card-a'), projectRoot: root, agentName: 'executor' as const, cardId: 'card-a' };
     const internalRoot = resolve(root, '.saivage');
     const internalFile = resolve(internalRoot, 'state.json');
     writeFileSync(internalFile, 'retained-state');
@@ -145,8 +146,8 @@ describe('workspace VFS and project-file security', () => {
     const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
     writeFileSync(join(root, '.saivage', 'work', 'processes', 'run.log'), `token=${secret}`);
     writeFileSync(join(root, 'example.txt'), `documentation=${secret}`);
-    const work = await readProject({ projectRoot: root }, { path: 'work:///processes/run.log' }) as { content: { content: string } };
-    const project = await readProject({ projectRoot: root }, { path: 'example.txt' }) as { content: { content: string } };
+    const work = await readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: 'work:///processes/run.log' }) as { content: { content: string } };
+    const project = await readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: 'example.txt' }) as { content: { content: string } };
     expect(work.content.content).not.toContain(secret);
     expect(work.content.content).toContain('[REDACTED]');
     expect(project.content.content).toContain(secret);
@@ -160,8 +161,8 @@ describe('workspace VFS and project-file security', () => {
     expect(resolved).toMatchObject({ kind: 'work', isRoot: true });
     expect(displayPathForResolved(root, resolved!)).toBe('work:///');
     await expect(listScopedPath({ projectRoot: root, fail }, 'work:///')).resolves.toMatchObject({ kind: 'entries' });
-    await expect(readProject({ projectRoot: root }, { path: 'work:///' })).resolves.toMatchObject({ path: 'work:///', is_directory: true });
-    await expect(readProject({ projectRoot: root }, { path: 'work:///', metadata_only: true })).resolves.toMatchObject({
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: 'work:///' })).resolves.toMatchObject({ path: 'work:///', is_directory: true });
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: 'work:///', metadata_only: true })).resolves.toMatchObject({
       path: { content: 'work:///', offset_bytes: 0, next_offset_bytes: 8, utf8_bytes: 8 },
       metadata_only: true,
       is_directory: true,

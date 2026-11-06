@@ -4,11 +4,16 @@ import { uuidV4Schema } from './uuid.js';
 import { operationAuthorSchema } from './operation-author.js';
 import { operationIdSchema } from './operation-id.js';
 import { actionOutputDescriptorSchema } from './action-output.js';
+import { cardIdSchema } from './card-id.js';
+import { agentNameSchema } from './agent-name.js';
 
 /** Immutable authorship, not an assessment or a guarantee of command effects. */
 export const recordAuthorSchema = z
   .discriminatedUnion('kind', [
     ...operationAuthorSchema.options,
+    z
+      .object({ kind: z.literal('card-agent'), agent: agentNameSchema, card_id: cardIdSchema })
+      .strict(),
     z.object({ kind: z.literal('runtime'), purpose: z.enum(['bootstrap', 'repair']) }).strict(),
     z
       .object({

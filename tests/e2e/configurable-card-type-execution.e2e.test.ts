@@ -77,7 +77,7 @@ describe('custom card type execution admission', () => {
       bootstrap_content: 'plan',
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
     const taskCard = cards.create({
@@ -87,7 +87,7 @@ describe('custom card type execution admission', () => {
       bootstrap_content: 'execute',
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
     expect([initiativeCard.type, taskCard.type]).toEqual(['initiative', 'task']);

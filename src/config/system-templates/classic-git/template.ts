@@ -17,7 +17,6 @@ const nativeGlobalExcludedTools: readonly string[] = [
   'mcp_server_control',
   'mcp_tools',
 ];
-const nativeExecutorTools = ['checkpoint_source'];
 
 /** No effective native configuration exists until the project supplies its policy. */
 function createClassicGitConfig(input: GitProvisioning): SaivageConfigSource {
@@ -26,11 +25,22 @@ function createClassicGitConfig(input: GitProvisioning): SaivageConfigSource {
     createClassicConfig(structuredClone(CLASSIC_TEMPLATE.config.card_types!)),
   );
   // This is the native profile's explicit selection, not runtime tool stripping.
-  config.agents.analyst!.tools = config.agents.analyst!.tools.filter(
-    (name) => !nativeGlobalExcludedTools.includes(name),
-  );
-  config.agents.executor!.tools.push(...nativeExecutorTools);
-  config.agents.executor!.record_writes.push('git-correction.md');
+  config.agents.analyst!.capabilities.grants = config.agents
+    .analyst!.capabilities.grants.map((grant) => ({
+      ...grant,
+      tools: grant.tools.filter((name) => !nativeGlobalExcludedTools.includes(name)),
+    }))
+    .filter((grant) => grant.tools.length > 0);
+  config.agents.executor!.capabilities.grants.push({
+    tools: ['checkpoint_source'],
+    resources: [{ kind: 'card', scopes: ['self'] }],
+  });
+  for (const grant of config.agents.executor!.capabilities.grants)
+    if (grant.tools.some((name) => ['write', 'edit', 'webfetch'].includes(name)))
+      grant.resources = [
+        ...grant.resources!,
+        { kind: 'record', scopes: ['self'], patterns: ['git-correction.md'] },
+      ];
   for (const definition of Object.values(config.card_types!)) {
     definition.records['git-correction.md'] = {
       format: 'markdown',

@@ -1,3 +1,4 @@
+import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -134,7 +135,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const surface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: cards.workflows.cardTypeVocabulary })]);
+    const surface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, authority: broadInspectionAuthority(), cardTypeVocabulary: cards.workflows.cardTypeVocabulary })]);
     fixture = createFixture({
       projectRoot: root,
       surface,

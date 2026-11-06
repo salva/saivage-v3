@@ -69,10 +69,10 @@ describe('Supervisor initialization lifecycle', () => {
     const registry = new ProviderRegistry(config);
     const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const cards = new (await import('../../../src/cards/card-service.js')).CardService(root, compiled);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const middle = cards.create({ type: 'goal', parent: parent.id, title: 'Middle', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const leaf = cards.create({ type: 'code', parent: middle.id, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const sibling = cards.create({ type: 'code', parent: 'project', title: 'Untouched', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const middle = cards.create({ type: 'goal', parent: parent.id, title: 'Middle', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const leaf = cards.create({ type: 'code', parent: middle.id, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const sibling = cards.create({ type: 'code', parent: 'project', title: 'Untouched', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const chain = ['project', parent.id, middle.id, leaf.id];
     chain.forEach((id) => cards.setStatus(id, 'running'));
     seedInterruptedSession(root, `agent:planner:${middle.id}`, 'pending_call');

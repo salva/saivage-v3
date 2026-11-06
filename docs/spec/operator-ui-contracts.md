@@ -495,10 +495,16 @@ nothing. Runtime refresh-failure retention is unchanged.
 
 ## Records, versions, and diffs
 
+Workflow/debug inspection projects each selected tool's compiled `resources` with
+card/record scope unions and record patterns (workspace has neither). It must not
+reconstruct a separate writer policy or infer grants from role names. The operator
+remains authenticated and unanchored; inspection is not a new approval/editor flow.
+
 ### Content state, authorship and installed declarations
 
 Accepted records expose the strict `author` union, not `writer_agent`.
-Records shows **Agent · name**, **External credential holder · principal**,
+Records shows **Agent · name · author-card-id** for new card-agent origin,
+**Agent · name** for retained factual agent origin, **External credential holder · principal**,
 **Runtime · bootstrap/repair**, or
 **Action output · operation · source · node · disposition** for the selected accepted
 content, alongside its positive accepted document version. An external

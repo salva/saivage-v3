@@ -73,7 +73,7 @@ describe('current generated state startup admission', () => {
         bootstrap_content: 'brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       if (fault === 'missing') rmSync(predecessor);
@@ -176,7 +176,7 @@ describe('current generated state startup admission', () => {
         bootstrap_content: 'brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       },
       customWorkflow,
@@ -561,7 +561,7 @@ function renamedCardAgentWorkflows(): CompiledProjectWorkflows {
 function renamedAnalystWorkflows(): CompiledProjectWorkflows {
   const value = config();
   value.agents['analyst-v2'] = { ...value.agents.analyst! };
-  value.agents.analyst!.tools = value.agents.analyst!.tools.filter(tool => tool !== 'queue_notification');
+  value.agents.analyst!.capabilities.grants = value.agents.analyst!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(tool => tool !== 'queue_notification') })).filter((grant) => grant.tools.length > 0);
   value.analyst_agent = 'analyst-v2';
   return compileProjectWorkflows(value);
 }

@@ -1,4 +1,11 @@
 export { canonicalJson } from './canonical-json.js';
+export {
+  agentCapabilitiesSchema,
+  capabilityResourceSchema,
+  type AgentCapabilities,
+  type CapabilityResource,
+  type CapabilityScope,
+} from './agent-capabilities.js';
 export { recordAuthorSchema, type RecordAuthor } from './record-author.js';
 export {
   externalPrincipalSchema,
@@ -62,7 +69,7 @@ export {
   type CardConversationSessionId,
   type ConversationSessionId,
 } from './conversation-session-id.js';
-export { agentNameSchema, parseAgentName, type AgentName } from './agent-name.js';
+export { agentNameSchema, type AgentName } from './agent-name.js';
 export { cardTypeNameSchema, parseCardTypeName, type CardTypeName } from './card-type-name.js';
 export {
   recordNameSchema,

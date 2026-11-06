@@ -33,6 +33,16 @@ Workflows can also use non-LLM actions for finite commands. Output-capable actio
 can publish factual reports through the ordinary record owner using
 [`output_record`](docs/guides/configuration.md); command stdout and returned text
 retain distinct provenance, not automatic acceptance of the work.
+
+All five profiles (`classic`, `classic-typed`, `paad-typed`, `classic-git`, `newloop`)
+use [configured direct-object grants](docs/reference/configuration.md#direct-object-capabilities).
+Defaults give Planner self status and immediate-child briefs; children propose
+requirement changes through BLOCKED, parents amend the same inactive child without
+weakening upstream obligations, and root decisions reach Analyst/operator. Custom
+scopes may deliberately differ, including self bootstrap drafts. Graph choices and
+native/evidence gates remain intact. The incompatible capabilities1/workflow6,
+accepted-record6/conversation13 cutover needs separate [input/state adoption](docs/runbook/state-adoption.md);
+record-head3 is unchanged and installed applicability is unknown.
 Explicit [JS/typed-TS/Python quality actions](docs/reference/configuration.md#quality-actions)
 require preprovisioned pinned native tools; they are not enabled by default.
 Optional per-agent quality tools use the same engines with strict empty requests

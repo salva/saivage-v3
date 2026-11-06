@@ -128,7 +128,7 @@ it.each([['passed', 0, false], ['failed', 9, false], ['timed_out', 0, true]] as 
       expect(JSON.stringify(file)).not.toContain('stdout-record-private-canary');
       const history = await get(`${prefix}/versions/1`);
       const diff = await get(`${prefix}/diff?from=1&to=current`);
-      const context = { projectRoot: fixture.root, store: fixture.cards, agentName: 'planner', cardId: 'project' };
+      const context = { authority: testWorkspaceAuthority('project'), projectRoot: fixture.root, store: fixture.cards, agentName: 'planner', cardId: 'project' };
       for (const path of ['record:///check-report.md?card=project', 'record:///check-report.md?card=project&v=1']) {
         expect((await readProject(context, { path })).data).toMatchObject({ content_author: accepted.author });
       }
@@ -162,3 +162,4 @@ it.each([['passed', 0, false], ['failed', 9, false], ['timed_out', 0, true]] as 
     } finally { await fixture.close(); }
   }, 60_000,
 );
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';

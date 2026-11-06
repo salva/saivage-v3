@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import { normalizeWorkspaceImage } from '../../src/tools/image-decode.js';
 import { readWorkspaceImageSource } from '../../src/tools/project-file-tools.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 import { workspaceToolBinders, globalWorkspaceObservationToolBinders } from '../../src/tools/workspace-provider.js';
 import { materializeConversationImage, publishConversationImage } from '../../src/persistence/session-api.js';
 import { conversationImageFile } from '../../src/persistence/layout.js';
@@ -107,7 +108,7 @@ describe('explicit immutable workspace image observations', () => {
     const projectRoot = root();
     const outside = root();
     const bytes = await png(10, 10);
-    const ctx = { projectRoot, cardId: 'project', agentName: 'executor' as AgentName };
+    const ctx = { authority: testWorkspaceAuthority('project'), projectRoot, cardId: 'project', agentName: 'executor' as AgentName };
     for (const path of ['screen.png', '.saivage/work/screen.png', '.saivage/work/cards/project/tmp/screen.png']) {
       mkdirSync(join(projectRoot, path, '..'), { recursive: true }); writeFileSync(join(projectRoot, path), bytes);
     }
@@ -128,7 +129,7 @@ describe('explicit immutable workspace image observations', () => {
     const projectRoot = root();
     const source = await png(30, 20); writeFileSync(join(projectRoot, 'screen.png'), source);
     const binder = (sessionId === 'agent:analyst:global' ? globalWorkspaceObservationToolBinders : workspaceToolBinders).find((tool) => tool.name === 'view_image')!;
-    const tool = binder.bind({ projectRoot, cardId: 'project', agentName: 'executor' as AgentName, store: {} as CardService });
+    const tool = binder.bind({ authority: testWorkspaceAuthority(), projectRoot, cardId: 'project', agentName: 'executor' as AgentName, store: {} as CardService });
     const execution = await tool.executor({ path: 'screen.png' }, new AbortController().signal, { sessionId } as unknown as LlmToolInvocationContext);
     const result = settleToolActionOutcome(settleToolExecutionForLlm(execution, testLlmToolInvocationContext({ sessionId })).providerOutcome).providerResult;
     expect(result.success).toBe(true);
@@ -153,7 +154,7 @@ describe('explicit immutable workspace image observations', () => {
 
   it('keeps image-free failures without requiring a fabricated invocation', async () => {
     const projectRoot = root(); writeFileSync(join(projectRoot, 'bad.png'), 'not pixels');
-    const tool = workspaceToolBinders.find((tool) => tool.name === 'view_image')!.bind({ projectRoot, agentName: 'executor' as AgentName });
+    const tool = workspaceToolBinders.find((tool) => tool.name === 'view_image')!.bind({ authority: testWorkspaceAuthority(), projectRoot, agentName: 'executor' as AgentName });
     expect((await tool.executor({ path: 'bad.png' }, new AbortController().signal)).providerOutcome).toMatchObject({kind:'failed'});
     const execution = await tool.executor({ path: 'bad.png' }, new AbortController().signal, { sessionId: 'agent:executor:project' } as unknown as LlmToolInvocationContext);
     expect(settleToolActionOutcome(execution.providerOutcome).providerResult).toMatchObject({ success: false });

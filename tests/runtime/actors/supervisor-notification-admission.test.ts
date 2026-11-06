@@ -1,3 +1,4 @@
+import { testNotificationAuthority, testPlannerAuthority, setRecordWriteGrants } from '../../helpers/capability-grants.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { createObservedCollections } from '../../../src/retrieval/index.js';
 import type { ChildProcess } from 'node:child_process';
@@ -152,6 +153,124 @@ function notification() {
   };
 }
 
+async function recordMutationHarness() {
+  const entered=deferred();
+  const config=structuredClone(TEST_SAIVAGE_CONFIG);
+  setRecordWriteGrants(config.agents.planner!, [
+    {kind:'record',scopes:['self'],patterns:['status.md']},
+    {kind:'record',scopes:['children'],patterns:['brief.md','status.md','design-*.md']},
+  ]);
+  const registry=new ProviderRegistry(config);
+  const workflows=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction,{internalAnalystEnabled:true});
+  const h=harness(scriptedAdmissionProvider(async (_input,signal)=>{
+    entered.resolve();
+    return await new Promise<never>((_resolve,reject)=>{
+      if(signal.aborted)reject(signal.reason);else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+    });
+  }),undefined,undefined,workflows);
+  let input!:CardActivationInput;
+  const activate=CardProcessActor.prototype.activate;
+  jest.spyOn(CardProcessActor.prototype,'activate').mockImplementation(function(this:CardProcessActor,value,signal){input=value;return activate.call(this,value,signal);});
+  await h.supervisor.startProject();await entered.promise;
+  const current=owner(h.supervisor);const position=current.processor.processPosition();
+  if(position.kind!=='node')throw new Error('Expected a held agent node.');
+  const node=workflows.cardTypes.get('project')!.states.get(position.stateId)!;
+  if(node.kind!=='node'||node.execution.kind!=='agent')throw new Error('Expected agent execution.');
+  const request={surface:'card_agent' as const,operation:'write' as const,agentName:node.execution.agent.name,
+    authority:{anchorCardId:'project',tools:node.execution.agent.tools},requiredTools:['write'] as const};
+  return {...h,input,current,ordinal:position.executionOrdinal,request};
+}
+
+describe('bound runtime record acceptance',()=>{
+  it('routes actual selected write/edit tools to the same child and retains card_acceptance in strict conversation history',async()=>{
+    const settled=deferred();let childId='';let calls=0;
+    const h=harness(scriptedAdmissionProvider(async(_input,signal)=>{
+      calls+=1;
+      if(calls<=2)return {result:{kind:'tool_calls',tool_calls:[{id:`amend-${calls}`,type:'function',function:{name:calls===1?'write':'edit',arguments:JSON.stringify(calls===1?{path:`record:///brief.md?card=${childId}`,content:'Updated requirements'}:{path:`record:///brief.md?card=${childId}`,old_string:'Updated',new_string:'Final'})}}]},provider_exchanges:[]};
+      settled.resolve();return await new Promise<never>((_resolve,reject)=>{
+        if(signal.aborted)reject(signal.reason);else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+      });
+    }));
+    const child=h.cards.create({type:'goal',parent:'project',title:'Same child',bootstrap_content:'Original requirements',bootstrap_author:{kind:'agent',agent:'analyst'},priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});childId=child.id;
+    h.cards.setStatus(childId,'running');h.cards.commitActivationOutcome(childId,{status:'blocked',summary:'requirements proposal',result:workflowResult('BLOCKED','requirements proposal')},new Date().toISOString());
+    try {
+      await h.supervisor.startProject();await settled.promise;
+      const rows=readConversation(h.projectRoot,'agent:planner:project').physicalRows;
+      const results=rows.filter(row=>row.kind==='tool_result'&&row.tool_call_id?.startsWith('amend-'));
+      expect(results).toHaveLength(2);
+      for(const result of results)expect(JSON.parse(result.content)).toMatchObject({success:true,data:{surface:'card_acceptance',card_id:childId,state:'closed',propagation:{ok:true}}});
+      const current=h.cards.readRecordCurrent(childId,'brief.md');
+      expect(current.kind==='found'&&current.value.projection?.accepted).toMatchObject({content:'Final requirements',author:{kind:'card-agent',agent:'planner',card_id:'project'}});
+      expect(h.cards.read(childId)!.lifecycle.status).toBe('changed');expect(calls).toBe(3);
+    } finally {await h.supervisor.stopProject();}
+  });
+
+  it('accepts any matching inactive record; changes only BLOCKED and never tracks another card draft',async()=>{
+    const h=await recordMutationHarness();
+    try {
+      for(const status of ['backlog','blocked','changed','stopped'] as const){
+        const child=h.cards.create({type:'goal',parent:'project',title:status,bootstrap_content:'requirements',bootstrap_author:{kind:'card-agent',agent:'planner',card_id:'project'},priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+        if(status!=='backlog'){
+          h.cards.setStatus(child.id,'running');
+          if(status==='stopped')h.cards.stopRunning(child.id);
+          else {h.cards.commitActivationOutcome(child.id,{status:'blocked',summary:'needs amendment',result:workflowResult('BLOCKED','needs amendment')},new Date().toISOString());if(status==='changed')h.cards.setStatus(child.id,'changed');}
+        }
+        const written=jest.fn();
+        const result=h.input.recordMutations.mutate(h.ordinal,{...h.request,path:`record:///design-evidence.md?card=${child.id}`,content:'accepted correction',onRecordWritten:written});
+        expect(result).toMatchObject({kind:'applied',data:{surface:'card_acceptance',state:'closed',propagation:{ok:true}}});
+        expect(written).not.toHaveBeenCalled();
+        expect(h.cards.read(child.id)!.lifecycle.status).toBe(status==='blocked'?'changed':status);
+        const record=h.cards.readRecordCurrent(child.id,'design-evidence.md');
+        expect(record.kind==='found'&&record.value.projection?.accepted?.author).toEqual({kind:'card-agent',agent:'planner',card_id:'project'});
+      }
+    } finally {await h.supervisor.stopProject();}
+  });
+
+  it('checks actual caller/ordinal, target owner, pause, GC and native work before publication',async()=>{
+    const h=await recordMutationHarness();
+    const internals=h.supervisor as unknown as {status:string;workGcHold:unknown;activationOwners:Map<string,CardActivationOwner>;applicationAdmissionOpen:boolean};
+    const child=h.cards.create({type:'goal',parent:'project',title:'inactive',bootstrap_content:'requirements',bootstrap_author:{kind:'agent',agent:'analyst'},priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+    const request={...h.request,path:`record:///brief.md?card=${child.id}`,content:'must refuse'};
+    const before=h.cards.readRecordCurrent(child.id,'brief.md');
+    const publish=jest.spyOn(h.cards,'acceptRecord');
+    try {
+      expect(()=>h.input.recordMutations.mutate(h.ordinal+1,request)).toThrow(/live admitted node/);
+      expect(()=>h.input.recordMutations.mutate(h.ordinal,{...request,authority:{...request.authority,anchorCardId:child.id}})).toThrow(/capability/);
+      expect(()=>h.input.recordMutations.mutate(h.ordinal,{...request,authority:{...request.authority,tools:request.authority.tools.map(t=>({...t}))}})).toThrow(/capability/);
+      for(const phase of ['active','settling'] as const){
+        internals.activationOwners.set(child.id,{phase} as CardActivationOwner);
+        try{expect(()=>h.input.recordMutations.mutate(h.ordinal,request)).toThrow(/active or settling owner/);}finally{internals.activationOwners.delete(child.id);}
+      }
+      internals.status='paused';expect(()=>h.input.recordMutations.mutate(h.ordinal,request)).toThrow(/live admitted node/);internals.status='running';
+      internals.workGcHold={phase:'collecting'};expect(()=>h.input.recordMutations.mutate(h.ordinal,request)).toThrow(/collecting/);internals.workGcHold=null;
+      internals.applicationAdmissionOpen=false;expect(()=>h.input.recordMutations.mutate(h.ordinal,request)).toThrow(/live admitted node/);internals.applicationAdmissionOpen=true;
+      h.current.sourceTask=Promise.resolve();expect(()=>h.input.recordMutations.mutate(h.ordinal,request)).toThrow(/live admitted node/);h.current.sourceTask=null;
+      expect(publish).not.toHaveBeenCalled();expect(h.cards.readRecordCurrent(child.id,'brief.md')).toEqual(before);
+      await h.supervisor.stopProject();
+      expect(()=>h.input.recordMutations.mutate(h.ordinal,request)).toThrow(/no longer current/);
+    } finally {if(internals.status==='paused')internals.status='running';internals.workGcHold=null;internals.applicationAdmissionOpen=true;h.current.sourceTask=null;await h.supervisor.stopProject();}
+  });
+
+  it('reports known accepted/lifecycle partial effects and performs no follow-up after uncertainty',async()=>{
+    const h=await recordMutationHarness();
+    try {
+      const child=h.cards.create({type:'goal',parent:'project',title:'blocked',bootstrap_content:'old',bootstrap_author:{kind:'agent',agent:'analyst'},priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+      h.cards.setStatus(child.id,'running');h.cards.commitActivationOutcome(child.id,{status:'blocked',summary:'blocked',result:workflowResult('BLOCKED','blocked')},new Date().toISOString());
+      const request={...h.request,path:`record:///brief.md?card=${child.id}`,content:'accepted'};
+      const setStatus=jest.spyOn(h.cards,'setStatus').mockImplementation(()=>{throw new Error('known lifecycle refusal');});
+      expect(h.input.recordMutations.mutate(h.ordinal,request)).toMatchObject({kind:'applied',data:{propagation:{ok:false,partial:true,error:'known lifecycle refusal'}}});
+      setStatus.mockRestore();
+      const record=h.cards.readRecordCurrent(child.id,'brief.md');expect(record.kind==='found'&&record.value.projection?.accepted?.content).toBe('accepted');
+      const unknown=new PublicationOutcomeUnknownError();
+      const accept=jest.spyOn(h.cards,'acceptRecord').mockImplementation(()=>{throw unknown;});
+      const read=jest.spyOn(h.cards,'read');
+      expect(()=>h.input.recordMutations.mutate(h.ordinal,{...request,content:'uncertain'})).toThrow(unknown);
+      expect(read).toHaveBeenCalledTimes(1); // target admission only; no propagation inspection after publication failure
+      accept.mockRestore();read.mockRestore();
+    } finally {await h.supervisor.stopProject();}
+  });
+});
+
 function unverifiableProcessPlatform(): ManagedProcessPlatform {
   const child = Object.assign(new EventEmitter(), {
     pid: 4242,
@@ -240,8 +359,8 @@ describe('Supervisor notification admission at terminal ownership', () => {
         projectProviderExchanges: (...args) => service.projectProviderExchanges(...args),
       };
     });
-    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
-    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
+    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
     const session = `agent:executor:${leafId}` as const;
     // Seed real retained source, not a compactor replacement or a faux attempt.
     appendActivationMarker({ projectRoot: h.projectRoot }, session, { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'executor', card_id: leafId, input_id: '11111111-1111-4111-8111-111111111111' });
@@ -266,7 +385,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       const oldRoot = owner(h.supervisor);
       const priorOwners = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
       const oldLeases = [goalId, leafId].map(id => priorOwners.get(id)!.parentRelationship!.invocation);
-      urgent = h.supervisor.submitNotification(target === 'root' ? 'project' : goalId, { id: '00000000-0000-4000-8000-000000000019', content: 'urgent source correction', created_at: '2026-10-16T00:00:00.000Z' }, 'urgent');
+      urgent = h.supervisor.submitNotification(testNotificationAuthority(), target === 'root' ? 'project' : goalId, { id: '00000000-0000-4000-8000-000000000019', content: 'urgent source correction', created_at: '2026-10-16T00:00:00.000Z' }, 'urgent');
       await aborted.promise;
       expect(stopped).toEqual([]);
       expect(h.cards.read(leafId)!.lifecycle.status).toBe('running');
@@ -349,12 +468,12 @@ describe('Supervisor notification admission at terminal ownership', () => {
   it('freshly rejects a stored cancel target changed after the Analyst subtree observation', async () => {
     const provider = scriptedAdmissionProvider(async () => { throw new Error('Unexpected provider call.'); });
     const h = harness(provider);
-    const target = h.cards.create({ type: 'code', parent: 'project', title: 'stored', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const target = h.cards.create({ type: 'code', parent: 'project', title: 'stored', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
     const notifyCard = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
     let beforeOwner: Buffer | undefined;
     const mutations = createAnalystMutationServices({
       author: { kind: 'agent', agent: 'analyst' },
-      allowedTools: ['cancel_card'],
+      authority: { anchorCardId: null, tools: h.cards.workflows.analyst.tools.filter(({ name }) => name === 'cancel_card') },
       store: h.cards, configAuthority: {} as never, notifyCard, submitNotification: jest.fn() as never,
       cancelCard: async (id, reason) => {
         h.cards.setStatus(id, 'running');
@@ -405,9 +524,10 @@ describe('Supervisor notification admission at terminal ownership', () => {
           runtime: h.supervisor,
           currentProcessPosition: () => null,
           captureExecutingLlmSnapshots: () => new Map(),
-          queueNotification: (args, signal) =>
+          queueNotification: (args, signal, authority) =>
             executeToolAction('none', () =>
               submitNotificationTool(
+                authority,
                 args,
                 h.supervisor.submitNotification.bind(h.supervisor),
                 signal,
@@ -555,7 +675,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Complete the bounded task.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const targetId = h.cards.create({
@@ -565,7 +685,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'A separately scoped optional task.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const owners = (
@@ -588,6 +708,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const before = readConversation(h.projectRoot, `agent:planner:${childId}`).physicalRows;
     expect(
       control().activateChild({
+        authority: testPlannerAuthority(),
         childCardId: childId,
         instructions: 'MUST NOT OVERWRITE',
         invocation: firstLease,
@@ -599,6 +720,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     );
     expect(() =>
       control().activateChild({
+        authority: testPlannerAuthority(),
         childCardId: childId,
         instructions: 'MUST NOT OVERWRITE',
         invocation: different,
@@ -619,6 +741,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(second.activationId).not.toBe(first.activationId);
     expect(second.parentRelationship!.instructions).toBe(B);
     const queued = await submitNotificationTool(
+      testNotificationAuthority(),
       {
         card_id: targetId,
         kind: 'context',
@@ -647,7 +770,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       }
     )
       .boundParentControl(childId, second.activationId)
-      .cancelChild({ childCardId: targetId, reason: 'Optional scope no longer required.' });
+      .cancelChild({ authority: testPlannerAuthority(childId), childCardId: targetId, reason: 'Optional scope no longer required.' });
     finish.resolve();
     await waitFor(() => rootCalls >= 3).catch(() => {
       throw new Error(
@@ -746,7 +869,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     jest
@@ -771,6 +894,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect((await h.supervisor.startProject()).started).toBe(true);
     await summaryEntered.promise;
     const urgent = h.supervisor.submitNotification(
+      testNotificationAuthority(),
       childId,
       {
         id: '00000000-0000-4000-8000-000000000006',
@@ -853,7 +977,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     );
     // This scripted provider exercises text-only workflow re-entry, not image transport.
     for (const agent of Object.values(config.agents))
-      agent.tools = agent.tools.filter((tool) => tool !== 'view_image');
+      agent.capabilities.grants = agent.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter((tool) => tool !== 'view_image') })).filter((grant) => grant.tools.length > 0);
     config.models = {
       routes: Object.fromEntries(
         Object.entries(config.models.routes).map(([name, route]) => [
@@ -944,7 +1068,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     expect((await h.supervisor.startProject()).started).toBe(true);
@@ -962,6 +1086,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     }).toMatchObject({ reviewCalls: 3, status: 'running' });
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         archId,
         {
           id: '00000000-0000-4000-8000-000000000002',
@@ -1089,7 +1214,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       competitorId = h.cards.create({
@@ -1099,7 +1224,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       expect((await h.supervisor.startProject()).started).toBe(true);
@@ -1118,6 +1243,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       const before = h.cards.read(goalId)!;
       await expect(
         h.supervisor.submitNotification(
+          testNotificationAuthority(),
           childId,
           {
             id: '00000000-0000-4000-8000-000000000004',
@@ -1213,7 +1339,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     targetId = h.cards.create({
@@ -1223,13 +1349,14 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     expect((await h.supervisor.startProject()).started).toBe(true);
     await rootEntered.promise;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         targetId,
         {
           id: '00000000-0000-4000-8000-000000000005',
@@ -1302,13 +1429,14 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     expect((await h.supervisor.startProject()).started).toBe(true);
     await firstLeafEntered.promise;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         childId,
         {
           id: '00000000-0000-4000-8000-000000000006',
@@ -1384,6 +1512,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       });
       await expect(
         h.supervisor.submitNotification(
+          testNotificationAuthority(),
           'project',
           {
             id: '00000000-0000-4000-8000-000000000007',
@@ -1447,6 +1576,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         return result;
       });
       const submitted = h.supervisor.submitNotification(
+        testNotificationAuthority(),
         'project',
         {
           id: '00000000-0000-4000-8000-000000000008',
@@ -1534,7 +1664,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const start = await h.supervisor.startProject();
@@ -1552,6 +1682,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     if (rootVersions.kind !== 'found') throw new Error('Expected root history.');
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         'project',
         {
           id: '00000000-0000-4000-8000-000000000009',
@@ -1629,7 +1760,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     h.cards.setStatus(blocked.id, 'running');
@@ -1642,6 +1773,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await firstEntered.promise;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         blocked.id,
         {
           id: '00000000-0000-4000-8000-00000000000a',
@@ -1691,7 +1823,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     const target = h.cards.create({
@@ -1701,7 +1833,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     expect((await h.supervisor.startProject()).started).toBe(true);
@@ -1714,6 +1846,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     });
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         target.id,
         {
           id: '00000000-0000-4000-8000-00000000000b',
@@ -1827,7 +1960,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const target = h.cards.create({
@@ -1837,7 +1970,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     competitorId = h.cards.create({
@@ -1847,7 +1980,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     expect((await h.supervisor.startProject()).started).toBe(true);
@@ -1855,6 +1988,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const rootBefore = h.cards.read('project')!;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         target.id,
         {
           id: '00000000-0000-4000-8000-00000000000c',
@@ -1931,7 +2065,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     expect((await h.supervisor.startProject()).started).toBe(true);
@@ -1940,6 +2074,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const rootBefore = h.cards.read('project')!;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         child.id,
         {
           id: '00000000-0000-4000-8000-00000000000d',
@@ -2042,7 +2177,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       const descendant = h.cards.create({
@@ -2052,7 +2187,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       competitorId = h.cards.create({
@@ -2062,7 +2197,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       h.cards.setStatus(blockedId, 'running');
@@ -2081,6 +2216,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       await competingEntered.promise;
       await expect(
         h.supervisor.submitNotification(
+          testNotificationAuthority(),
           descendant.id,
           {
             id: '00000000-0000-4000-8000-00000000000f',
@@ -2128,7 +2264,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       const target = h.cards.create({
@@ -2138,7 +2274,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       h.cards.setStatus(parent.id, 'running');
@@ -2160,6 +2296,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       const prior = h.cards.read(parent.id)!;
       await expect(
         h.supervisor.submitNotification(
+          testNotificationAuthority(),
           target.id,
           {
             id: '00000000-0000-4000-8000-000000000011',
@@ -2193,6 +2330,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         ).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000012' });
         await expect(
           h.supervisor.submitNotification(
+            testNotificationAuthority(),
             parent.id,
             {
               id: '00000000-0000-4000-8000-000000000013',
@@ -2225,7 +2363,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     const child = h.cards.create({
@@ -2235,7 +2373,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     for (const id of [parent.id, 'project']) {
@@ -2254,6 +2392,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const projectBefore = h.cards.read('project')!;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         child.id,
         {
           id: '00000000-0000-4000-8000-000000000014',
@@ -2371,7 +2510,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       const descendant = h.cards.create({
@@ -2381,7 +2520,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       competitorId = h.cards.create({
@@ -2391,7 +2530,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       h.cards.setStatus(goalId, 'running');
@@ -2409,6 +2548,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       const priorGoal = h.cards.read(goalId)!;
       await expect(
         h.supervisor.submitNotification(
+          testNotificationAuthority(),
           descendant.id,
           {
             id: '00000000-0000-4000-8000-000000000015',
@@ -2461,7 +2601,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     const originalJoin = ConversationLLMActor.prototype.join;
@@ -2480,6 +2620,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await firstEntered.promise;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         child.id,
         {
           id: '00000000-0000-4000-8000-000000000016',
@@ -2533,7 +2674,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     expect((await h.supervisor.startProject()).started).toBe(true);
@@ -2541,6 +2682,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     h.supervisor.pause();
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         child.id,
         {
           id: '00000000-0000-4000-8000-000000000017',
@@ -2602,7 +2744,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       const originalJoin = ConversationLLMActor.prototype.join;
@@ -2621,6 +2763,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       expect((await h.supervisor.startProject()).started).toBe(true);
       await firstEntered.promise;
       const submit = h.supervisor.submitNotification(
+        testNotificationAuthority(),
         child.id,
         {
           id: '00000000-0000-4000-8000-000000000018',
@@ -2714,7 +2857,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       const originalJoin = ConversationLLMActor.prototype.join;
@@ -2733,6 +2876,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       expect((await h.supervisor.startProject()).started).toBe(true);
       await firstEntered.promise;
       const submit = h.supervisor.submitNotification(
+        testNotificationAuthority(),
         childId,
         {
           id: '00000000-0000-4000-8000-000000000019',
@@ -2797,7 +2941,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     const originalJoin = ConversationLLMActor.prototype.join;
@@ -2818,6 +2962,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const recordPreparation = jest.spyOn(h.cards, 'readRecordCurrent');
     const before = readConversation(h.projectRoot, 'agent:planner:project').sourceRows.length;
     const submit = h.supervisor.submitNotification(
+      testNotificationAuthority(),
       child.id,
       {
         id: '00000000-0000-4000-8000-00000000001a',
@@ -2887,7 +3032,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       const originalJoin = ConversationLLMActor.prototype.join;
@@ -2925,6 +3070,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       const body = `Oversight urgent advice: ${mode}`;
       let settled = false;
       const tool = submitNotificationTool(
+        testNotificationAuthority(),
         { card_id: child.id, kind: 'finding', body, urgency: 'urgent' },
         port,
         check.signal,
@@ -2942,7 +3088,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       expect(assertEffectAdmission).toHaveBeenCalledWith(check.signal);
       expect(submit).toHaveBeenCalledTimes(1);
       const note = enqueue.mock.calls[0]![1];
-      expect(submit).toHaveBeenCalledWith(child.id, note, 'urgent', check.signal);
+      expect(submit).toHaveBeenCalledWith(testNotificationAuthority(), child.id, note, 'urgent', check.signal);
       expect(enqueue.mock.calls.map(([id]) => id)).toEqual([child.id, 'project']);
       expect(h.cards.read(child.id)?.pending_notifications).toEqual([note.id]);
       expect(h.cards.read('project')?.pending_notifications).toHaveLength(1);
@@ -3037,7 +3183,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         bootstrap_content: 'Brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
       expect((await h.supervisor.startProject()).started).toBe(true);
@@ -3114,7 +3260,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     await h.supervisor.start();
@@ -3183,7 +3329,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const started = await h.supervisor.startProject();
@@ -3191,6 +3337,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await childProviderEntered.promise;
 
     const submitted = await h.supervisor.submitNotification(
+      testNotificationAuthority(),
       childId,
       {
         id: '00000000-0000-4000-8000-00000000001b',
@@ -3286,7 +3433,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     leafId = h.cards.create({
@@ -3296,7 +3443,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const started = await h.supervisor.startProject();
@@ -3305,6 +3452,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
 
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         goalId,
         {
           id: '00000000-0000-4000-8000-00000000001c',
@@ -3397,6 +3545,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         if (rows.at(-1)?.kind !== 'tool_call') return;
         armed = false;
         submission = h.supervisor.submitNotification(
+          testNotificationAuthority(),
           childId,
           {
             id: '00000000-0000-4000-8000-00000000001d',
@@ -3417,7 +3566,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     armed = true;
@@ -3476,7 +3625,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const started = await h.supervisor.startProject();
@@ -3499,6 +3648,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
 
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         childId,
         {
           id: '00000000-0000-4000-8000-00000000001e',
@@ -3558,7 +3708,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const started = await h.supervisor.startProject();
@@ -3581,6 +3731,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
 
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         childId,
         {
           id: '00000000-0000-4000-8000-00000000001f',
@@ -3640,7 +3791,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const started = await h.supervisor.startProject();
@@ -3657,6 +3808,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
 
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         childId,
         {
           id: '00000000-0000-4000-8000-000000000020',
@@ -3733,7 +3885,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const started = await h.supervisor.startProject();
@@ -3742,6 +3894,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
 
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         childId,
         {
           id: '00000000-0000-4000-8000-000000000021',
@@ -3814,7 +3967,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       bootstrap_content: 'Brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
     const started = await h.supervisor.startProject();
@@ -3833,6 +3986,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     });
 
     const submission = h.supervisor.submitNotification(
+      testNotificationAuthority(),
       childId,
       {
         id: '00000000-0000-4000-8000-000000000022',
@@ -3876,6 +4030,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await providerEntered.promise;
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         'project',
         {
           id: '00000000-0000-4000-8000-000000000023',
@@ -3887,6 +4042,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     ).resolves.toMatchObject({ queued: true, interruption: { status: 'not_requested' } });
     await expect(
       h.supervisor.submitNotification(
+        testNotificationAuthority(),
         'project',
         {
           id: '00000000-0000-4000-8000-000000000024',
@@ -4179,6 +4335,41 @@ describe('Supervisor notification admission at terminal ownership', () => {
       lifecycle: { status: 'done' },
       pending_notifications: [],
     });
+  });
+
+  it.each([
+    ['status.md', 'assessment'],
+    ['brief.md', 'assessment'],
+    ['status.md', 'review'],
+    ['brief.md', 'review'],
+  ] as const)('requires a fresh review after descendant %s changes during %s and retains the installed refreshed pair', async (recordName, phase) => {
+    let h!: ReturnType<typeof harness>;
+    let childId: string;
+    const calls = new Map<string, number>();
+    const assessmentInputs: string[] = [];
+    const provider = scriptedAdmissionProvider(async (input) => {
+      const agent = input.agentName;
+      const call = (calls.get(agent) ?? 0) + 1;
+      calls.set(agent, call);
+      if (agent === 'planner') assessmentInputs.push(JSON.stringify(input));
+      if ((phase === 'assessment' && agent === 'planner' && call === 3) || (phase === 'review' && agent === 'reviewer' && call === 2))
+        h.cards.acceptRecord(childId, recordName, 'Changed reviewed input', { kind: 'agent', agent: 'analyst' });
+      const write = agent === 'reviewer' ? call % 2 === 1 : [1, 3, 6].includes(call);
+      const definition = write
+        ? { name: 'write', arguments: JSON.stringify({ path: `record:///${agent === 'reviewer' ? 'review' : 'status'}.md?card=project`, content: `${agent} evidence ${call}` }) }
+        : { name: 'emit_result', arguments: JSON.stringify({ outcome: agent === 'reviewer' ? 'approved' : [2, 5].includes(call) ? 'admit_review' : 'complete_reviewed', summary: `${agent} result ${call}` }) };
+      return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `${agent}-${call}`, type: 'function' as const, function: definition }] }, provider_exchanges: [] };
+    });
+    h = harness(provider);
+    childId = h.cards.create({ parent: 'project', type: 'goal', title: 'Reviewed child', bootstrap_content: 'Original brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
+    h.cards.setStatus(childId, 'running');
+    h.cards.commitActivationOutcome(childId, { status: 'done', summary: 'Delivered', result: workflowResult('DONE', 'Delivered') }, new Date().toISOString());
+    const started = await h.supervisor.startProject();
+    expect(started.started).toBe(true);
+    await waitFor(() => h.supervisor.getStatus().status === 'stopped');
+    expect(calls).toEqual(new Map([['planner', phase === 'assessment' ? 7 : 4], ['reviewer', 4]]));
+    if (phase === 'assessment') expect(assessmentInputs[4]).toContain("Review 'review' no longer applies");
+    expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done' }, pending_notifications: [] });
   });
 
   it('allows preclaim enqueue and intentionally clears it through cancellation without delivery', async () => {

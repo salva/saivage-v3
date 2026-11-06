@@ -1,3 +1,13 @@
+import { assertReachedObjectAuthority, type DirectObjectAuthority } from '../../tools/tool-api.js';
+import {
+  admitRecordMutation,
+  mutateRecord,
+  type CardAgentRecordMutationPort,
+  type RecordMutationAdmissionRequest,
+} from '../../application/record-mutation-service.js';
+import { parseRecordUrl, RecordUrlInputError } from '../../contracts/record-mutation.js';
+import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
+import { ToolArgumentValidationError } from '../../tools/invocation.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
@@ -641,6 +651,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   async submitNotification(
+    authority: DirectObjectAuthority,
     cardId: string,
     notification: CardNotification,
     urgency: NotificationUrgency,
@@ -648,6 +659,12 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   ): Promise<NotificationSubmissionResult> {
     const targetCard = this.behavior.actorStore.read(cardId);
     if (!targetCard) return { queued: false, reason: 'missing_card', cardId };
+    if (authority.anchorCardId !== null)
+      throw new Error('Global notification authority must be unanchored.');
+    assertReachedObjectAuthority(authority, 'queue_notification', {
+      kind: 'card',
+      cardId: targetCard.id,
+    });
     const selection = urgency === 'urgent' ? this.selectUrgentRoute(cardId) : null;
     let queued: NotifyCardResult;
     try {
@@ -908,16 +925,24 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     };
     return Object.freeze({
       activateChild: ({
+        authority,
         childCardId,
         instructions,
         invocation,
       }: {
+        authority: DirectObjectAuthority;
         childCardId: string;
         instructions: string;
         invocation: ChildInvocationLease;
       }) => {
         try {
-          return this.activateChild(requireParent(), childCardId, instructions, invocation);
+          const parent = requireParent();
+          if (authority.anchorCardId !== parent.cardId)
+            return this.rejectLease(
+              invocation,
+              new Error('Planner capability anchor does not match its activation.'),
+            );
+          return this.activateChild(parent, childCardId, instructions, invocation, authority);
         } catch (error) {
           const halt = this.halt;
           if (halt && error === halt.interruption)
@@ -925,16 +950,38 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           throw error;
         }
       },
-      cancelChild: ({ childCardId, reason }: { childCardId: string; reason: string }) => {
+      cancelChild: ({
+        authority,
+        childCardId,
+        reason,
+      }: {
+        authority: DirectObjectAuthority;
+        childCardId: string;
+        reason: string;
+      }) => {
         requireParent();
+        if (authority.anchorCardId !== parentCardId)
+          throw new Error('Planner capability anchor does not match its activation.');
+        const child = this.behavior.actorStore.read(childCardId);
+        if (!child) throw new Error(`Child card '${childCardId}' not found.`);
+        assertReachedObjectAuthority(authority, 'cancel_card', { kind: 'card', cardId: child.id });
         return this.cancelOwnedOrStored(childCardId, reason, parentCardId);
       },
-      reopenChild: ({ childCardId }: { childCardId: string }) =>
-        this.reopenChild(requireParent(), childCardId),
+      reopenChild: ({
+        authority,
+        childCardId,
+      }: {
+        authority: DirectObjectAuthority;
+        childCardId: string;
+      }) => this.reopenChild(requireParent(), childCardId, authority),
     });
   }
 
-  private reopenChild(parent: CardActivationOwner, childCardId: string): PlannerChildReopenResult {
+  private reopenChild(
+    parent: CardActivationOwner,
+    childCardId: string,
+    authority: DirectObjectAuthority,
+  ): PlannerChildReopenResult {
     this.requireOwnerAuthority(parent);
     if (
       parent.phase !== 'active' ||
@@ -948,6 +995,9 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw new Error(`Child '${childCardId}' still has an activation owner.`);
     const child = this.behavior.actorStore.read(childCardId);
     if (!child) throw new Error(`Child card '${childCardId}' not found.`);
+    if (authority.anchorCardId !== parent.cardId)
+      throw new Error('Planner capability anchor does not match its activation.');
+    assertReachedObjectAuthority(authority, 'reopen_card', { kind: 'card', cardId: child.id });
     if (child.lifecycle.status !== 'done' && child.lifecycle.status !== 'failed')
       throw new Error(
         `Card '${childCardId}' in status '${child.lifecycle.status}' cannot be reopened.`,
@@ -969,6 +1019,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     childCardId: string,
     instructions: string,
     lease: ChildInvocationLease,
+    authority: DirectObjectAuthority,
   ): Promise<import('../../contracts/tool-api.js').CardActivationOutcome> {
     this.assertWorkGcNotCollecting();
     if (this.halt?.owners.includes(parent)) return this.rejectLease(lease, this.halt.interruption);
@@ -1001,6 +1052,14 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const admission = this.behavior.actorStore.readActivationAdmission(childCardId);
     if (!admission)
       return this.rejectLease(lease, new Error(`Child card '${childCardId}' not found.`));
+    try {
+      assertReachedObjectAuthority(authority, 'activate_card', {
+        kind: 'card',
+        cardId: admission.child.id,
+      });
+    } catch (error) {
+      return this.rejectLease(lease, error as Error);
+    }
     if (cardParentId(admission.child.id) !== parent.cardId)
       return this.rejectLease(
         lease,
@@ -1219,6 +1278,36 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       card: this.requireKnownCard(owner),
       caller,
       entry: owner.entry,
+      recordMutations: {
+        admit: (ordinal: number, request: Parameters<CardAgentRecordMutationPort['admit']>[0]) => {
+          this.admitBoundRecordMutation(owner, ordinal, request);
+          return admitRecordMutation(this.behavior.actorStore, request);
+        },
+        mutate: (
+          ordinal: number,
+          request: Parameters<CardAgentRecordMutationPort['mutate']>[0],
+        ) => {
+          this.admitBoundRecordMutation(owner, ordinal, request);
+          return mutateRecord(this.behavior.actorStore, request, () => {
+            try {
+              const target = parseRecordUrl(request.path).cardId;
+              if (
+                target !== owner.cardId &&
+                this.behavior.actorStore.read(target)!.lifecycle.status === 'blocked'
+              )
+                this.behavior.actorStore.setStatus(target, 'changed');
+              return { ok: true };
+            } catch (error) {
+              throwIfPublicationOutcomeUnknown(error);
+              return {
+                ok: false,
+                partial: true,
+                error: error instanceof Error ? error.message : String(error),
+              };
+            }
+          });
+        },
+      },
       ...(this.behavior.workflows.gitPolicy
         ? {
             nativeSource: {
@@ -1229,7 +1318,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
                 this.publishSource(owner, { ...this.sourceFacts(owner), correction: null });
               },
               prepareCandidate: (ordinal: number) => this.prepareCandidate(owner, ordinal),
-              checkpoint: (ordinal: number) => this.checkpointSource(owner, ordinal),
+              checkpoint: (ordinal: number, authority: DirectObjectAuthority) =>
+                this.checkpointSource(owner, ordinal, authority),
               verifyCandidate: (ordinal: number, source: AcceptedSource) =>
                 this.verifyCandidate(owner, ordinal, source),
             },
@@ -1314,6 +1404,59 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (owner.terminalWinner !== 'open')
       throw new Error(`Card '${owner.cardId}' terminal winner is '${owner.terminalWinner}'.`);
     owner.terminalWinner = 'result';
+  }
+
+  private admitBoundRecordMutation(
+    owner: CardActivationOwner,
+    ordinal: number,
+    request: RecordMutationAdmissionRequest,
+  ): void {
+    this.requireOwnerAuthority(owner);
+    owner.abortController.signal.throwIfAborted();
+    if (
+      owner.phase !== 'active' ||
+      owner.terminalWinner !== 'open' ||
+      !owner.processor.canInterruptNode(ordinal)
+    )
+      throw new ToolArgumentValidationError(
+        'Card record mutation requires its live admitted node.',
+      );
+    const position = owner.processor.processPosition();
+    const workflow = this.behavior.workflows.cardTypes.get(position.cardType)!;
+    const node = workflow.states.get(position.stateId);
+    if (node?.kind !== 'node' || node.execution.kind !== 'agent')
+      throw new ToolArgumentValidationError('Record mutation requires the invoking agent node.');
+    const agent = node.execution.agent;
+    if (
+      agent.name !== request.agentName ||
+      request.surface !== 'card_agent' ||
+      request.authority.anchorCardId !== owner.cardId ||
+      request.authority.tools.some((tool) => !agent.tools.includes(tool))
+    )
+      throw new ToolArgumentValidationError(
+        'Record capability does not belong to the invoking card agent.',
+      );
+    let parsed: ReturnType<typeof parseRecordUrl>;
+    try {
+      parsed = parseRecordUrl(request.path);
+    } catch (error) {
+      if (!(error instanceof RecordUrlInputError)) throw error;
+      return; // The strict mutation consumer reports invalid URLs.
+    }
+    if (parsed.cardId !== owner.cardId) {
+      this.assertWorkGcNotCollecting();
+      if (
+        !this.applicationAdmissionOpen ||
+        this.status !== 'running' ||
+        this.inOwnershipTransition ||
+        owner.sourceTask
+      )
+        throw new ToolArgumentValidationError(
+          'Nonself record acceptance requires its live admitted node.',
+        );
+      if (this.activationOwners.has(parsed.cardId))
+        throw new ToolArgumentValidationError('Target card still has an active or settling owner.');
+    }
   }
 
   private sourceFacts(owner: CardActivationOwner): CardGitFacts {
@@ -1446,8 +1589,16 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return prepared;
   }
 
-  private async checkpointSource(owner: CardActivationOwner, ordinal: number) {
+  private async checkpointSource(
+    owner: CardActivationOwner,
+    ordinal: number,
+    authority: DirectObjectAuthority,
+  ) {
     this.requireSourceOwner(owner, 'open', ordinal);
+    const card = this.requireKnownCard(owner);
+    if (authority.anchorCardId !== owner.cardId)
+      throw new Error('Checkpoint capability anchor does not match its activation.');
+    assertReachedObjectAuthority(authority, 'checkpoint_source', { kind: 'card', cardId: card.id });
     if (this.sourceFacts(owner).correction)
       throw new Error('Use native correction verification while a correction task is pending.');
     let observation!: { branch_ref: string; observed_tip: string };

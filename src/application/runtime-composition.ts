@@ -69,6 +69,7 @@ import {
 import { globalAgentSessionId } from '../schemas/index.js';
 import { createOversightNotificationPort } from './oversight-notification-port.js';
 import { submitNotificationTool, type QueueNotificationToolInput } from '../tools/tool-api.js';
+import type { DirectObjectAuthority } from '../tools/tool-api.js';
 
 export interface RuntimeApplication {
   collectWorkGarbage(request: WorkGcRequest, signal: AbortSignal): Promise<WorkGcResponse>;
@@ -407,9 +408,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         processRunner,
         eventQueries,
         runtime: runtimeObservation,
-        queueNotification: (input: QueueNotificationToolInput, signal: AbortSignal) =>
+        queueNotification: (
+          input: QueueNotificationToolInput,
+          signal: AbortSignal,
+          authority: DirectObjectAuthority,
+        ) =>
           executeToolAction('none', () =>
-            submitNotificationTool(input, submitNotification, signal),
+            submitNotificationTool(authority, input, submitNotification, signal),
           ),
         captureExecutingLlmSnapshots,
         currentProcessPosition: (cardId: string) =>

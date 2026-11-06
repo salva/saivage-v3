@@ -42,7 +42,7 @@ afterEach(() => {
 describe('AgentOperatorReadModelService granular resources', () => {
   it('renders real bundled Executor and Reviewer compositions for every matching node in declaration order', () => {
     const root = createRoot(); const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Loaded composition', bootstrap_content: 'Non-secret fixture', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Loaded composition', bootstrap_content: 'Non-secret fixture', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
     const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
     const templates = createPromptTemplateRegistry(TEST_WORKFLOWS);
     for (const { agent, cardId, cardType } of [
@@ -157,7 +157,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
 
   it('uses current card type and retained final-card orientation, and rejects damaged exact selections', () => {
     const root = createRoot(); const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Private dynamic title', bootstrap_content: 'Private dynamic brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Private dynamic title', bootstrap_content: 'Private dynamic brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
     const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
     const session = cardAgentSessionId('executor', child.id);
     const active = service.getCurrentInstructions(session);
@@ -188,7 +188,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
   });
   it.each(['missing', 'malformed'] as const)('admits the exact session without consuming a %s old predecessor', fault => {
     const root = createRoot(); const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
     const initial = JSON.parse(readFileSync(cardHeadFile(root, child.id), 'utf8')).ordinary;
     const session = cardAgentSessionId('executor', child.id); publishMarker(root, session);
     cards.editCard(child.id, { title: 'Current' });
@@ -206,8 +206,8 @@ describe('AgentOperatorReadModelService granular resources', () => {
 
   it('admits a retained final tombstone but blocks a descendant below a tombstoned ancestor', () => {
     const root = createRoot(); const cards = new CardService(root);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
+    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
     const parentSession = cardAgentSessionId('planner', parent.id); const childSession = cardAgentSessionId('executor', child.id);
     publishMarker(root, parentSession); publishMarker(root, childSession);
     cards.deleteSubtrees([parent.id], () => true);
@@ -225,7 +225,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
       bootstrap_content: 'brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     const analyst = globalAgentSessionId(TEST_WORKFLOWS.analyst.name);
@@ -284,11 +284,11 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const cards = new CardService(projectRoot);
     const first = cards.create({
       type: 'code', parent: 'project', title: 'First', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [],
     });
     const second = cards.create({
       type: 'code', parent: 'project', title: 'Second', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [],
     });
     const firstSession = cardAgentSessionId('executor', first.id);
     const secondSession = cardAgentSessionId('executor', second.id);
@@ -309,7 +309,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const cards = new CardService(projectRoot);
     const child = cards.create({
       type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [],
     });
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);
@@ -365,11 +365,11 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const cards = new CardService(projectRoot);
     const goal = cards.create({
       type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [],
     });
     const code = cards.create({
       type: 'code', parent: goal.id, title: 'Code', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [],
     });
     publishMarker(projectRoot, cardAgentSessionId('planner', 'project'));
     publishMarker(projectRoot, cardAgentSessionId('executor', code.id));
@@ -399,7 +399,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const cards = new CardService(projectRoot);
     const child = cards.create({
       type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [],
     });
     const cardTypes = new Map(TEST_WORKFLOWS.cardTypes);
     cardTypes.delete(child.type);
@@ -413,7 +413,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const cards = new CardService(projectRoot);
     const child = cards.create({
       type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [],
     });
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);

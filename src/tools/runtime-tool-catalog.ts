@@ -1,4 +1,11 @@
 import type { CardService } from '../cards/store-api.js';
+import type { DirectObjectAuthority } from './direct-object-authority.js';
+import {
+  capabilityResourceSchema,
+  type CapabilityResource,
+  type CapabilityScope,
+} from '../schemas/index.js';
+import { toolResourceMetadata, type ToolResourceMetadata } from './tool-resource-metadata.js';
 import {
   nativeSourceToolBinders,
   type NativeSourceProviderContext,
@@ -84,6 +91,7 @@ export interface CardToolBindingContext {
   readonly processOwnerId?: string;
   readonly mcpToolInvocation: McpToolInvocationPort;
   readonly onRecordWritten?: (name: string) => void;
+  readonly recordMutations: import('../application/record-mutation-service.js').CardAgentRecordMutationPort;
 }
 
 export interface GlobalToolBindingContext {
@@ -101,18 +109,21 @@ export interface GlobalToolBindingContext {
   readonly processOwnerId?: string;
   readonly mcpToolInvocation: McpToolInvocationPort;
   readonly analystToolContext?: ToolContext;
-  readonly observationToolContext?: GlobalObservationToolContext;
+  readonly observationToolContext?: Omit<GlobalObservationToolContext, 'authority'>;
   readonly cardTypeVocabulary: readonly CardTypeName[];
 }
 
 export type RuntimeToolBindingContext = CardToolBindingContext | GlobalToolBindingContext;
+type AuthorizedRuntimeContext = RuntimeToolBindingContext & {
+  readonly authority: DirectObjectAuthority;
+};
 
 type RuntimeToolProviderGroup<Context> = Readonly<{
   key: string;
   providerName: string;
   scope: RuntimeToolScope;
   binders: readonly ToolBinder<Context, any>[];
-  context(runtime: RuntimeToolBindingContext): Context;
+  context(runtime: AuthorizedRuntimeContext): Context;
   cleanup?(context: Context, reason: ToolProviderCleanupReason): Promise<void> | void;
 }>;
 
@@ -125,7 +136,55 @@ export type CompiledToolReference = Readonly<{
   providerGroupId: string;
   description: string;
   resultPolicyTemplate: ToolResultPolicyTemplate;
+  target: ToolResourceMetadata;
+  resources: readonly CompiledCapabilityResource[];
 }>;
+
+type CompiledCapabilityResource =
+  | Readonly<{ kind: 'card'; scopes: readonly CapabilityScope[] }>
+  | Readonly<{ kind: 'workspace' }>
+  | Readonly<{
+      kind: 'record';
+      scopes: readonly CapabilityScope[];
+      patterns: readonly Readonly<{ source: string; matcher: RegExp }>[];
+    }>;
+
+/** Public/config projection of the actual compiled clauses, never a second policy. */
+export function toolCapabilityResources(tool: CompiledToolReference): CapabilityResource[] {
+  return tool.resources.map((resource) => {
+    if (resource.kind === 'workspace') return { kind: 'workspace' };
+    const scopes = [...resource.scopes];
+    return resource.kind === 'card'
+      ? { kind: 'card', scopes }
+      : {
+          kind: 'record',
+          scopes,
+          patterns: resource.patterns.map(({ source }) => source),
+        };
+  });
+}
+
+/** Framework eligibility on the caller's own record, not general target authorization. */
+export function toolAllowsSelfRecord(tool: CompiledToolReference, name: string): boolean {
+  return tool.resources.some(
+    (resource) =>
+      resource.kind === 'record' &&
+      (resource.scopes.includes('self') || resource.scopes.includes('all')) &&
+      resource.patterns.some(({ matcher }) => matcher.test(name)),
+  );
+}
+
+function selectedGrantDescription(tool: CompiledToolReference): string {
+  if (tool.target.target === 'none') return '';
+  const clauses = tool.resources.map((clause) =>
+    clause.kind === 'workspace'
+      ? 'workspace'
+      : clause.kind === 'card'
+        ? `cards ${clause.scopes.join('|')}`
+        : `records ${clause.scopes.join('|')} ${clause.patterns.map(({ source }) => source).join('|')}`,
+  );
+  return ` Direct objects: ${clauses.length ? clauses.join('; ') : 'no save destination'}.`;
+}
 
 const card = (runtime: RuntimeToolBindingContext): CardToolBindingContext => {
   if (runtime.scope !== 'card') throw new Error('Card tool group received global context.');
@@ -135,15 +194,19 @@ const global = (runtime: RuntimeToolBindingContext): GlobalToolBindingContext =>
   if (runtime.scope !== 'global') throw new Error('Global tool group received card context.');
   return runtime;
 };
-const observation = (runtime: RuntimeToolBindingContext): GlobalObservationToolContext => {
+const observation = (runtime: AuthorizedRuntimeContext): GlobalObservationToolContext => {
   const value = global(runtime);
   if (!value.observationToolContext)
     throw new Error(
       `Agent '${runtime.agentName}' requested a global observation tool without bound observation authority.`,
     );
-  return value.observationToolContext;
+  return { ...value.observationToolContext, authority: runtime.authority };
 };
-const workspace = (runtime: CardToolBindingContext): WorkspaceProviderContext => ({
+const workspace = (
+  runtime: CardToolBindingContext & { authority: DirectObjectAuthority },
+): WorkspaceProviderContext => ({
+  authority: runtime.authority,
+  recordMutations: runtime.recordMutations,
   projectRoot: runtime.projectRoot,
   cardId: runtime.cardId,
   agentName: runtime.agentName,
@@ -164,7 +227,8 @@ const process = (runtime: RuntimeToolBindingContext): ProcessProviderContext => 
     ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}),
   };
 };
-const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({
+const web = (runtime: AuthorizedRuntimeContext): WebProviderContext => ({
+  authority: runtime.authority,
   outboundHttp: runtime.outboundHttp,
   projectRoot: runtime.projectRoot,
   agentName: runtime.agentName,
@@ -176,6 +240,7 @@ const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({
       }
     : {
         cardId: runtime.cardId,
+        recordMutations: runtime.recordMutations,
         notifyCard: runtime.notifyCard,
         onRecordWritten: runtime.onRecordWritten,
       }),
@@ -190,11 +255,11 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
       providerName: 'native-source',
       scope: 'card',
       binders: nativeSourceToolBinders,
-      context(runtime: RuntimeToolBindingContext): NativeSourceProviderContext {
+      context(runtime: AuthorizedRuntimeContext): NativeSourceProviderContext {
         const checkpointSource = card(runtime).checkpointSource;
         if (!checkpointSource)
           throw new Error('checkpoint_source requires the active native source owner.');
-        return { checkpointSource };
+        return { checkpointSource, authority: runtime.authority };
       },
     },
     ...(['card', 'global'] as const).map((scope) => ({
@@ -226,7 +291,10 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
       providerName: 'workspace',
       scope: 'global',
       binders: globalWorkspaceObservationToolBinders,
-      context: (runtime) => global(runtime).analystToolContext ?? observation(runtime),
+      context: (runtime) => {
+        const analyst = global(runtime).analystToolContext;
+        return analyst ? { ...analyst, authority: runtime.authority } : observation(runtime);
+      },
     },
     {
       key: 'global:analyst-workspace-mutation',
@@ -242,7 +310,7 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
           throw new Error(
             `Agent '${runtime.agentName}' requested an Analyst-only workspace mutation tool.`,
           );
-        return context;
+        return { ...context, authority: runtime.authority };
       },
     },
     {
@@ -265,6 +333,7 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
       context: (runtime) => {
         const value = card(runtime);
         return {
+          authority: runtime.authority,
           agentName: value.agentName,
           projectRoot: value.projectRoot,
           parentCardId: value.cardId,
@@ -284,6 +353,7 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
         scope,
         binders: cardInspectionToolBinders,
         context: (runtime): CardInspectionProviderContext => ({
+          authority: runtime.authority,
           store: runtime.store,
           agentName: runtime.agentName,
           cardTypeVocabulary: runtime.cardTypeVocabulary,
@@ -297,7 +367,10 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
         providerName: 'card-version',
         scope,
         binders: cardVersionToolBinders,
-        context: (runtime): CardVersionProviderContext => ({ store: runtime.store }),
+        context: (runtime): CardVersionProviderContext => ({
+          store: runtime.store,
+          authority: runtime.authority,
+        }),
       },
       ...(scope === 'card'
         ? [
@@ -306,7 +379,8 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
               providerName: 'workspace',
               scope,
               binders: workspaceToolBinders,
-              context: (runtime: RuntimeToolBindingContext) => workspace(card(runtime)),
+              context: (runtime: AuthorizedRuntimeContext) =>
+                workspace({ ...card(runtime), authority: runtime.authority }),
             },
           ]
         : []),
@@ -316,7 +390,9 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
         scope,
         binders: scope === 'global' ? analystPatchToolBinders : patchToolBinders,
         context: (runtime) =>
-          scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)),
+          scope === 'global'
+            ? { ...global(runtime).analystToolContext, authority: runtime.authority }
+            : workspace({ ...card(runtime), authority: runtime.authority }),
       },
       {
         key: `${scope}:process`,
@@ -422,15 +498,46 @@ let catalog: ReadonlyMap<string, CatalogEntry> | null = null;
 const runtimeToolCatalog = (): ReadonlyMap<string, CatalogEntry> =>
   (catalog ??= buildRuntimeToolCatalog());
 
-export function resolveRuntimeTool(scope: RuntimeToolScope, name: string): CompiledToolReference {
+export function resolveRuntimeTool(
+  scope: RuntimeToolScope,
+  name: string,
+  resources?: readonly CapabilityResource[],
+): CompiledToolReference {
   const entry = runtimeToolCatalog().get(`${scope}\u0000${name}`);
   if (!entry) throw new Error(`unknown tool '${name}' for ${scope} session scope`);
+  const target = toolResourceMetadata(name);
+  if (target.target === 'required' && !resources?.length)
+    throw new Error(`Tool '${name}' requires resources.`);
+  if (target.target === 'none' && resources !== undefined)
+    throw new Error(`Tool '${name}' is targetless and must omit resources.`);
+  if (resources?.length === 0) throw new Error(`Tool '${name}' resources must be nonempty.`);
+  const clauses = (resources ?? []).map((input): CompiledCapabilityResource => {
+    const resource = capabilityResourceSchema.parse(input);
+    if (!target.kinds.includes(resource.kind))
+      throw new Error(`Tool '${name}' does not support ${resource.kind} resources.`);
+    if (resource.kind === 'workspace') return Object.freeze(resource);
+    if (scope === 'global' && resource.scopes.some((value) => value !== 'all'))
+      throw new Error(`Global tool '${name}' has no relative anchor; only all is permitted.`);
+    const scopes = Object.freeze([...resource.scopes]);
+    if (resource.kind === 'card') return Object.freeze({ kind: 'card', scopes });
+    const patterns = resource.patterns.map((source) => {
+      const escaped = source.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[a-z0-9-]*');
+      const matcher = new RegExp(
+        source === '*' ? '^[a-z][a-z0-9-]{0,63}\\.md$' : `^${escaped}$`,
+        'u',
+      );
+      return Object.freeze({ source, matcher });
+    });
+    return Object.freeze({ kind: 'record', scopes, patterns: Object.freeze(patterns) });
+  });
   return Object.freeze({
     scope,
     name,
     providerGroupId: entry.group.key,
     description: entry.binder.description,
     resultPolicyTemplate: entry.binder.resultPolicyTemplate,
+    target,
+    resources: Object.freeze(clauses),
   });
 }
 
@@ -468,6 +575,13 @@ export class BoundAgentToolSet {
   }
 
   bind(runtime: RuntimeToolBindingContext): InvocationSurface {
+    const boundRuntime: AuthorizedRuntimeContext = {
+      ...runtime,
+      authority: Object.freeze({
+        anchorCardId: runtime.scope === 'card' ? runtime.cardId : null,
+        tools: this.references,
+      }),
+    };
     if (runtime.scope === 'global' && runtime.nativeGit) {
       this.assertNativeGitGlobalEligibility();
       if (
@@ -498,8 +612,15 @@ export class BoundAgentToolSet {
     for (const group of runtimeToolGroups()) {
       const selected = selectedGroups.get(group.key);
       if (!selected) continue;
-      const context = group.context(runtime);
-      const tools = selected.map((entry) => entry.binder.bind(context));
+      const context = group.context(boundRuntime);
+      const tools = selected.map((entry) => {
+        const definition = entry.binder.bind(context);
+        const reference = this.references.find(({ name }) => name === definition.name)!;
+        return Object.freeze({
+          ...definition,
+          description: definition.description + selectedGrantDescription(reference),
+        });
+      });
       for (const definition of tools) definitions.set(definition.name, definition);
       providers.push({
         providerName: group.providerName,

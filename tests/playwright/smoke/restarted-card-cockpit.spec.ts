@@ -25,8 +25,8 @@ test('restarted descendant cockpit renders canonical stopped lifecycle and no ex
     writeProductionConfig(root, config);
     initializeProject(root);
     const cards = new CardService(root, compileProjectWorkflows(config, { projectRoot: root }));
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Restarted goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Restarted descendant', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Restarted goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Restarted descendant', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const initial = await startProductionApp(root, token);
     try {
       expect(process.env.SAIVAGE_CONFIG).toBe(staleConfig);

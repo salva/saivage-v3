@@ -1,4 +1,5 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
+import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,13 +34,13 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 const envelopeBytes = (data: unknown): number => Buffer.byteLength(canonicalJson({ success: true, data }), 'utf8');
 
 function surfaceFor(cards: CardService) {
-  return buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards })]);
+  return buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards, authority: broadInspectionAuthority() })]);
 }
 
 function completeSurfaceFor(cards: CardService) {
   return buildInvocationSurfaceFixture('planner', [
-    bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: ['project', 'goal', 'code'] }),
-    bindToolProvider('card-version', cardVersionToolBinders, { store: cards }),
+    bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, authority: broadInspectionAuthority(), cardTypeVocabulary: ['project', 'goal', 'code'] }),
+    bindToolProvider('card-version', cardVersionToolBinders, { store: cards, authority: broadInspectionAuthority() }),
   ]);
 }
 
@@ -87,7 +88,7 @@ describe('card version provider', () => {
     ];
     appendConversationBatch({ projectRoot: root }, rows);
     const segment = readCurrentConversationSegment(root, session)!;
-    expect(segment.index.format_version).toBe(12); expect(segment.genesis.format_version).toBe(12);
+    expect(segment.index.format_version).toBe(13); expect(segment.genesis.format_version).toBe(13);
     expect(segment.rows).toEqual(rows);
     const materialized = readConversation(root, session);
     expect(materialized.physicalRows).toEqual(rows);

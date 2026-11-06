@@ -76,7 +76,7 @@ describe('new-format record publication, current/history API and restart', () =>
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },
@@ -180,7 +180,7 @@ describe('new-format record publication, current/history API and restart', () =>
             state: 'closed',
             draft: null,
             accepted_version_url: 'record:///status.md?card=project&v=2',
-            accepted: { content: 'finished work', author: { kind: 'agent', agent: 'executor' } },
+            accepted: { content: 'finished work', author: { kind: 'card-agent', agent: 'executor', card_id: 'project' } },
           },
         },
       });

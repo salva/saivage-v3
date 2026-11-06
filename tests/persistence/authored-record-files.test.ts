@@ -60,7 +60,7 @@ function setup() {
     bootstrap_content: 'brief',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
     depends_on: [],
   });
   return { root, cards, card };
@@ -107,9 +107,9 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(first.headId).not.toBe(baseline.headId); expect(second.headId).not.toBe(first.headId);
     const selected = cards.readRecordVersion(card.id, 'status.md', 1);
     if (selected.kind !== 'found') throw new Error('Missing accepted record');
-    expect(selected.value.projection.artifact.format_version).toBe(5);
+    expect(selected.value.projection.artifact.format_version).toBe(6);
     expect(selected.value.projection.accepted?.author).toEqual(firstAuthor);
-    expect(() => authoredRecordVersionArtifactSchema.parse({ ...selected.value.projection.artifact, format_version: 4 })).toThrow();
+    for (const format_version of [4,5]) expect(() => authoredRecordVersionArtifactSchema.parse({ ...selected.value.projection.artifact, format_version })).toThrow();
     expect(() => cards.acceptRecord(card.id, 'status.md', 'same report\r\n', { kind: 'agent', agent: 'analyst' })).toThrow(/unchanged/);
     cards.openRecord(card.id, 'status.md');
     expect(effectiveRecordContent(current(cards, card.id, 'status.md'))?.author).toBeNull();
@@ -395,7 +395,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       : cards.closeRecord(card.id, 'status.md', 'executor');
     const expected = {
       content: 'accepted',
-      author: { kind: 'agent', agent: mutation === 'accept' ? 'analyst' : 'executor' },
+      author: mutation === 'accept' ? { kind: 'agent', agent: 'analyst' } : { kind: 'card-agent', agent: 'executor', card_id: card.id },
       card_version_seq: 3,
       card_history: ordinary,
     };
@@ -496,7 +496,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     const brokenPath = cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id);
     writeFileSync(brokenPath, '{broken');
     const closed = cards.closeRecord(card.id, 'status.md', 'executor');
-    const expected = { content: 'replacement', author: { kind: 'agent', agent: 'executor' }, card_version_seq: 1, card_history: ordinary };
+    const expected = { content: 'replacement', author: { kind: 'card-agent', agent: 'executor', card_id:card.id }, card_version_seq: 1, card_history: ordinary };
     expect(closed.accepted).toMatchObject(expected);
     expect(current(cards, card.id, 'status.md')).toEqual(closed);
     const stored = JSON.parse(readFileSync(cardAcceptedRecordFile(root, card.id, closed.accepted!.source_entry_id), 'utf8'));

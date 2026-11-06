@@ -19,7 +19,7 @@ const childInput = (parent: string, type: 'goal' | 'code') => ({
   bootstrap_content: `${type} child brief.`,
   priority: 0,
   urgency: 'normal' as const,
-  created_by: 'planner' as const,
+  created_by: 'planner' as const, bootstrap_author: { kind: 'agent' as const, agent: 'planner' },
   depends_on: [],
 });
 

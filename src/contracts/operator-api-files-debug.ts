@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentCapabilitiesSchema } from '../schemas/index.js';
 import {
   agentNameSchema,
   cardIdSchema,
@@ -165,7 +166,7 @@ const DebugGlobalAgentSchema = z
       .strict(),
     model: DebugGraphModelSchema,
     skills: z.boolean(),
-    tools: z.array(z.string().min(1)),
+    capabilities: agentCapabilitiesSchema,
   })
   .strict();
 const DebugGraphEntrySchema = z
@@ -213,8 +214,7 @@ const DebugGraphAgentExecutionSchema = z
       .strict(),
     model: DebugGraphModelSchema,
     skills: z.boolean(),
-    tools: z.array(z.string().min(1)),
-    record_write_patterns: z.array(z.string().min(1)),
+    capabilities: agentCapabilitiesSchema,
   })
   .strict();
 const DebugGraphNodeSchema = z

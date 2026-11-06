@@ -62,7 +62,7 @@ const { cardHeadFile } = await import('../../src/persistence/layout.js');
 const { initProjectTree } = await import('../helpers/canonical-project.js');
 
 const roots: string[] = [];
-const input = { type: 'code' as const, parent: 'project', title: 'Claim', bootstrap_content: 'Claim directly.', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [] };
+const input = { type: 'code' as const, parent: 'project', title: 'Claim', bootstrap_content: 'Claim directly.', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, bootstrap_author: { kind: 'agent' as const, agent: 'analyst' }, depends_on: [] };
 
 beforeEach(() => {
   candidateMkdirPaths.length = 0;

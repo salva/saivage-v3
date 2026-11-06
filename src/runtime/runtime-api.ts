@@ -1,3 +1,4 @@
+import type { DirectObjectAuthority } from '../tools/tool-api.js';
 import type { RuntimeState, RuntimeStatus } from '../schemas/index.js';
 export { bindQualityToolExecution } from './quality-tool-execution.js';
 export { runGitWorkflow, nativeGitBranch, qualifyInitialGitDelivery } from './git-workflow.js';
@@ -53,6 +54,7 @@ export type NotificationSubmissionResult =
     };
 
 export type NotificationSubmissionPort = (
+  authority: DirectObjectAuthority,
   cardId: string,
   notification: CardNotification,
   urgency: NotificationUrgency,
@@ -69,6 +71,7 @@ export interface RuntimeApi {
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult;
   submitNotification(
+    authority: DirectObjectAuthority,
     cardId: string,
     notification: CardNotification,
     urgency: NotificationUrgency,

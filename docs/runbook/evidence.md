@@ -84,7 +84,7 @@ Only `{{cardType}}`, `{{cardId}}`, `{{cardTitle}}`, `{{nodeId}}`,
 Nested includes, arbitrary paths, unknown/malformed macros fail; inserted bytes
 are opaque, not reparsed. `${NAME}` is literal in initializer/selected fragment
 text, unlike ordinary config interpolation. Each selection requires declared
-nonbootstrap initializer, matching record_writes and direct write (edit is not
+nonbootstrap initializer, matching self record capability and direct write (edit is not
 enough); duplicate/unknown selections, extra keys, old content/at and empty
 templates fail. Omission/null disables future initialization, not retained text.
 Shipped profiles use brief-relative status starters and neutral review starters,

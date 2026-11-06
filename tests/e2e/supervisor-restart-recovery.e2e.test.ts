@@ -156,7 +156,7 @@ describe('Supervisor restart full-chain recovery', () => {
         bootstrap_content: 'brief',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
       writeFileSync(oldPath, 'complete malformed old card document\n');
@@ -221,7 +221,7 @@ describe('Supervisor restart full-chain recovery', () => {
           bootstrap_content: 'Recovery fixture.',
           priority: 0,
           urgency: 'normal',
-          created_by: 'planner',
+          created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
           depends_on: [],
         });
         parent = child.id;
@@ -307,7 +307,7 @@ describe('Supervisor restart full-chain recovery', () => {
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'planner',
             entries: {
               BACKLOG: { node: 'plan' },
@@ -339,7 +339,7 @@ describe('Supervisor restart full-chain recovery', () => {
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },
@@ -375,7 +375,7 @@ describe('Supervisor restart full-chain recovery', () => {
           bootstrap_content: 'Hold the child.',
           priority: 0,
           urgency: 'normal',
-          created_by: 'planner',
+          created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
           depends_on: [],
         }).id,
       ).toBe('card-a');
@@ -574,7 +574,7 @@ describe('Supervisor restart full-chain recovery', () => {
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'planner',
             entries: {
               BACKLOG: { node: 'plan' },
@@ -606,7 +606,7 @@ describe('Supervisor restart full-chain recovery', () => {
             'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'executor',
             entries: {
               BACKLOG: { node: 'execute' },
@@ -644,7 +644,7 @@ describe('Supervisor restart full-chain recovery', () => {
         bootstrap_content: 'Wait in the provider request.',
         priority: 0,
         urgency: 'normal',
-        created_by: 'planner',
+        created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
         depends_on: [],
       });
       expect(child.id).toBe('card-a');
@@ -655,7 +655,7 @@ describe('Supervisor restart full-chain recovery', () => {
         bootstrap_content: 'Preserve this session.',
         priority: 1,
         urgency: 'normal',
-        created_by: 'planner',
+        created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
         depends_on: [],
       });
       setupCards.setStatus(stoppedChild.id, 'running');

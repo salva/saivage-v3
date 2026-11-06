@@ -8,6 +8,7 @@ const readdir = jest.fn(realFsPromises.readdir);
 jest.unstable_mockModule('node:fs/promises', () => ({ ...realFsPromises, readdir }));
 
 const { globProject, grepProject, readProject: readWithObservations } = await import('../../src/tools/project-file-tools.js');
+const { testWorkspaceAuthority } = await import('../helpers/capability-grants.js');
 const readProject = async (...args: Parameters<typeof readWithObservations>) => (await readWithObservations(...args)).data;
 
 type Page<T> = { matches: { total: number; items: T[]; next: { item_index: number; item_byte_offset: number } | null } };
@@ -43,7 +44,7 @@ describe('project file search scope', () => {
     const outside = mkdtempSync(join(tmpdir(), 'external-search-scope-'));
     roots.push(outside);
     symlinkSync(join(root, 'artifacts/generated'), join(outside, 'alias'));
-    const ctx = { projectRoot: root };
+    const ctx = { authority: testWorkspaceAuthority(), projectRoot: root };
     for (const directory of [join(root, 'artifacts/generated'), join(outside, 'alias')]) {
       expect(items<string>(await globProject(ctx, { directory, pattern: '**/*.txt' }))).toEqual([]);
     }
@@ -61,13 +62,13 @@ describe('project file search scope', () => {
       mkdirSync(join(root, directory), { recursive: true });
       const file = join(root, directory, 'ordinary.txt');
       writeFileSync(file, 'needle explicit');
-      await expect(readProject({ projectRoot: root }, { path: file })).resolves.toMatchObject({ content: { content: 'needle explicit' } });
-      expect(items<string>(await globProject({ projectRoot: root }, { directory: file, pattern: '*.txt' }))).toEqual([`${directory}/ordinary.txt`]);
-      expect(items<GrepMatch>(await grepProject({ projectRoot: root }, { path: file, pattern: 'needle' }))).toHaveLength(1);
+      await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: file })).resolves.toMatchObject({ content: { content: 'needle explicit' } });
+      expect(items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: file, pattern: '*.txt' }))).toEqual([`${directory}/ordinary.txt`]);
+      expect(items<GrepMatch>(await grepProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: file, pattern: 'needle' }))).toHaveLength(1);
     }
-    const glob = items<string>(await globProject({ projectRoot: root }, { directory: root, pattern: '**/*.txt' }));
+    const glob = items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: root, pattern: '**/*.txt' }));
     expect(glob.some((path) => path.endsWith('/ordinary.txt'))).toBe(false);
-    const listing = await readProject({ projectRoot: root }, { path: root }) as { entries: { items: { name: string }[] } };
+    const listing = await readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: root }) as { entries: { items: { name: string }[] } };
     for (const name of ['node_modules', 'dist', 'build', '__pycache__', '.git']) {
       expect(listing.entries.items.map((entry) => entry.name)).not.toContain(name);
     }
@@ -77,8 +78,8 @@ describe('project file search scope', () => {
     const root = project();
     writeFileSync(join(root, '.saivage-search-ignore'), '# target-owned output\nartifacts/generated\nfuture/output\n');
 
-    const glob = items<string>(await globProject({ projectRoot: root }, { directory, pattern: '**/*.txt' }));
-    const grep = items<GrepMatch>(await grepProject({ projectRoot: root }, { path: directory, pattern: 'needle' }));
+    const glob = items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory, pattern: '**/*.txt' }));
+    const grep = items<GrepMatch>(await grepProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: directory, pattern: 'needle' }));
     expect(glob).toEqual([
       'artifacts/fixtures/required.txt',
       'artifacts/generated-fixtures/similar.txt',
@@ -92,8 +93,8 @@ describe('project file search scope', () => {
   it.each(['artifacts/generated', 'project:///artifacts/generated'] as const)('returns an empty page for excluded starting directory %s', async (directory) => {
     const root = project();
     writeFileSync(join(root, '.saivage-search-ignore'), 'artifacts/generated\n');
-    expect(items<string>(await globProject({ projectRoot: root }, { directory, pattern: '**/*.txt' }))).toEqual([]);
-    expect(items<GrepMatch>(await grepProject({ projectRoot: root }, { path: directory, pattern: 'needle' }))).toEqual([]);
+    expect(items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory, pattern: '**/*.txt' }))).toEqual([]);
+    expect(items<GrepMatch>(await grepProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: directory, pattern: 'needle' }))).toEqual([]);
     expect(readdir.mock.calls.map(([path]) => String(path))).not.toContain(join(root, 'artifacts', 'generated'));
   });
 
@@ -102,14 +103,14 @@ describe('project file search scope', () => {
     mkdirSync(join(root, '.git'), { recursive: true });
     writeFileSync(join(root, '.gitignore'), 'artifacts/fixtures\n');
     writeFileSync(join(root, '.saivage-search-ignore'), 'artifacts/generated\n');
-    const first = await globProject({ projectRoot: root }, { directory: '.', pattern: '**/*.txt', max_results: 1 }) as Page<string>;
-    const second = await globProject({ projectRoot: root }, { directory: '.', pattern: '**/*.txt', max_results: 1, position: first.matches.next! }) as Page<string>;
+    const first = await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: '.', pattern: '**/*.txt', max_results: 1 }) as Page<string>;
+    const second = await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: '.', pattern: '**/*.txt', max_results: 1, position: first.matches.next! }) as Page<string>;
     expect(first.matches.total).toBe(4);
     expect(second.matches.total).toBe(4);
     expect(first.matches.items).toEqual(['artifacts/fixtures/required.txt']);
 
     writeFileSync(join(root, '.saivage-search-ignore'), 'artifacts/fixtures\n');
-    const changed = items<string>(await globProject({ projectRoot: root }, { directory: '.', pattern: '**/*.txt' }));
+    const changed = items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: '.', pattern: '**/*.txt' }));
     expect(changed).toContain('artifacts/generated/deep/stale.txt');
     expect(changed).not.toContain('artifacts/fixtures/required.txt');
   });
@@ -119,7 +120,7 @@ describe('project file search scope', () => {
     mkdirSync(join(root, '输出', '旧结果'), { recursive: true });
     writeFileSync(join(root, '输出', '旧结果', 'stale.txt'), 'needle unicode stale');
     writeFileSync(join(root, '.saivage-search-ignore'), '输出/旧结果\n');
-    const result = items<string>(await globProject({ projectRoot: root }, { directory: 'project:///', pattern: '**/*.txt' }));
+    const result = items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: 'project:///', pattern: '**/*.txt' }));
     expect(result).not.toContain('输出/旧结果/stale.txt');
     expect(readdir.mock.calls.map(([path]) => String(path))).not.toContain(join(root, '输出', '旧结果'));
   });
@@ -127,11 +128,11 @@ describe('project file search scope', () => {
   it('keeps explicit file search, direct reads, and nonrecursive directory listings unchanged', async () => {
     const root = project();
     writeFileSync(join(root, '.saivage-search-ignore'), 'artifacts/generated\n');
-    expect(items<string>(await globProject({ projectRoot: root }, { directory: 'artifacts/generated/deep/stale.txt', pattern: '**/*.txt' }))).toEqual(['artifacts/generated/deep/stale.txt']);
-    expect(items<GrepMatch>(await grepProject({ projectRoot: root }, { path: 'project:///artifacts/generated/deep/stale.txt', pattern: 'stale' }))).toEqual([{ path: 'artifacts/generated/deep/stale.txt', line: 1, preview: 'needle stale' }]);
-    await expect(readProject({ projectRoot: root }, { path: 'artifacts/generated/deep/stale.txt' })).resolves.toMatchObject({ content: { content: 'needle stale' } });
-    await expect(readProject({ projectRoot: root }, { path: 'artifacts' })).resolves.toMatchObject({ entries: { items: expect.arrayContaining([{ name: 'generated', type: 'dir' }]) } });
-    await expect(readProject({ projectRoot: root }, { path: '.saivage-search-ignore' })).resolves.toMatchObject({ content: { content: 'artifacts/generated\n' } });
+    expect(items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: 'artifacts/generated/deep/stale.txt', pattern: '**/*.txt' }))).toEqual(['artifacts/generated/deep/stale.txt']);
+    expect(items<GrepMatch>(await grepProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: 'project:///artifacts/generated/deep/stale.txt', pattern: 'stale' }))).toEqual([{ path: 'artifacts/generated/deep/stale.txt', line: 1, preview: 'needle stale' }]);
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: 'artifacts/generated/deep/stale.txt' })).resolves.toMatchObject({ content: { content: 'needle stale' } });
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: 'artifacts' })).resolves.toMatchObject({ entries: { items: expect.arrayContaining([{ name: 'generated', type: 'dir' }]) } });
+    await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: '.saivage-search-ignore' })).resolves.toMatchObject({ content: { content: 'artifacts/generated\n' } });
   });
 
   it('does not apply the project policy to system scope addressing the same directory', async () => {
@@ -139,8 +140,8 @@ describe('project file search scope', () => {
     writeFileSync(join(root, '.saivage-search-ignore'), 'artifacts/generated\n');
     const absolute = join(root, 'artifacts', 'generated');
     const system = `system:///${absolute.replace(/^\/+/, '')}`;
-    expect(items<string>(await globProject({ projectRoot: root }, { directory: system, pattern: '**/*.txt' }))).toEqual([`${system}/deep/stale.txt`]);
-    expect(items<GrepMatch>(await grepProject({ projectRoot: root }, { path: system, pattern: 'stale' }))).toEqual([{ path: `${system}/deep/stale.txt`, line: 1, preview: 'needle stale' }]);
+    expect(items<string>(await globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: system, pattern: '**/*.txt' }))).toEqual([`${system}/deep/stale.txt`]);
+    expect(items<GrepMatch>(await grepProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { path: system, pattern: 'stale' }))).toEqual([{ path: `${system}/deep/stale.txt`, line: 1, preview: 'needle stale' }]);
   });
 
   it('fails before traversal for malformed bytes and a leading BOM', async () => {
@@ -148,7 +149,7 @@ describe('project file search scope', () => {
       const root = project();
       writeFileSync(join(root, '.saivage-search-ignore'), bytes);
       readdir.mockClear();
-      await expect(globProject({ projectRoot: root }, { directory: '.', pattern: '**/*' })).rejects.toThrow(/Invalid \.saivage-search-ignore/);
+      await expect(globProject({ authority: testWorkspaceAuthority(), projectRoot: root }, { directory: '.', pattern: '**/*' })).rejects.toThrow(/Invalid \.saivage-search-ignore/);
       expect(readdir).not.toHaveBeenCalled();
     }
   });

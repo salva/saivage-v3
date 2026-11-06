@@ -95,7 +95,7 @@ function assertGuidanceComposition(text: string, promptRoot: string, role: Shipp
 
 for (const template of SYSTEM_TEMPLATES) {
   for (const agent of Object.values(templateConfig(template).agents)) {
-    if (agent.tools.some((name) => name.startsWith('code_quality_')) || agent.quality_tools)
+    if (agent.capabilities.grants.some((grant) => grant.tools.some((name) => name.startsWith('code_quality_'))) || agent.quality_tools)
       throw new Error(`Template '${template.name}' must not grant optional quality analysis by default.`);
   }
   const packagedRoot = join(distRoot, 'src', 'config', 'system-templates', template.name, 'prompts');
@@ -256,7 +256,7 @@ try {
   assertRoleComposition(native.name, native.promptRoot, nativeSourceRoot, nativeWorkflows, nativeSourceWorkflows);
   for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig], [paad, paadConfig], [newloop, newloopConfig]] as const) {
     const custom = structuredClone(config);
-    custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, tools: ['read', 'write'], skills: false };
+    custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, capabilities: {format_version:1,grants:custom.agents.reviewer!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((name)=>['read','write'].includes(name))})).filter((grant)=>grant.tools.length>0)}, skills: false };
     for (const cardType of Object.values(custom.card_types)) for (const node of Object.values(cardType.workflow.nodes)) {
       if (agentExecution(node).agent === 'reviewer') agentExecution(node).agent = 'evidence-reader';
     }

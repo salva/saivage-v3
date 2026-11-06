@@ -34,6 +34,7 @@ import {
   BoundAgentToolSet,
   effectiveCardNodeToolReferences,
   resolveRuntimeTool,
+  toolAllowsSelfRecord,
   type CompiledToolReference,
 } from '../../tools/tool-api.js';
 import { z } from 'zod';
@@ -114,18 +115,15 @@ type CompiledRecordDefinition = Readonly<
     }> | null;
   }
 >;
-type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
 type CompiledAgentContract = Readonly<{
   name: AgentName;
   prompt: StaticPromptDeclaration;
   tools: readonly CompiledToolReference[];
   qualityTools?: Readonly<QualityToolBindings>;
-  recordWrites: readonly CompiledRecordWritePattern[];
   modelRoute: string;
   model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>;
   skills: boolean;
   session: 'global' | 'card';
-  canCreateChildren: boolean;
 }>;
 type CompiledRecordRequirement = Readonly<{
   definition: CompiledRecordDefinition;
@@ -575,45 +573,38 @@ function expandModelOrder(config: SaivageConfig, routeName: string): readonly st
   }
   return Object.freeze(ordered);
 }
-function compileRecordWritePattern(source: string): CompiledRecordWritePattern {
-  const escaped = source.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[a-z0-9-]*');
-  return Object.freeze({ source, matcher: new RegExp(`^${escaped}$`, 'u') });
-}
 export function agentCanWriteRecord(agent: CompiledAgentContract, name: RecordName): boolean {
-  return agent.recordWrites.some(({ matcher }) => matcher.test(name));
+  return agent.tools.some(
+    (tool) => (tool.name === 'write' || tool.name === 'edit') && toolAllowsSelfRecord(tool, name),
+  );
 }
 function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAgentContract> {
   const result: Array<readonly [AgentName, CompiledAgentContract]> = [];
   for (const [rawName, source] of Object.entries(config.agents)) {
     const name = rawName as AgentName;
+    const selectedNames = source.capabilities.grants.flatMap((grant) => grant.tools);
     for (const tool of qualityToolNames)
-      if (source.tools.includes(tool) !== (source.quality_tools?.[tool] !== undefined))
+      if (selectedNames.includes(tool) !== (source.quality_tools?.[tool] !== undefined))
         throw new Error(
           `agents.${name}: quality tool '${tool}' requires both its selected grant and binding.`,
         );
     const duplicate = new Set<string>();
     const tools: CompiledToolReference[] = [];
-    for (const tool of source.tools) {
-      if (
-        tool === 'queue_notification' &&
-        (source.session !== 'global' ||
-          (name !== config.analyst_agent && name !== config.oversight.agent))
-      )
-        throw new Error(
-          `agents.${name}.tools may select queue_notification only for the configured Analyst or Oversight.`,
-        );
-      if (duplicate.has(tool))
-        throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);
-      duplicate.add(tool);
-      try {
-        tools.push(resolveRuntimeTool(source.session, tool));
-      } catch {
-        throw new Error(
-          `agents.${name}.tools contains unknown tool '${tool}' for ${source.session} session scope.`,
-        );
+    for (const grant of source.capabilities.grants)
+      for (const tool of grant.tools) {
+        if (
+          tool === 'queue_notification' &&
+          (source.session !== 'global' ||
+            (name !== config.analyst_agent && name !== config.oversight.agent))
+        )
+          throw new Error(
+            `agents.${name}.capabilities may select queue_notification only for the configured Analyst or Oversight.`,
+          );
+        if (duplicate.has(tool))
+          throw new Error(`agents.${name}.capabilities contains duplicate '${tool}'.`);
+        duplicate.add(tool);
+        tools.push(resolveRuntimeTool(source.session, tool, grant.resources));
       }
-    }
-    const patternNames = new Set<string>();
     const qualityTools =
       source.quality_tools === undefined ? undefined : structuredClone(source.quality_tools);
     if (qualityTools) {
@@ -626,16 +617,8 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
       }
       Object.freeze(qualityTools);
     }
-    const recordWrites = source.record_writes.map((pattern) => {
-      if (patternNames.has(pattern))
-        throw new Error(`agents.${name}.record_writes contains duplicate '${pattern}'.`);
-      patternNames.add(pattern);
-      return compileRecordWritePattern(pattern);
-    });
     if (source.skills !== tools.some((tool) => tool.name === 'skill'))
       throw new Error(`agents.${name}.skills must agree with the skill tool.`);
-    if (tools.some((tool) => tool.name === 'create_card') && !source.can_create_children)
-      throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);
     const route = config.models.routes[source.model_route];
     if (!route)
       throw new Error(
@@ -648,7 +631,6 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
         prompt: source.prompt,
         tools: Object.freeze(tools),
         ...(qualityTools ? { qualityTools } : {}),
-        recordWrites: Object.freeze(recordWrites),
         modelRoute: source.model_route,
         model: Object.freeze({
           orderedModelIds: expandModelOrder(config, source.model_route),
@@ -657,7 +639,6 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
         }),
         skills: source.skills,
         session: source.session,
-        canCreateChildren: source.can_create_children,
       }),
     ]);
   }
@@ -817,10 +798,10 @@ function compileCardTypeInputs(
       if (
         !agent ||
         !agentCanWriteRecord(agent, name) ||
-        !agent.tools.some((tool) => tool.name === 'write')
+        !agent.tools.some((tool) => tool.name === 'write' && toolAllowsSelfRecord(tool, name))
       )
         throw new Error(
-          `${location}.workflow.nodes.${nodeId}.initialize_records '${name}' requires record_writes authority and the write tool.`,
+          `${location}.workflow.nodes.${nodeId}.initialize_records '${name}' requires a matching self write capability.`,
         );
       return definition;
     });
@@ -835,10 +816,14 @@ function compileCardTypeInputs(
         throw new Error(`Action '${nodeId}' records require continue/exists accepted records.`);
       if (agent && !agentCanWriteRecord(agent, name))
         throw new Error(
-          `${location}.workflow.nodes.${nodeId}.records.${name} requires matching agent record_writes authority.`,
+          `${location}.workflow.nodes.${nodeId}.records.${name} requires matching self write/edit capability.`,
         );
       const requiresWrite = requirement.mode === 'clean' || requirement.gate === 'updated';
-      if (requiresWrite && agent && !agent.tools.some((tool) => tool.name === 'write'))
+      if (
+        requiresWrite &&
+        agent &&
+        !agent.tools.some((tool) => tool.name === 'write' && toolAllowsSelfRecord(tool, name))
+      )
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.records.${name} (${requirement.mode} + ${requirement.gate}) requires the write tool.`,
         );
@@ -1051,8 +1036,15 @@ function compileCardTypeInputs(
         edges: immutableMap(edges),
         childCreationTypes:
           agent &&
-          agent.canCreateChildren &&
-          agent.tools.some((tool) => tool.name === 'create_card')
+          agent.tools.some(
+            (tool) =>
+              tool.name === 'create_card' &&
+              tool.resources.some(
+                (resource) =>
+                  resource.kind === 'card' &&
+                  (resource.scopes.includes('self') || resource.scopes.includes('all')),
+              ),
+          )
             ? permittedChildTypes
             : immutableSet([]),
         childActivationTypes:
@@ -1563,7 +1555,6 @@ export function compileGitWorkflowPolicy(config: SaivageConfig): GitWorkflowPoli
   if (
     !correction ||
     correction.session !== 'card' ||
-    correction.canCreateChildren ||
     correction.tools.some((tool) => tool.name === 'activate_card' || tool.name === 'create_card')
   )
     throw new Error(
@@ -1712,7 +1703,9 @@ export function compileProjectWorkflowDeclarations(
   const gitPolicy = compileGitWorkflowPolicy(config);
   if (
     !gitPolicy &&
-    Object.values(config.agents).some((agent) => agent.tools.includes('checkpoint_source'))
+    Object.values(config.agents).some((agent) =>
+      agent.capabilities.grants.some((grant) => grant.tools.includes('checkpoint_source')),
+    )
   )
     throw new Error('checkpoint_source requires an enabled native Git policy.');
   const roots = promptRoots(options, gitPolicy !== null);
@@ -1745,10 +1738,6 @@ export function compileProjectWorkflowDeclarations(
     throw new Error('oversight.agent must differ from analyst_agent.');
   if (oversight.session !== 'global')
     throw new Error('oversight.agent must use global session scope.');
-  if (oversight.canCreateChildren)
-    throw new Error('oversight.agent must have can_create_children: false.');
-  if (oversight.recordWrites.length !== 0)
-    throw new Error('oversight.agent must have no record_writes.');
   if (oversight.skills) throw new Error('oversight.agent must have skills: false.');
   const oversightAllowed = new Set<string>(OVERSIGHT_ALLOWED_TOOL_NAMES);
   for (const tool of oversight.tools)

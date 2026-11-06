@@ -1,3 +1,5 @@
+import { testPlannerAuthority } from '../../helpers/capability-grants.js';
+import { resolveRuntimeTool } from '../../../src/tools/runtime-tool-catalog.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -113,6 +115,7 @@ function processor(
 
 type HaltTrigger = 'stop' | 'application_close' | 'publication_failure' | 'runtime_failure';
 interface SupervisorInternals {
+  checkpointSource(owner: CardActivationOwner, ordinal: number, authority: import('../../../src/tools/direct-object-authority.js').DirectObjectAuthority): Promise<unknown>;
   activationOwners: Map<string, CardActivationOwner>;
   runIdentity: object | null;
   currentCardId: string | null;
@@ -136,6 +139,7 @@ interface SupervisorInternals {
     childCardId: string,
     instructions: string,
     lease: ChildInvocationLease,
+    authority: import('../../../src/tools/direct-object-authority.js').DirectObjectAuthority,
   ): Promise<CardActivationOutcome>;
   createOwner(...args: never[]): CardActivationOwner;
   activateProcessor(owner: CardActivationOwner): void;
@@ -292,6 +296,52 @@ function harness(withChild = false, fatalPort: ApplicationFatalPort = testApplic
 async function nextTurn(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
+
+describe('Supervisor bound direct-object authority at effects', () => {
+  it('refuses reopen/cancel and source checkpoint before publication, containment or writer settlement', async () => {
+    const h = harness();
+    h.lifecycle.set('card-a', 'done');
+    const empty = { anchorCardId: 'project', tools: [] };
+    const control = h.internals.boundParentControl('project', h.root.activationId);
+    expect(() => control.reopenChild({ authority: empty, childCardId: 'card-a' })).toThrow(/not authorized/);
+    h.lifecycle.set('card-a', 'backlog');
+    expect(() => control.cancelChild({ authority: empty, childCardId: 'card-a', reason: 'denied' })).toThrow(/not authorized/);
+    const settle = jest.fn(async () => undefined);
+    h.rootProcessor.actor.canInterruptNode = () => true;
+    h.rootProcessor.actor.settleSourceWriters = settle;
+    const wrongDestination = { anchorCardId: 'project', tools: [resolveRuntimeTool('card', 'checkpoint_source', [{ kind: 'card', scopes: ['children'] }])] };
+    await expect(h.internals.checkpointSource(h.root, 1, wrongDestination)).rejects.toThrow(/not authorized/);
+    expect(settle).not.toHaveBeenCalled();
+    expect(h.store.setStatus).not.toHaveBeenCalled();
+    expect(h.terminateScopeTree).not.toHaveBeenCalled();
+    expect(h.rootProcessor.dispose).not.toHaveBeenCalled();
+    expect(h.internals.halt).toBeNull();
+  });
+
+  it('rejects a denied activation lease without installing a child owner or starting work', async () => {
+    const h = harness();
+    h.lifecycle.set('card-a', 'backlog');
+    h.rootProcessor.actor.executingLlmSnapshot = () => ({ sessionId: interruptionIdentity.sessionId } as never);
+    const control = h.internals.boundParentControl('project', h.root.activationId);
+    const lease = new ChildInvocationLease(interruptionIdentity as never, 'card-a');
+    const authority = { anchorCardId: 'project', tools: [resolveRuntimeTool('card', 'activate_card', [{ kind: 'card', scopes: ['self'] }])] };
+    await expect(control.activateChild({ authority, childCardId: 'card-a', instructions: 'Denied', invocation: lease })).rejects.toThrow(/not authorized/);
+    expect(lease.phase()).toBe('rejected');
+    expect(h.internals.activationOwners.has('card-a')).toBe(false);
+    expect(h.store.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('refuses model notification capabilities at the publisher while internal notify stays distinct', async () => {
+    const h = harness();
+    const enqueue = jest.fn();
+    Object.assign(h.store, { enqueueNotification: enqueue });
+    const notification = { id: '11111111-1111-4111-8111-111111111111', content: 'Finding', created_at: '2026-11-05T00:00:00.000Z' };
+    await expect(h.supervisor.submitNotification({ anchorCardId: null, tools: [] }, 'project', notification, 'normal')).rejects.toThrow(/not authorized/);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(h.supervisor.notifyCard('project', notification)).toEqual({ ok: true, notificationId: notification.id });
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+});
 async function within<T>(promise: Promise<T>): Promise<T> {
   let timer!: NodeJS.Timeout;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -598,7 +648,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       const recordBefore = cards.readRecordHistory(child.id, 'brief.md');
       if (recordBefore.kind !== 'found') throw new Error('Expected child record history.');
 
-      expect(port.reopenChild({ childCardId: child.id })).toEqual({
+      expect(port.reopenChild({ authority: testPlannerAuthority(), childCardId: child.id })).toEqual({
         card_id: child.id,
         status: 'changed',
       });
@@ -616,7 +666,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       if (recordAfter.kind !== 'found') throw new Error('Expected reopened child record history.');
       expect(recordAfter.value.catalog).toEqual(recordBefore.value.catalog);
       expect(cards.listCardVersions('project')).toEqual(parentBefore);
-      expect(() => port.reopenChild({ childCardId: child.id })).toThrow(
+      expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: child.id })).toThrow(
         "in status 'changed' cannot be reopened",
       );
     },
@@ -628,7 +678,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       const h = harness();
       h.lifecycle.set('card-a', status);
       const port = h.internals.boundParentControl('project', h.root.activationId);
-      expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(
+      expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow(
         `in status '${status}' cannot be reopened`,
       );
       expect(h.store.setStatus).not.toHaveBeenCalled();
@@ -641,12 +691,12 @@ describe('Supervisor singular runtime halt concurrency', () => {
     const h = harness();
     h.lifecycle.set('card-a', 'done');
     const port = h.internals.boundParentControl('project', h.root.activationId);
-    expect(() => port.reopenChild({ childCardId: 'card-a-b' })).toThrow(
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a-b' })).toThrow(
       "only immediate children of 'project'",
     );
     expect(h.store.read).not.toHaveBeenCalled();
     h.store.read.mockImplementationOnce(() => null as never);
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow(
       "Child card 'card-a' not found",
     );
     h.store.read.mockClear();
@@ -656,25 +706,25 @@ describe('Supervisor singular runtime halt concurrency', () => {
     expect(() =>
       owned.internals
         .boundParentControl('project', owned.root.activationId)
-        .reopenChild({ childCardId: 'card-a' }),
+        .reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' }),
     ).toThrow('still has an activation owner');
     expect(owned.store.read).not.toHaveBeenCalled();
 
     h.root.terminalWinner = 'result';
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('closed to child reopening');
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow('closed to child reopening');
     expect(h.store.read).not.toHaveBeenCalled();
     h.root.terminalWinner = 'cancel';
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('closed to child reopening');
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow('closed to child reopening');
     expect(h.store.read).not.toHaveBeenCalled();
     h.root.terminalWinner = 'open';
     h.root.phase = 'settling';
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('no longer active');
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow('no longer active');
     expect(h.store.read).not.toHaveBeenCalled();
     h.root.terminalWinner = 'open';
     h.root.phase = 'active';
     (h.supervisor as unknown as { applicationAdmissionOpen: boolean }).applicationAdmissionOpen =
       false;
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('closed to child reopening');
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow('closed to child reopening');
     expect(h.store.read).not.toHaveBeenCalled();
     (h.supervisor as unknown as { applicationAdmissionOpen: boolean }).applicationAdmissionOpen =
       true;
@@ -687,7 +737,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     });
     replacement.phase = 'active';
     h.internals.activationOwners.set('project', replacement);
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('no longer active');
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow('no longer active');
     expect(h.store.read).not.toHaveBeenCalled();
     expect(h.store.setStatus).not.toHaveBeenCalled();
     expect(h.internals.halt).toBeNull();
@@ -698,7 +748,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     h.lifecycle.set('card-a', 'done');
     const port = h.internals.boundParentControl('project', h.root.activationId);
     const stop = h.supervisor.stopProject();
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow(
       h.internals.halt!.interruption,
     );
     expect(h.store.read).not.toHaveBeenCalled();
@@ -717,7 +767,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     });
     const settlement = h.root.settlement.promise.catch((error) => error);
     const port = h.internals.boundParentControl('project', h.root.activationId);
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(RuntimeStoppedInterruption);
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow(RuntimeStoppedInterruption);
     expect(h.store.setStatus).toHaveBeenCalledTimes(1);
     expect(h.internals.halt?.owners).toEqual([h.root]);
     await expect(settlement).resolves.toBe(failure);
@@ -740,7 +790,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       },
     );
     const port = h.internals.boundParentControl('project', h.root.activationId);
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(RuntimeStoppedInterruption);
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow(RuntimeStoppedInterruption);
     expect(h.store.setStatus).toHaveBeenCalledTimes(1);
     h.rootProcessor.join.resolve([]);
     h.processTermination.resolve(processReport);
@@ -752,7 +802,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     h.lifecycle.set('card-a', 'done');
     jest.spyOn(h.internals, 'publish').mockReturnValueOnce(null);
     const port = h.internals.boundParentControl('project', h.root.activationId);
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow(
       'publication returned no result without stopping the runtime',
     );
     expect(h.store.setStatus).not.toHaveBeenCalled();
@@ -770,7 +820,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       throw failure;
     });
     const port = h.internals.boundParentControl('project', h.root.activationId);
-    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(failure);
+    expect(() => port.reopenChild({ authority: testPlannerAuthority(), childCardId: 'card-a' })).toThrow(failure);
     expect(publicationOutcomeUnknown).toHaveBeenCalledWith(failure);
     expect(h.store.setStatus).toHaveBeenCalledTimes(1);
     expect(h.store.read).toHaveBeenCalledTimes(1);
@@ -808,7 +858,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     void lease.activation.catch(() => undefined);
 
     expect(() =>
-      h.internals.activateChild(h.root, 'card-a', 'Complete the child task.', lease),
+      h.internals.activateChild(h.root, 'card-a', 'Complete the child task.', lease, testPlannerAuthority()),
     ).toThrow(
       new Error(
         'Runtime invariant failed: operation=activate_child parent=project parent_status=blocked child=card-a child_status=running parent_activation=root-activation.',
@@ -1390,6 +1440,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       'card-a',
       'Complete the child task.',
       lease,
+      testPlannerAuthority(),
     );
 
     await expect(within(activation)).rejects.toBe(h.internals.halt!.interruption);

@@ -36,7 +36,7 @@ describe('ordinary absolute agent reads and discovery', () => {
     const system = mkdtempSync('/tmp/saivage-native-read-');
     roots.push(system);
     writeFileSync(join(system, 'system.txt'), 'needle system');
-    const ctx = { projectRoot };
+    const ctx = { authority: testWorkspaceAuthority(), projectRoot };
     for (const path of [join(sibling, 'a.txt'), `${projectRoot}/../sibling/./a.txt`, systemUrl(join(sibling, 'a.txt')), 'linked/a.txt']) {
       await expect(readProject(ctx, { path })).resolves.toMatchObject({ data: { content: { content: 'needle sibling' } } });
     }
@@ -65,15 +65,15 @@ describe('ordinary absolute agent reads and discovery', () => {
     const supported = join(sibling, 'colon:percent%.md');
     writeFileSync(supported, 'punctuation');
     for (const path of [file, supported, systemUrl(supported)]) {
-      await expect(readProject({ projectRoot }, { path })).resolves.toMatchObject({ data: { content: { content: 'punctuation' } } });
+      await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path })).resolves.toMatchObject({ data: { content: { content: 'punctuation' } } });
     }
-    const native = await globProject({ projectRoot }, { directory: sibling, pattern: '*.md' }) as Page<string>;
+    const native = await globProject({ authority: testWorkspaceAuthority(), projectRoot }, { directory: sibling, pattern: '*.md' }) as Page<string>;
     expect(native.matches.items).toEqual([file, supported].sort());
     for (const path of native.matches.items) {
-      await expect(readProject({ projectRoot }, { path })).resolves.toMatchObject({ data: { content: { content: 'punctuation' } } });
+      await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path })).resolves.toMatchObject({ data: { content: { content: 'punctuation' } } });
     }
     for (const path of ['unknown:///a', 'system://host/a', 'system:///a?b', 'system:///a#b', 'system:///%ZZ']) {
-      await expect(readProject({ projectRoot }, { path })).rejects.toThrow();
+      await expect(readProject({ authority: testWorkspaceAuthority(), projectRoot }, { path })).rejects.toThrow();
     }
   });
 
@@ -85,7 +85,7 @@ describe('ordinary absolute agent reads and discovery', () => {
     let position: Position | undefined;
     const paths: string[] = [];
     do {
-      const page = await globProject({ projectRoot }, { directory: sibling, pattern: '**/*.txt', max_results: 1, position }) as Page<string>;
+      const page = await globProject({ authority: testWorkspaceAuthority(), projectRoot }, { directory: sibling, pattern: '**/*.txt', max_results: 1, position }) as Page<string>;
       expect(page.matches.total).toBe(3);
       paths.push(...page.matches.items);
       position = page.matches.next ?? undefined;
@@ -94,7 +94,7 @@ describe('ordinary absolute agent reads and discovery', () => {
     position = undefined;
     const matches: Match[] = [];
     do {
-      const page = await grepProject({ projectRoot }, { path: sibling, pattern: 'needle', include: '**/*.txt', max_results: 1, position }) as Page<Match>;
+      const page = await grepProject({ authority: testWorkspaceAuthority(), projectRoot }, { path: sibling, pattern: 'needle', include: '**/*.txt', max_results: 1, position }) as Page<Match>;
       expect(page.matches.total).toBe(3);
       matches.push(...page.matches.items);
       position = page.matches.next ?? undefined;
@@ -105,7 +105,7 @@ describe('ordinary absolute agent reads and discovery', () => {
   it('keeps native mutation, save authorization, patch and image admission contained', async () => {
     const { projectRoot, sibling } = fixture();
     const path = join(sibling, 'a.txt');
-    const ctx = { projectRoot, cardId: 'card-a', agentName: 'executor' as const };
+    const ctx = { authority: testWorkspaceAuthority(), projectRoot, cardId: 'card-a', agentName: 'executor' as const };
     await expect(writeProject(ctx, { path, content: 'changed' })).rejects.toThrow(/outside the project root/);
     await expect(editProject(ctx, { path, old_string: 'needle', new_string: 'changed' })).rejects.toThrow(/outside the project root/);
     expect(() => authorizeWriteProject(ctx, { path })).toThrow(/outside the project root/);
@@ -118,7 +118,7 @@ describe('ordinary absolute agent reads and discovery', () => {
 
   it('preserves OS errors, directory/metadata, binary and size bounds, and UTF-8 text continuation externally', async () => {
     const { projectRoot, sibling } = fixture();
-    const ctx = { projectRoot };
+    const ctx = { authority: testWorkspaceAuthority(), projectRoot };
     for (const path of [join(sibling, 'missing'), systemUrl(join(sibling, 'missing'))]) {
       await expect(readProject(ctx, { path })).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(globProject(ctx, { directory: path, pattern: '*' })).rejects.toMatchObject({ code: 'ENOENT' });
@@ -185,7 +185,7 @@ describe('applyProjectPatch path admission', () => {
       '',
     ].join('\n');
 
-    await expect(applyProjectPatch({ projectRoot: root }, { patch })).resolves.toEqual({
+    await expect(applyProjectPatch({ authority: testWorkspaceAuthority(), projectRoot: root }, { patch })).resolves.toEqual({
       changed_files: ['docs/v1..v2.md'],
       applied: true,
     });
@@ -198,6 +198,7 @@ describe('applyProjectPatch path admission', () => {
   ])('rejects parent path %s before invoking Git apply', async (headerPath, unsafePath) => {
     const root = gitProject();
     const patch = `--- ${headerPath}\n+++ ${headerPath}\n@@ -0,0 +1 @@\n+unsafe\n`;
-    await expect(applyProjectPatch({ projectRoot: root }, { patch })).rejects.toThrow(`Unsafe patch path '${unsafePath}'.`);
+    await expect(applyProjectPatch({ authority: testWorkspaceAuthority(), projectRoot: root }, { patch })).rejects.toThrow(`Unsafe patch path '${unsafePath}'.`);
   });
 });
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';

@@ -15,12 +15,7 @@ export {
   resolveContainedProjectPath,
   toContainedRelativePath,
 } from './file-access-security.js';
-export {
-  assertRecordWrite,
-  parseScopedPathScheme,
-  resolveRecordWriteTarget,
-  workUrlFromAbsolutePath,
-} from './scoped-path-schemes.js';
+export { parseScopedPathScheme, workUrlFromAbsolutePath } from './scoped-path-schemes.js';
 export {
   displayPathForResolved,
   globToRegExp,

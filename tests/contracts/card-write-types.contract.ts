@@ -21,7 +21,7 @@ void edit;
 // @ts-expect-error terminal companions are lifecycle-owned
 ({ status_text: 'working' } satisfies CardEditPatch);
 
-const creation = { type: 'code', parent: 'project', title: 'new', bootstrap_content: 'new', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] } satisfies NewChildCardInput;
+const creation = { type: 'code', parent: 'project', title: 'new', bootstrap_content: 'new', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' }, depends_on: [] } satisfies NewChildCardInput;
 void creation;
 // @ts-expect-error creation callers cannot supply lifecycle
 ({ ...creation, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } } satisfies NewChildCardInput);

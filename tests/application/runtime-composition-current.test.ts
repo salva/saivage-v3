@@ -105,7 +105,7 @@ describe('current runtime composition', () => {
   ] as const)('checks image-enabled bindings independently at composition: %s/imageInput=%s', (transportProtocol, imageInput, compatible) => {
     const config = structuredClone(TEST_SAIVAGE_CONFIG);
     config.providers.test.capabilities = { ...config.providers.test.capabilities, transportProtocol: 'openai-responses', imageInput: true };
-    config.agents.analyst.tools.push('view_image');
+    config.agents.analyst.capabilities.grants.push({ tools: ['view_image'], resources: [{ kind: 'workspace' }] });
     config.providers.summary = { models: ['summary-model'], capabilities: { transportProtocol, imageInput, toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported', contextWindowTokens: 100_000, maxOutputTokens: 10_000 } };
     config.compaction.summarizer_candidate = { provider: 'summary', account: null, model: 'summary-model' };
     const compose = () => composeSummaryFixture(config);
@@ -465,7 +465,7 @@ describe('current runtime composition', () => {
       bootstrap_content: 'plan',
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
     const leaf = cardStore.create({
@@ -475,7 +475,7 @@ describe('current runtime composition', () => {
       bootstrap_content: 'execute',
       priority: 0,
       urgency: 'normal',
-      created_by: 'planner',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (request, init) => {

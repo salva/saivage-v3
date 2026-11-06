@@ -13,7 +13,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 describe('configured observed source tool surfaces', () => {
   it('preserves a narrowed executor grant through actual compiled card nodes and leaves Oversight unchanged', () => {
     const config=structuredClone(TEST_SAIVAGE_CONFIG);
-    config.agents.executor!.tools=config.agents.executor!.tools.filter(name=>name!=='query_observed_collections');
+    config.agents.executor!.capabilities.grants = config.agents.executor!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(name=>name!=='query_observed_collections') })).filter((grant) => grant.tools.length > 0);
     const compiled=compileProjectWorkflows(config);
     let nodes=0;
     for(const workflow of compiled.cardTypes.values()) for(const state of workflow.states.values()) {

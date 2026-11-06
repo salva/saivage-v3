@@ -1,4 +1,8 @@
 import type { z } from 'zod';
+import {
+  assertHistoricalObjectAuthority,
+  type DirectObjectAuthority,
+} from './direct-object-authority.js';
 import { canonicalValueSha256, sha256Hex } from '../schemas/index.js';
 
 import type { ToolContext } from './analyst-tool-types.js';
@@ -39,6 +43,7 @@ import {
 import { projectBoundedCardSummary } from './card-section-projection.js';
 
 export interface CardVersionProviderContext {
+  readonly authority: DirectObjectAuthority;
   readonly store: ToolContext['store'];
 }
 
@@ -90,6 +95,10 @@ function listCardVersions(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof listCardVersionsInputSchema>,
 ): Promise<ToolActionOutcome> {
+  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'list_card_versions', {
+    kind: 'card',
+    cardId: params.card_id,
+  });
   const result = ctx.store.listCardVersions(params.card_id);
   if (result.kind === 'card-not-found')
     return Promise.resolve(
@@ -136,6 +145,10 @@ function getCardVersion(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof getCardVersionInputSchema>,
 ): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
+  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'get_card_version', {
+    kind: 'card',
+    cardId: params.card_id,
+  });
   const result = ctx.store.readCardVersion(params.card_id, params.version);
   if (result.kind === 'card-not-found')
     return Promise.resolve({
@@ -202,6 +215,10 @@ function diffCardVersions(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof diffCardVersionsInputSchema>,
 ): Promise<ToolActionOutcome> {
+  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'diff_card_versions', {
+    kind: 'card',
+    cardId: params.card_id,
+  });
   if (params.from_version > params.to_version)
     return Promise.resolve(
       failure('Invalid card version pivots.', {
@@ -280,6 +297,11 @@ function readRecordVersion(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof readRecordVersionInputSchema>,
 ): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
+  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'read_record_version', {
+    kind: 'record',
+    cardId: params.card_id,
+    name: params.record_name,
+  });
   const result = ctx.store.readRecordVersion(params.card_id, params.record_name, params.version);
   if (result.kind !== 'found')
     return Promise.resolve({

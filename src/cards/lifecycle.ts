@@ -17,6 +17,7 @@ export interface NewChildCardInput {
   parent: string;
   title: string;
   bootstrap_content: string;
+  bootstrap_author: import('../schemas/index.js').RecordAuthor;
   priority: number;
   urgency: Urgency;
   created_by: CreatedBy;

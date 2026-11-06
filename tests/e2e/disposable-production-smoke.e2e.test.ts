@@ -130,7 +130,7 @@ function runCli(root: string, command: 'init' | 'reset'): string {
 function testConfig(providerPort: number, appPort: number): SaivageConfig {
   const config = effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
   for (const agent of Object.values(config.agents))
-    agent.tools = agent.tools.filter((tool) => tool !== 'view_image'); // scripted Chat fixture
+    agent.capabilities.grants = agent.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter((tool) => tool !== 'view_image') })).filter((grant) => grant.tools.length > 0); // scripted Chat fixture
   config.server = { host: '127.0.0.1', port: appPort };
   config.models = {
     routes: {
@@ -163,7 +163,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
     context_utilization_fraction: 0.8,
     summarizer_candidate: { provider: 'fake', account: null, model: 'analyst-model' },
   };
-  config.agents.reviewer!.record_writes = ['status.md', 'review.md', 'review-*.md'];
+  for (const grant of config.agents.reviewer!.capabilities.grants) if (grant.tools.some((name) => ['write', 'edit', 'webfetch'].includes(name))) grant.resources!.push({ kind: 'record', scopes: ['self'], patterns: ['status.md'] });
   config.card_types.code = {
     permitted_child_types: [],
     records: {
@@ -171,7 +171,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
       'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
-    workflow: { format_version: 5,
+    workflow: { format_version: 6,
       notification_recipient: 'executor',
       entries: {
         BACKLOG: { node: 'execute' },
@@ -1158,7 +1158,7 @@ describe('disposable production-composition smoke', () => {
         promotion: { kind: 'latest-node', node_id: 'execute' },
       });
       expect(
-        projectGraph.nodes.find((node: any) => node.execution.agent_name === 'reviewer').execution.tools,
+        projectGraph.nodes.find((node: any) => node.execution.agent_name === 'reviewer').execution.capabilities.grants.flatMap((grant: any) => grant.tools),
       ).not.toContain('mcp_tool_call');
 
       trace('bootstrap chat begin');
@@ -1472,18 +1472,18 @@ describe('disposable production-composition smoke', () => {
       expect(afterRestart).toEqual(beforeRestart);
 
       expect(offeredTools.get('analyst')).toEqual(
-        DEFAULT_SAIVAGE_CONFIG.agents.analyst.tools.filter((tool) => tool !== 'view_image'),
+        DEFAULT_SAIVAGE_CONFIG.agents.analyst.capabilities.grants.flatMap((grant) => grant.tools).filter((tool) => tool !== 'view_image'),
       );
       expect(offeredTools.get('planner')).toEqual(
-        DEFAULT_SAIVAGE_CONFIG.agents.planner.tools.concat('emit_result'),
+        DEFAULT_SAIVAGE_CONFIG.agents.planner.capabilities.grants.flatMap((grant) => grant.tools).concat('emit_result'),
       );
       expect(offeredTools.get('executor')).toEqual(
-        DEFAULT_SAIVAGE_CONFIG.agents.executor.tools
+        DEFAULT_SAIVAGE_CONFIG.agents.executor.capabilities.grants.flatMap((grant) => grant.tools)
           .filter((tool) => tool !== 'view_image')
           .concat('emit_result'),
       );
       expect(offeredTools.get('reviewer')).toEqual(
-        DEFAULT_SAIVAGE_CONFIG.agents.reviewer.tools
+        DEFAULT_SAIVAGE_CONFIG.agents.reviewer.capabilities.grants.flatMap((grant) => grant.tools)
           .filter((tool) => tool !== 'view_image')
           .concat('emit_result'),
       );

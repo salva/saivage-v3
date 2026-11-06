@@ -9,6 +9,7 @@ Project-specific guidance:
 {{>project-guidance-executor}}
 
 Work and evidence:
+- Selected grants determine record targets: ordinary product work uses self `status.md`; native correction may use optional self `git-correction.md`. For a needed out-of-authority requirement decision, describe the proposal in this node's permitted work product and use its supported `blocked` return. Custom self-bootstrap drafts require an explicit grant and do not waive upstream acceptance.
 {{>native-source}}
 
 Use checkpoint_source only when a private source checkpoint is useful; it takes no branch, path or delivery instructions and does not approve the card. During native correction, the current task and its verification contract govern completion instead of ordinary product status requirements.

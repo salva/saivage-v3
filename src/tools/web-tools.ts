@@ -41,7 +41,6 @@ import { SAIVAGE_WORK_RELATIVE_DIR, replaceFile } from '../persistence/index.js'
 import { runAuditedAnalystTool } from '../agents/tool-api.js';
 import {
   admitAnalystRecordWebfetch,
-  admitRecordMutation,
   prepareAnalystRecordWebfetch,
   type PreparedFetchedRecord,
 } from '../application/index.js';
@@ -465,6 +464,8 @@ async function webfetchCore(
   observation: WebHttpObservation = { purpose: 'webfetch' },
 ): Promise<ToolActionOutcome> {
   try {
+    if (!ctx.authority?.tools.some(({ name }) => name === 'webfetch'))
+      return toolFailed("Tool 'webfetch' is not selected.");
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
     if (params.metadata_only && params.save_as)
@@ -472,14 +473,14 @@ async function webfetchCore(
     if (params.save_as) {
       authorizeWriteProject(ctx, { path: params.save_as });
       if (params.save_as.startsWith('record:///')) {
-        if (!ctx.store || !ctx.cardId)
-          throw new Error('Card record Webfetch requires a bound card store.');
-        const admission = admitRecordMutation(ctx.store, {
+        if (!ctx.recordMutations || !ctx.authority)
+          throw new Error('Card record Webfetch requires bound runtime authority.');
+        const admission = ctx.recordMutations.admit({
           path: params.save_as,
           operation: 'write',
           surface: 'card_agent',
           agentName: ctx.agentName,
-          cardId: ctx.cardId,
+          authority: ctx.authority,
           requiredTools: ['write', 'webfetch'],
         });
         if ('kind' in admission) return toolFailed(admission.error, admission.data);
@@ -528,7 +529,10 @@ async function webfetchCore(
       );
     if (params.save_as) {
       const text = Buffer.from(fetched.body).toString('utf8');
-      const rawWrite = await writeProject(ctx, { path: params.save_as, content: text });
+      const rawWrite = await writeProject(ctx, { path: params.save_as, content: text }, [
+        'write',
+        'webfetch',
+      ]);
       if (params.save_as.startsWith('record:///')) {
         const result = RecordMutationResultSchema.parse(rawWrite);
         if (result.kind === 'rejected') return toolFailed(result.error, result.data);
@@ -630,7 +634,7 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
   defineToolBinder({
     name: 'webfetch',
     description:
-      'Fetch a public HTTP(S) URL with bounded size and private-network protections. Record save_as requires record:///<name>?card=<card-id>, e.g. record:///status.md?card=project; &v=N is read-only. Successful no-save text returns an always-present redacted head, exact fetched/redacted/head UTF-8 byte counts, independent head_complete and fetch_truncated flags, and a canonical content_url exactly when the head omits retained text. The complete settled result is limited to 1,000,000 UTF-8 bytes.',
+      'Fetch a public HTTP(S) URL with bounded size and private-network protections. No-save fetch needs no destination grant; save_as requires both selected Webfetch and write grants on that destination. Record save_as requires record:///<name>?card=<card-id>, e.g. record:///status.md?card=project; &v=N is read-only. Successful no-save text returns an always-present redacted head, exact fetched/redacted/head UTF-8 byte counts, independent head_complete and fetch_truncated flags, and a canonical content_url exactly when the head omits retained text. The complete settled result is limited to 1,000,000 UTF-8 bytes.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: () => webfetchSchema,
     executor: (ctx, args, signal, invocation) =>

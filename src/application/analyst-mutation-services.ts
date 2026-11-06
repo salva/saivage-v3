@@ -21,6 +21,7 @@ import type { RuntimeApi } from '../runtime/runtime-api.js';
 import { toCardView } from './read-models/card-view.js';
 import { mutateRecord, preflightAnalystRecordWrite } from './record-mutation-service.js';
 import type { CardId } from '../schemas/index.js';
+import { allowsReachedObject, type DirectObjectAuthority } from '../tools/tool-api.js';
 
 export type AnalystMutationOutcome =
   | { kind: 'denied'; reason: string }
@@ -88,7 +89,7 @@ export interface AnalystMutationServices {
 
 export function createAnalystMutationServices(input: {
   author: OperationAuthor;
-  allowedTools: readonly string[];
+  authority: DirectObjectAuthority & { readonly anchorCardId: null };
   store: CardService;
   configAuthority: ResolvedConfigAuthority;
   notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard'];
@@ -102,18 +103,19 @@ export function createAnalystMutationServices(input: {
       notifyCard,
       input.cancelCard,
       input.author,
-      input.allowedTools,
+      input.authority,
     ),
     config: new AnalystConfigMutationImplementation(input.configAuthority),
     notifications: new AnalystNotificationMutationImplementation(
       input.submitNotification,
       input.author,
+      input.authority,
     ),
     recordMutations: new AnalystRecordMutationImplementation(
       input.store,
       notifyCard,
       input.author,
-      input.allowedTools,
+      input.authority,
     ),
   };
 }
@@ -152,13 +154,15 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard'],
     private readonly cancelCardPort: Pick<RuntimeApi, 'cancelCard'>['cancelCard'],
     private readonly author: OperationAuthor,
-    private readonly allowedTools: readonly string[],
+    private readonly authority: DirectObjectAuthority,
   ) {}
 
   create(input: CreateAnalystCardInput): AnalystMutationOutcome {
     const parent = input.parent;
     const parentCard = this.store.read(parent);
     if (!parentCard) return denied(`parent '${parent}' does not exist`);
+    if (!allowsReachedObject(this.authority, 'create_card', { kind: 'card', cardId: parent }))
+      return denied('direct_object_not_authorized');
     const depth = cardDepth(parent) + 1;
     if (depth > MAX_CARD_DEPTH) return denied(`child depth exceeds ${MAX_CARD_DEPTH}`);
     if (
@@ -167,13 +171,6 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     )
       return denied('wrong_state');
     if (input.type === 'project') return denied('Root project card already exists');
-    const analyst = this.store.workflows.analyst;
-    if (
-      !analyst.canCreateChildren ||
-      !this.allowedTools.includes('create_card') ||
-      !analyst.tools.some((tool) => tool.name === 'create_card')
-    )
-      return denied(`agent '${analyst.name}' is not configured to create children`);
     const parentWorkflow = this.store.workflows.cardTypes.get(parentCard.type);
     if (!parentWorkflow)
       throw new Error(`No compiled workflow exists for card type '${parentCard.type}'.`);
@@ -195,6 +192,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       priority: input.priority ?? 0,
       urgency: input.urgency ?? 'normal',
       created_by: operationActor(this.author),
+      bootstrap_author: this.author,
       depends_on: input.depends_on ?? [],
     });
     const propagation = reportPropagation(() =>
@@ -207,6 +205,8 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     for (const id of ids) {
       if (id === PROJECT_CARD_ID) return denied('root project card cannot be deleted');
       if (!this.store.read(id)) return denied(`card '${id}' does not exist`);
+      if (!allowsReachedObject(this.authority, 'delete_card', { kind: 'card', cardId: id }))
+        return denied('direct_object_not_authorized');
       const blocked = this.store
         .readCurrentSubtree(id)
         .find((card) => card.lifecycle.status === 'running');
@@ -223,6 +223,8 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
   async cancel(cardId: string, reason?: string): Promise<AnalystMutationOutcome> {
     const card = this.store.read(cardId);
     if (!card) return denied(`card '${cardId}' does not exist`);
+    if (!allowsReachedObject(this.authority, 'cancel_card', { kind: 'card', cardId }))
+      return denied('direct_object_not_authorized');
     if (card.id === PROJECT_CARD_ID) return denied('root project card cannot be cancelled');
     const blocked = this.store
       .readCurrentSubtree(cardId)
@@ -244,6 +246,8 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
   reorder(parentId: string, orderedChildIds: readonly string[]): AnalystMutationOutcome {
     const parent = this.store.read(parentId);
     if (!parent) return denied(`parent '${parentId}' does not exist`);
+    if (!allowsReachedObject(this.authority, 'reorder_child', { kind: 'card', cardId: parentId }))
+      return denied('direct_object_not_authorized');
     if (parent.lifecycle.status === 'running')
       return denied(`parent '${parentId}' is ${parent.lifecycle.status}`);
     const current = this.store.listChildren(parentId);
@@ -286,6 +290,8 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
   reopen(cardId: string): AnalystMutationOutcome {
     const card = this.store.read(cardId);
     if (!card) return denied(`card '${cardId}' does not exist`);
+    if (!allowsReachedObject(this.authority, 'reopen_card', { kind: 'card', cardId }))
+      return denied('direct_object_not_authorized');
     if (
       card.lifecycle.status !== 'done' &&
       card.lifecycle.status !== 'failed' &&
@@ -352,6 +358,7 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
       'submitNotification'
     >['submitNotification'],
     private readonly author: OperationAuthor,
+    private readonly authority: DirectObjectAuthority,
   ) {}
   async queue(
     cardId: string,
@@ -362,6 +369,7 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
   ): Promise<AnalystMutationOutcome> {
     const projected = projectNotificationSubmission(
       await this.submitNotification(
+        this.authority,
         cardId,
         {
           ...createCardNotification(kind, body),
@@ -381,7 +389,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
     private readonly store: CardService,
     private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard'],
     private readonly author: OperationAuthor,
-    private readonly allowedTools: readonly string[],
+    private readonly authority: DirectObjectAuthority,
   ) {}
 
   admitWrite(path: string): AnalystPreNetworkAdmission {
@@ -391,7 +399,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
       surface: 'analyst',
       agentName: this.store.workflows.analyst.name,
       author: this.author,
-      allowedTools: this.allowedTools,
+      authority: this.authority,
       requiredTools: ['write', 'webfetch'],
     });
   }
@@ -410,7 +418,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
         surface: 'analyst',
         agentName: this.store.workflows.analyst.name,
         author: this.author,
-        allowedTools: this.allowedTools,
+        authority: this.authority,
         requiredTools,
       },
       () => this.propagate(path),
@@ -442,7 +450,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
         surface: 'analyst',
         agentName: this.store.workflows.analyst.name,
         author: this.author,
-        allowedTools: this.allowedTools,
+        authority: this.authority,
         requiredTools: ['edit'],
       },
       () => this.propagate(path),

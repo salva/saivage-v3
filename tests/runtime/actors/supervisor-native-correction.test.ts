@@ -1,3 +1,4 @@
+import { testNotificationAuthority } from '../../helpers/capability-grants.js';
 import { afterEach, expect, test, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
@@ -93,7 +94,7 @@ function fixture() {
   config.models = structuredClone(TEST_SAIVAGE_CONFIG.models);
   config.providers = structuredClone(TEST_SAIVAGE_CONFIG.providers);
   config.compaction = structuredClone(TEST_SAIVAGE_CONFIG.compaction);
-  for (const agent of Object.values(config.agents)) agent.tools = agent.tools.filter(tool => tool !== 'view_image');
+  for (const agent of Object.values(config.agents)) agent.capabilities.grants = agent.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(tool => tool !== 'view_image') })).filter((grant) => grant.tools.length > 0);
   const declarations = compileProjectWorkflowDeclarations(config, { projectRoot: root });
   const registry = new ProviderRegistry(config);
   const workflows = bindRuntimeWorkflows(
@@ -525,7 +526,7 @@ test('actual urgent correction reentry prepares the surviving source task before
     })});
   try {
     await supervisor.startProject();await first;
-    const result=await supervisor.submitNotification('project',{id:randomUUID(),content:'Urgent synthetic scope clarification: preserve original C and reconstruct c2; no new product acceptance.',created_at:new Date().toISOString(),source:'fixture'},'urgent');
+    const result=await supervisor.submitNotification(testNotificationAuthority(), 'project',{id:randomUUID(),content:'Urgent synthetic scope clarification: preserve original C and reconstruct c2; no new product acceptance.',created_at:new Date().toISOString(),source:'fixture'},'urgent');
     expect(result).toMatchObject({queued:true,interruption:{status:'interrupted'}});
     await stopped;expect(turn).toBe(2);expect(f.store.read('project')!.lifecycle.status).toBe('blocked');expect(f.store.read('project')!.git!.correction!.original_tip).toBe(f.original);
   } finally {await supervisor.cleanupForApplicationStop();writeFileSync(join(f.root,'..',`${basename(f.root)}-urgent-contexts.json`),JSON.stringify(renders,null,2));}
@@ -599,7 +600,7 @@ test.each(['root', 'surviving'] as const)(
             bootstrap_content: 'Scoped work',
             priority: 0,
             urgency: 'normal',
-            created_by: 'analyst',
+            created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
             depends_on: [],
           })
         : null;
@@ -657,6 +658,7 @@ test.each(['root', 'surviving'] as const)(
       await supervisor.startProject();
       await waiting;
       const result = await supervisor.submitNotification(
+        testNotificationAuthority(),
         child?.id ?? 'project',
         {
           id: randomUUID(),

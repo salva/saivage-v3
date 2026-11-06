@@ -235,7 +235,7 @@ describe('application startup generated-state admission', () => {
       bootstrap_content: 'brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     cards.setStatus('project', 'running');
@@ -289,7 +289,7 @@ describe('application startup generated-state admission', () => {
       bootstrap_content: 'brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     cards.setStatus(child.id, 'running');
@@ -414,7 +414,7 @@ describe('application startup generated-state admission', () => {
       bootstrap_content: 'Left brief.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     const right = cards.create({
@@ -424,7 +424,7 @@ describe('application startup generated-state admission', () => {
       bootstrap_content: 'Right brief.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     for (const id of ['project', left.id, right.id]) cards.setStatus(id, 'running');
@@ -682,7 +682,7 @@ describe('application startup generated-state admission', () => {
         bootstrap_content: 'Retained brief.',
         priority: 0,
         urgency: 'normal',
-        created_by: 'analyst',
+        created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
         depends_on: [],
       });
       const timestamp = '2026-08-14T00:00:00.000Z';
@@ -752,7 +752,7 @@ describe('application startup generated-state admission', () => {
     publishInitialProjectRuntime(root, compileProjectWorkflows(TEST_SAIVAGE_CONFIG));
     const config = structuredClone(TEST_SAIVAGE_CONFIG);
     config.agents['oversight-v2'] = { ...config.agents.oversight! };
-    config.agents.oversight!.tools = config.agents.oversight!.tools.filter(tool => tool !== 'queue_notification');
+    config.agents.oversight!.capabilities.grants = config.agents.oversight!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(tool => tool !== 'queue_notification') })).filter((grant) => grant.tools.length > 0);
     config.agents['unused-worker'] = { ...config.agents.executor! };
     config.oversight.agent = 'oversight-v2';
     replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);
@@ -845,7 +845,7 @@ describe('application startup generated-state admission', () => {
       bootstrap_content: 'Fixture-family authority.',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     expect(() => initializeAndValidateCurrentGeneratedState(root, explicitWorkflows)).not.toThrow();

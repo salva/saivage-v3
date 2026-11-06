@@ -8,6 +8,7 @@ import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provi
 import { invokeToolForLlm, llmToolDefinition } from '../../src/tools/invocation.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
+import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
@@ -25,7 +26,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'saivage-card-id-admission-')); roots.push(root);
   initProjectTree(root);
   const cards = new CardService(root);
-  const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: cards.workflows.cardTypeVocabulary });
+  const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, authority: broadInspectionAuthority(), cardTypeVocabulary: cards.workflows.cardTypeVocabulary });
   const surface = buildInvocationSurfaceFixture('analyst', [provider]);
   const invoke = (name: string, args: unknown) => invokeToolForLlm(surface, name, args, testLlmToolInvocationContext({ sessionId: 'agent:analyst:global', toolName: name }));
   return { root, cards, surface, invoke };
@@ -58,7 +59,7 @@ describe('current card-inspection ID admission', () => {
       read.mockClear();
       const settlement = await invoke(name, { ...args, [field]: id });
       expect(settlement.kind).toBe('executed');
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(id === 'card-a-b' && name === 'get_card' ? 0 : 1);
       if (settlement.kind !== 'executed') throw new Error('Expected executor entry.');
       const result = settleToolActionOutcome(settlement.execution.providerOutcome).providerResult;
       expect(result.success).toBe(id !== 'card-a-b');

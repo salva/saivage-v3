@@ -12,6 +12,7 @@ const normalize = jest.fn<typeof Normalize>();
 jest.unstable_mockModule('../../src/tools/image-decode.js', () => ({ normalizeWorkspaceImage: normalize, normalizeImage: jest.fn() }));
 const { workspaceToolBinders, globalWorkspaceObservationToolBinders } = await import('../../src/tools/workspace-provider.js');
 const { ImageInputError } = await import('../../src/tools/image-input-error.js');
+const { testWorkspaceAuthority } = await import('../helpers/capability-grants.js');
 const roots: string[] = [];
 afterEach(() => {
   normalize.mockReset();
@@ -33,7 +34,8 @@ it.each(['agent:executor:project', 'agent:analyst:global'] as const)(
         resolve = done; reject = fail; entered();
       }));
       const binders = sessionId === 'agent:analyst:global' ? globalWorkspaceObservationToolBinders : workspaceToolBinders;
-      const tool = binders.find((binder) => binder.name === 'view_image')!.bind({ projectRoot: root, agentName: 'executor', store: {} as CardService });
+      const global = sessionId === 'agent:analyst:global';
+      const tool = binders.find((binder) => binder.name === 'view_image')!.bind({ projectRoot: root, agentName: global ? 'analyst' : 'executor', ...(global ? {} : { cardId: 'project' }), authority: testWorkspaceAuthority(global ? null : 'project'), store: {} as CardService });
       const controller = new AbortController();
       const reason = new Error('exact invocation cancellation');
       const operation = tool.executor({ path: 'screen.png' }, controller.signal, { sessionId } as unknown as LlmToolInvocationContext);

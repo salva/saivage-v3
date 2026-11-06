@@ -16,7 +16,7 @@ it('compiles independent frozen policy-agent bindings without default grants', (
   const keys = Object.keys(source.agents).filter((key) => source.agents[key]!.session === 'card').slice(0, 2);
   expect(keys).toHaveLength(2);
   for (const [index, key] of keys.entries()) {
-    source.agents[key]!.tools.push(name);
+    source.agents[key]!.capabilities.grants.push({ tools: [name] });
     source.agents[key]!.quality_tools = { format_version: 1,
       [name]: { ...config, source_paths: [`source-${index}`] } };
   }
@@ -32,7 +32,7 @@ it('compiles independent frozen policy-agent bindings without default grants', (
 
 it('rejects request substitution and unselected tools before entering the runtime port', async () => {
   const source = structuredClone(TEST_SAIVAGE_CONFIG);
-  source.agents[source.analyst_agent]!.tools.push(name);
+  source.agents[source.analyst_agent]!.capabilities.grants.push({ tools: [name] });
   source.agents[source.analyst_agent]!.quality_tools = { format_version: 1, [name]: config };
   const workflows = compileProjectWorkflows(source);
   let entered = 0;

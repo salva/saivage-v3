@@ -207,7 +207,7 @@ export async function executionProductionFixture(exitCode = 0, deadline = false,
       if (quality.cardTool) {
         const toolName = `code_quality_${language}_${language === 'python' ? 'ruff' : 'eslint'}`;
         const owner = config.agents[agent.agent]!;
-        owner.tools.push(toolName);
+        owner.capabilities.grants.push({ tools: [toolName] });
         owner.quality_tools = qualityToolBindingsSchema.parse({ format_version: 1,
           [toolName]: { ...nativeConfig,
             source_paths: [`fixtures/clean.${extension}`] },

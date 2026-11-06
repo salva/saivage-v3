@@ -54,7 +54,7 @@ describe('dynamic MCP ordinary surfaces', () => {
     const tools = ['mcp_server_register', 'mcp_server_replace', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh'];
     for (const name of ['planner', 'executor', 'reviewer', 'analyst']) {
       const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
-      config.agents[name]!.tools.push(...tools);
+      config.agents[name]!.capabilities.grants.push({ tools: [...tools] });
       expect(
         compileProjectWorkflows(config as never)
           .agents.get(name)!
@@ -63,11 +63,11 @@ describe('dynamic MCP ordinary surfaces', () => {
     }
     for (const tool of tools) {
       const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
-      config.agents.oversight!.tools.push(tool);
+      config.agents.oversight!.capabilities.grants.push({ tools: [tool] });
       expect(() => compileProjectWorkflows(config as never)).toThrow(
         `oversight.agent tool '${tool}' is forbidden`,
       );
-      expect(Object.values(DEFAULT_SAIVAGE_CONFIG.agents).some((a) => a.tools.includes(tool))).toBe(
+      expect(Object.values(DEFAULT_SAIVAGE_CONFIG.agents).some((a) => a.capabilities.grants.some((grant) => grant.tools.includes(tool)))).toBe(
         false,
       );
     }

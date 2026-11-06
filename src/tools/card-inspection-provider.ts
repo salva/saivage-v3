@@ -1,4 +1,9 @@
 import type { z } from 'zod';
+import {
+  allowsReachedObject,
+  assertReachedObjectAuthority,
+  type DirectObjectAuthority,
+} from './direct-object-authority.js';
 import { canonicalValueSha256 } from '../schemas/index.js';
 import { type CardRecord, type CardStatus, type CardTypeName } from '../schemas/index.js';
 import {
@@ -40,9 +45,11 @@ type CardInspectionStore = Pick<
   | 'getCardChildren'
   | 'listDeclaredRecordMetadata'
   | 'workflows'
+  | 'getCanonicalCard'
 >;
 
 export interface CardInspectionProviderContext {
+  readonly authority: DirectObjectAuthority;
   readonly store: CardInspectionStore;
   readonly agentName?: string;
   readonly cardId?: string;
@@ -63,7 +70,7 @@ export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProvid
       resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
       inputSchema: (ctx) => createListCardsInputSchema(ctx.cardTypeVocabulary),
       executor: (ctx, args) =>
-        executeToolAction('observational_query', async () => listCards(ctx.store, args)),
+        executeToolAction('observational_query', async () => listCards(ctx, args)),
     }),
     defineToolBinder({
       name: 'get_card',
@@ -89,7 +96,7 @@ export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProvid
       executor: (ctx, args) =>
         executeToolAction('observational_query', async () =>
           getTree(
-            ctx.store,
+            ctx,
             args.rootId,
             args.depth,
             args.position,
@@ -107,9 +114,12 @@ function cardNotFound(cardId: string): ToolActionOutcome {
   return failure(`Card '${utf8SafePreview(cardId, DISCOVERY_TEXT_PREVIEW_MAX_BYTES)}' not found.`);
 }
 
-function listCards(store: CardInspectionStore, params: ListCardsInput): ToolActionOutcome {
+function listCards(ctx: CardInspectionProviderContext, params: ListCardsInput): ToolActionOutcome {
+  const store = ctx.store;
   const all = store.listCardInspectionRows();
-  let rows = [...all];
+  let rows = all.filter(({ card }) =>
+    allowsReachedObject(ctx.authority, 'list_cards', { kind: 'card', cardId: card.id }),
+  );
   if (params.status) {
     const statuses: CardStatus[] = Array.isArray(params.status) ? params.status : [params.status];
     rows = rows.filter(({ card }) => statuses.includes(card.lifecycle.status));
@@ -157,29 +167,35 @@ function listCards(store: CardInspectionStore, params: ListCardsInput): ToolActi
 }
 
 function getTree(
-  store: CardInspectionStore,
+  ctx: CardInspectionProviderContext,
   rootId: string,
   depth: number,
   position: CollectionPosition | undefined,
   responseBytes: number,
 ): ToolActionOutcome {
+  const store = ctx.store;
   const result = store.readCardInspectionTree(rootId, depth);
   if (result.kind === 'card-not-found') return cardNotFound(rootId);
-  const nodes = result.value.map(
-    ({ card, headId, parentId, relativeDepth, activeChildrenCount, activeDescendantCount }) => ({
-      id: card.id,
-      head_id: headId,
-      parent: parentId,
-      depth: relativeDepth,
-      type: card.type,
-      status: card.lifecycle.status,
-      title: titlePreview(card.title),
-      children_count: activeChildrenCount,
-      descendants: activeDescendantCount,
-      depth_omitted: relativeDepth === depth && activeChildrenCount > 0,
-      version_seq: card.version_seq,
-    }),
-  );
+  assertReachedObjectAuthority(ctx.authority, 'get_tree', { kind: 'card', cardId: rootId });
+  const nodes = result.value
+    .filter(({ card }) =>
+      allowsReachedObject(ctx.authority, 'get_tree', { kind: 'card', cardId: card.id }),
+    )
+    .map(
+      ({ card, headId, parentId, relativeDepth, activeChildrenCount, activeDescendantCount }) => ({
+        id: card.id,
+        head_id: headId,
+        parent: parentId,
+        depth: relativeDepth,
+        type: card.type,
+        status: card.lifecycle.status,
+        title: titlePreview(card.title),
+        children_count: activeChildrenCount,
+        descendants: activeDescendantCount,
+        depth_omitted: relativeDepth === depth && activeChildrenCount > 0,
+        version_seq: card.version_seq,
+      }),
+    );
   const observation = canonicalValueSha256({
     surface: 'get_tree',
     root_id: rootId,
@@ -218,34 +234,36 @@ function getCard(
   responseBytes: number,
 ): ToolActionOutcome {
   const store = ctx.store;
-  let card: CardRecord;
-  let headId: string;
+  const target = store.getCardDetail(cardId);
+  if (target.kind === 'card-not-found') return cardNotFound(cardId);
+  assertReachedObjectAuthority(ctx.authority, 'get_card', { kind: 'card', cardId });
+  let card: CardRecord = target.value.card;
+  let headId: string = target.value.headId;
   let sectionItems: readonly unknown[] | undefined;
   if (section === 'children') {
     const result = store.getCardChildren(cardId);
     if (result.kind === 'card-not-found') return cardNotFound(cardId);
     card = result.value.parent;
     headId = result.value.headId;
-    sectionItems = result.value.activeChildren.map((child) => {
-      const projected = projectCardRecordForOutbound(child);
-      return {
-        id: projected.id,
-        type: projected.type,
-        status: projected.lifecycle.status,
-        title: titlePreview(child.title),
-      };
-    });
+    sectionItems = result.value.activeChildren
+      .filter((child) =>
+        allowsReachedObject(ctx.authority, 'get_card', { kind: 'card', cardId: child.id }),
+      )
+      .map((child) => {
+        const projected = projectCardRecordForOutbound(child);
+        return {
+          id: projected.id,
+          type: projected.type,
+          status: projected.lifecycle.status,
+          title: titlePreview(child.title),
+        };
+      });
   } else if (section === 'records') {
     const result = store.listDeclaredRecordMetadata(cardId);
     if (result.kind === 'card-not-found') return cardNotFound(cardId);
     card = result.value.card;
     headId = result.value.headId;
     sectionItems = recordMetadataItems(result.value.card.id, result.value.definitions);
-  } else {
-    const result = store.getCardDetail(cardId);
-    if (result.kind === 'card-not-found') return cardNotFound(cardId);
-    card = result.value.card;
-    headId = result.value.headId;
   }
   const projected = projectCardRecordForOutbound(card);
   const base = { card_id: card.id, head_id: headId, version_seq: card.version_seq, section };
@@ -278,7 +296,15 @@ function getCard(
     return toolSucceeded(data);
   }
   let items: () => readonly unknown[];
-  if (section === 'dependencies') items = () => [...projected.depends_on];
+  if (section === 'dependencies')
+    items = () =>
+      projected.depends_on.filter((id) => {
+        const reached = store.getCanonicalCard(id);
+        return (
+          reached.kind === 'found' &&
+          allowsReachedObject(ctx.authority, 'get_card', { kind: 'card', cardId: id })
+        );
+      });
   else items = () => sectionItems!;
   const complete = items();
   const observation = canonicalValueSha256({

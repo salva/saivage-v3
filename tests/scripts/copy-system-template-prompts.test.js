@@ -271,7 +271,7 @@ function runCopySystemTemplatePromptsTest() {
     expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /exactly its eight intentional deltas/u, 'newloop accepted outside-delta drift');
     cpSync(join(newloop.promptRoot, 'fragments/_shared/project-guidance-common.md'), neutralNewloop);
     const newloopConfigDrift = { ...changedNewloop, config: structuredClone(newloop.config) };
-    newloopConfigDrift.config.agents.executor.tools.reverse();
+    newloopConfigDrift.config.agents.executor.capabilities.grants.reverse();
     expectThrows(() => assertNewloopPromptParity({ templates: [newloopFamily[0], newloopConfigDrift] }), /configuration differs/u, 'newloop accepted ordered-tool drift');
     const newloopPlanner = join(newloopSource, 'agents/_shared/planner.md');
     const newloopPlannerBytes = readFileSync(newloopPlanner);
@@ -293,7 +293,7 @@ function runCopySystemTemplatePromptsTest() {
     expectThrows(() => assertPaadTypedPromptParity({ templates: family }), /bytes differ outside intentional deltas/u, 'PAAD parity accepted neutral-hook drift');
     cpSync(join(paad.promptRoot, 'fragments/_shared/project-guidance-common.md'), neutral);
     const configDrift = { ...changedPaad, config: structuredClone(paad.config) };
-    configDrift.config.agents.executor.tools.reverse();
+    configDrift.config.agents.executor.capabilities.grants.reverse();
     expectThrows(() => assertPaadTypedPromptParity({ templates: [family[0], configDrift] }), /configuration differs/u, 'PAAD parity accepted ordered-tool drift');
     const plannerBytes = readFileSync(join(paadSource, plannerPath));
     writeFileSync(join(paadSource, plannerPath), `${plannerBytes.toString()}\n{{> paad-extra}}\n`);

@@ -163,7 +163,7 @@ describe('shipped project Planner semantic composition', () => {
     const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
     const projectPlanner = structuredClone(config.agents.planner!);
     config.agents['project-planner'] = projectPlanner;
-    config.agents.planner!.tools = config.agents.planner!.tools.filter((name) => name !== 'reopen_card');
+    config.agents.planner!.capabilities.grants = config.agents.planner!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter((name) => name !== 'reopen_card') })).filter((grant) => grant.tools.length > 0);
     agentExecution(config.card_types.project!.workflow.nodes.plan!).agent = 'project-planner';
     agentExecution(config.card_types.project!.workflow.nodes.recover!).agent = 'project-planner';
     agentExecution(config.card_types.project!.workflow.nodes['assess-completion']!).agent = 'project-planner';
@@ -211,8 +211,11 @@ describe('shipped project Planner semantic composition', () => {
       expect([...process.permittedChildTypes]).toEqual(['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']);
       expect([...plan.childCreationTypes]).toEqual([...process.permittedChildTypes]);
       expect([...plan.childActivationTypes]).toEqual([...process.permittedChildTypes]);
-      expect(agentExecution(plan).agent.tools.map(({ name }) => name)).toEqual(template.config.agents.planner!.tools);
-      expect(agentExecution(plan).agent.recordWrites.map(({ source }) => source)).toEqual(['brief.md', 'status.md']);
+      expect(agentExecution(plan).agent.tools.map(({ name }) => name)).toEqual(template.config.agents.planner!.capabilities.grants.flatMap((grant) => grant.tools));
+      expect(agentExecution(plan).agent.tools.find(({name}) => name === 'write')!.resources).toMatchObject([
+        {kind:'workspace'}, {kind:'record',scopes:['self'],patterns:[{source:'status.md'}]},
+        {kind:'record',scopes:['children'],patterns:[{source:'brief.md'}]},
+      ]);
       const planningOutcomes = cardType === 'project' ? ['admit_review', 'blocked', 'failed', 'assess_completion'] : ['complete_direct', 'admit_review', 'blocked', 'failed'];
       expect(processNodeOutcomes(process, 'node:plan')).toEqual(planningOutcomes);
       expect(processNodeOutcomes(process, 'node:recover')).toEqual(planningOutcomes);

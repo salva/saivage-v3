@@ -1,3 +1,4 @@
+import { testNotificationAuthority } from '../../helpers/capability-grants.js';
 import { afterEach, expect, test, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -210,7 +211,7 @@ test.each(['cancel', 'urgent-root', 'urgent-held'] as const)('%s joins native so
     await supervisor.startProject(); await active;
     if (mode === 'cancel') await supervisor.cancelCard(child.id, 'fixture cancellation');
     else {
-      const result = await supervisor.submitNotification('project', { id: randomUUID(), content: 'Reconsider current work',
+      const result = await supervisor.submitNotification(testNotificationAuthority(), 'project', { id: randomUUID(), content: 'Reconsider current work',
         created_at: new Date().toISOString(), source: 'fixture' }, 'urgent');
       expect(result).toMatchObject({ queued: true, interruption: mode === 'urgent-held'
         ? { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] }

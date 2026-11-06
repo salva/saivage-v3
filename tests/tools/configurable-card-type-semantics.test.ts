@@ -35,7 +35,7 @@ describe('capability-based configurable card-type semantics', () => {
       bootstrap_content: 'plan',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     const work = cards.create({
@@ -45,7 +45,7 @@ describe('capability-based configurable card-type semantics', () => {
       bootstrap_content: 'work',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
     const notify = jest.fn(

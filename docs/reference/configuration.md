@@ -319,7 +319,7 @@ start with a lowercase letter, then up to63 lowercase letters/digits/hyphens.
 Outcome IDs additionally allow underscore. Tool names use lowercase letters/digits/
 underscore, letter first,≤64. Record names are a letter-led lowercase
 letters/digits/hyphens stem≤64 followed by `.md`, with no directories.
-`record_writes` patterns allow `*` within that stem (including at its start).
+Record capability `patterns` allow `*` within that stem (including at its start).
 Record `schema` labels use the same letter-led stem followed by `.v` and a positive
 decimal version. These labels are not runtime migration instructions.
 
@@ -414,23 +414,108 @@ guide's coordinated example for that task.
 
 ## Agents
 
-Path `agents.<name>`; all fields required except the inner prompt default:
+Path `agents.<name>`; fields below are required except optional `quality_tools`
+and the inner prompt default:
 
 | Field | Type / constraint |
 | --- | --- |
 | `prompt` | Static prompt declaration below |
-| `tools` | Exact ordered array of canonical scope-valid tool names; no duplicates |
+| `capabilities` | Strict `{format_version:1, grants:[...]}`; ordered selected tool grants below |
 | `model_route` | Existing route identifier |
 | `skills` | Boolean; must equal whether `skill` is selected |
 | `session` | `global` or `card` |
-| `can_create_children` | Boolean; `create_card` requires true |
-| `record_writes` | Unique lowercase `.md` name/pattern array, with `*` wildcard support |
+| `quality_tools` | Optional versioned operator bindings; must match selected quality tools |
 
 The configured `analyst_agent` must be global. Card nodes/notification recipients
 must be card-scoped. Only configured Analyst/Oversight globals may select public
 `queue_notification`. Tools are compiled from actual binders, not inferred from
 agent labels. The [shipped inventory](../architecture/system-architecture.md#agent-tools)
 is the precise tool lookup, not this field table.
+
+### Direct-object capabilities
+
+Each grant has nonempty unique `tools` and, for resourceful tools, nonempty
+`resources`. A tool appears exactly once across grants; flattening preserves order.
+Every tool in a group must support every resource kind in that group. Clauses are
+alternatives, not inherited permissions:
+
+`grants: []` selects no ordinary tools; it cannot satisfy a node's required record
+writer or initializer contract. `quality_tools` remains an optional per-agent
+operator binding and must agree with the selected quality tool names; it grants no
+record/card authority.
+
+```yaml
+capabilities:
+  format_version: 1
+  grants:
+    - tools: [write, edit]
+      resources:
+        - {kind: workspace}
+        - {kind: record, scopes: [self], patterns: [status.md]}
+        - {kind: record, scopes: [children], patterns: [brief.md]}
+    - tools: [create_card, reorder_child]
+      resources: [{kind: card, scopes: [self]}]
+    - tools: [activate_card, edit_card, reopen_card, cancel_card]
+      resources: [{kind: card, scopes: [children]}]
+    - tools: [read, glob, grep]
+      resources:
+        - {kind: workspace}
+        - {kind: record, scopes: [all], patterns: ['*']}
+    - tools: [websearch]
+```
+
+This is a Planner excerpt, not a complete agent. Card resources require unique
+nonempty `scopes` and forbid patterns; record resources also require unique nonempty
+bounded record-name `patterns`. Workspace resources have neither scopes nor patterns:
+they select the existing file surface, not a filesystem ACL. A record must match
+scope **and** pattern in the same clause; the example cannot write self brief or
+child status. Scopes within a clause are a union:
+
+| Scope | Anchored card agent |
+| --- | --- |
+| `self` | The harness-bound activation card |
+| `children` | Its committed immediate children |
+| `descendants` | Its committed strict descendants, including children but not self |
+| `all` | Any supported canonically reachable target |
+
+Membership is canonical, never an ID prefix. Global Analyst/Oversight/external
+Analyst have no relative anchor: only `all` is legal on their card/record clauses.
+For example `{kind: record, scopes: [self, children], patterns: ['design-*.md']}`
+is a custom card-agent clause; a global equivalent must use `all`. Custom
+self/bootstrap writing is legal when explicitly granted and uses ordinary drafts.
+Bundled Planner instead has self/status and children/brief; Analyst has all/brief,
+Reviewer self/review.md and review-*.md, Executor self/status (native also self/
+git-correction.md). Framework record requirements and initializers derive self
+writer eligibility from these same compiled tools; creation derives from
+`create_card` on its existing parent plus permitted child types.
+
+| Tool family | Supported direct resource / effect boundary |
+| --- | --- |
+| `list_cards`, `get_card`, `get_tree`, card version list/get/diff | card; filter collections and related summaries before totals/cursors, refuse denied exact targets |
+| `read_record_version` | record owner/name, including accepted history |
+| `read`, `glob`, `grep`, `write`, `edit` | logical record URL → record; ordinary file → workspace |
+| `apply_patch`, `view_image` | workspace only; patch admits all destinations before effects |
+| `create_card`, `reorder_child` | existing parent, implicit self for Planner, explicit for Analyst; child IDs/dependencies are references |
+| `edit_card`, `activate_card`, `reopen_card`, `cancel_card`, `delete_card` | selected card; every supplied deletion root must qualify; functional binding/lifecycle rules still narrow availability |
+| `queue_notification` | explicit card; designated recipient and urgency rules remain |
+| `checkpoint_source` | implicit self card; active native ownership remains |
+| `webfetch` | optional record/workspace save target; omit resources for no-save-only fetch |
+| Runtime/control/config/navigation, process/shell, global evidence/session observations, websearch, skill/retrieval, MCP and quality tools | targetless here; omit resources; existing owning restrictions remain |
+| `emit_result`, configured actions, hooks, internal publishers | not ordinary agent grants; their explicit framework owners remain |
+
+Webfetch selection permits no-save requests; a save needs both Webfetch's destination
+clause and selected `write` on that destination, checked before network and freshly
+at publication. Unknown tools/scopes, duplicate tools/scopes/patterns, old agent
+`tools`/`record_writes`/`can_create_children`, unsupported kinds, global relative
+scopes, misplaced patterns and resources on targetless tools fail compilation.
+`all` does not enable missing tools, grandchild activation, owner takeover or
+authentication/native/GC/lifecycle bypass. Automatic bootstrap, record prompts,
+descendant contexts and broad global evidence are configured workflow feeds, not
+scoped read calls: this is not an information-flow or shell sandbox.
+
+Capabilities1 establishes the authority input discriminator; workflow6 records
+the changed authorship/delegation and reviewed-input semantics. Existing inputs and
+retained state do not auto-convert; see [adoption](../runbook/state-adoption.md).
 
 ### Prompt declarations
 
@@ -439,7 +524,7 @@ is the precise tool lookup, not this field table.
 | Static: agent role, agent-node task | `reference`, `compactable` | Reference required; compactable defaults true |
 | Durable: correction, entry, edge, pending-notification or record prompt | `reference`, `compactable`, optional `compaction_key` | compactable true; a nonempty key is allowed only with compactable false |
 
-Under workflow5, a key remains the exact parsed YAML string, not quote delimiters or
+Under workflow6, a key remains the exact parsed YAML string, not quote delimiters or
 escape spelling. `${POLICY_KEY}`, embedded substitutions, whitespace, case and
 Unicode remain literal whether variables exist or not; no key-only missing-variable
 warning is emitted. Empty is invalid; whitespace-only is nonempty and is not
@@ -502,7 +587,7 @@ Path `card_types.<type>`; `project` required in a supplied map:
 | --- | --- |
 | `permitted_child_types` | Required array; configured unique types, never `project`; empty means leaf |
 | `records` | Required name→record declaration map; exactly one bootstrap record |
-| `workflow` | Required workflow5 object below |
+| `workflow` | Required workflow6 object below |
 
 At resulting card depth12 creation requires a compiled leaf type. Child permission
 and card identity are runtime requirements, not configurable allocation scans.

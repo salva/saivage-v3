@@ -1,4 +1,5 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
+import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,10 +39,10 @@ const envelopeBytes = (data: unknown): number => Buffer.byteLength(canonicalJson
 const UNICODE = 'Ünïcödé-ßtrïng-🚀-';
 
 function analystSurface(cards: CardService, projectRoot: string, cardTypeVocabulary: readonly string[] = ['project', 'goal', 'code']) {
-  const context = { cardTypeVocabulary, store: cards, projectRoot, cardId: 'project', sessionId: 'agent:analyst:global', actor: 'analyst', policyAgentName: 'analyst', runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
+  const context = { authority: testWorkspaceAuthority(), cardTypeVocabulary, store: cards, projectRoot, cardId: 'project', sessionId: 'agent:analyst:global', actor: 'analyst', policyAgentName: 'analyst', runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
   return buildInvocationSurfaceFixture('analyst', [
-    bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary }),
-    bindToolProvider('card-version', cardVersionToolBinders, { store: cards }),
+    bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, authority: broadInspectionAuthority(), cardTypeVocabulary }),
+    bindToolProvider('card-version', cardVersionToolBinders, { store: cards, authority: broadInspectionAuthority() }),
     ...analystWorkspaceToolBinders.map((binder) => bindToolProvider('workspace', [binder], context)).slice(0, 1),
   ]);
 }
@@ -241,7 +242,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
       expect(description).toContain('plaintext TextSlice');
       expect(description).toContain('not hex encoded');
     }
-    const workspaceContext = { projectRoot: root, cardId: 'project', actor: 'analyst', policyAgentName: 'analyst', store: new CardService(root), runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
+    const workspaceContext = { authority: testWorkspaceAuthority(), projectRoot: root, cardId: 'project', actor: 'analyst', policyAgentName: 'analyst', store: new CardService(root), runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
     const workspaceSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('workspace', analystWorkspaceToolBinders, workspaceContext)]);
     for (const name of ['read', 'glob', 'grep']) {
       const binder = analystWorkspaceToolBinders.find((candidate) => candidate.name === name)!;
@@ -324,3 +325,4 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     }
   });
 });
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';

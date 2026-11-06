@@ -1,3 +1,4 @@
+import { testNotificationAuthority } from '../helpers/capability-grants.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { submitNotificationTool } from '../../src/tools/tool-api.js';
 import type { NotificationSubmissionPort } from '../../src/runtime/runtime-api.js';
@@ -9,7 +10,8 @@ describe('notification tool submission ownership', () => {
   it('constructs a fresh UUID immediately for the held port and carries the same identity into its receipt', async () => {
     const signal = new AbortController().signal;
     const before = Date.now();
-    const submit = jest.fn<NotificationSubmissionPort>(async (cardId, notification, urgency, passedSignal) => {
+    const submit = jest.fn<NotificationSubmissionPort>(async (authority, cardId, notification, urgency, passedSignal) => {
+      expect(authority).toEqual(testNotificationAuthority());
       expect(cardId).toBe(input.card_id);
       expect(notification).toMatchObject({ content: input.body, source: input.kind });
       expect(Date.parse(notification.created_at)).toBeGreaterThanOrEqual(before);
@@ -19,14 +21,14 @@ describe('notification tool submission ownership', () => {
       expect(passedSignal).toBe(signal);
       return { queued: true, cardId, notificationId: notification.id, interruption: { status: 'not_requested' } };
     });
-    const result = await submitNotificationTool(input, submit, signal);
+    const result = await submitNotificationTool(testNotificationAuthority(), input, submit, signal);
     expect(result).toEqual({
       kind: 'succeeded',
-      data: { queued: true, card_id: 'project', notification_id: submit.mock.calls[0]![1].id, body: input.body, interruption: { status: 'not_requested' } },
+      data: { queued: true, card_id: 'project', notification_id: submit.mock.calls[0]![2].id, body: input.body, interruption: { status: 'not_requested' } },
     });
     expect(submit).toHaveBeenCalledTimes(1);
-    await submitNotificationTool(input, submit, signal);
-    expect(submit.mock.calls[1]![1].id).not.toBe(submit.mock.calls[0]![1].id);
+    await submitNotificationTool(testNotificationAuthority(), input, submit, signal);
+    expect(submit.mock.calls[1]![2].id).not.toBe(submit.mock.calls[0]![2].id);
   });
 
   it.each([
@@ -35,7 +37,7 @@ describe('notification tool submission ownership', () => {
     { queued: false as const, reason: 'activation_closed' as const, cardId: 'project' },
   ])('projects $reason without reporting acceptance', async (portResult) => {
     const submit = jest.fn<NotificationSubmissionPort>(async () => portResult);
-    const result = await submitNotificationTool(input, submit, new AbortController().signal);
+    const result = await submitNotificationTool(testNotificationAuthority(), input, submit, new AbortController().signal);
     expect(result).toMatchObject({ kind: 'failed', data: { queued: false, reason: portResult.reason, card_id: 'project' } });
     expect(submit).toHaveBeenCalledTimes(1);
   });

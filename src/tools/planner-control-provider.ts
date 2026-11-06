@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  assertReachedObjectAuthority,
+  type DirectObjectAuthority,
+} from './direct-object-authority.js';
 import { isRuntimeStoppedInterruption } from '../runtime/runtime-api.js';
 
 import type { CardEditPatch, CardService, NewChildCardInput } from '../cards/store-api.js';
@@ -28,7 +32,7 @@ import {
 } from '../contracts/index.js';
 import type { ToolExecutionContext } from './invocation.js';
 import type { PlannerChildControlPort } from '../runtime/runtime-api.js';
-import { cardParentId, parseAgentName } from '../schemas/index.js';
+import { cardParentId } from '../schemas/index.js';
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
@@ -42,6 +46,7 @@ interface PlannerControlStore {
 }
 
 export interface PlannerControlProviderContext {
+  readonly authority: DirectObjectAuthority;
   readonly agentName: import('../schemas/index.js').AgentName;
   readonly projectRoot: string;
   readonly parentCardId: string;
@@ -118,6 +123,7 @@ function createCard(
   if (dependencyError) return failure(dependencyError);
   const parent = ctx.store.read(ctx.parentCardId);
   if (!parent) return failure(`Planner parent card '${ctx.parentCardId}' not found.`);
+  assertPlannerTarget(ctx, 'create_card', parent.id);
   if (!ctx.store.create) throw new Error('Planner create_card requires a mutable card store.');
   const input: NewChildCardInput = {
     type: type.type,
@@ -126,7 +132,8 @@ function createCard(
     bootstrap_content: record.bootstrap_content,
     priority: record.priority ?? 0,
     urgency: record.urgency ?? 'normal',
-    created_by: parseAgentName(ctx.sessionId.split(':')[1]),
+    created_by: ctx.agentName,
+    bootstrap_author: { kind: 'card-agent', agent: ctx.agentName, card_id: ctx.parentCardId },
     depends_on: dependsOn,
   };
   return toolSucceeded({ card: compactPlannerToolCard(ctx.store.create(input)) });
@@ -139,6 +146,7 @@ function editCard(
   if (record.card_id.length === 0) return failure('edit_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'edit_card');
   if (!child.success) return failure(child.error);
+  assertPlannerTarget(ctx, 'edit_card', child.card.id);
   if (['running', 'done', 'cancelled'].includes(child.card.lifecycle.status))
     return failure(
       `edit_card cannot edit ${child.card.lifecycle.status} child '${record.card_id}'.`,
@@ -155,6 +163,9 @@ function reorderChild(
   ctx: PlannerControlProviderContext,
   record: z.infer<typeof plannerReorderChildInputSchema>,
 ): ToolActionOutcome {
+  const parent = ctx.store.read(ctx.parentCardId);
+  if (!parent) return failure(`Planner parent card '${ctx.parentCardId}' not found.`);
+  assertPlannerTarget(ctx, 'reorder_child', parent.id);
   if (!ctx.store.reorderChildren)
     throw new Error('Planner reorder_child requires a mutable card store.');
   const result = ctx.store.reorderChildren(ctx.parentCardId, record.orderedChildIds);
@@ -175,6 +186,7 @@ async function cancelCard(
   try {
     return toolSucceeded(
       await ctx.parentControl.cancelChild({
+        authority: ctx.authority,
         childCardId: record.card_id,
         reason: record.reason ?? 'planner_cancel_card',
       }),
@@ -193,7 +205,9 @@ async function reopenCard(
   if (record.card_id === 'project' || cardParentId(record.card_id) !== ctx.parentCardId)
     return failure(`reopen_card can target only immediate children of '${ctx.parentCardId}'.`);
   try {
-    return toolSucceeded(ctx.parentControl.reopenChild({ childCardId: record.card_id }));
+    return toolSucceeded(
+      ctx.parentControl.reopenChild({ childCardId: record.card_id, authority: ctx.authority }),
+    );
   } catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     if (isRuntimeStoppedInterruption(error)) throw error;
@@ -210,6 +224,7 @@ async function activateCard(
     return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
   const child = ctx.store.read(record.card_id);
   if (!child) return failure(`Child '${record.card_id}' not found.`);
+  assertPlannerTarget(ctx, 'activate_card', child.id);
   if (!ctx.childActivationTypes.has(child.type))
     return failure(`Child type '${child.type}' is not permitted for activation by this node.`);
   if (invocation?.kind !== 'llm')
@@ -217,6 +232,7 @@ async function activateCard(
   const lease = invocation.childInvocation.reserveChild(record.card_id);
   try {
     const activation = await ctx.parentControl.activateChild({
+      authority: ctx.authority,
       childCardId: record.card_id,
       instructions: record.instructions,
       invocation: lease,
@@ -227,6 +243,16 @@ async function activateCard(
     if (isRuntimeStoppedInterruption(error)) throw error;
     return toolFailed(error instanceof Error ? error.message : String(error));
   }
+}
+
+function assertPlannerTarget(
+  ctx: PlannerControlProviderContext,
+  tool: string,
+  reachedCardId: string,
+): void {
+  if (ctx.authority.anchorCardId !== ctx.parentCardId)
+    throw new Error('Planner capability anchor does not match its bound parent.');
+  assertReachedObjectAuthority(ctx.authority, tool, { kind: 'card', cardId: reachedCardId });
 }
 
 function requireImmediateChild(

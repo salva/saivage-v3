@@ -194,7 +194,7 @@ describe('Analyst project context', () => {
       bootstrap_content: 'brief',
       priority: 1,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     const retained = persisted.create({
@@ -204,7 +204,7 @@ describe('Analyst project context', () => {
       bootstrap_content: 'brief',
       priority: 1,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     const second = persisted.create({
@@ -214,7 +214,7 @@ describe('Analyst project context', () => {
       bootstrap_content: 'brief',
       priority: 1,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     persisted.deleteSubtrees([retained.id], () => true, 'analyst');
@@ -286,7 +286,7 @@ describe('Analyst project context', () => {
       bootstrap_content: 'brief',
       priority: 1,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
     const render = jest.fn(() => 'rendered prompt');

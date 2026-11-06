@@ -47,10 +47,8 @@ test('native ref and source path admission preserves exact control and punctuati
 
 function configured(): SaivageConfig {
   const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
-  config.agents[config.analyst_agent]!.tools = config.agents[config.analyst_agent]!.tools.filter(
-    (name) => name !== 'run_command' && !name.startsWith('mcp_'),
-  );
-  config.agents.executor!.record_writes.push('git-correction.md');
+  config.agents[config.analyst_agent]!.capabilities.grants = config.agents[config.analyst_agent]!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((name)=>name !== 'run_command' && !name.startsWith('mcp_'))})).filter((grant)=>grant.tools.length>0);
+  for (const grant of config.agents.executor!.capabilities.grants) if (grant.tools.some((name)=>['write','edit','webfetch'].includes(name))) grant.resources!.push({kind:'record',scopes:['self'],patterns:['git-correction.md']});
   for (const definition of Object.values(config.card_types))
     definition.records['git-correction.md'] = {
       format: 'markdown',
@@ -87,9 +85,9 @@ function configured(): SaivageConfig {
 describe('Git workflow policy input and declaration compilation', () => {
   test('checks selected global declarations and actual bound capabilities, not only tool names', () => {
     const config = configured();
-    config.agents.extra = { ...structuredClone(config.agents.analyst!), skills: false, tools: ['run_command'] };
+    config.agents.extra = { ...structuredClone(config.agents.analyst!), skills: false, capabilities:{format_version:1,grants:[{tools:['run_command']}]} };
     expect(compileGitWorkflowPolicy(config)).not.toBeNull();
-    config.agents[config.analyst_agent]!.tools.push('run_command');
+    config.agents[config.analyst_agent]!.capabilities.grants.push({tools:['run_command']});
     expect(() => compileGitWorkflowPolicy(config)).toThrow(/unsupported source writer/);
     const declarations = { ...compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG), gitPolicy: compileGitWorkflowPolicy(configured()) };
     const tools = declarations.analyst.tools;
@@ -166,7 +164,7 @@ describe('Git workflow policy input and declaration compilation', () => {
 
   test('rejects hooks, global writers, wrong correction participant and incomplete review binding', () => {
     const globalWriter = configured();
-    globalWriter.agents[globalWriter.analyst_agent]!.tools.push('run_command');
+    globalWriter.agents[globalWriter.analyst_agent]!.capabilities.grants.push({tools:['run_command']});
     expect(() => compileGitWorkflowPolicy(globalWriter)).toThrow('unsupported source writer');
     const wrongAgent = configured();
     if (!wrongAgent.git_workflow?.enabled) throw new Error('Test needs ON input.');
@@ -280,7 +278,7 @@ describe('workflow5 correction participant structural closure', () => {
     const repaired = publishDiscardedCard(root, 'card-z', workflows.cardTypes.get('code')!);
     expect(repaired.git).toBeNull();
     expect(readConversationCatalog(root, cardAgentSessionId('executor', repaired.id))).toBeDefined();
-    const leaf = publishInitialChildCard(root, { parent: 'project', type: 'code', title: 'leaf', bootstrap_content: 'Work', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }, workflows.cardTypes.get('code')!);
+    const leaf = publishInitialChildCard(root, { parent: 'project', type: 'code', title: 'leaf', bootstrap_content: 'Work', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }, workflows.cardTypes.get('code')!);
     expect(readConversationCatalog(root, cardAgentSessionId('executor', leaf.id))).toBeDefined();
     // This isolated child is not linked into the project; admission follows canonical root only.
     unlinkSync(cardConversationVersionIndexFile(root, 'project', 'executor'));
@@ -303,7 +301,7 @@ describe('workflow5 correction participant structural closure', () => {
       round_id: `r-user-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp });
     appendConversationBatch({ projectRoot: root }, [row]);
     const segment = readCurrentConversationSegment(root, session)!;
-    expect(segment.genesis.format_version).toBe(12);
+    expect(segment.genesis.format_version).toBe(13);
     expect(segment.rows[0]!.content).toBe(row.content);
     const outbound = projectCanonicalConversationRow(segment.rows[0], () => { throw new Error('No tool invocation in activation marker'); });
     expect(JSON.parse(outbound.content)).toEqual(payload);

@@ -102,6 +102,7 @@ interface CommittedCardArtifactCatalog {
 interface ActiveCardTraversalRow {
   readonly card: CardRecord;
   readonly headId: string;
+  readonly ordinary: { readonly entry_id: string; readonly version: number };
   readonly parentId: string | null;
   readonly activeChildrenCount: number;
   readonly relativeDepth: number;
@@ -499,6 +500,7 @@ function walkActivePreorder(
     const row: ActiveCardTraversalRow = {
       card: fold.current.card,
       headId: fold.selection.head_id,
+      ordinary: fold.selection.ordinary,
       parentId: cardParentId(fold.current.card.id),
       activeChildrenCount: children.length,
       relativeDepth: depth,
@@ -663,6 +665,7 @@ function publishInitialCardState(
   card: CardRecord,
   bootstrapContent: string,
   definitions: readonly RecordDefinition[],
+  author: import('../schemas/index.js').RecordAuthor,
   temporary?: PublicationTemporaryIdFactory,
 ): void {
   const initialEntryId = randomUUID();
@@ -672,14 +675,7 @@ function publishInitialCardState(
       card.id,
       definition,
       { entry_id: initialEntryId, version: 1 },
-      card.created_by === 'runtime:bootstrap' || card.created_by === 'runtime:repair'
-        ? {
-            kind: 'runtime',
-            purpose: card.created_by === 'runtime:bootstrap' ? 'bootstrap' : 'repair',
-          }
-        : card.created_by.startsWith('external:')
-          ? { kind: 'external-agent', principal: card.created_by.slice('external:'.length) }
-          : { kind: 'agent', agent: card.created_by as import('../schemas/index.js').AgentName },
+      author,
       definition.bootstrap ? bootstrapContent : undefined,
       temporary,
     );
@@ -769,7 +765,14 @@ export function publishInitialChildCard(
   mkdirSync(cardConversationsRoot(projectRoot, id));
   prepareInitialCardDirectories(projectRoot, id);
   initializeCardConversations(projectRoot, card, workflow, temporary);
-  publishInitialCardState(projectRoot, card, input.bootstrap_content, definitions, temporary);
+  publishInitialCardState(
+    projectRoot,
+    card,
+    input.bootstrap_content,
+    definitions,
+    input.bootstrap_author,
+    temporary,
+  );
   return card;
 }
 
@@ -828,7 +831,14 @@ export function publishInitialProjectCard(
       declared: true,
     }),
   );
-  publishInitialCardState(projectRoot, card, input.bootstrap_content, definitions, temporary);
+  publishInitialCardState(
+    projectRoot,
+    card,
+    input.bootstrap_content,
+    definitions,
+    { kind: 'runtime', purpose: 'bootstrap' },
+    temporary,
+  );
 }
 
 const REPAIR_CARD_LOSS_RECORD =

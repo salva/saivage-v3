@@ -63,5 +63,4 @@ export type {
   AnalystPreparationReadServices,
 } from './analyst-prepare/webfetch.js';
 export { projectNotificationSubmission } from './notification-result-projection.js';
-export { mutateRecord, admitRecordMutation } from './record-mutation-service.js';
 export { CardExecutionsReadModel } from './read-models/card-executions-read-model.js';

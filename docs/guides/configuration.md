@@ -179,29 +179,43 @@ tools example: those exact models' Chat tool capability resolves unsupported.
 
 ## Select agents, tools and skills
 
-Start from the generated agent declaration; edit its **exact** tools list rather
-than adding a broad global grant. This is a complete declaration excerpt for the
-bundled Planner shape, not an additional agent or a full catalog:
+Start from the generated agent declaration; edit its exact capability grants rather
+than adding a broad global grant. This reduced Planner declaration illustrates the
+singular grammar, not the complete shipped tool inventory:
 
 ```yaml
 planner:
   prompt: { reference: planner, compactable: true }
-  tools: [create_card, edit_card, cancel_card, activate_card, reopen_card, reorder_child,
-          list_cards, get_card, get_tree, read, write, edit, glob, grep,
-          list_card_versions, get_card_version, diff_card_versions,
-          read_record_version, websearch, webfetch]
+  capabilities:
+    format_version: 1
+    grants:
+      - tools: [create_card, reorder_child]
+        resources: [{kind: card, scopes: [self]}]
+      - tools: [edit_card, cancel_card, activate_card, reopen_card]
+        resources: [{kind: card, scopes: [children]}]
+      - tools: [list_cards, get_card, get_tree]
+        resources: [{kind: card, scopes: [all]}]
+      - tools: [read, glob, grep]
+        resources:
+          - {kind: workspace}
+          - {kind: record, scopes: [all], patterns: ['*']}
+      - tools: [write, edit, webfetch]
+        resources:
+          - {kind: workspace}
+          - {kind: record, scopes: [self], patterns: [status.md]}
+          - {kind: record, scopes: [children], patterns: [brief.md]}
   model_route: planner
   session: card
-  can_create_children: true
-  record_writes: [brief.md, status.md]
   skills: false
 ```
 
-The tool must exist in the selected global/card scope; duplicates fail. Names do
-not imply permission. `record_writes` restricts record mutation independently of
-filesystem tools. `can_create_children` and the type's permitted-child set both
-matter. Public `queue_notification` is selected only for the configured globals
-Analyst/Oversight, not arbitrary card agents.
+The tool must exist in the selected global/card binding; duplicates fail. A record
+name and relationship must match the same clause: self/status plus children/brief
+does not grant self/brief. Creation additionally needs the parent's permitted-child
+type. Globals have no self anchor and use only `all`. Public `queue_notification`
+is selected only for configured Analyst/Oversight. See the complete
+[capability grammar and tool matrix](../reference/configuration.md#direct-object-capabilities)
+before changing scope. Existing YAML is not automatically converted.
 
 `skills: true` must agree with selecting `skill`. Optional target-project
 `.saivage/skills/index.json` entries use configured skill-enabled agent names:
@@ -242,7 +256,7 @@ there is no image garbage-collection promise.
 
 ## Configure workflows and records
 
-A card type declares permitted children, records and `workflow.format_version: 5`.
+A card type declares permitted children, records and `workflow.format_version: 6`.
 For retained explicit workflow2 inputs, follow the
 [literal-key adoption boundary](../runbook/state-adoption.md#workflow3-literal-protection-keys),
 not an automatic version rewrite.
@@ -324,7 +338,7 @@ continue. See [execution evidence](../runbook/evidence.md#action-execution-and-s
 ### Initialize records without inventing authorship
 
 These are two coordinated **excerpts**, inserted into the same complete card type
-and an agent work node; the selected agent needs matching `record_writes` and `write`:
+and an agent work node; the selected agent needs matching self record `write` grants:
 
 <div v-pre>
 

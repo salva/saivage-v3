@@ -5,7 +5,7 @@ import { cardHeadFile, cardPreviousHeadFile, cardRecordHeadFile, cardRecordPrevi
 import { publishHeadFile } from '../../../src/persistence/publish-head.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../../helpers/canonical-project.js';
 
 import { NodeExecution as AgentNodeExecution } from '../../../src/runtime/actors/node-execution.js';
 import { AgentExecutor } from '../../../src/runtime/actors/agent-executor.js';
@@ -13,7 +13,7 @@ import { PublicationOutcomeUnknownError } from '../../../src/contracts/publicati
 
 type RecordMethods = {
   captureRecordHead(filename: string): unknown;
-  discardWrittenRecords(names:Set<string>): void;
+  discardWrittenRecords(node:unknown,names:Set<string>): void;
   closeAcceptedRecords(node:unknown,candidates:ReadonlyMap<string,unknown>,written:ReadonlySet<string>):unknown;
   validateRecords(node:unknown,baseline:ReadonlyMap<string,{revision:number;headId:string}|null>):unknown;
   prepareRecordRequirements(node:unknown):void;
@@ -32,7 +32,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     store.create({ type: 'code', parent: 'project', title: 'Displayed child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const inspection = jest.spyOn(store, 'readCardInspectionTree');
     const childListing = jest.spyOn(store, 'listChildren');
-    const runner = new AgentExecutor({ cardId: 'project', store } as never, {} as never) as unknown as {
+    const runner = new AgentExecutor({ cardId: 'project', store, workflows: TEST_RUNTIME_WORKFLOWS } as never, {} as never) as unknown as {
       captureReviewerPair(id: string, records: readonly string[]): { snapshot: unknown };
       reviewerStaleReason(id: string, before: unknown, records: readonly string[]): string | null;
     };
@@ -53,7 +53,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const root = mkdtempSync(join(tmpdir(), 'review-head-identity-')); roots.push(root); initProjectTree(root);
     const store = new CardService(root);
     const child = store.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    const runner = new AgentExecutor({ cardId: 'project', store } as never, {} as never) as unknown as {
+    const runner = new AgentExecutor({ cardId: 'project', store, workflows: TEST_RUNTIME_WORKFLOWS } as never, {} as never) as unknown as {
       captureReviewerSnapshot(id: string, records: readonly string[]): unknown;
       reviewerStaleReason(id: string, before: unknown, records: readonly string[]): string | null;
     };
@@ -71,7 +71,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     roots.push(root); initProjectTree(root);
     const store = new CardService(root);
     const child = store.create({ type: 'code', parent: 'project', title: 'reviewed child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    const runner = new AgentExecutor({ cardId: 'project', store } as never, {} as never) as unknown as {
+    const runner = new AgentExecutor({ cardId: 'project', store, workflows: TEST_RUNTIME_WORKFLOWS } as never, {} as never) as unknown as {
       captureReviewerSnapshot(id: string, records: readonly string[]): unknown;
       reviewerStaleReason(id: string, before: unknown, records: readonly string[]): string | null;
     };
@@ -109,17 +109,18 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     expect(history.kind==='found'&&history.value.catalog.versions.map(({version})=>version)).toEqual([1]);
   });
   it('treats only the concrete type as an absent candidate or cleanup target', () => {
+    const node={execution:{kind:'agent',agent:TEST_RUNTIME_WORKFLOWS.agents.get('reviewer')!}};
     const absentStore = { readRecordCurrent: jest.fn(() => ({kind:'found',value:{projection:null}})), discardRecord: jest.fn() };
     const absent = new AgentNodeExecution({ cardId: 'project', store: absentStore } as never, {} as never) as unknown as RecordMethods;
     expect(absent.captureRecordHead('status.md')).toBeNull();
-    expect(() => absent.discardWrittenRecords(new Set(['review.md']))).not.toThrow();
+    expect(() => absent.discardWrittenRecords(node,new Set(['review.md']))).not.toThrow();
     expect(absentStore.discardRecord).not.toHaveBeenCalled();
 
     const hostile = new Error('HOSTILE_AGENT_RECORD_READ');
     const failedStore = { readRecordCurrent: jest.fn(() => { throw hostile; }), discardRecord: jest.fn() };
     const failed = new AgentNodeExecution({ cardId: 'project', store: failedStore } as never, {} as never) as unknown as RecordMethods;
     expect(() => failed.captureRecordHead('status.md')).toThrow(hostile);
-    expect(() => failed.discardWrittenRecords(new Set(['review.md']))).toThrow(hostile);
+    expect(() => failed.discardWrittenRecords(node,new Set(['review.md']))).toThrow(hostile);
   });
 
   it('closes updated requirements in declaration order and retains close returns without rereading',()=>{
@@ -127,7 +128,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const store={readRecordCurrent:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{trace.push(name);const sourceVersion=({['alpha.md']:1,['beta.md']:2})[name]!+1;return{revision:sourceVersion,currentUrl:`record:///${name}?card=project`,accepted:{source_version:sourceVersion}};})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({mode:'continue',gate:'updated',definition:{name}}));
-    const agent={name:'worker',recordWrites:requirements.map(({definition})=>({source:definition.name,matcher:new RegExp(`^${definition.name.replace('.', '\\.')}$`)}))};
+    const agent={name:'worker',tools:[resolveRuntimeTool('card','write',[{kind:'record',scopes:['self'],patterns:requirements.map(({definition})=>definition.name)}])]};
     const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,revision:index+1,state:'open',draft:{content:'accepted',version:1,target_version:1}}]));
     expect(runner.closeAcceptedRecords({nodeId:'work',execution:{kind:'agent',agent},requirements},candidates,new Set())).toEqual([
       {name:'alpha.md',url:'record:///alpha.md?card=project&v=2',version:2},
@@ -142,7 +143,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const store={readRecordCurrent:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{if(name==='alpha.md')throw failure;throw new Error('LATER_CLOSE_REACHED');})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({mode:'continue',gate:'updated',definition:{name}}));
-    const agent={name:'worker',recordWrites:requirements.map(({definition})=>({source:definition.name,matcher:new RegExp(`^${definition.name.replace('.', '\\.')}$`)}))};
+    const agent={name:'worker',tools:[resolveRuntimeTool('card','write',[{kind:'record',scopes:['self'],patterns:requirements.map(({definition})=>definition.name)}])]};
     const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,revision:index+1,state:'open',draft:{content:'accepted',version:1,target_version:1}}]));
     expect(()=>runner.closeAcceptedRecords({nodeId:'work',execution:{kind:'agent',agent},requirements},candidates,new Set())).toThrow(failure);
     expect(store.closeRecord).toHaveBeenCalledTimes(1);
@@ -183,11 +184,11 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     expect(runner.captureRecordHead('clean.md')).toEqual({revision:4,headId:'11111111-1111-4111-8111-111111111111'});
   });
 
-  it('closes a tool-less continue-exists resumed draft under glob-authorized accepting provenance', () => {
+  it('closes an edit-only continue-exists resumed draft under its self record capability', () => {
     const closeRecord=jest.fn((_card:string,name:string,writer:string)=>({revision:8,currentUrl:`record:///${name}?card=project`,accepted:{source_version:8,author: { kind: 'agent', agent: writer }}}));
     const runner=new AgentNodeExecution({cardId:'project',store:{closeRecord}} as never,{} as never) as unknown as RecordMethods;
     const requirement={mode:'continue',gate:'exists',definition:{name:'resume.md'}};
-    const node={execution:{kind:'agent',agent:{name:'worker',tools:[],recordWrites:[{source:'resume.md',matcher:/^resume\.md$/u}]}},requirements:[requirement]};
+    const node={execution:{kind:'agent',agent:{name:'worker',tools:[resolveRuntimeTool('card','edit',[{kind:'record',scopes:['self'],patterns:['resume.md']}])]}},requirements:[requirement]};
     const candidate={revision:7,currentUrl:'record:///resume.md?card=project',state:'open',draft:{content:'resumed',version:1,target_version:1}};
     expect(runner.closeAcceptedRecords(node,new Map([['resume.md',candidate]]),new Set())).toEqual([{name:'resume.md',url:'record:///resume.md?card=project&v=8',version:8}]);
     expect(closeRecord).toHaveBeenCalledWith('project','resume.md','worker');
@@ -200,8 +201,9 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const values=new Map([['free-a.md',open('free-a.md',4)],['free-b.md',open('free-b.md',5)],['free-c.md',open('free-c.md',6)]]);
     const store={closeRecord,readRecordCurrent:jest.fn((_card:string,name:string)=>({kind:'found',value:{projection:values.get(name)??null}}))};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
-    const node={execution:{kind:'agent',agent:{name:'worker',recordWrites:[{source:'*.md',matcher:/^[a-z0-9-]*\.md$/u}]}},requirements:[{mode:'continue',gate:'exists',definition:{name:'required.md'}}]};
+    const node={execution:{kind:'agent',agent:{name:'worker',tools:[resolveRuntimeTool('card','write',[{kind:'record',scopes:['self'],patterns:['*.md']}])]}},requirements:[{mode:'continue',gate:'exists',definition:{name:'required.md'}}]};
     expect(()=>runner.closeAcceptedRecords(node,new Map([['required.md',open('required.md',2)]]),new Set(['free-c.md','free-b.md','free-a.md']))).toThrow('FREE_CLOSE_FAILED');
     expect(trace).toEqual(['required.md','free-a.md','free-b.md']);
   });
 });
+import { resolveRuntimeTool } from '../../../src/tools/tool-api.js';

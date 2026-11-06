@@ -353,16 +353,31 @@ function extractClassicAgents(projectRoot) {
       if (fields.has(key)) throw new Error(`createClassicConfig agents.${role} contains duplicates`);
       fields.add(key);
     }
-    const tools = propertyAssignment(agent, 'tools', `createClassicConfig agents.${role}`);
-    if (!ts.isArrayLiteralExpression(tools)) throw new Error(`createClassicConfig agents.${role}.tools must be an array literal`);
+    const capabilities = directIdentifierCall(propertyAssignment(agent, 'capabilities', `createClassicConfig agents.${role}`), 'capabilities', `agents.${role}.capabilities`);
     let ordered;
     if (role === 'oversight') {
-      if (tools.elements.length !== 1 || !ts.isSpreadElement(tools.elements[0])
-        || !ts.isIdentifier(tools.elements[0].expression) || tools.elements[0].expression.text !== 'OVERSIGHT_ALLOWED_TOOL_NAMES') {
-        throw new Error('createClassicConfig oversight.tools must spread only OVERSIGHT_ALLOWED_TOOL_NAMES');
+      const spread = capabilities.arguments[0];
+      if (capabilities.arguments.length !== 1 || !ts.isSpreadElement(spread)
+        || !callNamed(spread.expression, 'OVERSIGHT_ALLOWED_TOOL_NAMES', 'map')) {
+        throw new Error('createClassicConfig oversight capabilities must map OVERSIGHT_ALLOWED_TOOL_NAMES');
       }
+      const map = callNamed(spread.expression, 'OVERSIGHT_ALLOWED_TOOL_NAMES', 'map');
+      const mapper = map.arguments[0];
+      if (map.arguments.length !== 1 || !ts.isArrowFunction(mapper) || mapper.parameters.length !== 1
+        || identifierText(mapper.parameters[0].name, 'Oversight grant mapper') !== 'tool') throw new Error('Oversight grant mapper must bind tool');
+      const grants = descendants(mapper.body, node => ts.isCallExpression(node)
+        && ts.isIdentifier(node.expression) && node.expression.text === 'grant');
+      if (grants.length === 0 || grants.some(grant => {
+        const tools = grant.arguments[0];
+        return !ts.isArrayLiteralExpression(tools) || tools.elements.length !== 1
+          || !ts.isIdentifier(tools.elements[0]) || tools.elements[0].text !== 'tool';
+      })) throw new Error('Oversight grants must preserve each mapped tool');
       ordered = policy;
-    } else ordered = stringArray(tools, `createClassicConfig agents.${role}.tools`);
+    } else ordered = capabilities.arguments.flatMap((argument) => {
+      const grant = directIdentifierCall(argument, 'grant', `agents.${role} grant`);
+      if (grant.arguments.length < 1 || grant.arguments.length > 2) throw new Error(`Invalid agents.${role} grant`);
+      return stringArray(grant.arguments[0], `agents.${role} grant.tools`);
+    });
     if (new Set(ordered).size !== ordered.length) throw new Error(`createClassicConfig agents.${role}.tools contains duplicates`);
     roles[role] = ordered;
   }
@@ -1081,24 +1096,44 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
       || identifierText(cardTypes.expression.expression, path) !== 'CLASSIC_TEMPLATE') {
       throw new Error(`${path} native classic selected inventory must use CLASSIC_TEMPLATE.config.card_types!`);
     }
-    const filterAssignment = builder.body.statements.find(statement => ts.isExpressionStatement(statement)
-      && ts.isBinaryExpression(statement.expression) && statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && statement.expression.left.getText(ast) === 'config.agents.analyst!.tools')?.expression;
-    const filter = filterAssignment && unwrapExpression(filterAssignment.right);
-    const predicate = filter && ts.isCallExpression(filter) && filter.arguments.length === 1 ? unwrapExpression(filter.arguments[0]) : null;
+    const codePath = node => node.getText(ast).replace(/\s+/gu, '');
+    const assignment = builder.body.statements.find(statement => ts.isExpressionStatement(statement)
+      && ts.isBinaryExpression(statement.expression)
+      && statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && codePath(statement.expression.left) === 'config.agents.analyst!.capabilities.grants')?.expression;
+    const nonempty = assignment && unwrapExpression(assignment.right);
+    const mapping = nonempty && ts.isCallExpression(nonempty) && ts.isPropertyAccessExpression(nonempty.expression)
+      && nonempty.expression.name.text === 'filter' ? unwrapExpression(nonempty.expression.expression) : null;
+    const keep = nonempty && ts.isCallExpression(nonempty) ? nonempty.arguments[0] : null;
+    const keepBody = keep && ts.isArrowFunction(keep) ? unwrapExpression(keep.body) : null;
+    const mapper = mapping && ts.isCallExpression(mapping) ? mapping.arguments[0] : null;
+    const mapped = mapper && ts.isArrowFunction(mapper) ? unwrapExpression(mapper.body) : null;
+    const tools = mapped && ts.isObjectLiteralExpression(mapped) ? propertyAssignment(mapped, 'tools', path) : null;
+    const predicate = tools && ts.isCallExpression(tools) ? tools.arguments[0] : null;
     const body = predicate && ts.isArrowFunction(predicate) ? unwrapExpression(predicate.body) : null;
     const excluded = body && ts.isPrefixUnaryExpression(body) && body.operator === ts.SyntaxKind.ExclamationToken
       ? callNamed(unwrapExpression(body.operand), 'nativeGlobalExcludedTools', 'includes') : null;
-    if (!predicate || !ts.isArrowFunction(predicate) || predicate.parameters.length !== 1
+    if (!nonempty || !ts.isCallExpression(nonempty) || nonempty.arguments.length !== 1
+      || !keep || !ts.isArrowFunction(keep) || keep.parameters.length !== 1
+      || identifierText(keep.parameters[0].name, path) !== 'grant'
+      || !keepBody || !ts.isBinaryExpression(keepBody)
+      || keepBody.operatorToken.kind !== ts.SyntaxKind.GreaterThanToken
+      || codePath(keepBody.left) !== 'grant.tools.length'
+      || !ts.isNumericLiteral(keepBody.right) || keepBody.right.text !== '0'
+      || !mapping || !ts.isCallExpression(mapping) || mapping.arguments.length !== 1
+      || !ts.isPropertyAccessExpression(mapping.expression) || mapping.expression.name.text !== 'map'
+      || codePath(mapping.expression.expression) !== 'config.agents.analyst!.capabilities.grants'
+      || !mapper || !ts.isArrowFunction(mapper) || mapper.parameters.length !== 1
+      || identifierText(mapper.parameters[0].name, path) !== 'grant'
+      || !mapped || !ts.isObjectLiteralExpression(mapped) || mapped.properties.length !== 2
+      || !ts.isSpreadAssignment(mapped.properties[0]) || codePath(mapped.properties[0].expression) !== 'grant'
+      || !tools || !ts.isCallExpression(tools) || tools.arguments.length !== 1
+      || codePath(tools.expression) !== 'grant.tools.filter'
+      || !predicate || !ts.isArrowFunction(predicate) || predicate.parameters.length !== 1
       || identifierText(predicate.parameters[0].name, path) !== 'name'
       || !excluded || excluded.arguments.length !== 1 || identifierText(excluded.arguments[0], path) !== 'name') {
-      throw new Error(`${path} native classic selected inventory must filter excluded global tool names`);
+      throw new Error(`${path} must filter excluded global tools through its singular capability grants`);
     }
-    requireSourceFragments(projectRoot, path, [
-      'const provisioning = gitProvisioningSchema.parse(input);',
-      'config.agents.analyst!.tools = config.agents.analyst!.tools.filter(',
-      'config.agents.executor!.tools.push(...nativeExecutorTools);',
-    ], 'native classic selected inventory');
   } else if (path === 'src/config/system-templates/paad-typed/template.ts' || path === 'src/config/system-templates/newloop/template.ts') {
     requireNamedImport(ast, '../classic-typed/template.js', 'CLASSIC_TYPED_TEMPLATE');
     if (name !== (path.includes('/newloop/') ? 'newloop' : 'paad-typed') || !ts.isPropertyAccessExpression(configExpression)
@@ -1127,7 +1162,12 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
   if (native) {
     const excluded = constStringArray(projectRoot, path, 'nativeGlobalExcludedTools');
     roles.analyst = roles.analyst.filter(tool => !excluded.includes(tool));
-    roles.executor = [...roles.executor, ...constStringArray(projectRoot, path, 'nativeExecutorTools')];
+    const builder = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'createClassicGitConfig');
+    const additions = descendants(builder, node => ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.getText(ast) === 'config.agents.executor!.capabilities.grants.push');
+    if (additions.length !== 1 || additions[0].arguments.length !== 1 || !ts.isObjectLiteralExpression(additions[0].arguments[0])) throw new Error(`${path} must declare its native Executor grant`);
+    roles.executor = [...roles.executor, ...stringArray(propertyAssignment(additions[0].arguments[0], 'tools', 'native Executor grant'), 'native Executor tools')];
   }
   return { name, roles, provisioningRequired: native };
 }

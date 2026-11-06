@@ -85,7 +85,7 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
     try {
       const port = await listen(provider);
       const configPath = join(root, '.saivage/saivage.yaml'), config = parse(readFileSync(configPath, 'utf8'));
-      for (const agent of Object.values(config.agents) as any[]) agent.tools = agent.tools.filter((name: string) => name !== 'view_image');
+      for (const agent of Object.values(config.agents) as any[]) agent.capabilities.grants = agent.capabilities.grants.map((grant: { tools: string[] }) => ({ ...grant, tools: grant.tools.filter((name: string) => name !== 'view_image') })).filter((grant: { tools: string[] }) => grant.tools.length > 0);
       const roles = ['analyst', 'planner', 'executor', 'reviewer', 'oversight'];
       config.models = { routes: Object.fromEntries(roles.map(role => [role, { candidates: [role], temperature: 0, max_tokens: 512 }])), profiles: {}, equivalents: [], failover: {} };
       config.providers = { local: { models: roles, apiKey: 'synthetic-browser-provider', baseUrl: `http://127.0.0.1:${port}`, capabilities: { contextWindowTokens: 100000, maxOutputTokens: 16384 } } };

@@ -30,6 +30,7 @@ describe('current family semantic authority', () => {
     ['edit', { edited: true, outcome_unknown: true }, 'Effects uncertain · Applied'],
     ['edit', { edited: false }, 'Failed · Not applied'],
     ['write', { state: 'closed', surface: 'analyst', propagation: { ok: false, partial: true, error: 'full propagation error' } }, 'Failed · Record accepted · Partial propagation'],
+    ['write', { state: 'closed', surface: 'card_acceptance', propagation: { ok: false, partial: true, error: 'full propagation error' } }, 'Failed · Record accepted · Partial propagation'],
   ] as const)('retains distinct parsed %s facts despite failed settlement', (tool, data, outcome) => {
     const view = present(tool, data, false);
     expect(view.outcome).toBe(outcome);

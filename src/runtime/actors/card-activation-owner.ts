@@ -4,6 +4,7 @@ import type { CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
 import type { CardProcessActor } from './card-process-actor.js';
 import { deferred, type Deferred } from './deferred.js';
+import type { DirectObjectAuthority } from '../../tools/tool-api.js';
 
 export interface AcceptedSource {
   readonly branch_ref: string;
@@ -22,8 +23,29 @@ export interface CardActivationInput {
   entry: CardProcessEntry;
   notificationDelivery: CardNotificationDeliveryPort;
   claimResult(): void;
+  recordMutations: {
+    admit(
+      ordinal: number,
+      request: Parameters<
+        import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['admit']
+      >[0],
+    ): ReturnType<
+      import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['admit']
+    >;
+    mutate(
+      ordinal: number,
+      request: Parameters<
+        import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['mutate']
+      >[0],
+    ): ReturnType<
+      import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['mutate']
+    >;
+  };
   nativeSource?: {
-    checkpoint(ordinal: number): Promise<{ branch_ref: string; observed_tip: string }>;
+    checkpoint(
+      ordinal: number,
+      authority: DirectObjectAuthority,
+    ): Promise<{ branch_ref: string; observed_tip: string }>;
     correctionPending(): boolean;
     verifyCorrection(ordinal: number): Promise<string | null>;
     completeCorrection(ordinal: number): void;
@@ -64,12 +86,20 @@ export interface PlannerChildReopenResult {
 
 export interface PlannerChildControlPort {
   activateChild(request: {
+    authority: DirectObjectAuthority;
     childCardId: string;
     instructions: string;
     invocation: ChildInvocationLease;
   }): Promise<CardActivationOutcome>;
-  cancelChild(request: { childCardId: string; reason: string }): Promise<CardCancellationResult>;
-  reopenChild(request: { childCardId: string }): PlannerChildReopenResult;
+  cancelChild(request: {
+    authority: DirectObjectAuthority;
+    childCardId: string;
+    reason: string;
+  }): Promise<CardCancellationResult>;
+  reopenChild(request: {
+    authority: DirectObjectAuthority;
+    childCardId: string;
+  }): PlannerChildReopenResult;
 }
 
 type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling';

@@ -23,6 +23,33 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Configured direct-object authority cutover from source parent
+`e1307b9b12a43df80396747af18b33d49457191b`: accepted-record **5→6** adds
+`card-agent {agent,card_id}` factual origin, including framework draft close and
+child bootstrap creation. Historical `agent` origin stays factual; it is not
+normalized to an invented author card. Conversation index/genesis/envelopes
+**12→13** admit the strict `card_acceptance` mutation result: closed accepted URL,
+exact head UUID/revision and known propagation disposition. Self mutation remains
+an open draft; nonself mutation directly accepts any matching record, not just a
+bootstrap. Record-head/previous-slot **3 is unchanged**. Card6/head1/mailbox1,
+shared evidence2 and execution3 are unchanged; global OperationAuthor and body-free
+external audit receipts are unchanged. Agent capabilities establish format1 and
+workflow **5→6** records the authority/review-input semantic cutover. Later review
+promotion compares ordinary card selections plus exact configured record tuples;
+queue-only card selectors do not invalidate it, while current review still compares
+exact current heads. Descendant review inputs include required bootstrap selections
+alongside every configured reviewed record, deduplicated; this is not generalized
+own-operation freshness. Owners: `agent-capabilities.ts`, `saivage-config.ts`,
+`card-process-config.ts`, `agent-executor.ts`, `node-execution.ts`,
+`record-author.ts`, `canonical-record-artifacts.ts`,
+`authored-record-files.ts`, `record-mutation.ts`, `canonical-conversation-artifacts.ts`
+and `conversation-file.ts`, plus the compiled capabilities and review owners.
+Installed applicability is **unknown**; no unreleased-sharing exception is claimed.
+Old/mixed retained contracts fail strictly. Adoption requires separately authorized
+input/prompt reconciliation plus an explicitly requested external offline migration
+or separately consented reset; no implicit conversion, deployment or rollback is
+authorized. The earlier entries below describe their own source boundaries.
+
 Work-GC free-text reference inference from actual implementation source parent
 `3c7fd8c35ba87a2280ec015a5b3a356da4c888c2` deliberately changes an operational
 heuristic, not durable grammar or declared canonical path/history meaning. Matching
@@ -146,13 +173,14 @@ source-era values; they must not be read as today's accepted-version list.
 | Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:6`, `card-version` / `card-tombstone`; required nullable native source facts, runtime source publications and Git-blocked result; qualified action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected by current head, not a queue log. |
 | Record head / previous slot | `records/record-<stem>.json` and injective `.prev.json` sibling; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; fresh UUID/mutation revision, current-only baseline0, explicit draft version/target and latest accepted reference. Baseline/draft0/empty is ineligible. |
-| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:5`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated agent/external/runtime/action-output author with body-bound output descriptor and ordinary card provenance. Historical projection has null current head/revision. |
+| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:6`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated card-agent (actual author card), historical agent, external/runtime/action-output author with body-bound output descriptor and target ordinary card provenance. Historical projection has null current head/revision. |
 | Record initialization input | Card-type YAML; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; no old content/trigger input reader. |
-| Workflow input | Card-type YAML `workflow`; same owners | `format_version:5`; compiler-owned native correction participant/purpose/result/continuation interpretation under ON; literal authored durable prompt keys, qualified action IDs, typed fields/cases/inputs and OFF advisory natural-postcommit attachment. |
+| Workflow input | Card-type YAML `workflow`; same owners | `format_version:6`; compiled direct-object authority and reviewed-input applicability (ordinary card selections and exact record observations, including bootstrap), with native correction and typed action/result contracts retained. |
+| Agent authority input | Agent YAML `capabilities`; `schemas/agent-capabilities.ts`, workflow compiler | Initial `format_version:1`; singular ordered grants with scoped card/record and workspace clauses; old unversioned authority fields rejected. |
 | Operation selection | Explicit compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; retained in action results/execution observations, not package/shared-envelope version. |
 | Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, action owner and `runtime/git-workflow.ts` | `version:3`, `type:card-execution`; strict action and native start/process/finish associations. Native step/binding, known effects/selections and exact captures/private-index artifacts; unchanged action meanings. Incomplete is valid, not resumable state; artifacts select mutable source. |
-| Conversation index / previous index and ordinary/compacted genesis | Session `index.json`, `index.prev.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/source/cutoff/continuation, baseline/draft/current/historical record facts, protected prompts, excerpts and declared structural omission. |
-| Conversation segment envelope / selected PNGs | Same versions and `images/<UUID>.png`; above owners plus `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; strict message/private-context/activation and ordered result-content selection. Raw PNGs use this identified owning descriptor contract, not an independent image envelope/catalog version. |
+| Conversation index / previous index and ordinary/compacted genesis | Session `index.json`, `index.prev.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:13`; exact catalog/source/cutoff/continuation, record facts and card-agent author projections, protected prompts, excerpts and declared structural omission. |
+| Conversation segment envelope / selected PNGs | Same versions and `images/<UUID>.png`; above owners plus `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:13`, `type:conversation-segment`; strict messages/results including nonself `card_acceptance`, private context, activation and ordered result-content selection. Raw PNGs use this identified owning descriptor contract, not an independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use **shared** `version:2`, `type:rows`, with distinct strict row owners. App log includes event/control/external-receipt rows; provider grammar is unchanged by the attribution bump. Not independently numbered envelopes. |
 | Dynamic MCP definitions | `.saivage/config/mcp-servers.json`; `mcp/server-definitions.ts` | `format_version:1`, `type:mcp-server-definitions`; strict literal connection map, absent means empty, preserved by reset, never autostart/shadow YAML. |
 | Observed definitions | `.saivage/config/observed-collections.json`; `retrieval/collection-definitions.ts` | New `format_version:1`, `type:observed-collections`; strict logical names/purposes/kinds/roots and bounded slash patterns. Absent disables retrieval; reset preserves operator input. |

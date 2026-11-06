@@ -173,13 +173,13 @@ export class CardProcessActor extends BaseActor {
           if (promotion.kind === 'latest-node' && !this.#acceptedByNode.has(promotion.nodeId))
             throw new Error(`Promoted node '${promotion.nodeId}' has no accepted result.`);
         },
-        promotedSource: (transition) => {
+        promotedResult: (transition) => {
           if (transition.semantic.kind !== 'configured-outcome')
             throw new Error('Source promotion requires a configured outcome.');
           const promotion = transition.semantic.terminalBehavior?.promotion;
           if (promotion?.kind !== 'latest-node')
             throw new Error('Source promotion requires a previous accepted node.');
-          return this.#acceptedByNode.get(promotion.nodeId)?.source ?? null;
+          return this.#acceptedByNode.get(promotion.nodeId) ?? null;
         },
         claimResultHandoff: (ordinal) => {
           // Result handoff and urgent claim compete for the same exact node control winner.

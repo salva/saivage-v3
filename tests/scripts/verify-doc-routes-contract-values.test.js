@@ -210,12 +210,12 @@ const SOURCE_MUTATIONS = [
   ['shared factory config agents', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', '    agents,'],
   ['shared factory config graph', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', 'card_types: cardTypes'],
   ['shared factory final freeze', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', 'return deepFreeze(config)'],
-  ['shared factory policy spread', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', '[...OVERSIGHT_ALLOWED_TOOL_NAMES]'],
+  ['shared factory policy grants', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', '...OVERSIGHT_ALLOWED_TOOL_NAMES.map'],
   ['Oversight policy member', verifyToolContractDocs, 'src/contracts/oversight-tool-policy.ts', "'get_status'"],
   ['Oversight policy reexport', verifyToolContractDocs, 'src/contracts/index.ts', "export { OVERSIGHT_ALLOWED_TOOL_NAMES } from './oversight-tool-policy.js'"],
   ...['analyst', 'planner', 'reviewer', 'executor'].map((role) => [
     `shared ${role} tool set`, verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts',
-    `${role}: {\n      prompt: prompt('${role}'),\n      tools: [\n        '${['analyst', 'planner'].includes(role) ? 'create_card' : 'read'}'`,
+    `${role}: {\n      prompt: prompt('${role}'),\n      capabilities: capabilities(`,
   ]),
   ['known projected tools', verifyToolContractDocs, 'src/tools/tool-invocation-outbound.ts', 'KNOWN_TOOL_INVOCATION_NAMES'],
   ['optional MCP registration identity', verifyToolContractDocs, 'src/tools/mcp-provider.ts', "name: 'mcp_server_register'"],
@@ -599,7 +599,7 @@ describe('documentation value contracts', () => {
     ['errors', verifyErrorShapeDocs, 'src/contracts/operator-api-core.ts', "z.literal('Unauthorized')", "z.literal('FixtureUnauthorized')"],
     ['vocabularies', verifyClosedVocabularyDocs, 'src/schemas/types.ts', "'backlog',", "'fixture_backlog',"],
     ['constants', verifySourceConstantDocs, 'src/runtime/card-process/card-process-config.ts', 'EMIT_RESULT_SUMMARY_MAX_CHARS = 2000', 'EMIT_RESULT_SUMMARY_MAX_CHARS = 2001'],
-    ['tools', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', "'read',\n        'write',\n        'edit'", "'fixture_read',\n        'write',\n        'edit'"],
+    ['tools', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', "grant(['read'], allReads)", "grant(['fixture_read'], allReads)"],
     ['identities', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', '^agent:', '^fixture-agent:'],
     ['pivots', verifyCardDiffPivotDocs, 'web/src/api/client.ts', 'from: String(key.fromSeq)', 'from: String(key.fromSeq + 1)'],
   ])('%s family detects a representative source mutation', (_family, verify, path, before, after) => {

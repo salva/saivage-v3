@@ -174,7 +174,7 @@ describe('process inline output production composition', () => {
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute', prompt: { reference: 'correct-execution-result', compactable: true } }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
@@ -203,8 +203,8 @@ describe('process inline output production composition', () => {
 
       const durableRows = readConversation(projectRoot, 'agent:executor:project').physicalRows;
       const segment = readCurrentConversationSegment(projectRoot, 'agent:executor:project')!;
-      expect(segment.index.format_version).toBe(12);
-      expect(segment.genesis.format_version).toBe(12);
+      expect(segment.index.format_version).toBe(13);
+      expect(segment.genesis.format_version).toBe(13);
       expect(readHistoricalConversationSegment(projectRoot, 'agent:executor:project', 1).rows).toEqual(segment.rows);
       const markers = durableRows.filter(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
       expect(markers).toHaveLength(1);
@@ -310,7 +310,7 @@ describe('process inline output production composition', () => {
         cutoffSourceIndex: rows.length - 1, cutoffMessageId: rows.at(-1)!.id, continuation: { kind: 'between_rounds' },
       });
       expect(readHistoricalConversationSegment(projectRoot, session, 1).rows).toEqual(rows);
-      expect(readCurrentConversationSegment(projectRoot, session)!.genesis.format_version).toBe(12);
+      expect(readCurrentConversationSegment(projectRoot, session)!.genesis.format_version).toBe(13);
       expect(readConversation(projectRoot, session).effectiveRequiredModelFacts).toEqual(facts);
     } finally {
       jest.restoreAllMocks(); syncBuiltinESMExports();

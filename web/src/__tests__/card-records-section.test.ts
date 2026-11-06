@@ -81,6 +81,17 @@ describe('CardRecordsSection', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  it('renders the actual author card separately from the target record', async () => {
+    const response = content();
+    response.record.accepted!.author = { kind: 'card-agent', agent: 'planner', card_id:'project' };
+    vi.mocked(getCardRecord).mockResolvedValue(response);
+    await admit();
+    const { wrapper, errors } = render();
+    await flushPromises();
+    expect(wrapper.text()).toContain('Agent · planner · project');
+    expect(errors).not.toHaveBeenCalled();
+  });
+
   it('waits for descriptors and initial current completion, applying only the latest semantic query', async () => {
     const definitions = deferred<Awaited<ReturnType<typeof listCardRecords>>>();
     const current = deferred<CardRecordContentResponse>();

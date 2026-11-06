@@ -90,7 +90,10 @@ function harness(args: {
     execution: { kind: 'agent', dataInputs: {}, inputs: {},
     prompt: { promptId: 'work', compactable: true },
     correctionPrompt: args.protectedCorrection ? { promptId: 'correct', compactable: false, compactionKey: ' ${POLICY_KEY} ' } : { promptId: 'correct', compactable: true },
-    agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } } },
+    agent: { name: 'planner', tools: [
+      ...(args.agentTools ?? []).map((name) => resolveRuntimeTool('card', name)),
+      ...(args.writtenRecords?.length ? [resolveRuntimeTool('card', 'write', [{ kind: 'record', scopes: ['self'], patterns: args.writtenRecords }])] : []),
+    ], model: { temperature: 0, maxTokens: 100 } } },
     initializeRecords: [],
     requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
     descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
@@ -133,7 +136,7 @@ function harness(args: {
     },
     processRunner: { createDirectScope, closeAndTerminateDirectScope },
     runtimeProcessRootScope: {},
-    workflows: { agentBindings: new Map([['planner', { toolSet: new BoundAgentToolSet(node.execution.agent.tools.map((name) => resolveRuntimeTool('card', name))) }]]) },
+    workflows: { agentBindings: new Map([['planner', { toolSet: new BoundAgentToolSet(node.execution.agent.tools) }]]) },
   } as never, {
     createLlm: () => llm,
     selectLlm: () => undefined,

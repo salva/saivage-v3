@@ -7,6 +7,7 @@ import { globProject, grepProject, MAX_GREP_LINE_CHARS, MAX_READ_FILE_BYTES, rea
 const readProject = async (...args: Parameters<typeof readWithObservations>): Promise<unknown> => (await readWithObservations(...args)).data;
 import { DISCOVERY_RESPONSE_MAX_BYTES } from '../../src/contracts/builtin-tool-inputs.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-read-limits-'));
@@ -17,7 +18,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function ctx(projectRoot: string) {
-  return { projectRoot, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentName: 'executor' as const };
+  return { authority: testWorkspaceAuthority('card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'), projectRoot, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentName: 'executor' as const };
 }
 
 const envelopeBytes = (data: unknown): number => Buffer.byteLength(canonicalJson({ success: true, data }), 'utf8');
@@ -36,7 +37,7 @@ describe('project file tool read limits', () => {
   it('reports the selected accepted author in text and metadata reads without attributing drafts or baselines', async () => withTempProject(async projectRoot => {
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const context = { projectRoot, store: cards, cardId: 'project', agentName: 'analyst' as const };
+    const context = { authority: testWorkspaceAuthority(), projectRoot, store: cards, cardId: 'project', agentName: 'analyst' as const };
     const path = 'record:///status.md?card=project';
     cards.initializeRecord('project', 'status.md', () => 'baseline report');
     expect(await readProject(context, { path })).toMatchObject({ content_author: null });

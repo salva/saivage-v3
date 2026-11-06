@@ -13,7 +13,7 @@ import { testRecordDefinition, testRecordDefinitions } from '../helpers/record-d
 
 const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
-const input=(parent:string,title:string,type:'goal'|'code'='goal')=>({type,parent,title,bootstrap_content:`${title} token=secret`,priority:0,urgency:'normal' as const,created_by:'analyst' as const,depends_on:[]});
+const input=(parent:string,title:string,type:'goal'|'code'='goal')=>({type,parent,title,bootstrap_content:`${title} token=secret`,priority:0,urgency:'normal' as const,created_by:'analyst' as const,bootstrap_author:{kind:'agent' as const,agent:'analyst'},depends_on:[]});
 const paths=()=>{const value:string[]=[];const instrumentation:CanonicalReadInstrumentation={onRead:(path)=>value.push(path)};return{value,instrumentation};};
 const cardPaths=(root:string,id:string)=>{const path=cardHeadFile(root,id);const head=JSON.parse(readFileSync(path,'utf8'));return[path,cardHistoryFile(root,id,head.ordinary.entry_id)];};
 

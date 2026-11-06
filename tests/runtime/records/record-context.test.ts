@@ -152,7 +152,7 @@ async function readIntoConversation(
     hash = sha256Hex(bytes);
   const execution = await workspaceToolBinders
     .find((t) => t.name === 'read')!
-    .bind({ projectRoot: f.root, store: f.store, agentName: 'planner', cardId: 'project' })
+    .bind({ projectRoot: f.root, store: f.store, agentName: 'planner', cardId: 'project', authority: { anchorCardId: 'project', tools: agentExecution(f.node()).agent.tools } })
     .executor({ path, ...options }, new AbortController().signal);
   const call = agentMessageSchema.parse({
     id: `${id}:tool-call:${callId}`,
@@ -602,7 +602,7 @@ describe('closed record-context compiler and same-read supplier', () => {
       .trimEnd()
       .split('\n');
     const envelope = JSON.parse(physical.at(-1)!);
-    expect(envelope).toMatchObject({ version: 12, type: 'conversation-segment' });
+    expect(envelope).toMatchObject({ version: 13, type: 'conversation-segment' });
     expect(envelope.rows[0].kind).toBe('ordinary_segment_genesis');
     expect(envelope.rows.slice(1)).toEqual(prepared.rows);
     expect(f.prepare().rows).toEqual([]);

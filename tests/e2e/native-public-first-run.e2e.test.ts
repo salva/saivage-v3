@@ -101,7 +101,7 @@ it.each(['natural','cancel'] as const)('public commissioned first Run and %s che
     const address=server.address();if(!address||typeof address==='string') throw new Error('Missing local fixture port');
     const path=join(root,'.saivage/saivage.yaml');const config=parse(readFileSync(path,'utf8'));
     // Only local provider selection changes; native graph, policy, tools and prompts stay materialized.
-    for(const agent of Object.values(config.agents) as any[]) agent.tools=agent.tools.filter((t:string)=>t!=='view_image');
+    for(const agent of Object.values(config.agents) as any[]) agent.capabilities.grants = agent.capabilities.grants.map((grant: { tools: string[] }) => ({ ...grant, tools: grant.tools.filter((t:string)=>t!=='view_image') })).filter((grant: { tools: string[] }) => grant.tools.length > 0);
     config.models={routes:Object.fromEntries(['analyst','planner','executor','reviewer','oversight'].map(role=>[role,{candidates:[role],temperature:0,max_tokens:512}])),profiles:{},equivalents:[],failover:{}};
     config.providers={fake:{models:['analyst','planner','executor','reviewer','oversight'],apiKey:'synthetic',baseUrl:`http://127.0.0.1:${address.port}`,capabilities:{contextWindowTokens:100000,maxOutputTokens:16384}}};
     config.compaction.summarizer_candidate={provider:'fake',account:null,model:'analyst'};

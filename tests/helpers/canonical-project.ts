@@ -37,6 +37,12 @@ export class CardService extends ProductionCardService {
   constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'|'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, io?: ReplacementFileIo) {
     super(projectRoot, TEST_WORKFLOWS,freshness, io);
   }
+  override create(input: Omit<Parameters<ProductionCardService['create']>[0], 'bootstrap_author'> & { bootstrap_author?: import('../../src/schemas/index.js').RecordAuthor }) {
+    const author: import('../../src/schemas/index.js').RecordAuthor = input.created_by.startsWith('external:')
+      ? { kind: 'external-agent', principal: input.created_by.slice('external:'.length) }
+      : { kind: 'agent', agent: input.created_by };
+    return super.create({ ...input, bootstrap_author: input.bootstrap_author ?? author });
+  }
   override editCard(id: string,changes:Parameters<ProductionCardService['editCard']>[1],agentName:Parameters<ProductionCardService['editCard']>[2]='planner'){return super.editCard(id,changes,agentName);}
   override deleteSubtrees(ids:readonly string[],allowed:Parameters<ProductionCardService['deleteSubtrees']>[1],agentName:Parameters<ProductionCardService['deleteSubtrees']>[2]='analyst'){return super.deleteSubtrees(ids,allowed,agentName);}
   override closeRecord(cardId:string,filename:string,agentName?:Parameters<ProductionCardService['closeRecord']>[2]){
@@ -48,11 +54,11 @@ export class CardService extends ProductionCardService {
 export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService, notifyCard: (...args: any[]) => any): AnalystMutationServices {
   return createAnalystMutationServices({
     author: { kind: 'agent', agent: store.workflows.analyst.name },
-    allowedTools: store.workflows.analyst.tools.map(({ name }) => name),
+    authority: { anchorCardId: null, tools: store.workflows.analyst.tools },
     store,
     configAuthority: testConfigAuthority(projectRoot),
     notifyCard,
-    submitNotification: async (cardId, notification, urgency) => {
+    submitNotification: async (_authority, cardId, notification, urgency) => {
       const result = notifyCard(cardId, notification);
       return result.ok ? { ...result, cardId, interruption: { status: urgency === 'urgent' ? 'not_applicable' as const : 'not_requested' as const } } : result;
     },

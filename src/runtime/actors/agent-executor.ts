@@ -89,8 +89,13 @@ export class NodeCorrectiveBudgetExceededError extends Error {
 }
 
 type NodeResult = { outcome: string; summary: string };
-type ReviewerSnapshot = {
-  cards: Array<{ id: string; versionSeq: number; headId: string }>;
+export type ReviewerSnapshot = {
+  cards: Array<{
+    id: string;
+    versionSeq: number;
+    headId: string;
+    ordinary: { readonly entry_id: string; readonly version: number };
+  }>;
   includedRecordVersions: Array<{
     cardId: string;
     filename: string;
@@ -104,7 +109,11 @@ type ReviewerContextPair = {
   exactContext: ProviderVisibleUserContextMessage;
   snapshot: ReviewerSnapshot;
 };
-type ReviewerTreeRows = readonly { card: CardRecord; headId: string }[];
+type ReviewerTreeRows = readonly {
+  card: CardRecord;
+  headId: string;
+  ordinary: { readonly entry_id: string; readonly version: number };
+}[];
 
 export class AgentExecutor {
   constructor(
@@ -386,7 +395,9 @@ export class AgentExecutor {
           );
           this.host.assertCurrentActivation(input);
           cleanupStatus = acceptance.cleanupStatus;
-          const accepted = acceptance.accepted;
+          const accepted = reviewerPair
+            ? Object.freeze({ ...acceptance.accepted, reviewerSnapshot: reviewerPair.snapshot })
+            : acceptance.accepted;
           this.host.assertCurrentActivation(input);
           primaryCompletion = { kind: 'success', value: accepted };
           break;
@@ -780,13 +791,19 @@ export class AgentExecutor {
         : {}),
       scope: 'card',
       ...(input.nativeSource
-        ? { checkpointSource: () => input.nativeSource!.checkpoint(nodeOrdinal) }
+        ? {
+            checkpointSource: (authority) => input.nativeSource!.checkpoint(nodeOrdinal, authority),
+          }
         : {}),
       agentName: requireAgentExecution(node).agent.name,
       projectRoot: this.deps.projectRoot,
       cardId: input.card.id,
       sessionId,
       store: this.deps.store,
+      recordMutations: {
+        admit: (request) => input.recordMutations.admit(nodeOrdinal, request),
+        mutate: (request) => input.recordMutations.mutate(nodeOrdinal, request),
+      },
       parentControl: this.deps.parentControl,
       notifyCard: this.deps.notifyCard,
       childCreationTypes: node.childCreationTypes,
@@ -879,16 +896,23 @@ export class AgentExecutor {
   }
   private reviewerSnapshot(rows: ReviewerTreeRows, records: readonly string[]): ReviewerSnapshot {
     return {
-      cards: rows.map(({ card, headId }) => ({
+      cards: rows.map(({ card, headId, ordinary }) => ({
         id: card.id,
         versionSeq: card.version_seq,
         headId,
+        ordinary,
       })),
-      includedRecordVersions: rows
-        .slice(1)
-        .flatMap(({ card }) =>
-          records.map((record) => acceptedRecordVersion(this.deps.store, card.id, record)),
-        ),
+      includedRecordVersions: rows.slice(1).flatMap(({ card }) => {
+        const workflow = this.deps.workflows.cardTypes.get(card.type);
+        if (!workflow) throw new Error(`No workflow for reviewed card type '${card.type}'.`);
+        const bootstrap = workflow.bootstrapRecord.name;
+        return [...new Set([...records, bootstrap])].map((record) => {
+          const selected = acceptedRecordVersion(this.deps.store, card.id, record);
+          if (record === bootstrap && selected.sourceEntryId === null)
+            throw new Error(`Reviewed card '${card.id}' has no accepted bootstrap '${bootstrap}'.`);
+          return selected;
+        });
+      }),
     };
   }
   private reviewerContext(
@@ -902,7 +926,7 @@ export class AgentExecutor {
         .map((entry) =>
           entry.sourceVersion === null
             ? `${entry.filename}=missing`
-            : `record:///${entry.filename}?card=${encodeURIComponent(card.id)}&v=${entry.sourceVersion}`,
+            : `record:///${entry.filename}?card=${encodeURIComponent(card.id)}&v=${entry.sourceVersion} (entry ${entry.sourceEntryId})`,
         )
         .join(', ');
       const stamp = snapshot.cards.find((entry) => entry.id === card.id)!;
@@ -922,6 +946,23 @@ export class AgentExecutor {
     return JSON.stringify(before) === JSON.stringify(after)
       ? null
       : 'reviewed subtree or included records changed during review';
+  }
+
+  reviewPromotionViolation(
+    cardId: string,
+    node: CompiledNodeContract,
+    before: ReviewerSnapshot,
+  ): string | null {
+    const after = this.captureReviewerSnapshot(
+      cardId,
+      node.descendantContext!.records.map((record) => record.name),
+    );
+    const ordinaryCards = (snapshot: ReviewerSnapshot) =>
+      snapshot.cards.map(({ id, ordinary }) => ({ id, ordinary }));
+    return JSON.stringify(ordinaryCards(before)) === JSON.stringify(ordinaryCards(after)) &&
+      JSON.stringify(before.includedRecordVersions) === JSON.stringify(after.includedRecordVersions)
+      ? null
+      : `Review '${node.nodeId}' no longer applies to the reviewed subtree or records; admit_review for a fresh review, or replan first if work remains.`;
   }
 }
 

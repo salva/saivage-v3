@@ -1,3 +1,4 @@
+import { testNotificationAuthority } from '../helpers/capability-grants.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -226,6 +227,7 @@ describe('analyst runtime tools', () => {
       cards.stopRunning(card.id);
       const runtime = { status: 'stopped' as const, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' };
       const result = await invokeObservation('get_status', {
+        authority: testNotificationAuthority(),
         agentName: 'analyst',
         projectRoot,
         store: cards,

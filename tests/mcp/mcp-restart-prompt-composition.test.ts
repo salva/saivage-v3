@@ -24,7 +24,7 @@ it.each(SYSTEM_TEMPLATES)('renders the complete standalone $name role/generated-
     const evidence: unknown[] = [];
     for (const configuredReviewer of [false, true]) {
       const config = structuredClone(baseline);
-      if (configuredReviewer) config.agents.reviewer!.tools.push('mcp_server_control', 'mcp_tools');
+      if (configuredReviewer) config.agents.reviewer!.capabilities.grants.push({ tools: ['mcp_server_control', 'mcp_tools'] });
       const observed = new Set<string>();
       const compiled = compileProjectWorkflows(config, {
         projectRoot: root, defaultPromptRoot: template.promptRoot,
@@ -37,7 +37,7 @@ it.each(SYSTEM_TEMPLATES)('renders the complete standalone $name role/generated-
       expect([...observed].sort()).toEqual([...collectTemplatePromptClosure({ template })].sort());
       expect(config.card_types).toEqual(baseline.card_types);
       for (const [name, agent] of compiled.agents) {
-        const selected = baseline.agents[name]!.tools;
+        const selected = baseline.agents[name]!.capabilities.grants.flatMap((grant) => grant.tools);
         expect(agent.tools.map(tool => tool.name)).toEqual(configuredReviewer && name === 'reviewer' ? [...selected, 'mcp_server_control', 'mcp_tools'] : selected);
       }
       // Schema-only binder contexts. No executor or provider is called. Full

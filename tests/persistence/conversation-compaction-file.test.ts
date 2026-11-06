@@ -34,6 +34,7 @@ import type { ProviderConversationItem } from '../../src/contracts/index.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { readProject } from '../../src/tools/project-file-tools.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 import {
   agentMessageSchema,
   DURABLE_PRIMARY_CONTENT_POLICY,
@@ -215,7 +216,7 @@ describe('conversation compaction file persistence', () => {
         const store = new CardService(root);
         const body = `A instruction start${'a'.repeat(40000)}OMITTED REQUIREMENT${'b'.repeat(40000)}A instruction end`;
         store.acceptRecord('project', 'brief.md', body, { kind: 'agent', agent: 'analyst' });
-        const ctx = { projectRoot: root, store, agentName: 'planner' as const, cardId: 'project' };
+        const ctx = { authority: testWorkspaceAuthority('project'), projectRoot: root, store, agentName: 'planner' as const, cardId: 'project' };
         const first = (
           await readProject(ctx, { path: 'record:///brief.md?card=project', metadata_only: true })
         ).record_observations[1]!;

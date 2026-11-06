@@ -115,11 +115,11 @@ describe('Analyst corrections on CHANGED in production composition', () => {
     const port = await listen(provider);
     try {
       const config = productionTestConfig(port, (value) => {
-        value.agents.analyst!.record_writes = ['brief.md', 'status.md'];
+        for (const grant of value.agents.analyst!.capabilities.grants) if (grant.tools.some((name) => ['write', 'edit', 'webfetch'].includes(name))) grant.resources!.push({ kind: 'record', scopes: ['all'], patterns: ['status.md'] });
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, 'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false } },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: { blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } } } } },

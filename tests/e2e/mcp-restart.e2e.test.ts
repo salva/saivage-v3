@@ -129,12 +129,12 @@ it.each([true, false])('restarts through ordinary production card composition (E
   try {
     const mcpPort = await listen(mcp); const providerPort = await listen(provider);
     writeProductionConfig(root, productionTestConfig(providerPort, config => {
-      config.agents.executor = { ...config.agents.executor!, tools: ['write', 'mcp_tools', 'mcp_tool_call', ...(executorControls ? ['mcp_server_control'] : [])], skills: false };
+      config.agents.executor = { ...config.agents.executor!, capabilities:{format_version:1,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_tool_call',...(executorControls?['mcp_server_control']:[])]}]}, skills: false };
       // Preserve default Reviewer selection in the denied scenario.
-      if (!executorControls) config.agents.reviewer = { ...config.agents.reviewer!, tools: [...config.agents.reviewer!.tools, 'mcp_server_control', 'mcp_tools', 'mcp_tool_call'] };
+      if (!executorControls) config.agents.reviewer!.capabilities.grants.push({tools:['mcp_server_control','mcp_tools','mcp_tool_call']});
       config.card_types.project = {
         permitted_child_types: [], records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-        workflow: { format_version: 5,
+        workflow: { format_version: 6,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: {

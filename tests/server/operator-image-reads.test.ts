@@ -525,7 +525,7 @@ it('uses actual view_image snapshot after mutable source replacement/deletion an
   writeFileSync(join(root, 'source.png'), await png());
   const tool = globalWorkspaceObservationToolBinders
     .find((binder) => binder.name === 'view_image')!
-    .bind({ projectRoot: root, agentName: 'analyst', store: cards });
+    .bind({ projectRoot: root, agentName: 'analyst', store: cards, authority: testWorkspaceAuthority() });
   const context = testLlmToolInvocationContext({ sessionId: session, toolName: 'view_image' });
   const produced = await tool.executor(
     { path: 'source.png' },
@@ -761,3 +761,4 @@ it('Files refuses unsupported/corrupt/animated/oversized raster and confidential
     await server.close();
   }
 }, 30_000);
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';

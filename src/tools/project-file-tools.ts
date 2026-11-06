@@ -21,7 +21,6 @@ import { observeRecordProjection } from '../persistence/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import {
-  assertRecordWrite,
   displayPathForResolved,
   globToRegExp,
   hasParentPathSegment,
@@ -32,7 +31,6 @@ import {
   looksLikeSecretPath,
   parseScopedPathScheme,
   resolveContainedProjectPath,
-  resolveRecordWriteTarget,
   resolveScopedPath,
   resolveAgentReadPath,
   visitScopedFiles,
@@ -41,7 +39,6 @@ import {
 import type { CardService } from '../cards/store-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import { mutateRecord } from '../application/index.js';
 import {
   buildScopedPathUrl,
   parseScopedPathUrl,
@@ -49,6 +46,7 @@ import {
   grepWorkspaceInputSchema,
 } from '../contracts/index.js';
 import { ToolArgumentValidationError } from './invocation.js';
+import { assertReachedObjectAuthority } from './direct-object-authority.js';
 import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   packCollectionData,
@@ -68,6 +66,8 @@ const GREP_HEAD_SAMPLE_BYTES = 1024;
 const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
 export type WorkspaceContext = {
+  authority?: import('./direct-object-authority.js').DirectObjectAuthority;
+  recordMutations?: import('../application/record-mutation-service.js').CardAgentRecordMutationPort;
   projectRoot: string;
   cardId?: string;
   agentName?: AgentName;
@@ -184,12 +184,17 @@ function isSaivageInternalDestination(projectRoot: string, destination: string):
   );
 }
 
-function vfsCtx(ctx: WorkspaceContext) {
+function vfsCtx(ctx: WorkspaceContext, tool?: string) {
+  if (tool && !ctx.authority)
+    throw new Error('Workspace tools require bound direct-object authority.');
+  if (tool && !ctx.authority!.tools.some(({ name }) => name === tool))
+    throw new ToolArgumentValidationError(`Tool '${tool}' is not selected.`);
   return {
     projectRoot: ctx.projectRoot,
     records: ctx.store,
     agent: { cardId: ctx.cardId, agentName: ctx.agentName },
     fail: toolInputError,
+    ...(tool ? { selection: { authority: ctx.authority!, tool } } : {}),
   };
 }
 
@@ -271,6 +276,7 @@ export function readWorkspaceImageSource(
   path: string,
   maxBytes: number,
 ): { bytes: Buffer; sourcePath: string } {
+  assertWorkspaceAuthority(ctx, ['view_image']);
   if (path.startsWith('record:///') || path.startsWith('system:///'))
     throw toolInputError('view_image supports project, work and own-card tmp paths only.');
   if (path.startsWith('tmp:///') && parseScopedPathUrl(path, 'tmp').segments[0] !== ctx.cardId)
@@ -392,10 +398,12 @@ export async function readProject(
       );
     return params.position.byte_offset;
   };
-  const resolved = resolveAgentReadPath(vfsCtx(ctx), params.path, 'read');
+  const readContext = vfsCtx(ctx, 'read');
+  if (!params.path.startsWith('record:///')) assertWorkspaceAuthority(ctx, ['read']);
+  const resolved = resolveAgentReadPath(readContext, params.path, 'read');
 
   if (resolved.kind === 'record' && resolved.recordKind === 'directory') {
-    const listing = await listScopedPath(vfsCtx(ctx), params.path);
+    const listing = await listScopedPath(readContext, params.path);
     if (listing.kind !== 'records')
       throw new Error('Record directory listing did not return records.');
     if (params.metadata_only === true) {
@@ -622,24 +630,32 @@ export type WorkspaceMutationOutcome =
   | import('../contracts/record-mutation.js').RecordMutationResult
   | { kind: 'applied'; data: Record<string, unknown> };
 
+function assertWorkspaceAuthority(ctx: WorkspaceContext, tools: readonly string[]): void {
+  if (!ctx.authority) throw new Error('Workspace tools require bound direct-object authority.');
+  for (const tool of tools)
+    assertReachedObjectAuthority(ctx.authority, tool, { kind: 'workspace' });
+}
+
 export async function writeProject(
   ctx: WorkspaceContext,
   params: { path: string; content: string },
+  requiredTools: readonly ('write' | 'webfetch')[] = ['write'],
 ): Promise<WorkspaceMutationOutcome> {
   if (params.path.startsWith('record:///')) {
-    if (!ctx.store || !ctx.agentName)
-      throw new Error('Record writes require an injected card store and named agent.');
-    return mutateRecord(ctx.store, {
+    if (!ctx.recordMutations || !ctx.authority || !ctx.agentName)
+      throw new Error('Record writes require bound runtime authority.');
+    return ctx.recordMutations.mutate({
       path: params.path,
       operation: 'write',
       content: params.content,
       surface: 'card_agent',
       agentName: ctx.agentName,
-      cardId: ctx.cardId,
-      requiredTools: ['write'],
+      authority: ctx.authority,
+      requiredTools,
       onRecordWritten: ctx.onRecordWritten,
     });
   }
+  assertWorkspaceAuthority(ctx, requiredTools);
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   admitSourceWrite(ctx, absolutePath);
@@ -674,13 +690,15 @@ export function authorizeWriteProject(
   params: { path: string; content?: string },
 ): void {
   if (params.path.startsWith('record:///')) {
-    const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
-    assertRecordWrite(target.agent.cardId, target.cardId, toolInputError);
+    // Runtime record admission owns this destination, including the Webfetch/write intersection.
+    if (!ctx.recordMutations || !ctx.authority)
+      throw new Error('Record saves require bound runtime authority.');
     return;
   }
   if (params.path.startsWith('work:///'))
     throw toolInputError('Webfetch save_as does not support work URLs.');
-  resolveWritePath(ctx, params.path);
+  assertWorkspaceAuthority(ctx, ['write', 'webfetch']);
+  admitSourceWrite(ctx, resolveWritePath(ctx, params.path).absolutePath);
 }
 
 export async function globProject(
@@ -692,7 +710,8 @@ export async function globProject(
   const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
   const pattern = globToRegExp(params.pattern);
   const window = searchWindow<string>(position, maxResults);
-  await visitScopedFiles(vfsCtx(ctx), params.directory, async (entry) => {
+  if (!params.directory.startsWith('record:///')) assertWorkspaceAuthority(ctx, ['glob']);
+  await visitScopedFiles(vfsCtx(ctx, 'glob'), params.directory, async (entry) => {
     if (pattern.test(entry.matchPath) || pattern.test(entry.displayPath))
       window.add(entry.displayPath);
   });
@@ -715,7 +734,9 @@ export async function grepProject(
   const position = params.position ?? { item_index: 0, item_byte_offset: 0 };
   const maxResults = params.max_results ?? 200;
   const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
-  const scoped = resolveAgentReadPath(vfsCtx(ctx), raw, 'search');
+  if (!raw.startsWith('record:///')) assertWorkspaceAuthority(ctx, ['grep']);
+  const searchContext = vfsCtx(ctx, 'grep');
+  const scoped = resolveAgentReadPath(searchContext, raw, 'search');
   let regex: RegExp;
   try {
     regex = new RegExp(params.pattern);
@@ -728,7 +749,7 @@ export async function grepProject(
   const onMatch = (match: GrepMatch): void => window.add(match);
 
   const redact = scoped.kind === 'work';
-  await visitScopedFiles(vfsCtx(ctx), raw, async (entry) => {
+  await visitScopedFiles(searchContext, raw, async (entry) => {
     if (include && !include.test(entry.matchPath) && !include.test(entry.displayPath)) return;
     const outcome =
       entry.content === undefined
@@ -866,9 +887,9 @@ export async function editProject(
   params: { path: string; old_string: string; new_string: string; replace_all?: boolean },
 ): Promise<WorkspaceMutationOutcome> {
   if (params.path.startsWith('record:///')) {
-    if (!ctx.store || !ctx.agentName)
-      throw new Error('Record edits require an injected card store and named agent.');
-    return mutateRecord(ctx.store, {
+    if (!ctx.recordMutations || !ctx.authority || !ctx.agentName)
+      throw new Error('Record edits require bound runtime authority.');
+    return ctx.recordMutations.mutate({
       path: params.path,
       operation: 'edit',
       oldString: params.old_string,
@@ -876,11 +897,12 @@ export async function editProject(
       replaceAll: params.replace_all,
       surface: 'card_agent',
       agentName: ctx.agentName,
-      cardId: ctx.cardId,
+      authority: ctx.authority,
       requiredTools: ['edit'],
       onRecordWritten: ctx.onRecordWritten,
     });
   }
+  assertWorkspaceAuthority(ctx, ['edit']);
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   admitSourceWrite(ctx, absolutePath);
@@ -911,6 +933,7 @@ export async function applyProjectPatch(
 ): Promise<unknown> {
   const affected = patchPaths(params.patch);
   if (affected.length === 0) throw toolInputError('Patch does not contain any file changes.');
+  assertWorkspaceAuthority(ctx, ['apply_patch']);
   for (const path of affected)
     admitSourceWrite(ctx, assertWritable(ctx.projectRoot, path).absolutePath);
   const check = spawnSync('git', ['apply', '--check', '--'], {

@@ -26,7 +26,7 @@ function fixture() {
 }
 
 function childInput(parent: string, title: string) {
-  return { type: 'code' as const, parent, title, bootstrap_content: 'brief', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [] as string[] };
+  return { type: 'code' as const, parent, title, bootstrap_content: 'brief', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, bootstrap_author: { kind: 'agent' as const, agent: 'analyst' }, depends_on: [] as string[] };
 }
 
 function lifecycle(status: CardStatus): CardLifecycleState {

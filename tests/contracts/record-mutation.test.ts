@@ -2,10 +2,27 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import { ModelRecordTargetWireSchema, RecordMutationFailureSchema, RecordMutationSuccessSchema, RecordUrlInputError, parseRecordUrl } from '../../src/contracts/record-mutation.js';
 import { CardRecordContentResponseSchema } from '../../src/contracts/operator-api-runtime-cards.js';
+import { recordAuthorSchema } from '../../src/schemas/index.js';
+import { operationAuthorSchema } from '../../src/schemas/operation-author.js';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
 describe('record URL and mutation contracts', () => {
+  it('requires closed accepted selection and propagation on card acceptance without weakening self draft invariants',()=>{
+    const data={card_id:'card-a',name:'design-plan.md',state:'closed',version:2,target_version:null,revision:5,head_id:'11111111-1111-4111-8111-111111111111',current_url:'record:///design-plan.md?card=card-a',accepted_version_url:'record:///design-plan.md?card=card-a&v=2',bytes:12,written:true,surface:'card_acceptance',propagation:{ok:true}};
+    expect(RecordMutationSuccessSchema.parse({kind:'applied',data}).data).toEqual(data);
+    for(const delta of [{state:'open'},{target_version:2},{accepted_version_url:null},{accepted_version_url:'record:///design-plan.md?card=card-a&v=1'},{propagation:undefined},{head_id:'not-a-uuid'},{surface:'parent'},{surface:'card_agent'}])
+      expect(RecordMutationSuccessSchema.safeParse({kind:'applied',data:{...data,...delta}}).success).toBe(false);
+    expect(RecordMutationSuccessSchema.parse({kind:'applied',data:{...data,propagation:{ok:false,partial:true,error:'known effect failed'}}}).data.propagation).toEqual({ok:false,partial:true,error:'known effect failed'});
+  });
+
+  it('keeps actual card-agent origin record-local and historical agent origins factual',()=>{
+    const author={kind:'card-agent',agent:'planner',card_id:'project'};
+    expect(recordAuthorSchema.parse(author)).toEqual(author);
+    expect(recordAuthorSchema.parse({kind:'agent',agent:'planner'})).toEqual({kind:'agent',agent:'planner'});
+    expect(operationAuthorSchema.safeParse(author).success).toBe(false);
+    for(const delta of [{card_id:undefined},{card_id:'card-1'},{agent:''},{parent:'project'}])expect(recordAuthorSchema.safeParse({...author,...delta}).success).toBe(false);
+  });
   it.each([
     'record:///status.md', 'record:///%ZZ?card=project',
     'record:///%2562rief.md?card=project', 'record:///brief.md?card=card-1',

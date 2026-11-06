@@ -280,7 +280,7 @@ describe('named-agent inventories and composition', () => {
         const tools = template.name !== 'classic-git' ? originalTools : name === 'analyst'
           ? originalTools.filter(tool => !['run_command','wait_process','kill_process','mcp_tool_call','mcp_server_control','mcp_tools'].includes(tool))
           : name === 'executor' ? [...originalTools, 'checkpoint_source'] : originalTools;
-        expect(config.agents[name]!.tools).toEqual(tools);
+        expect(config.agents[name]!.capabilities.grants.flatMap((grant) => grant.tools)).toEqual(tools);
         expect(workflows.agents.get(name as never)?.tools.map((tool) => tool.name)).toEqual(tools);
         expect(new Set(tools).size).toBe(tools.length);
       }
@@ -305,14 +305,14 @@ describe('named-agent inventories and composition', () => {
   });
 
   it('keeps global/card same-name authority distinct and rejects duplicate scope/name catalog entries', () => {
-    expect(resolveRuntimeTool('global', 'reopen_card').name).toBe('reopen_card');
-    const plannerReopen = resolveRuntimeTool('card', 'reopen_card');
+    expect(resolveRuntimeTool('global', 'reopen_card', [{kind:'card',scopes:['all']}]).name).toBe('reopen_card');
+    const plannerReopen = resolveRuntimeTool('card', 'reopen_card', [{kind:'card',scopes:['children']}]);
     expect(plannerReopen.name).toBe('reopen_card');
     expect(plannerReopen.providerGroupId).not.toBe(
-      resolveRuntimeTool('global', 'reopen_card').providerGroupId,
+      resolveRuntimeTool('global', 'reopen_card', [{kind:'card',scopes:['all']}]).providerGroupId,
     );
-    const globalCancel = resolveRuntimeTool('global', 'cancel_card');
-    const cardCancel = resolveRuntimeTool('card', 'cancel_card');
+    const globalCancel = resolveRuntimeTool('global', 'cancel_card', [{kind:'card',scopes:['all']}]);
+    const cardCancel = resolveRuntimeTool('card', 'cancel_card', [{kind:'card',scopes:['children']}]);
     expect(globalCancel.providerGroupId).not.toBe(cardCancel.providerGroupId);
     expect(globalCancel.description).not.toBe(cardCancel.description);
     const inspectionStore = {
@@ -358,6 +358,7 @@ describe('named-agent inventories and composition', () => {
       cardId: 'project',
       sessionId: 'agent:project-planner:project',
       parentControl: { ...unusedParentControl, reopenChild },
+      recordMutations: UNUSED_CARD_RECORD_MUTATIONS,
       childCreationTypes: new Set<string>(),
       childActivationTypes: new Set<string>(),
       cardTypeVocabulary: [
@@ -379,7 +380,7 @@ describe('named-agent inventories and composition', () => {
       processRunner: {} as never,
       mcpToolInvocation: {} as never,
     };
-    const selected = new BoundAgentToolSet([resolveRuntimeTool('card', 'reopen_card')]).bind(
+    const selected = new BoundAgentToolSet([resolveRuntimeTool('card', 'reopen_card', [{kind:'card',scopes:['children']}])]).bind(
       runtime,
     );
     expect([...selected.tools.keys()]).toEqual(['reopen_card']);
@@ -394,7 +395,7 @@ describe('named-agent inventories and composition', () => {
       'utf8',
     );
     expect(source).not.toMatch(/prototypeProvider|\binert\b|create[A-Za-z]+Provider/);
-    expect(source).toContain('selected.map((entry) => entry.binder.bind(context))');
+    expect(source).toContain('const definition = entry.binder.bind(context)');
   });
 
   it('composes Reviewer exactly and omits MCP when the named agent does not declare it', () => {
@@ -415,6 +416,7 @@ describe('named-agent inventories and composition', () => {
       cardId: 'project',
       sessionId: 'agent:reviewer:project',
       parentControl: unusedParentControl,
+      recordMutations: UNUSED_CARD_RECORD_MUTATIONS,
       childCreationTypes: new Set(),
       childActivationTypes: new Set(),
       cardTypeVocabulary: [
@@ -460,7 +462,7 @@ describe('named-agent inventories and composition', () => {
       config.oversight.agent = agentName;
       if (agentName !== 'oversight') delete config.agents.oversight;
       const selected = compileProjectWorkflows(config).oversight;
-      const submitNotification = jest.fn(async (_cardId: string, notification: { id: string }) => ({
+      const submitNotification = jest.fn(async (_authority: unknown, _cardId: string, notification: { id: string }) => ({
         queued: true as const,
         cardId: 'project',
         notificationId: notification.id,
@@ -481,11 +483,12 @@ describe('named-agent inventories and composition', () => {
           }),
         },
         queueNotification: (
-          input: Parameters<typeof submitNotificationTool>[0],
+          input: Parameters<typeof submitNotificationTool>[1],
           signal: AbortSignal,
+          authority: Parameters<typeof submitNotificationTool>[0],
         ) =>
           executeToolAction('none', () =>
-            submitNotificationTool(input, submitNotification, signal),
+            submitNotificationTool(authority, input, submitNotification, signal),
           ),
         captureExecutingLlmSnapshots: () => new Map(),
         currentProcessPosition: () => null,
@@ -542,7 +545,7 @@ describe('named-agent inventories and composition', () => {
         data: {
           queued: true,
           card_id: 'project',
-          notification_id: submitNotification.mock.calls[0]![1].id,
+          notification_id: submitNotification.mock.calls[0]![2].id,
           body: 'evidence',
           interruption: { status: 'not_requested' },
         },
@@ -563,6 +566,7 @@ describe('named-agent inventories and composition', () => {
       cardId: 'project',
       sessionId: 'agent:reviewer:project',
       parentControl: unusedParentControl,
+      recordMutations: UNUSED_CARD_RECORD_MUTATIONS,
       childCreationTypes: new Set(),
       childActivationTypes: new Set(),
       cardTypeVocabulary: [
@@ -627,6 +631,7 @@ describe('named-agent inventories and composition', () => {
       cardId: 'project',
       sessionId: 'agent:executor:project',
       parentControl: unusedParentControl,
+      recordMutations: UNUSED_CARD_RECORD_MUTATIONS,
       childCreationTypes: new Set(),
       childActivationTypes: new Set(),
       cardTypeVocabulary: [
@@ -657,3 +662,4 @@ describe('named-agent inventories and composition', () => {
   });
 });
 import { templateConfig } from '../helpers/system-template-config.js';
+import { UNUSED_CARD_RECORD_MUTATIONS } from '../helpers/capability-grants.js';

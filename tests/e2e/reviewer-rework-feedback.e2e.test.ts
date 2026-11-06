@@ -112,7 +112,6 @@ describe('reviewer rework completion E2E', () => {
         urgency: 'normal', created_by: 'planner', depends_on: [],
       });
       const descendants: Array<{ id: string; type: string; title: string }> = [];
-      const acceptedVersions = new Map<string, number>();
       if (change !== 'empty') {
         const branch = create('project', 'goal', 'Branch with nested evidence');
         const nested = create(branch.id, 'code', 'Nested completed work');
@@ -129,8 +128,7 @@ describe('reviewer rework completion E2E', () => {
           }, '2026-07-17T00:00:00.000Z');
         }
         for (const card of [sibling, nested]) {
-          const record = cards.acceptRecord(card.id, 'status.md', `${card.title} evidence.`, { kind: 'agent', agent: 'executor' });
-          acceptedVersions.set(card.id, record.accepted!.source_version);
+          cards.acceptRecord(card.id, 'status.md', `${card.title} evidence.`, { kind: 'agent', agent: 'executor' });
         }
         // Known fixture preorder, not the inspection/formatting implementation under test.
         descendants.push(sibling, branch, nested);
@@ -140,13 +138,17 @@ describe('reviewer rework completion E2E', () => {
           const head = JSON.parse(readFileSync(cardHeadFile(projectRoot, id), 'utf8'));
           return `revision ${cards.read(id)!.version_seq}, head ${head.head_id}`;
         };
+        const recordReference = (id: string, filename: string) => {
+          const result = cards.readRecordCurrent(id, filename);
+          if (result.kind !== 'found' || !result.value.projection?.accepted) return `${filename}=missing`;
+          const accepted = result.value.projection.accepted;
+          return `record:///${filename}?card=${id}&v=${accepted.source_version} (entry ${accepted.source_entry_id})`;
+        };
         return `Reviewed card project: ${stamp('project')}\nDescendant work:\n${
           descendants.length ? descendants.map((card) =>
             `- ${card.id} (${card.type}, done, ${stamp(card.id)}): ${card.title}; ${
-              acceptedVersions.has(card.id)
-                ? `record:///status.md?card=${card.id}&v=${acceptedVersions.get(card.id)}`
-                : 'status.md=missing'
-            }`,
+              recordReference(card.id, 'status.md')
+            }, ${recordReference(card.id, 'brief.md')}`,
           ).join('\n') : '(none)'
         }`;
       };
@@ -200,8 +202,7 @@ describe('reviewer rework completion E2E', () => {
             }, '2026-07-17T00:00:01.000Z');
           } else if (change === 'record') {
             const id = descendants[0]!.id;
-            const record = cards.acceptRecord(id, 'status.md', 'New independently accepted evidence.', { kind: 'agent', agent: 'executor' });
-            acceptedVersions.set(id, record.accepted!.source_version);
+            cards.acceptRecord(id, 'status.md', 'New independently accepted evidence.', { kind: 'agent', agent: 'executor' });
           }
           if (change !== 'empty') {
             refreshedContext = expectedContext();
@@ -264,7 +265,7 @@ describe('reviewer rework completion E2E', () => {
         expect(cards.readRecordCurrent('project', 'review.md')).toMatchObject({
           kind: 'found', value: { projection: { state: 'closed', accepted: {
             content: change === 'empty' ? 'Initial review draft.' : 'Fresh review of changed evidence.',
-            author: { kind: 'agent', agent: 'reviewer' },
+            author: { kind: 'card-agent', agent: 'reviewer', card_id: 'project' },
           } } },
         });
         const history = cards.readRecordHistory('project', 'review.md');
@@ -586,7 +587,7 @@ describe('reviewer rework completion E2E', () => {
       value: {
         projection: {
           state: 'closed',
-          accepted: { content: 'Repeatedly edited wildcard note.', author: { kind: 'agent', agent: 'reviewer' } },
+          accepted: { content: 'Repeatedly edited wildcard note.', author: { kind: 'card-agent', agent: 'reviewer', card_id: 'project' } },
         },
       },
     });
@@ -964,14 +965,14 @@ describe('reviewer rework completion E2E', () => {
     expect(cards.readRecordVersion(goal.id, 'review.md', 1)).toMatchObject({
       kind: 'found',
       value: {
-        projection: { artifact: { accepted: { content: firstReview, author: { kind: 'agent', agent: 'reviewer' } } } },
+        projection: { artifact: { accepted: { content: firstReview, author: { kind: 'card-agent', agent: 'reviewer', card_id: goal.id } } } },
       },
     });
     expect(cards.readRecordVersion(goal.id, 'review.md', 2)).toMatchObject({
       kind: 'found',
       value: {
         projection: {
-          artifact: { accepted: { content: approvedReview, author: { kind: 'agent', agent: 'reviewer' } } },
+          artifact: { accepted: { content: approvedReview, author: { kind: 'card-agent', agent: 'reviewer', card_id: goal.id } } },
         },
       },
     });

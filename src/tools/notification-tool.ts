@@ -7,6 +7,7 @@ import {
 import { projectNotificationSubmission } from '../application/index.js';
 import { createCardNotification } from '../cards/store-api.js';
 import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
+import type { DirectObjectAuthority } from './direct-object-authority.js';
 
 export interface QueueNotificationToolInput {
   readonly card_id: string;
@@ -16,12 +17,14 @@ export interface QueueNotificationToolInput {
 }
 
 export async function submitNotificationTool(
+  authority: DirectObjectAuthority,
   input: QueueNotificationToolInput,
   submitNotification: NotificationSubmissionPort,
   signal: AbortSignal,
 ): Promise<ToolActionOutcome> {
   const result = projectNotificationSubmission(
     await submitNotification(
+      authority,
       input.card_id,
       createCardNotification(input.kind, input.body),
       input.urgency,

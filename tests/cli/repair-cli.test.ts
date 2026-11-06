@@ -75,7 +75,7 @@ function fixture() {
     bootstrap_content: 'brief',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
   return {
@@ -552,7 +552,7 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
     bootstrap_content: 'lost requirements',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
   const descendant = f.cards.create({
@@ -562,7 +562,7 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
     bootstrap_content: 'child brief',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
   initializeAndValidateCurrentGeneratedState(f.root, TEST_WORKFLOWS);
@@ -775,7 +775,7 @@ it('refuses a supplied non-leaf type at depth twelve before any discard effect',
       bootstrap_content: 'brief',
       priority: 0,
       urgency: 'normal',
-      created_by: 'analyst',
+      created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     }).id;
   const leaf = f.cards.create({
@@ -785,7 +785,7 @@ it('refuses a supplied non-leaf type at depth twelve before any discard effect',
     bootstrap_content: 'brief',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
   breakSelections(f.root, leaf.id);
@@ -807,7 +807,7 @@ it('leaves unrelated dangling dependencies byte-identical and lets strict graph 
     bootstrap_content: 'brief',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
   const leaf = f.cards.create({
@@ -817,7 +817,7 @@ it('leaves unrelated dangling dependencies byte-identical and lets strict graph 
     bootstrap_content: 'brief',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
   const dependent = f.cards.create({
@@ -827,7 +827,7 @@ it('leaves unrelated dangling dependencies byte-identical and lets strict graph 
     bootstrap_content: 'brief',
     priority: 0,
     urgency: 'normal',
-    created_by: 'analyst',
+    created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [leaf.id],
   });
   const path = cardHeadFile(f.root, dependent.id);

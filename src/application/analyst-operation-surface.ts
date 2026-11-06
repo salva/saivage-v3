@@ -26,8 +26,8 @@ export function createAnalystOperationSurface(input: {
   if (workflows.gitPolicy && !input.context.assertGlobalSourceWrite)
     throw new Error('Native Git global tools require final source-file admission.');
   const selected = workflows.analyst.tools.filter(({ name }) => allowedTools.includes(name));
-  if (new Set(allowedTools).size !== allowedTools.length || selected.length !== allowedTools.length)
-    throw new Error('Analyst operation tools must be unique configured canonical tool names.');
+  if (new Set(allowedTools).size !== allowedTools.length)
+    throw new Error('Analyst operation allowlist must contain unique tool names.');
   const context: ToolContext = {
     ...input.context,
     policyAgentName: workflows.analyst.name,
@@ -40,7 +40,7 @@ export function createAnalystOperationSurface(input: {
       submitNotification: input.submitNotification,
       cancelCard: input.cancelCard,
       author: input.author,
-      allowedTools,
+      authority: Object.freeze({ anchorCardId: null, tools: Object.freeze(selected) }),
     }),
   };
   if (workflows.analyst.qualityTools && !context.qualityProcessParentScope)

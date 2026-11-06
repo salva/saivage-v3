@@ -9,7 +9,7 @@ export function createOversightNotificationPort(input: {
   workflows: Pick<CompiledRuntimeWorkflows, 'cardTypes'>;
   submitNotification: NotificationSubmissionPort;
 }): NotificationSubmissionPort {
-  return async (cardId, notification, urgency, signal) => {
+  return async (authority, cardId, notification, urgency, signal) => {
     if (!signal)
       throw new Error('Oversight notification requires the exact check cancellation signal.');
     input.oversight.assertEffectAdmission(signal);
@@ -20,6 +20,6 @@ export function createOversightNotificationPort(input: {
       if (!workflow.planningNotificationTarget)
         return { queued: false, reason: 'planning_ineligible', cardId };
     }
-    return input.submitNotification(cardId, notification, urgency, signal);
+    return input.submitNotification(authority, cardId, notification, urgency, signal);
   };
 }

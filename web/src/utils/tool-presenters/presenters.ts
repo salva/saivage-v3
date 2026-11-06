@@ -101,7 +101,7 @@ function processResult(ctx: ResultPresenterContext): ResultPresenterResult {
 }
 function recordResult(r: Facts): ResultPresenterResult {
   const draft = r.state === 'open' && r.surface === 'card_agent';
-  const accepted = r.state === 'closed' && r.surface === 'analyst';
+  const accepted = r.state === 'closed' && (r.surface === 'analyst' || r.surface === 'card_acceptance');
   return observed(str(asRecord(r.propagation)?.error), [fields('Record mutation', r, ['card_id', 'name', 'state', 'surface', ['revision', 'Mutable revision'], 'head_id', 'current_url', ['accepted_version_url', draft ? 'Retained accepted version' : 'Accepted version'], 'bytes', 'written', 'code', 'reason', 'current_head', 'occurrences', 'replace_all_required', 'restart_required']), ...propagation(r)], (draft ? 'Draft updated' : accepted ? 'Record accepted' : r.code ? 'Refused' : 'Record mutation reported') + propagationSummary(r), summaryPathParts(r.current_url));
 }
 function fileMutation(ctx: ResultPresenterContext): ResultPresenterResult {

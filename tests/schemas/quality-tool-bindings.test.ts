@@ -18,7 +18,7 @@ it('requires a nonempty exact versioned binding and the paired selected grant', 
   const agent = config.agents[config.analyst_agent]!;
   agent.quality_tools = qualityTools;
   expect(effectiveSaivageConfigSchema.safeParse(config).success).toBe(false);
-  agent.tools.push(name);
+  agent.capabilities.grants.push({ tools: [name] });
   expect(effectiveSaivageConfigSchema.parse(config).agents[config.analyst_agent]!.quality_tools).toEqual(qualityTools);
   delete agent.quality_tools;
   expect(effectiveSaivageConfigSchema.safeParse(config).success).toBe(false);
@@ -27,10 +27,10 @@ it('requires a nonempty exact versioned binding and the paired selected grant', 
 it('omits the entire provisioning section outbound while retaining selected names', () => {
   const config = structuredClone(TEST_SAIVAGE_CONFIG);
   const agent = config.agents[config.analyst_agent]!;
-  agent.tools.push(name);
+  agent.capabilities.grants.push({ tools: [name] });
   agent.quality_tools = qualityTools;
   const outbound = projectEffectiveConfigForOutbound(effectiveSaivageConfigSchema.parse(config));
-  expect(outbound.agents[config.analyst_agent]!.tools).toContain(name);
+  expect(outbound.agents[config.analyst_agent]!.capabilities.grants.flatMap((grant) => grant.tools)).toContain(name);
   expect(outbound.agents[config.analyst_agent]).not.toHaveProperty('quality_tools');
   for (const value of [binding.node_binary, binding.native_config, binding.eslint_module])
     expect(JSON.stringify(outbound)).not.toContain(value);

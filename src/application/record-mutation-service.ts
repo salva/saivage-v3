@@ -1,4 +1,5 @@
 import type { CardService } from '../cards/store-api.js';
+import { allowsReachedObject, type DirectObjectAuthority } from '../tools/tool-api.js';
 import { analystRecordEditEffect } from '../cards/status-api.js';
 import {
   parseRecordUrl,
@@ -20,18 +21,17 @@ import {
 import type { AgentName } from '../schemas/index.js';
 import { observeRecordProjection } from '../persistence/index.js';
 
-type RecordMutationAdmissionRequest = {
+export type RecordMutationAdmissionRequest = {
   path: string;
   operation: 'write' | 'edit';
   agentName: AgentName;
-  cardId?: string;
+  authority: DirectObjectAuthority;
   requiredTools: readonly ('write' | 'edit' | 'webfetch')[];
 } & (
   | { surface: 'card_agent' }
   | {
       surface: 'analyst';
       author: import('../schemas/index.js').OperationAuthor;
-      allowedTools: readonly string[];
     }
 );
 
@@ -41,6 +41,14 @@ type RecordMutationRequest = RecordMutationAdmissionRequest & {
     | { operation: 'write'; content: string }
     | { operation: 'edit'; oldString: string; newString: string; replaceAll?: boolean }
   );
+
+/** Bound to one actual runtime activation, not a model-supplied caller. */
+export interface CardAgentRecordMutationPort {
+  admit(
+    request: RecordMutationAdmissionRequest & { surface: 'card_agent' },
+  ): Admission | RecordMutationFailure;
+  mutate(request: RecordMutationRequest & { surface: 'card_agent' }): RecordMutationResult;
+}
 
 type Admission = {
   parsed: ReturnType<typeof parseRecordUrl>;
@@ -115,21 +123,26 @@ export function admitRecordMutation(
     });
   }
   if (!card) return denied(parsed, request.operation, 'card_not_active');
-  if (request.surface === 'card_agent' && request.cardId !== parsed.cardId)
-    return denied(parsed, request.operation, 'cross_card_scope');
-  const configured =
-    request.surface === 'analyst'
-      ? store.workflows.analyst
-      : store.workflows.agents.get(request.agentName);
-  if (!configured || !configured.recordWrites.some(({ matcher }) => matcher.test(parsed.name)))
-    return denied(parsed, request.operation, 'writer_not_authorized');
-  if (request.requiredTools.some((name) => !configured.tools.some((tool) => tool.name === name)))
-    return denied(parsed, request.operation, 'tool_not_authorized');
   if (
-    request.surface === 'analyst' &&
-    request.requiredTools.some((name) => !request.allowedTools.includes(name))
+    request.requiredTools.some(
+      (name) => !request.authority.tools.some((tool) => tool.name === name),
+    )
   )
     return denied(parsed, request.operation, 'tool_not_authorized');
+  if (
+    [request.operation, ...request.requiredTools].some(
+      (tool) =>
+        !allowsReachedObject(request.authority, tool, {
+          kind: 'record',
+          cardId: card.id,
+          name: parsed.name,
+        }),
+    )
+  )
+    return denied(parsed, request.operation, 'writer_not_authorized');
+  const nonself = request.surface === 'card_agent' && request.authority.anchorCardId !== card.id;
+  if (nonself && !['backlog', 'changed', 'blocked', 'stopped'].includes(card.lifecycle.status))
+    return denied(parsed, request.operation, 'lifecycle_unsupported');
   if (request.surface === 'analyst' && analystRecordEditEffect(card.lifecycle.status) === null)
     return denied(parsed, request.operation, 'lifecycle_unsupported');
   let classification: ReturnType<CardService['classifyCurrentRecord']>;
@@ -150,7 +163,7 @@ export function admitRecordMutation(
     });
   }
   const current = classification.kind === 'present' ? classification.projection : null;
-  if (request.surface === 'analyst' && current?.state === 'open')
+  if ((request.surface === 'analyst' || nonself) && current?.state === 'open')
     return failure({
       kind: 'rejected',
       error: 'Record already has an open workflow draft.',
@@ -262,8 +275,21 @@ export function mutateRecord(
       },
     });
   let result: CurrentRecordProjection;
-  if (request.surface === 'analyst')
-    result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, request.author);
+  const directAcceptance =
+    request.surface === 'analyst' || request.authority.anchorCardId !== parsed.cardId;
+  if (directAcceptance)
+    result = store.acceptRecord(
+      parsed.cardId,
+      parsed.name,
+      nextContent,
+      request.surface === 'analyst'
+        ? request.author
+        : {
+            kind: 'card-agent',
+            agent: request.agentName,
+            card_id: request.authority.anchorCardId!,
+          },
+    );
   else {
     if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
     result = store.editRecord(parsed.cardId, parsed.name, nextContent);
@@ -283,7 +309,7 @@ export function mutateRecord(
     data: {
       card_id: parsed.cardId,
       name: parsed.name,
-      state: request.surface === 'analyst' ? 'closed' : 'open',
+      state: directAcceptance ? 'closed' : 'open',
       version: result.draft ? result.draft.version : result.accepted!.source_version,
       target_version: result.draft?.target_version ?? null,
       revision: result.revision,
@@ -292,13 +318,16 @@ export function mutateRecord(
       accepted_version_url: result.acceptedVersionUrl,
       bytes: Buffer.byteLength(nextContent),
       written: true,
-      surface: request.surface,
-      ...(request.surface === 'analyst'
-        ? { propagation: propagate ? propagate() : { ok: true as const } }
-        : {}),
+      surface:
+        request.surface === 'analyst'
+          ? 'analyst'
+          : directAcceptance
+            ? 'card_acceptance'
+            : 'card_agent',
+      ...(directAcceptance ? { propagation: propagate ? propagate() : { ok: true as const } } : {}),
     },
   };
   const validated = RecordMutationSuccessSchema.parse(success);
-  if (request.surface === 'card_agent') request.onRecordWritten?.(parsed.name);
+  if (!directAcceptance) request.onRecordWritten?.(parsed.name);
   return validated;
 }

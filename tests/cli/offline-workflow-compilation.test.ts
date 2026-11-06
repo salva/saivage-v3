@@ -91,7 +91,7 @@ describe('offline workflow compilation and publication', () => {
     const effective = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: {}, projectRoot }).loadEffective();
     expect(effective.config).toEqual(template.config);
     const emitted = YAML.parse(readFileSync(configPath, 'utf8')) as typeof template.config;
-    for (const type of Object.values(emitted.card_types!)) expect(type.workflow.format_version).toBe(5);
+    for (const type of Object.values(emitted.card_types!)) expect(type.workflow.format_version).toBe(6);
     expect(JSON.parse(readFileSync(markerPath, 'utf8'))).toEqual({ template: profile, saivage_version: SAIVAGE_VERSION });
     assertTreeEqual(template.promptRoot, promptsRoot);
     const artifacts: Array<{path: string; source: string}> = [];

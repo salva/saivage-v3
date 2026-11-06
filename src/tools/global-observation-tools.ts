@@ -1,3 +1,4 @@
+import type { DirectObjectAuthority } from './direct-object-authority.js';
 import type { CardService } from '../cards/store-api.js';
 import type { EventQueryService } from '../application/index.js';
 import type { ProcessRunner } from '../runtime/runtime-api.js';
@@ -45,6 +46,7 @@ function observationReadFailure(error: unknown): ToolActionOutcome {
 }
 
 export interface GlobalObservationToolContext {
+  readonly authority: DirectObjectAuthority;
   readonly agentName: import('../schemas/index.js').AgentName;
   readonly projectRoot: string;
   readonly store: CardService;
@@ -55,6 +57,7 @@ export interface GlobalObservationToolContext {
   readonly queueNotification: (
     input: QueueNotificationToolInput,
     signal: AbortSignal,
+    authority: DirectObjectAuthority,
   ) => Promise<ToolExecutionResult<'none'>>;
   readonly captureExecutingLlmSnapshots: () => ReadonlyMap<
     ConversationSessionId,
@@ -291,6 +294,6 @@ export const globalObservationToolBinders: readonly ToolBinder<
       'Queue evidenced context to an eligible planning card under this check’s admission. Urgent may interrupt exact active card work; enqueue alone does not prove delivery or action.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: () => queueNotificationInputSchema,
-    executor: (ctx, args, signal) => ctx.queueNotification(args, signal),
+    executor: (ctx, args, signal) => ctx.queueNotification(args, signal, ctx.authority),
   }),
 ]);

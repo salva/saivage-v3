@@ -48,7 +48,6 @@ const RecordMutationDeniedSchema = z
           'card_not_active',
           'writer_not_authorized',
           'tool_not_authorized',
-          'cross_card_scope',
           'lifecycle_unsupported',
         ]),
       })
@@ -182,7 +181,7 @@ export const RecordMutationSuccessSchema = z
         accepted_version_url: z.string().min(1).nullable(),
         bytes: z.number().int().safe().nonnegative(),
         written: z.literal(true),
-        surface: z.enum(['card_agent', 'analyst']),
+        surface: z.enum(['card_agent', 'card_acceptance', 'analyst']),
         propagation: propagationSchema.optional(),
       })
       .strict()
@@ -201,7 +200,7 @@ export const RecordMutationSuccessSchema = z
           data.current_url !== currentUrl ||
           (data.accepted_version_url !== null &&
             !isAcceptedUrl(data.accepted_version_url, currentUrl, data.revision)) ||
-          (data.surface === 'analyst' &&
+          (data.surface !== 'card_agent' &&
             data.accepted_version_url !== `${currentUrl}&v=${data.version}`) ||
           (data.state === 'open'
             ? data.target_version !== data.version

@@ -29,6 +29,7 @@ import { createTestProcessRunner, cleanupTestProcessRunners } from '../helpers/t
 import { makeCodexJwt, testCompactionPolicy } from '../helpers/llm-test-helpers.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
+import { resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 
 const SESSION = 'agent:analyst:global' as const;
 const summary = 'Visual summary: the first screenshot has a red left half and blue right half; the new observation is green. '.repeat(120);
@@ -155,7 +156,7 @@ await sharp(pixels,{raw:{width:2048,height:1024,channels:3}}).png().toFile('scre
     };
     const scope = processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'image-e2e', 'operator_session');
     const command = processToolBinders.find(tool => tool.name === 'run_command')!.bind({ projectRoot, processRunner: processes.processRunner, directScope: scope, category: 'operator_session', ownerId: SESSION, ownerKind: 'operator' });
-    const image = globalWorkspaceObservationToolBinders.find(tool => tool.name === 'view_image')!.bind({ projectRoot, agentName: 'analyst', store: new CardService(projectRoot) });
+    const image = globalWorkspaceObservationToolBinders.find(tool => tool.name === 'view_image')!.bind({ projectRoot, agentName: 'analyst', store: new CardService(projectRoot), authority: { anchorCardId: null, tools: [resolveRuntimeTool('global', 'view_image', [{ kind: 'workspace' }])] } });
     const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[command.name, command], [image.name, image]]), providers: [{ providerName: 'process', tools: [command] }, { providerName: 'workspace', tools: [image] }] };
     const createSession = () => {
       const ports = makeProvider();

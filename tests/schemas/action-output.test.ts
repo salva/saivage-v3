@@ -40,7 +40,7 @@ describe('action output source contract', () => {
   it('binds the output descriptor to the literal accepted body in strict artifact reads', () => {
     const stamp = '2026-10-24T00:00:00.000Z';
     const artifact = {
-      format_version: 5, kind: 'accepted-record', card_id: 'project', record_name: 'report.md',
+      format_version: 6, kind: 'accepted-record', card_id: 'project', record_name: 'report.md',
       record_format: 'markdown', schema: 'report', entry_id: id, version: 1,
       published_at: stamp, predecessor: null,
       accepted: {

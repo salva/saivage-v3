@@ -481,7 +481,7 @@ function publishAcceptance(
   const version = (prior?.accepted?.version ?? 0) + 1;
   const artifact = authoredRecordVersionArtifactSchema.parse({
     ...identity(cardId, definition),
-    format_version: 5,
+    format_version: 6,
     kind: 'accepted-record',
     entry_id: entryId,
     version,
@@ -576,7 +576,7 @@ export function closeOpenAuthoredRecord(
     definition,
     prior,
     prior.draft.content,
-    { kind: 'agent', agent: writer },
+    { kind: 'card-agent', agent: writer, card_id: cardId },
     observed.revision,
     observed.history,
     io,

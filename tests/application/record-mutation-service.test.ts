@@ -6,11 +6,12 @@ import { join } from 'node:path';
 import { admitRecordMutation,mutateRecord,preflightAnalystRecordWrite } from '../../src/application/record-mutation-service.js';
 import { cardRecordHeadFile } from '../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
-import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { CardService as ConfiguredCardService } from '../../src/cards/card-service.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { workflowResult } from '../helpers/workflow-result.js';
+import { setRecordWriteGrants } from '../helpers/capability-grants.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -24,13 +25,14 @@ function setup() {
 const dynamicDefinition = (filename: string) => ({ filename, format: 'markdown' as const, schema: 'authored-record.v1', bootstrap: false, declared: false });
 const DENIAL_CASES:Array<[string,'active'|'cancelled'|null,'analyst'|'card_agent',string|undefined,boolean,boolean]>=[
   ['card_not_active',null,'analyst',undefined,true,true],
-  ['cross_card_scope','active','card_agent','card-a',true,true],
+  ['writer_not_authorized','active','card_agent','card-a',true,true],
   ['writer_not_authorized','active','analyst',undefined,false,true],
   ['tool_not_authorized','active','analyst',undefined,true,false],
   ['lifecycle_unsupported','cancelled','analyst',undefined,true,true],
 ];
 
-const analystAuthority = { author: { kind: 'agent' as const, agent: 'analyst' }, allowedTools: ['write', 'edit', 'webfetch'] };
+const analystAuthority = { author: { kind: 'agent' as const, agent: 'analyst' }, authority: {anchorCardId: null, tools: TEST_WORKFLOWS.analyst.tools} };
+const cardAuthority = (cards: Pick<CardService,'workflows'>, agent: string) => ({anchorCardId:'project',tools:cards.workflows.agents.get(agent)!.tools});
 const analystPreflightRequest = { ...analystAuthority, path: 'record:///brief.md?card=project', operation: 'write' as const, surface: 'analyst' as const, agentName: 'analyst' as const, requiredTools: ['write', 'webfetch'] as const };
 
 function preflightHarness(cards: CardService, read: () => ReturnType<CardService['read']>, classifyCurrentRecord: () => ReturnType<CardService['classifyCurrentRecord']>) {
@@ -81,10 +83,70 @@ describe('Analyst record preflight', () => {
 });
 
 describe('card-agent record mutation', () => {
+  it('consumes bound same-clause grants for generic nonself acceptance, not reconstructed role permissions', () => {
+    const { root } = setup();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    setRecordWriteGrants(config.agents.planner!, [
+      {kind:'record',scopes:['self'],patterns:['status.md']},
+      {kind:'record',scopes:['children'],patterns:['brief.md','design-*.md']},
+    ]);
+    const cards = new ConfiguredCardService(root,compileProjectWorkflows(config));
+    const child = cards.create({type:'goal',parent:'project',title:'Assignment',bootstrap_content:'original',bootstrap_author:{kind:'card-agent',agent:'planner',card_id:'project'},priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+    const authority = cardAuthority(cards,'planner');
+    const written = jest.fn();
+    const request = {surface:'card_agent' as const,agentName:'planner',authority,requiredTools:['write'] as const,operation:'write' as const,onRecordWritten:written};
+    expect(mutateRecord(cards,{...request,path:`record:///status.md?card=${child.id}`,content:'not granted'})).toMatchObject({kind:'rejected',data:{reason:'writer_not_authorized'}});
+    expect(mutateRecord(cards,{...request,path:'record:///brief.md?card=project',content:'not granted'})).toMatchObject({kind:'rejected',data:{reason:'writer_not_authorized'}});
+    // The same agent name cannot recover a missing selected write tool from configuration.
+    expect(mutateRecord(cards,{...request,authority:{...authority,tools:authority.tools.filter(t=>t.name!=='write')},path:`record:///brief.md?card=${child.id}`,content:'not selected'})).toMatchObject({kind:'rejected',data:{reason:'tool_not_authorized'}});
+    for (const name of ['brief.md','design-plan.md']) {
+      const result = mutateRecord(cards,{...request,path:`record:///${name}?card=${child.id}`,content:`new ${name}`});
+      expect(result).toMatchObject({kind:'applied',data:{surface:'card_acceptance',state:'closed',propagation:{ok:true},target_version:null}});
+      const current=cards.readRecordCurrent(child.id,name);
+      expect(current.kind==='found'&&current.value.projection?.accepted?.author).toEqual({kind:'card-agent',agent:'planner',card_id:'project'});
+    }
+    expect(written).not.toHaveBeenCalled();
+    expect(cards.read(child.id)!.lifecycle.status).toBe('backlog');
+    const own=mutateRecord(cards,{...request,path:'record:///status.md?card=project',content:'own draft'});
+    expect(own).toMatchObject({kind:'applied',data:{surface:'card_agent',state:'open'}});
+    expect(written).toHaveBeenCalledTimes(1);expect(written).toHaveBeenCalledWith('status.md');
+  });
+
+  it.each(['running','done','failed','cancelled'] as const)('refuses nonself %s before any accepted publication', status => {
+    const {cards}=setup();
+    const child=cards.create({type:'goal',parent:'project',title:'Target',bootstrap_content:'original',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+    if(status==='cancelled') cards.setStatus(child.id,'cancelled');
+    else {
+      cards.setStatus(child.id,'running');
+      if(status!=='running')cards.commitActivationOutcome(child.id,{status,summary:status,result:workflowResult(status==='done'?'DONE':'FAILED',status)},new Date().toISOString());
+    }
+    const before=cards.readRecordCurrent(child.id,'brief.md');
+    const accept=jest.spyOn(cards,'acceptRecord');
+    const result=mutateRecord(cards,{surface:'card_agent',agentName:'planner',authority:cardAuthority(cards,'planner'),requiredTools:['write'],operation:'write',path:`record:///brief.md?card=${child.id}`,content:'replacement'});
+    expect(result).toMatchObject({kind:'rejected',data:{reason:'lifecycle_unsupported'}});
+    expect(accept).not.toHaveBeenCalled();expect(cards.readRecordCurrent(child.id,'brief.md')).toEqual(before);
+  });
+
+  it('refuses another card draft without adopting/discarding it and keeps known partial propagation honest', () => {
+    const {cards}=setup();
+    const child=cards.create({type:'goal',parent:'project',title:'Target',bootstrap_content:'original',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+    const request={surface:'card_agent' as const,agentName:'planner',authority:cardAuthority(cards,'planner'),requiredTools:['write'] as const,operation:'write' as const,path:`record:///brief.md?card=${child.id}`,content:'replacement'};
+    cards.openRecord(child.id,'brief.md');cards.editRecord(child.id,'brief.md','other draft');
+    expect(mutateRecord(cards,request)).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
+    cards.discardRecord(child.id,'brief.md');
+    const result=mutateRecord(cards,request,()=>({ok:false,partial:true,error:'known lifecycle failure'}));
+    expect(result).toMatchObject({kind:'applied',data:{surface:'card_acceptance',propagation:{ok:false,partial:true}}});
+    const current=cards.readRecordCurrent(child.id,'brief.md');expect(current.kind==='found'&&current.value.projection?.accepted?.content).toBe('replacement');
+    const unknown=new PublicationOutcomeUnknownError();
+    jest.spyOn(cards,'acceptRecord').mockImplementation(()=>{throw unknown;});
+    const followup=jest.fn(()=>({ok:true as const}));
+    expect(()=>mutateRecord(cards,{...request,content:'uncertain'},followup)).toThrow(unknown);
+    expect(followup).not.toHaveBeenCalled();
+  });
   it.each(['cancelled', 'writer', 'write', 'edit'] as const)('keeps %s denial effect-free after CHANGED support', (gate) => {
     const { root } = setup(); const config = structuredClone(TEST_SAIVAGE_CONFIG);
-    if (gate === 'writer') config.agents.analyst!.record_writes = [];
-    if (gate === 'write' || gate === 'edit') config.agents.analyst!.tools = config.agents.analyst!.tools.filter((tool) => tool !== gate);
+    if (gate === 'writer') setRecordWriteGrants(config.agents.analyst!, []);
+    if (gate === 'write' || gate === 'edit') config.agents.analyst!.capabilities.grants = config.agents.analyst!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter((tool) => tool !== gate) })).filter((grant) => grant.tools.length > 0);
     const cards = new ConfiguredCardService(root, compileProjectWorkflows(config));
     if (gate !== 'cancelled') {
       cards.setStatus('project', 'running');
@@ -95,8 +157,8 @@ describe('card-agent record mutation', () => {
     const open = jest.spyOn(cards, 'openRecord'); const edit = jest.spyOn(cards, 'editRecord'); const close = jest.spyOn(cards, 'closeRecord'); const propagate = jest.fn(() => ({ ok: true as const }));
     const operation = gate === 'edit' ? 'edit' : 'write';
     const request: Parameters<typeof mutateRecord>[1] = operation === 'edit'
-      ? { ...analystPreflightRequest, operation, requiredTools: [operation], oldString: 'Goal', newString: 'denied' }
-      : { ...analystPreflightRequest, operation, requiredTools: [operation], content: 'denied' };
+      ? { ...analystPreflightRequest, authority:{anchorCardId:null,tools:cards.workflows.analyst.tools}, operation, requiredTools: [operation], oldString: 'Goal', newString: 'denied' }
+      : { ...analystPreflightRequest, authority:{anchorCardId:null,tools:cards.workflows.analyst.tools}, operation, requiredTools: [operation], content: 'denied' };
     expect(mutateRecord(cards, request, propagate)).toMatchObject({ kind: 'rejected', data: { code: 'record_mutation_denied', reason: gate === 'cancelled' ? 'lifecycle_unsupported' : gate === 'writer' ? 'writer_not_authorized' : 'tool_not_authorized' } });
     for (const spy of [open, edit, close, propagate]) expect(spy).not.toHaveBeenCalled();
     expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(before); expect(cards.read('project')).toEqual(cardBefore);
@@ -119,7 +181,7 @@ describe('card-agent record mutation', () => {
         ? { ...analystPreflightRequest, path: path!, operation, oldString: 'old', newString: 'new', onRecordWritten: written }
         : { ...analystPreflightRequest, path: path!, operation, content: 'changed', onRecordWritten: written };
       for (const surface of ['analyst', 'card_agent'] as const) {
-        expect(mutateRecord(cards, { ...request, surface, cardId: 'project' }, propagate)).toEqual({ kind: 'rejected', error, data: { code: 'record_mutation_invalid_target', operation } });
+        expect(mutateRecord(cards, { ...request, surface }, propagate)).toEqual({ kind: 'rejected', error, data: { code: 'record_mutation_invalid_target', operation } });
       }
       expect(preflightAnalystRecordWrite(cards, request)).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'record_mutation_invalid_target', operation } } });
     }
@@ -175,9 +237,9 @@ describe('card-agent record mutation', () => {
   it.each(DENIAL_CASES)('returns %s before definition or record classification', (reason,state,surface,cardId,writerAllowed,toolAllowed) => {
     const {cards}=setup();const reached=cards.read('project')!;const card=state==='cancelled'?{...reached,lifecycle:{status:'cancelled' as const,result:null,error:null,completed_at:null}}:reached;
     const classifyCurrentRecord=jest.fn(()=>{throw new Error('CLASSIFIER_MUST_NOT_RUN');});
-    const configured={recordWrites:writerAllowed?[{matcher:/^brief\.md$/u}]:[],tools:toolAllowed?[{name:'write'}]:[]};
+    const configured={tools:toolAllowed?[{name:'write',resources:writerAllowed?[{kind:'record',scopes:['all'],patterns:[{source:'brief.md',matcher:/^brief\.md$/u}]}]:[]}]:[]};
     const store={read:jest.fn(()=>state===null?null:card),classifyCurrentRecord,workflows:{analyst:configured,agents:new Map([['planner',configured]])}} as never;
-    const result=admitRecordMutation(store,{...analystAuthority,path:'record:///brief.md?card=project',operation:'write',surface,agentName:surface==='analyst'?'analyst':'planner',...(cardId?{cardId}:{}),requiredTools:['write']});
+     const result=admitRecordMutation(store,{...analystAuthority,authority:{anchorCardId:cardId??null,tools: configured.tools.map((tool)=>({...tool,resources:tool.resources.map((resource)=>({...resource,scopes:cardId?['self']:resource.scopes}))})) as never},path:'record:///brief.md?card=project',operation:'write',surface,agentName:surface==='analyst'?'analyst':'planner',requiredTools:['write']});
     expect(result).toMatchObject({kind:'rejected',data:{code:'record_mutation_denied',reason}});expect(classifyCurrentRecord).not.toHaveBeenCalled();
   });
 
@@ -185,9 +247,9 @@ describe('card-agent record mutation', () => {
     const { cards } = setup();
     const written = jest.fn();
     const path = 'record:///review-notes-1.md?card=project';
-    const first = mutateRecord(cards, { path, operation: 'write', content: 'first', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'], onRecordWritten: written });
+    const first = mutateRecord(cards, { path, operation: 'write', content: 'first', surface: 'card_agent', agentName: 'reviewer', authority: cardAuthority(cards,'reviewer'), requiredTools: ['write'], onRecordWritten: written });
     expect(first).toMatchObject({ kind: 'applied', data: { state: 'open', revision: 2, current_url: path, accepted_version_url: null } });
-    const second = mutateRecord(cards, { path, operation: 'edit', oldString: 'first', newString: 'second', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['edit'], onRecordWritten: written });
+    const second = mutateRecord(cards, { path, operation: 'edit', oldString: 'first', newString: 'second', surface: 'card_agent', agentName: 'reviewer', authority: cardAuthority(cards,'reviewer'), requiredTools: ['edit'], onRecordWritten: written });
     expect(second).toMatchObject({ kind: 'applied', data: { state: 'open', revision: 3, current_url: path, accepted_version_url: null } });
     const current=cards.readRecordCurrent('project','review-notes-1.md');expect(current.kind==='found'&&current.value.projection?.draft?.content).toBe('second');
     expect(written).toHaveBeenNthCalledWith(1, 'review-notes-1.md');
@@ -197,18 +259,23 @@ describe('card-agent record mutation', () => {
   it('rejects glob mismatch and historical URLs before any dynamic namespace effect', () => {
     const { root, cards } = setup();
     const deniedName = 'status-notes.md';
-    expect(mutateRecord(cards, { path: `record:///${deniedName}?card=project`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toMatchObject({ kind: 'rejected', data: { code: 'record_mutation_denied', reason: 'writer_not_authorized' } });
+    expect(mutateRecord(cards, { path: `record:///${deniedName}?card=project`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', authority: cardAuthority(cards,'reviewer'), requiredTools: ['write'] })).toMatchObject({ kind: 'rejected', data: { code: 'record_mutation_denied', reason: 'writer_not_authorized' } });
     expect(existsSync(cardRecordHeadFile(root, 'project', dynamicDefinition(deniedName)))).toBe(false);
 
     const historicalName = 'review-history.md';
-    expect(mutateRecord(cards, { path: `record:///${historicalName}?card=project&v=1`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toEqual({ kind: 'rejected', error: 'Historical record URLs cannot be mutated.', data: { code: 'record_mutation_invalid_target', operation: 'write' } });
+    expect(mutateRecord(cards, { path: `record:///${historicalName}?card=project&v=1`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', authority: cardAuthority(cards,'reviewer'), requiredTools: ['write'] })).toEqual({ kind: 'rejected', error: 'Historical record URLs cannot be mutated.', data: { code: 'record_mutation_invalid_target', operation: 'write' } });
     expect(existsSync(cardRecordHeadFile(root, 'project', dynamicDefinition(historicalName)))).toBe(false);
   });
 
   it('exposes crash-left open content, conflicts with Analyst mutation, and lets a later authorized activation reuse and close it', () => {
-    const { cards } = setup();
+    const { root } = setup();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    for (const grant of config.agents.planner!.capabilities.grants)
+      if (grant.tools.some((name)=>['write','edit'].includes(name)))
+        grant.resources!.push({kind:'record',scopes:['self'],patterns:['brief.md']});
+    const cards = new ConfiguredCardService(root, compileProjectWorkflows(config));
     const path='record:///brief.md?card=project';
-    expect(mutateRecord(cards,{path,operation:'write',content:'interrupted draft',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['write']})).toMatchObject({kind:'applied',data:{state:'open'}});
+    expect(mutateRecord(cards,{path,operation:'write',content:'interrupted draft',surface:'card_agent',agentName:'planner',authority:cardAuthority(cards,'planner'),requiredTools:['write']})).toMatchObject({kind:'applied',data:{state:'open'}});
     cards.setStatus('project', 'running');
     cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
     cards.setStatus('project', 'changed');
@@ -217,10 +284,10 @@ describe('card-agent record mutation', () => {
     expect(mutateRecord(cards,{...analystAuthority,path,operation:'edit',oldString:'interrupted',newString:'stolen',surface:'analyst',agentName:'analyst',requiredTools:['edit']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
     expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(current);
     expect(cards.read('project')!.lifecycle.status).toBe('changed');
-    const resumed=mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'resumed',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['edit']});
+    const resumed=mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'resumed',surface:'card_agent',agentName:'planner',authority:cardAuthority(cards,'planner'),requiredTools:['edit']});
     expect(resumed).toMatchObject({kind:'applied',data:{state:'open'}});
     if(resumed.kind !== 'applied')throw new Error('Expected resumed mutation success.');
     const closed=cards.closeRecord('project','brief.md','planner');
-    expect(closed).toMatchObject({state:'closed',accepted:{content:'resumed draft',author: { kind: 'agent', agent: 'planner' }}});
+    expect(closed).toMatchObject({state:'closed',accepted:{content:'resumed draft',author: { kind: 'card-agent', agent: 'planner', card_id:'project' }}});
   });
 });

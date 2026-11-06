@@ -18,9 +18,18 @@ import { CardService as ConfiguredCardService } from '../../src/cards/card-servi
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { workflowResult } from '../helpers/workflow-result.js';
+import { admitRecordMutation, mutateRecord } from '../../src/application/record-mutation-service.js';
+import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
 
-const bindWeb = (context: WebProviderContext) => bindToolProvider('web', webToolBinders, context);
-const bindWorkspace = (context: WorkspaceProviderContext) => bindToolProvider('workspace', workspaceToolBinders, context);
+function recordBindings(cards: CardService, cardId:string) {
+  return {authority:{anchorCardId:cardId,tools:cards.workflows.agents.get('planner')!.tools},recordMutations:{
+    admit:(request:Parameters<typeof admitRecordMutation>[1])=>admitRecordMutation(cards,request),
+    mutate:(request:Parameters<typeof mutateRecord>[1])=>mutateRecord(cards,request),
+  }};
+}
+
+const bindWeb = (context: WebProviderContext) => bindToolProvider('web', webToolBinders, { authority: testWorkspaceAuthority(context.cardId ?? null), ...context });
+const bindWorkspace = (context: WorkspaceProviderContext) => bindToolProvider('workspace', workspaceToolBinders, { authority: testWorkspaceAuthority(context.cardId ?? null), ...context });
 
 describe('WebProvider', () => {
   it('freshly denies the actual record write when its card is deleted during a deferred fetch', async () => {
@@ -36,9 +45,9 @@ describe('WebProvider', () => {
     const written = jest.fn();
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(() => { enterFetch(); return fetched; });
     try {
-      const context: WebProviderContext = { projectRoot: root, agentName: 'planner', cardId: card.id, store: cards, onRecordWritten: written };
+      const context: WebProviderContext = { ...recordBindings(cards,card.id), projectRoot: root, agentName: 'planner', cardId: card.id, store: cards, onRecordWritten: written };
       const surface = buildInvocationSurfaceFixture('planner', [bindWeb(context)]);
-      const pending = invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as: `record:///brief.md?card=${card.id}` });
+      const pending = invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as: `record:///status.md?card=${card.id}` });
       await fetchEntered;
       expect(classify).toHaveBeenCalledTimes(1);
       expect(open).not.toHaveBeenCalled(); expect(edit).not.toHaveBeenCalled();
@@ -58,7 +67,7 @@ describe('WebProvider', () => {
     const config = structuredClone(TEST_SAIVAGE_CONFIG);
     if (condition === 'no-write' || condition === 'no-webfetch') {
       const absent = condition === 'no-write' ? 'write' : 'webfetch';
-      config.agents.analyst!.tools = config.agents.analyst!.tools.filter((tool) => tool !== absent);
+      config.agents.analyst!.capabilities.grants = config.agents.analyst!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter((tool) => tool !== absent) })).filter((grant) => grant.tools.length > 0);
     }
     const cards = new ConfiguredCardService(root, compileProjectWorkflows(config));
     cards.setStatus('project', 'running');
@@ -97,7 +106,7 @@ describe('WebProvider', () => {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', sessionId: 'agent:analyst:global', store: cards, interventionReadiness: { assertInterventionReady() {} }, analystMutations: testAnalystMutationServices(root, cards, notify) } as never;
       const context: WebProviderContext = owner === 'analyst'
         ? { projectRoot: root, agentName: 'analyst', analystToolContext }
-        : { projectRoot: root, agentName: 'planner', cardId: 'project', store: cards };
+        : { ...recordBindings(cards,'project'), projectRoot: root, agentName: 'planner', cardId: 'project', store: cards };
       const surface = buildInvocationSurfaceFixture(owner === 'analyst' ? 'analyst' : 'planner', [bindWeb(context)]);
       for (const save_as of ['record:///brief.md', 'record:///%ZZ?card=project', 'record:///brief.md?card=project&v=1']) {
         const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as });

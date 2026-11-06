@@ -50,7 +50,7 @@ describe('configured node-entry record initialization through production composi
     });
     const port = await listen(provider);
     const config = productionTestConfig(port, value => {
-      value.agents.executor!.record_writes.push('assessment.md');
+      for (const grant of value.agents.executor!.capabilities.grants) if (grant.tools.some((name) => ['write', 'edit', 'webfetch'].includes(name))) grant.resources!.push({ kind: 'record', scopes: ['self'], patterns: ['assessment.md'] });
       value.agents.executor!.prompt = { reference: 'assessment-worker', compactable: true };
       value.card_types.project = {
         permitted_child_types: ['code'],
@@ -58,7 +58,7 @@ describe('configured node-entry record initialization through production composi
           'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
           'assessment.md': { format: 'markdown', schema: 'assessment.v1', bootstrap: false, initialization: { format_version: 1, template: INITIAL } },
         },
-        workflow: { format_version: 5,
+        workflow: { format_version: 6,
           notification_recipient: 'executor',
           entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
           nodes: { execute: {
@@ -90,7 +90,7 @@ describe('configured node-entry record initialization through production composi
       initializeProject(root); app = await startProductionApp(root, TOKEN);
       const cards = app.server.runtimeApplication.cardStore;
       cards.acceptRecord('project', 'brief.md', 'Assess current delivery; required external evidence is unavailable. Record the current assessment and this remaining input.', { kind: 'agent', agent: 'analyst' });
-      const child = cards.create({ type: 'code', parent: 'project', title: 'Pre-entry author', bootstrap_content: 'Supplied child requirements.', created_by: 'analyst', priority: 0, urgency: 'normal', depends_on: [] });
+      const child = cards.create({ type: 'code', parent: 'project', title: 'Pre-entry author', bootstrap_content: 'Supplied child requirements.', created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' }, priority: 0, urgency: 'normal', depends_on: [] });
       expect(cards.readRecordCurrent(child.id, 'status.md')).toMatchObject({ value: { projection: null } });
       cards.acceptRecord(child.id, 'status.md', 'Analyst assessment before entry.', { kind: 'agent', agent: 'analyst' });
       expect(cards.readRecordCurrent(child.id, 'brief.md')).toMatchObject({ value: { projection: { accepted: { content: 'Supplied child requirements.', author: { kind: 'agent', agent: 'analyst' } } } } });
@@ -126,7 +126,7 @@ describe('configured node-entry record initialization through production composi
       await runUntilStopped();
       expect(calls).toBe(2);
       const accepted = await getRecord();
-      expect(accepted).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Delivered current assessment with evidence.', author: { kind: 'agent', agent: 'executor' } } });
+      expect(accepted).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Delivered current assessment with evidence.', author: { kind: 'card-agent', agent: 'executor', card_id: 'project' } } });
       const acceptedVersion = accepted.accepted.source_version;
       expect(acceptedVersion).toBe(1); expect(accepted.revision).toBeGreaterThan(1);
       await app.stop(); app = null;
@@ -136,7 +136,7 @@ describe('configured node-entry record initialization through production composi
       app = await startProductionApp(root, TOKEN);
       await runUntilStopped(); expect(calls).toBe(3);
       const final = await getRecord();
-      expect(final).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Reassessed current remaining work.', author: { kind: 'agent', agent: 'executor' } } });
+      expect(final).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Reassessed current remaining work.', author: { kind: 'card-agent', agent: 'executor', card_id: 'project' } } });
       const conversation = readConversation(root, cardAgentSessionId('executor', 'project'));
       const drafts = conversation.physicalRows.flatMap(row => row.record_observations ?? []).filter(item => item.observed.record_name === 'assessment.md' && item.observed.selection.kind === 'draft');
       expect(drafts.some(item => item.observed.selection.kind === 'draft' && item.observed.selection.target_version === 2 && item.observed.selection.accepted_backing?.version === acceptedVersion)).toBe(true);

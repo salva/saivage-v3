@@ -1,3 +1,4 @@
+import { broadInspectionAuthority } from '../helpers/capability-grants.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
@@ -7,6 +8,14 @@ import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provi
 import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, EMIT_RESULT_POLICY_TEMPLATE, llmToolDefinition, MCP_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { canonicalJson } from '../../src/schemas/index.js';
+import { toolResourceMetadata } from '../../src/tools/tool-resource-metadata.js';
+import type { CapabilityResource } from '../../src/schemas/index.js';
+
+function selectedResources(name: string): CapabilityResource[] | undefined {
+  const target = toolResourceMetadata(name);
+  return target.target !== 'required' ? undefined : target.kinds.map((kind):CapabilityResource =>
+    kind === 'workspace' ? {kind} : kind === 'card' ? {kind,scopes:['all']} : {kind,scopes:['all'],patterns:['*']});
+}
 
 const OBSERVATIONAL_READERS = new Set([
   'list_observed_collections', 'query_observed_collections',
@@ -17,8 +26,8 @@ const OBSERVATIONAL_READERS = new Set([
 const CANONICAL_READERS = new Set(['get_card_version', 'read_record_version']);
 
 const templateFor = (name: string) => {
-  const card = (() => { try { return resolveRuntimeTool('card', name).resultPolicyTemplate; } catch { return null; } })();
-  const global = (() => { try { return resolveRuntimeTool('global', name).resultPolicyTemplate; } catch { return null; } })();
+  const card = (() => { try { return resolveRuntimeTool('card', name, selectedResources(name)).resultPolicyTemplate; } catch { return null; } })();
+  const global = (() => { try { return resolveRuntimeTool('global', name, selectedResources(name)).resultPolicyTemplate; } catch { return null; } })();
   if (card && global && JSON.stringify(card) !== JSON.stringify(global))
     throw new Error(`Tool '${name}' declares different templates per scope.`);
   if (!card && !global) throw new Error(`unknown tool '${name}' in both scopes`);
@@ -31,7 +40,7 @@ describe('runtime tool result policy catalog', () => {
     expect(catalog.size).toBeGreaterThan(30);
     for (const entry of catalog.values()) {
       expect(entry.binder.resultPolicyTemplate).toBeDefined();
-      expect(() => resolveRuntimeTool(entry.group.scope, entry.binder.name)).not.toThrow();
+      expect(() => resolveRuntimeTool(entry.group.scope, entry.binder.name, selectedResources(entry.binder.name))).not.toThrow();
     }
   });
 
@@ -65,13 +74,13 @@ describe('runtime tool result policy catalog', () => {
   });
 
   it('copies the frozen template into compiled references without a second declaration', () => {
-    const reference = resolveRuntimeTool('card', 'get_card');
+    const reference = resolveRuntimeTool('card', 'get_card', [{kind:'card',scopes:['all']}]);
     expect(reference.resultPolicyTemplate).toBe(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE);
     expect(reference.resultPolicyTemplate.evidenceMode).toBe('observational_query');
   });
 
   it('keeps every surface in the default inventories classified and provider definitions policy-free', () => {
-    const allNames = new Set<string>(Object.values(DEFAULT_SAIVAGE_CONFIG.agents).flatMap((agent) => agent.tools));
+    const allNames = new Set<string>(Object.values(DEFAULT_SAIVAGE_CONFIG.agents).flatMap((agent) => agent.capabilities.grants.flatMap((grant) => grant.tools)));
     for (const name of allNames) {
       const template = templateFor(name);
       if (name === 'mcp_tool_call') continue;
@@ -81,7 +90,7 @@ describe('runtime tool result policy catalog', () => {
       if (name === 'view_image') expect(template.settledAudience).toBe('primary_and_summarizer');
       expect(template.evidenceMode === 'canonical_locator').toBe(CANONICAL_READERS.has(name));
     }
-    const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { store: { read: () => null, list: () => [], listChildren: () => [] } as never, cardTypeVocabulary: ['project'] });
+    const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { authority: broadInspectionAuthority(), store: { read: () => null, list: () => [], listChildren: () => [] } as never, cardTypeVocabulary: ['project'] });
     for (const definition of provider.tools) {
       const wire = llmToolDefinition(definition);
       expect(Object.hasOwn(wire, 'resultPolicyTemplate')).toBe(false);
@@ -91,7 +100,7 @@ describe('runtime tool result policy catalog', () => {
   });
 
   it('compiles surface tool contracts that bind provider bytes to the frozen policy template', () => {
-    const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { store: { read: () => null, list: () => [], listChildren: () => [] } as never, cardTypeVocabulary: ['project'] });
+    const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { authority: broadInspectionAuthority(), store: { read: () => null, list: () => [], listChildren: () => [] } as never, cardTypeVocabulary: ['project'] });
     const surface = { agentName: 'reviewer' as const, tools: new Map(provider.tools.map((tool) => [tool.name, tool])), providers: [provider] };
     const contracts = surfaceToolContracts(surface as never);
     expect(contracts.map((contract) => contract.providerDefinition.function.name)).toEqual(['list_cards', 'get_card', 'get_tree']);

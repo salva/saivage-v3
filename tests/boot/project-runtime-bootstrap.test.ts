@@ -31,8 +31,8 @@ function fixture(native = true) {
   git(root, 'add', '--all'); git(root, 'commit', '-m', 'fixture');
   const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
   if (!native) return { root, workflows: compileProjectWorkflows(config) };
-  config.agents[config.analyst_agent]!.tools = config.agents[config.analyst_agent]!.tools.filter(name => name !== 'run_command' && !name.startsWith('mcp_'));
-  config.agents.executor!.record_writes.push('git-correction.md');
+  config.agents[config.analyst_agent]!.capabilities.grants = config.agents[config.analyst_agent]!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(name => name !== 'run_command' && !name.startsWith('mcp_')) })).filter((grant) => grant.tools.length > 0);
+  for (const grant of config.agents.executor!.capabilities.grants) if (grant.tools.some((name) => ['write', 'edit', 'webfetch'].includes(name))) grant.resources!.push({ kind: 'record', scopes: ['self'], patterns: ['git-correction.md'] });
   for (const definition of Object.values(config.card_types))
     definition.records['git-correction.md'] = { format: 'markdown', schema: 'git-correction.v1', bootstrap: false };
   config.git_workflow = { format_version: 1, enabled: true, delivery_branch: 'main',

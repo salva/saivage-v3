@@ -240,7 +240,8 @@ describe('source-derived named-agent tool inventory', () => {
     for (const [path, before, after, error] of [
       [POLICY, "'list_cards'", "'get_status'", 'contains duplicates'],
       [POLICY, "'list_cards'", 'computedTool', 'contains a non-string entry'],
-      [AGENTS, '[...OVERSIGHT_ALLOWED_TOOL_NAMES]', '[...otherPolicy]', 'must spread only'],
+      [AGENTS, '...OVERSIGHT_ALLOWED_TOOL_NAMES.map', '...otherPolicy.map', 'must map OVERSIGHT_ALLOWED_TOOL_NAMES'],
+      [AGENTS, 'return grant([tool], allCards)', "return grant(['get_status'], allCards)", 'must preserve each mapped tool'],
       [AGENTS, '    planner: {', '    [computedRole]: {', 'Unsupported computed property'],
       [AGENTS, "'edit_card'", '...otherTools', 'contains a non-string entry'],
       [

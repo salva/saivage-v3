@@ -24,8 +24,8 @@ it('keeps every shipped profile unchanged and composes opted-in Analyst/card rep
     }
     const template = SYSTEM_TEMPLATES.find(t => t.name === 'classic')!;
     const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
-    config.agents.reviewer!.tools.push('mcp_server_replace');
-    config.agents.analyst!.tools.push('mcp_server_replace');
+    config.agents.reviewer!.capabilities.grants.push({ tools: ['mcp_server_replace'] });
+    config.agents.analyst!.capabilities.grants.push({ tools: ['mcp_server_replace'] });
     const compiled = compileProjectWorkflows(config, { projectRoot: root, defaultPromptRoot: template.promptRoot });
     const vocabulary = [...compiled.cardTypes.keys()];
     const globalContext = { projectRoot: root, cardTypeVocabulary: vocabulary };

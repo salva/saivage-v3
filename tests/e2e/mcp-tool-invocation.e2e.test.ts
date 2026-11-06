@@ -382,12 +382,12 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         writeProductionConfig(
           projectRoot,
           productionTestConfig(providerPort, (config) => {
-            config.agents.analyst!.tools.push(
+            config.agents.analyst!.capabilities.grants.push({tools:[
               'mcp_server_register',
               'mcp_server_replace',
               'mcp_server_unregister',
               'mcp_servers',
-            );
+            ]});
             config.mcpServers = {
               independent: { ...httpConnection, autostart: true, disabled: false },
             };
@@ -763,11 +763,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     const nativeFetch = globalThis.fetch;
     try {
       const config = productionTestConfig(providerPort, (value) => {
-        value.agents.executor = { ...value.agents.executor!, tools: ['write', 'mcp_tool_call'], skills: false };
+        value.agents.executor = { ...value.agents.executor!, capabilities:{format_version:1,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tool_call']}]}, skills: false };
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
-          workflow: { format_version: 5,
+          workflow: { format_version: 6,
             notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentCapabilitiesSchema } from './agent-capabilities.js';
 import { gitRefNameSchema } from './git-source.js';
 import { qualityToolBindingsSchema, qualityToolNames } from './quality-operation-config.js';
 import { agentNameSchema } from './agent-name.js';
@@ -20,12 +21,6 @@ const modelEquivalentsSchema = z.array(z.array(z.string()));
 const namedIdentifierSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 export const systemTemplateNameSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 const outcomeIdentifierSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
-const recordWritePatternSchema = z
-  .string()
-  .regex(
-    /^[a-z*][a-z0-9*-]{0,63}\.md$/u,
-    'Expected a lowercase Markdown record-name pattern containing only literal stem characters and * wildcards.',
-  );
 const modelRouteSchema = z
   .object({
     candidates: z.array(z.string().min(1)).min(1).optional(),
@@ -446,7 +441,7 @@ const processNodeSchema = z
   .strict();
 const cardProcessSchema = z
   .object({
-    format_version: z.literal(5),
+    format_version: z.literal(6),
     after_activation_commit: z
       .object({
         statuses: z
@@ -534,19 +529,20 @@ const cardTypesSchema = z
 const agentDefinitionFieldsSchema = z
   .object({
     prompt: staticPromptDeclarationSchema,
-    tools: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u)),
+    capabilities: agentCapabilitiesSchema,
     model_route: namedIdentifierSchema,
     skills: z.boolean(),
     session: z.enum(['global', 'card']),
-    can_create_children: z.boolean(),
-    record_writes: z.array(recordWritePatternSchema),
     quality_tools: qualityToolBindingsSchema.optional(),
   })
   .strict();
 
 const agentDefinitionSchema = agentDefinitionFieldsSchema.superRefine((agent, ctx) => {
   for (const name of qualityToolNames) {
-    if (agent.tools.includes(name) !== (agent.quality_tools?.[name] !== undefined))
+    if (
+      agent.capabilities.grants.some((grant) => grant.tools.includes(name)) !==
+      (agent.quality_tools?.[name] !== undefined)
+    )
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['quality_tools', name],

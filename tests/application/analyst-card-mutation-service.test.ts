@@ -29,7 +29,7 @@ function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): Card
 
 function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] })), submitNotification: (...args: any[]) => any = jest.fn(async (cardId: string, notification: { id: string }) => ({ queued: true as const, cardId, notificationId: notification.id, interruption: { status: 'not_requested' as const } }))) {
   if (!('workflows' in store)) Object.assign(store, { workflows: TEST_WORKFLOWS });
-  return createAnalystMutationServices({ author: { kind: 'agent', agent: 'analyst' }, allowedTools: store.workflows.analyst.tools.map(({ name }) => name), store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, submitNotification, cancelCard });
+  return createAnalystMutationServices({ author: { kind: 'agent', agent: 'analyst' }, authority: { anchorCardId: null, tools: store.workflows.analyst.tools }, store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, submitNotification, cancelCard });
 }
 
 describe('analyst card mutation service deletion', () => {
@@ -107,7 +107,7 @@ describe('analyst stopped card mutations', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunning(card.id);
       const service = testAnalystMutationServices(root, cards, (_id, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
@@ -173,9 +173,9 @@ describe('analyst child reorder propagation', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const first = cards.create({ type: 'code', parent: 'project', title: 'first', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-      const tombstone = cards.create({ type: 'code', parent: 'project', title: 'retained', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-      const second = cards.create({ type: 'code', parent: 'project', title: 'second', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const first = cards.create({ type: 'code', parent: 'project', title: 'first', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
+      const tombstone = cards.create({ type: 'code', parent: 'project', title: 'retained', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
+      const second = cards.create({ type: 'code', parent: 'project', title: 'second', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       cards.deleteSubtrees([tombstone.id], () => true, 'analyst');
       cards.setStatus('project', 'running');
       cards.commitActivationOutcome('project', { status: 'done', summary: 'done', result: workflowResult('DONE', 'done') }, '2026-08-15T00:00:00.000Z');
@@ -208,7 +208,7 @@ describe('analyst card reopen', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const target = cards.create({ type: 'code', parent: 'project', title: status, bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const target = cards.create({ type: 'code', parent: 'project', title: status, bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       settle(cards, target.id, status);
       const notifyCard = jest.fn((cardId: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
       const outcome = testAnalystMutationServices(root, cards, notifyCard).cards.reopen(target.id);
@@ -223,8 +223,8 @@ describe('analyst card reopen', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-      const target = cards.create({ type: 'code', parent: goal.id, title: 'Target', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
+      const target = cards.create({ type: 'code', parent: goal.id, title: 'Target', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       settle(cards, target.id, 'blocked');
       settle(cards, goal.id, 'failed');
       cards.setStatus('project', 'running');
@@ -242,8 +242,8 @@ describe('analyst card reopen', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-      const target = cards.create({ type: 'code', parent: goal.id, title: 'Target', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
+      const target = cards.create({ type: 'code', parent: goal.id, title: 'Target', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       settle(cards, target.id, 'done');
       settle(cards, goal.id, 'blocked');
       settle(cards, 'project', 'failed');
@@ -326,7 +326,7 @@ describe('Analyst record publication', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: '# Goal\nOriginal\n# Instructions\nOriginal\n# Acceptance Criteria\nOriginal', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: '# Goal\nOriginal\n# Instructions\nOriginal\n# Acceptance Criteria\nOriginal', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       const finalContent = '# Goal\nFinal\n# Instructions\nFinal\n# Acceptance Criteria\nFinal';
       const result = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations.edit(`record:///brief.md?card=${target.id}`, 'Original', 'Final', true);
       expect(result).toMatchObject({ kind: 'returned', success: true, data: { card_id: target.id, name: 'brief.md', state: 'closed', revision: 2, current_url: `record:///brief.md?card=${target.id}`, accepted_version_url: `record:///brief.md?card=${target.id}&v=2`, bytes: Buffer.byteLength(finalContent), written: true, surface: 'analyst', propagation: { ok: true } } });
@@ -341,7 +341,7 @@ describe('Analyst record publication', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: 'Original', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: 'Original', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
       const open = cards.openRecord(target.id, 'brief.md');
       expect(service.write(`record:///brief.md?card=${target.id}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.revision } });
@@ -356,7 +356,7 @@ describe('other Analyst mutation facets', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const target = cards.create({ type: 'code', parent: 'project', title: 'Queued', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const target = cards.create({ type: 'code', parent: 'project', title: 'Queued', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       cards.enqueueNotification(target.id, { id: '11111111-1111-4111-8111-111111111111', content: 'private direct body', created_at: '2026-09-09T00:00:00.000Z' });
       const view = cardViewSchema.parse(toCardView(cards, cards.read(target.id)!));
       expect(view.card).not.toHaveProperty('pending_notifications');
@@ -366,27 +366,27 @@ describe('other Analyst mutation facets', () => {
 
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
-    const bundle = createAnalystMutationServices({ author: { kind: 'agent', agent: 'analyst' }, allowedTools: [], store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn((_id, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), submitNotification: jest.fn() as never, cancelCard: jest.fn() as never });
+    const bundle = createAnalystMutationServices({ author: { kind: 'agent', agent: 'analyst' }, authority: { anchorCardId: null, tools: [] }, store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn((_id, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), submitNotification: jest.fn() as never, cancelCard: jest.fn() as never });
     expect(bundle.config.apply({ kind: 'set_server_setting', key: 'host', value: '127.0.0.1' })).toMatchObject({ kind: 'returned', success: true });
     expect(applyChange).toHaveBeenCalledTimes(1);
   });
 
   it('relies on the notification owner result without a separate card read', async () => {
     const read = jest.fn();
-    const submitNotification = jest.fn<NotificationSubmissionPort>(async (cardId, notification) => ({ queued: true, cardId, notificationId: notification.id, interruption: { status: 'not_requested' } }));
+    const submitNotification = jest.fn<NotificationSubmissionPort>(async (_authority, cardId, notification) => ({ queued: true, cardId, notificationId: notification.id, interruption: { status: 'not_requested' } }));
     const bundle = services({ read } as unknown as CardService, undefined, undefined, submitNotification);
     const signal = new AbortController().signal;
     const before = Date.now();
     await expect(bundle.notifications.queue(FIRST, 'context', 'body', 'normal', signal)).resolves.toMatchObject({ kind: 'returned', success: true });
     expect(read).not.toHaveBeenCalled();
     expect(submitNotification).toHaveBeenCalledTimes(1);
-    expect(submitNotification).toHaveBeenCalledWith(FIRST, {
+    expect(submitNotification).toHaveBeenCalledWith(expect.objectContaining({ anchorCardId: null }), FIRST, {
       id: expect.stringMatching(/^[a-f0-9-]{36}$/),
       content: 'body',
       source: 'context',
       created_at: expect.any(String),
     }, 'normal', signal);
-    const notification = submitNotification.mock.calls[0]![1];
+    const notification = submitNotification.mock.calls[0]![2];
     expect(Date.parse(notification.created_at)).toBeGreaterThanOrEqual(before);
     expect(Date.parse(notification.created_at)).toBeLessThanOrEqual(Date.now());
   });
@@ -419,7 +419,7 @@ describe('other Analyst mutation facets', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const target = cards.create({ type: 'code', parent: 'project', title: 'Queued blocked', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const target = cards.create({ type: 'code', parent: 'project', title: 'Queued blocked', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       cards.setStatus(target.id, 'running');
       cards.commitActivationOutcome(target.id, { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-09-09T00:00:00.000Z');
       cards.enqueueNotification(target.id, { id: '11111111-1111-4111-8111-111111111111', content: 'private body', created_at: '2026-09-09T00:00:01.000Z' });
@@ -438,7 +438,7 @@ describe('other Analyst mutation facets', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       const open = cards.openRecord(card.id, 'brief.md');
       const edited = cards.editRecord(card.id, 'brief.md', '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
       const closed = cards.closeRecord(card.id, 'brief.md', 'analyst');
@@ -455,7 +455,7 @@ describe('other Analyst mutation facets', () => {
       initProjectTree(root);
       const cards = new CardService(root);
       const initial = '# Goal\nOld\n# Instructions\nKeep\n# Acceptance Criteria\nTerminal';
-      const child = cards.create({ type: 'code', parent: 'project', title: 'Recovery edit', bootstrap_content: initial, priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const child = cards.create({ type: 'code', parent: 'project', title: 'Recovery edit', bootstrap_content: initial, priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       cards.setStatus(child.id, 'running');
       cards.commitActivationOutcome(child.id, { status: 'failed', summary: 'failed', result: runtimeFailure('failed') }, '2026-08-10T00:00:00.000Z');
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
@@ -466,7 +466,7 @@ describe('other Analyst mutation facets', () => {
       expect(cards.read(child.id)!.lifecycle.status).toBe('changed');
       expect(current(cards,child.id,'brief.md').accepted?.content).toBe(fullReplacement);
 
-      const terminalCard = cards.create({ type: 'code', parent: 'project', title: 'Terminal edit', bootstrap_content: initial, priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const terminalCard = cards.create({ type: 'code', parent: 'project', title: 'Terminal edit', bootstrap_content: initial, priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
       const terminalTarget = `record:///brief.md?card=${terminalCard.id}`;
       const terminalReplacement = 'Recovery note.\nSecond note.';
       expect(service.edit(terminalTarget, 'Terminal', terminalReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { propagation: { ok: true } } });
