@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { createServer } from 'node:http';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { startApp, type App } from '../../../src/boot/app.js';
 import { readCard } from '../../../src/persistence/card-files.js';
 import { readCardExecutions } from '../../../src/persistence/card-execution-log.js';
 import { nativeIdentity, nativeOptions, publicNativeCli, publicNativeProject, fixtureGit } from '../../helpers/public-native-project.js';
+import { nativeGcBefore, seedNativeGcPair, verifyNativeGcAges, nativeGcSnapshot } from '../../helpers/native-gc-retention.js';
 import { listen, closeServer, readJsonRequest, sendToolCall, sendFinalMessage } from '../../helpers/production-composition-e2e.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
 
@@ -18,6 +18,8 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
     const root = publicNativeProject();
     const initialized = publicNativeCli(root, 'init', ...nativeOptions);
     expect(initialized.status, initialized.stderr).toBe(0);
+    // Seed accepted predecessor/current references only while bootstrap's CLI owner is gone.
+    const gcPair = mode === 'correction' ? seedNativeGcPair(root) : null;
     const initial = readCard(root, 'project')!.git!;
     const prior = Object.fromEntries(Object.keys(nativeIdentity).map(key => [key, process.env[key]]));
     Object.assign(process.env, nativeIdentity);
@@ -166,35 +168,29 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
         expect(readCard(root, 'card-a')!.git!.correction!.preserved_source).not.toBeNull();
         expect(fixtureGit(root, 'show', 'main:source.txt')).toBe('delivery');
         await expect(detail).toContainText('captured');
-        // Running-owner GC marks actual canonical bootstrap and sequential native
-        // command evidence; no manufactured native rows or static capture list.
-        const rows = ['project', 'card-a', 'card-b'].flatMap(id => readCardExecutions(root, id));
-        const bootstrap = rows.find(row => row.kind === 'native_started' && row.binding.origin === 'bootstrap')!;
-        expect(rows.filter(row => row.invocation_id === bootstrap.invocation_id && row.kind === 'native_process_started').length).toBeGreaterThan(1);
-        const selected = new Set<string>();
-        for (const row of rows) {
-          if (row.kind === 'native_started') row.artifact_paths.forEach(path => selected.add(path));
-          if (row.kind === 'native_process_started') row.files.forEach(file => selected.add(file.path));
-        }
-        expect([...selected].some(path => path.endsWith('/index'))).toBe(true);
-        const digest = (path: string) => createHash('sha256').update(readFileSync(join(root, path))).digest('hex');
-        const before = new Map([...selected].map(path => [path, digest(path)]));
-        const garbage = join(root, '.saivage/work/cards/project/tmp/browser-unselected');
-        mkdirSync(join(root, '.saivage/work/cards/project/tmp'), { recursive: true }); writeFileSync(garbage, 'disposable');
+        // Equally old settled bootstrap captures differ only in current vs historical ownership.
+        const pair = gcPair!, logicalBytes = await verifyNativeGcAges(root, pair);
+        const before = nativeGcSnapshot(root, pair);
+        const collectible = [pair.historical, pair.scratch].map(path => [path, readFileSync(path)] as const);
         const unlinked = join(root, '.saivage/cards/card-z/records'); mkdirSync(unlinked, { recursive: true });
         writeFileSync(join(unlinked, 'executions.jsonl'), 'Malformed unlinked bootstrap evidence must never be discovered.\n');
+        const unlinkedBytes = readFileSync(join(unlinked, 'executions.jsonl'));
         const originalRef = readCard(root, 'card-a')!.git!.correction!.retained_original_ref;
         const originalOid = fixtureGit(root, 'rev-parse', originalRef);
-        const gc = await post('/api/runtime/gc-work', { mode: 'delete', before: new Date(Date.now() + 1000).toISOString() });
-        // Retained full-bundle prose conservatively protects all work. This
-        // witnesses no effects, not selective marking (covered independently).
-        expect(gc.disposition).toBe('completed'); expect(gc.result.deleted_count).toBe(0);
-        expect(gc.result.retained.protected).toBe(gc.result.observed_count);
-        expect(existsSync(garbage)).toBe(true);
-        for (const [path, sha] of before) expect(digest(path), path).toBe(sha);
+        const preview = await post('/api/runtime/gc-work', { mode: 'dry_run', before: nativeGcBefore });
+        expect(preview).toMatchObject({ disposition: 'completed', result: { would_delete_count: 2, would_delete_logical_bytes: logicalBytes, deleted_count: 0 } });
+        expect(nativeGcSnapshot(root, pair)).toEqual(before);
+        for (const [path, bytes] of collectible) expect(readFileSync(path)).toEqual(bytes);
+        expect(readFileSync(join(unlinked, 'executions.jsonl'))).toEqual(unlinkedBytes);
+        expect(await runtimeStatus()).toBe('paused');
+        const gc = await post('/api/runtime/gc-work', { mode: 'delete', before: nativeGcBefore });
+        expect(gc).toMatchObject({ disposition: 'completed', result: { deleted_count: 2, deleted_logical_bytes: logicalBytes } });
+        for (const [path] of collectible) expect(existsSync(path)).toBe(false);
+        expect(nativeGcSnapshot(root, pair)).toEqual(before);
         expect(fixtureGit(root, 'rev-parse', originalRef)).toBe(originalOid);
-        expect(existsSync(join(unlinked, 'executions.jsonl'))).toBe(true);
-        await testInfo.attach('native-gc-selection', { body: JSON.stringify({ selected: [...before], gc }), contentType: 'application/json' });
+        expect(readFileSync(join(unlinked, 'executions.jsonl'))).toEqual(unlinkedBytes);
+        expect(await runtimeStatus()).toBe('paused');
+        await testInfo.attach('native-gc-selection', { body: JSON.stringify({ pair, before, preview, gc }), contentType: 'application/json' });
         await post('/api/runtime/resume');
         await expect.poll(() => readCard(root, 'project')!.lifecycle.status, { timeout: 60_000 }).toBe('blocked');
       } else {

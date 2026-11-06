@@ -13,6 +13,7 @@ import { appendConversationBatch, readCurrentConversationSegment } from '../../s
 import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { appendStartupPendingCall } from '../helpers/startup-session-fixtures.js';
 import { publicNativeCli, nativeOptions, fixtureGit } from '../helpers/public-native-project.js';
+import { nativeGcBefore, seedNativeGcPair, verifyNativeGcAges, nativeGcSnapshot } from '../helpers/native-gc-retention.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -25,9 +26,9 @@ function fixture() {
 function work(root: string, path: string) {
   const full = join(root, '.saivage/work', path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, 'fixture'); return full;
 }
-async function cli(root: string, options: { delete?: boolean; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
+async function cli(root: string, options: { delete?: boolean; before?: string; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
   const entry = resolve(options.fault ? 'tests/fixtures/offline-gc-child.ts' : 'src/cli.ts');
-  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ');
+  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : []), ...(options.before ? ['--before', options.before] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ');
   const child = spawn('script', ['-qefc', command, '/dev/null'], { cwd: root, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', sent = false, lockObserved = false;
   const watchdog = setTimeout(() => child.kill('SIGKILL'), 20_000);
@@ -108,17 +109,24 @@ it('losing acquisition after acknowledgement refuses without reroute, takeover o
   } finally { if (winner) releaseRuntimeLifecycleLock(winner); }
 }, 30_000);
 
-it('offline native project retains commissioned captures and never changes delivery source, refs or Git index', async () => {
+it('offline native GC collects historical-only captures but preserves current references, source and canonical history', async () => {
   const root = mkdtempSync(join(tmpdir(), 'gc-offline-native-')); roots.push(root);
   fixtureGit(root, 'init', '-b', 'main'); writeFileSync(join(root, '.gitignore'), '.saivage/\n'); writeFileSync(join(root, 'source.txt'), 'delivery\n');
   fixtureGit(root, 'add', '--all'); fixtureGit(root, 'commit', '-m', 'Fixture delivery');
   expect(publicNativeCli(root, 'init', ...nativeOptions).status).toBe(0);
-  const selected = [join(root, '.git/HEAD'), join(root, '.git/index'), join(root, 'source.txt'), cardExecutionFile(root, 'project'), join(root, '.saivage/cards/project/card-head.json')].map(path => [path, readFileSync(path)] as const);
-  const oid = fixtureGit(root, 'rev-parse', 'main'), garbage = work(root, 'cards/project/tmp/unselected');
-  const result = await cli(root, { delete: true });
-  expect(result).toMatchObject({ code: 0, response: { disposition: 'completed' } }); expect(result.response.result.deleted_count).toBe(1); expect(existsSync(garbage)).toBe(false);
-  for (const [path, bytes] of selected) expect(readFileSync(path)).toEqual(bytes);
-  expect(fixtureGit(root, 'rev-parse', 'main')).toBe(oid);
+  const pair = seedNativeGcPair(root), logicalBytes = await verifyNativeGcAges(root, pair);
+  const before = nativeGcSnapshot(root, pair);
+  const collectible = [pair.historical, pair.scratch].map(path => [path, readFileSync(path)] as const);
+  const preview = await cli(root, { before: nativeGcBefore });
+  expect(preview).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed', result: { would_delete_count: 2, would_delete_logical_bytes: logicalBytes, deleted_count: 0 } } });
+  expect(nativeGcSnapshot(root, pair)).toEqual(before);
+  for (const [path, bytes] of collectible) expect(readFileSync(path)).toEqual(bytes);
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  const result = await cli(root, { delete: true, before: nativeGcBefore });
+  expect(result).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed', result: { deleted_count: 2, deleted_logical_bytes: logicalBytes } } });
+  for (const [path] of collectible) expect(existsSync(path)).toBe(false);
+  expect(nativeGcSnapshot(root, pair)).toEqual(before);
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
 }, 45_000);
 
 it('refuses wrong acknowledgement before publishing a lock or reading malformed config', async () => {
