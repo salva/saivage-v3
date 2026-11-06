@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 
 import { agentMessageSchema, canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId, type RowContextPolicy, type ToolResultPolicyTemplate } from '../../../../src/schemas/index.js';
-import { classifyConversationRowPolicy, settledToolBundlePolicy } from '../../../../src/utils/context/row-policy.js';
+import { classifyConversationRowPolicy, settledToolBundlePolicy } from '../../../../src/runtime/actors/context/row-policy.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';

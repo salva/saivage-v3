@@ -107,6 +107,7 @@ export type {
   SummaryRequestSerialization,
   AdmittedSummaryRequest,
 } from './actors/compaction/summarizer.js';
+export { currentCoveredRequiredFactRows } from './actors/context/composition-projector.js';
 export { compileInvocationToolContract } from './actors/context/context-blocks.js';
 export type {
   ExecutingLlmSnapshot,

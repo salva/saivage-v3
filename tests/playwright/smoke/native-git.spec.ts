@@ -5,9 +5,8 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { startApp, type App } from '../../../src/boot/app.js';
-import { readCard, iterateCanonicalLinkedCardHistoryTree } from '../../../src/persistence/card-files.js';
+import { readCard } from '../../../src/persistence/card-files.js';
 import { readCardExecutions } from '../../../src/persistence/card-execution-log.js';
-import { cardExecutionFile, cardHeadFile, cardHistoryFile } from '../../../src/persistence/layout.js';
 import { nativeIdentity, nativeOptions, publicNativeCli, publicNativeProject, fixtureGit } from '../../helpers/public-native-project.js';
 import { listen, closeServer, readJsonRequest, sendToolCall, sendFinalMessage } from '../../helpers/production-composition-e2e.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
@@ -100,10 +99,7 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
       };
       const post = async (path: string, body?: object) => {
         const response = await fetch(origin + path, { method: 'POST', headers: { authorization: 'Bearer synthetic-native-browser', ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60_000) });
-        const result = path === '/api/runtime/gc-work' && response.status === 200
-          ? await readWorkGcFrames(response.body! as unknown as AsyncIterable<Uint8Array>)
-          : await response.json();
-        apiEvidence.push({ path, status: response.status, result }); expect(response.status).toBe(200); return result;
+        const result = await response.json(); apiEvidence.push({ path, status: response.status, result }); expect(response.status).toBe(200); return result;
       };
       await seedTokenBeforeNavigation(page, 'synthetic-native-browser');
       await page.goto(`${origin}/cards/project`);
@@ -170,51 +166,35 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
         expect(readCard(root, 'card-a')!.git!.correction!.preserved_source).not.toBeNull();
         expect(fixtureGit(root, 'show', 'main:source.txt')).toBe('delivery');
         await expect(detail).toContainText('captured');
-        // Real bootstrap/native history is strictly consumed, not an attachment
-        // retention union. Select one actual old capture for current operator review.
+        // Running-owner GC marks actual canonical bootstrap and sequential native
+        // command evidence; no manufactured native rows or static capture list.
         const rows = ['project', 'card-a', 'card-b'].flatMap(id => readCardExecutions(root, id));
         const bootstrap = rows.find(row => row.kind === 'native_started' && row.binding.origin === 'bootstrap')!;
-        const bootstrapProcesses = rows.filter(row => row.kind === 'native_process_started').filter(row => row.invocation_id === bootstrap.invocation_id);
-        expect(bootstrapProcesses.length).toBeGreaterThan(1);
-        const bootstrapProcess = bootstrapProcesses[0]!;
-        const currentCapture = bootstrapProcess.files.find(file => file.kind === 'capture' && file.stream === 'stdout')!.path;
-        const historicalCapture = bootstrapProcess.files.find(file => file.kind === 'capture' && file.stream === 'stderr')!.path;
-        expect(currentCapture).not.toBe(historicalCapture);
-        await post('/api/chat', { content: `Keep this capture for current operator review: work:///${currentCapture.slice('.saivage/work/'.length)}` });
-        const canonicalPaths = new Set(['project', 'card-a', 'card-b'].flatMap(id => [cardExecutionFile(root, id), cardHeadFile(root, id)]));
-        for (const selection of iterateCanonicalLinkedCardHistoryTree(root))
-          for (const artifact of selection.rows)
-            canonicalPaths.add(cardHistoryFile(root, selection.current.id, artifact.entry_id));
+        expect(rows.filter(row => row.invocation_id === bootstrap.invocation_id && row.kind === 'native_process_started').length).toBeGreaterThan(1);
+        const selected = new Set<string>();
+        for (const row of rows) {
+          if (row.kind === 'native_started') row.artifact_paths.forEach(path => selected.add(path));
+          if (row.kind === 'native_process_started') row.files.forEach(file => selected.add(file.path));
+        }
+        expect([...selected].some(path => path.endsWith('/index'))).toBe(true);
         const digest = (path: string) => createHash('sha256').update(readFileSync(join(root, path))).digest('hex');
-        const currentCaptureDigest = digest(currentCapture);
-        const before = new Map([...canonicalPaths].map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')]));
+        const before = new Map([...selected].map(path => [path, digest(path)]));
         const garbage = join(root, '.saivage/work/cards/project/tmp/browser-unselected');
         mkdirSync(join(root, '.saivage/work/cards/project/tmp'), { recursive: true }); writeFileSync(garbage, 'disposable');
         const unlinked = join(root, '.saivage/cards/card-z/records'); mkdirSync(unlinked, { recursive: true });
         writeFileSync(join(unlinked, 'executions.jsonl'), 'Malformed unlinked bootstrap evidence must never be discovered.\n');
         const originalRef = readCard(root, 'card-a')!.git!.correction!.retained_original_ref;
         const originalOid = fixtureGit(root, 'rev-parse', originalRef);
-        const cutoff = new Date(Date.now() + 1000).toISOString();
-        const preview = await post('/api/runtime/gc-work', { mode: 'dry_run', before: cutoff });
-        expect(preview.disposition).toBe('completed');
-        expect(preview.result.would_delete_count).toBeGreaterThanOrEqual(2);
+        const gc = await post('/api/runtime/gc-work', { mode: 'delete', before: new Date(Date.now() + 1000).toISOString() });
+        // Retained full-bundle prose conservatively protects all work. This
+        // witnesses no effects, not selective marking (covered independently).
+        expect(gc.disposition).toBe('completed'); expect(gc.result.deleted_count).toBe(0);
+        expect(gc.result.retained.protected).toBe(gc.result.observed_count);
         expect(existsSync(garbage)).toBe(true);
-        expect(existsSync(join(root, historicalCapture))).toBe(true);
-        const gc = await post('/api/runtime/gc-work', { mode: 'delete', before: cutoff });
-        expect(gc.disposition).toBe('completed');
-        expect(gc.result.deleted_count).toBe(preview.result.would_delete_count);
-        expect(gc.result.deleted_logical_bytes).toBe(preview.result.would_delete_logical_bytes);
-        expect(gc.result.retained).toEqual(preview.result.retained);
-        expect(gc.result.retained.protected).toBeGreaterThan(0);
-        expect(existsSync(garbage)).toBe(false);
-        expect(existsSync(join(root, historicalCapture))).toBe(false);
-        expect(digest(currentCapture)).toBe(currentCaptureDigest);
-        for (const [path, sha] of before)
-          expect(createHash('sha256').update(readFileSync(path)).digest('hex'), path).toBe(sha);
-        expect(['project', 'card-a', 'card-b'].flatMap(id => readCardExecutions(root, id))).toEqual(rows);
+        for (const [path, sha] of before) expect(digest(path), path).toBe(sha);
         expect(fixtureGit(root, 'rev-parse', originalRef)).toBe(originalOid);
         expect(existsSync(join(unlinked, 'executions.jsonl'))).toBe(true);
-        await testInfo.attach('native-gc-selection', { body: JSON.stringify({ canonical: [...before], currentCapture, historicalCapture, preview, gc }), contentType: 'application/json' });
+        await testInfo.attach('native-gc-selection', { body: JSON.stringify({ selected: [...before], gc }), contentType: 'application/json' });
         await post('/api/runtime/resume');
         await expect.poll(() => readCard(root, 'project')!.lifecycle.status, { timeout: 60_000 }).toBe('blocked');
       } else {
@@ -237,4 +217,3 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
     }
   });
 }
-import { readWorkGcFrames } from '../../../src/application/operator-runtime-http-client.js';

@@ -500,11 +500,7 @@ qualified grammar for compilation, lifecycle, execution evidence and API project
 Execution envelope3 also has logical native start/finish and sequential command
 start/finish rows owned by GitWorkflow. These carry actual native bindings and completed observations,
 not action descriptors or provider turns. The existing complete execution reader
-validates all associations; unfinished invocations select exact captures/private-index
-paths for work GC. Completed evidence alone does not retain attachments. Current
-candidate preparation IDs compare source applicability, not capture ownership;
-native preservation uses a fresh per-invocation index and Git snapshot refs, not a
-previous work index. No authorship-to-producer-capture join is performed.
+validates associations and selects exact captures/private-index paths for work GC.
 Incomplete attempts authorize no continuation. Evidence publication uncertainty
 crosses the application fatal boundary before native follow-up or cleanup. This
 contract does not enable ON before Supervisor lifecycle integration is complete.
@@ -663,17 +659,9 @@ metadata may protect work without outside-work discovery. Fresh candidate identi
 size, timestamps and protection checks immediately precede the final effect switch:
 would-delete attribution or unlink plus directory durability. All directories stay.
 No persistent inventory/report, new durable family or format bump is introduced.
-Validation and protection are separate: predecessor content and all indexed segments
-and execution rows are validated, not recursively marked. Current semantic card
-fields/pending bodies and selected record baseline/draft/latest accepted content
-protect work. `src/utils/context/composition-projector.ts` shares pure effective
-conversation selection with runtime: only the current segment's selected summary,
-retained instructions and messages/tool payloads contribute content roots. Metadata,
-observations and source provenance do not. Typed current payload selections remain
-intact; complete inline process streams omit capture URLs as in runtime projection.
-Unfinished execution files, current process presentations and operational inputs
-remain protected; current references can protect old attachments independently.
-Historical canonical bytes stay retained even when their attachments are collected.
+Reference extraction visits each strict conversation index once and each validated
+segment's genesis and physical rows, not its repeated derived conversation views.
+It retains internal observations, protected prompts and raw tool/native evidence.
 Nested values and text tokens cooperatively yield every 256 visited items; individual
 file reads, JSON parsing and regex operations remain synchronous and indivisible.
 Call-local protection sets test candidate ancestors through the work root rather
@@ -702,18 +690,6 @@ conservative even when unrelated prose guesses are excluded.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
 only the verified live lock endpoint/auth, with no fallback after delegation failure.
-The existing application `workGcTask` guard admits synchronously before success
-streaming, including during pre-hold inventory; concurrent requests keep HTTP 409.
-The contract registrar preserves request/auth validation and emits validated
-`application/x-ndjson` frames with no-store/nosniff. Call-local synchronous observers
-merge cumulative counters and monotonic elapsed time, throttling ordinary progress
-without a timer. Backpressure drops snapshots; sink failure/disconnect requests
-cooperative cancellation, not collection mutations. The terminal result waits for
-ordinary restoration and bounded output drain. Fatal uncertainty crosses the fatal
-port before callbacks, output or release; there is no unconditional stream finalizer.
-The incremental client bounds each UTF-8 line to 4096 bytes, validates every frame,
-rejects invalid/truncated/post-terminal frames and requires terminal plus clean EOF.
-CLI signals close online transport too; stdout is final JSON, stderr prompts/progress.
 Its call-owned Undici dispatcher disables header/body deadlines, retains finite
 connection establishment, follows no redirects and retries nothing; other runtime
 requests keep their existing transport. Body transport failure differs from malformed
@@ -1679,7 +1655,7 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 | `GET /api/cards/:id/diff` | Projected card comparison. | `src/contracts/operator-api-runtime-cards.ts:757` |
 | `GET /api/runtime/status` | Supervisor runtime observation. | `src/contracts/operator-api-runtime-cards.ts:774` |
 | `POST /api/runtime/pause` | Bodyless cooperative Pause. | `src/contracts/operator-api-runtime-cards.ts:786` |
-| `POST /api/runtime/gc-work` | Authenticated NDJSON progress and terminal result for explicit work preview/deletion; pre-stream busy admission, then paused/stopped collection. | `src/contracts/operator-api-work-gc.ts:9` |
+| `POST /api/runtime/gc-work` | Explicit live-server work preview or deletion; collection requires paused/stopped execution. | `src/contracts/operator-api-work-gc.ts:7` |
 | `POST /api/runtime/resume` | Bodyless same-Run Resume. | `src/contracts/operator-api-runtime-cards.ts:799` |
 | `POST /api/runtime/stop-project` | Bodyless project containment. | `src/contracts/operator-api-runtime-cards.ts:813` |
 | `POST /api/runtime/restart-server` | Exact-confirmation authenticated restart. | `src/contracts/operator-api-runtime-cards.ts:826` |

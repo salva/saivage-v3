@@ -180,15 +180,9 @@ under the existing bound lifecycle lock, after exact interactive confirmation
 excluded and all managed/unrelated writers remain quiescent throughout. Disclose
 irreversible deletion and destruction of needed data if writer exclusion is mistaken;
 a missing lock alone proves no containment. Dead/malformed/indeterminate locks refuse,
-never permit takeover. Both entries freshly consume complete linked card/accepted
-history, all indexed conversation segments and raw action/native evidence. Protection
-comes from current semantic card fields and pending bodies, selected record baseline,
-draft and latest accepted content, the current segment's effective summary, retained
-instructions and messages/tool payloads, unfinished execution file selections and
-operational protections. Superseded content, compacted-away messages and audit
-provenance/observations alone do not protect work; an actual current reference can
-still select an old attachment. Complete consumed history remains strictly validated.
-Both entries mark explicit selected and recognized inferred references,
+never permit takeover. Both entries freshly consume linked card/accepted history,
+all indexed conversation segments and raw action/native evidence, marking explicit
+selected references, recognized inferred references and operational protections,
 then recheck each exact candidate before unlink. Unknown ownership, unresolved
 recognized reference scope or surviving-writer footprint requires retention/refusal.
 Ambiguous free-text filename inference may use simple documented heuristics and may

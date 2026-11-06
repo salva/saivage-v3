@@ -233,7 +233,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   async withWorkGcMaintenance<T>(input: {
-    releasing?(): void;
     signal: AbortSignal;
     assertEntryIdle(): void;
     settleAcceptedWork(): Promise<void>;
@@ -271,7 +270,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     signal.addEventListener('abort', onAbort, { once: true });
     void cancelled.promise.catch(() => undefined);
     const finish = (): boolean => {
-      input.releasing?.();
       signal.removeEventListener('abort', onAbort);
       const restore =
         hold.restoreRunning &&

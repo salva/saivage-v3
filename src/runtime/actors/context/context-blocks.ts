@@ -9,7 +9,7 @@ import type {
 import { canonicalJson } from '../../../schemas/index.js';
 import { sha256Hex } from '../../../schemas/index.js';
 import type { ToolResultPolicyTemplate } from '../../../schemas/index.js';
-export type { ToolResultPolicyTemplate } from '../../../schemas/index.js';
+export type { ContextEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 
 export function compileInvocationToolContract(
   providerDefinition: ProviderToolDefinition,
@@ -32,6 +32,20 @@ export function buildStaticInvocationPrefix(
     instructionText,
     terminalToolNames: Object.freeze([...terminalToolNames]),
   });
+}
+
+export function selectLatestContextBlocks(
+  blocks: readonly ContextBlock[],
+): readonly ContextBlock[] {
+  const latest = new Map<string, number>();
+  for (const [index, block] of blocks.entries())
+    if (block.replacement.kind === 'latest_snapshot') latest.set(block.replacement.key, index);
+  return Object.freeze(
+    blocks.filter(
+      (block, index) =>
+        block.replacement.kind !== 'latest_snapshot' || latest.get(block.replacement.key) === index,
+    ),
+  );
 }
 
 export function buildPreparedInvocationContext(

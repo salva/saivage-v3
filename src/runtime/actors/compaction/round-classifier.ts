@@ -1,7 +1,7 @@
 import type { AgentMessage } from '../../../schemas/index.js';
 import type { SourceRound, ValidatedConversation } from '../../../contracts/index.js';
 import { isConversationBudgetVisible } from '../conversation-session.js';
-import { projectedCanonicalRowContent } from '../../../utils/context-api.js';
+import { projectedCanonicalRowContent } from '../context/composition-projector.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 import { providerItemImageDescriptors, imageEstimatedTokens } from '../../../contracts/index.js';
 

@@ -10,7 +10,7 @@ import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.
 import { buildProcessView } from '../../src/application/read-models/process-view.js';
 import { appendConversationBatch, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { cardConversationVersionFile } from '../../src/persistence/layout.js';
-import { composeContextProjection, providerConversationFromComposedContext } from '../../src/utils/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
 import { agentMessageSchema, canonicalJson, sha256Hex } from '../../src/schemas/index.js';
 import { ProcessToolResultSchema } from '../../src/contracts/index.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';

@@ -74,13 +74,10 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const contract of publicContracts) expect(contract.response).not.toHaveProperty('401');
   });
 
-  it('uses exact JSON success schemas or the declared GC stream terminal authority', () => {
+  it('uses each operation response 200 schema as its exact success authority', () => {
     for (const contract of Object.values(operatorApiContracts)) {
       expect(contract.response).toHaveProperty('200');
-      if (contract.operationId === 'runtime.gcWork') {
-        const gc = operatorApiContracts['runtime.gcWork'];
-        expect(gc.response[200].options[1].shape.response).toBe(gc.success);
-      } else expect(contract.response[200]).toBe(contract.success);
+      expect(contract.response[200]).toBe(contract.success);
       expect(Object.hasOwn(contract, 'error')).toBe(false);
       expect(Object.hasOwn(contract, 'permissions')).toBe(false);
       expect(Object.hasOwn(contract, 'audit')).toBe(false);

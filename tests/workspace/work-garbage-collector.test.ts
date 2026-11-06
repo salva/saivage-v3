@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setImmediate } from 'node:timers/promises';
 import type { CardExecutionStart } from '../../src/persistence/card-execution-log.js';
-import { agentMessageSchema, sha256Hex, type RecordDefinition } from '../../src/schemas/index.js';
+import { agentMessageSchema, type RecordDefinition } from '../../src/schemas/index.js';
 import { cardConversationVersionFile, cardConversationVersionIndexFile, cardExecutionFile, cardRecordsRoot, cardRecordHeadFile } from '../../src/persistence/layout.js';
 import type { WorkGcCollectionContext } from '../../src/workspace/work-garbage-collector.js';
 import { WebfetchTextDataSchema } from '../../src/contracts/webfetch.js';
@@ -37,7 +37,7 @@ const { appendCardExecutions } = await import('../../src/persistence/card-execut
 const { collectWorkGarbage, inventoryWorkGarbage } = await import('../../src/workspace/work-garbage-collector.js');
 const { OPERATIONAL_RESULT_POLICY_TEMPLATE } = await import('../../src/tools/invocation.js');
 const { toolRowPolicies } = await import('../helpers/row-policy-fixtures.js');
-const { composeContextProjection, providerConversationFromComposedContext } = await import('../../src/utils/context/composition-projector.js');
+const { composeContextProjection, providerConversationFromComposedContext } = await import('../../src/runtime/actors/context/composition-projector.js');
 const { inspectWorkGcCanonicalState } = await import('../../src/persistence/current-generated-graph.js');
 const { cardAgentSessionId } = await import('../../src/schemas/index.js');
 
@@ -78,179 +78,7 @@ function message(content: string): ReturnType<typeof agentMessageSchema.parse> {
     round_id: `r-user-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-10-24T00:00:00.000Z' });
 }
 
-function compact(root: string, summaryText: string): void {
-  const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
-  const rows = segment.conversation.sourceRows;
-  const entryId = randomUUID(), version = segment.entry.version + 1;
-  publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
-    identity: { genesisId: randomUUID(), entryId, segmentVersion: version,
-      timestamp: '2026-11-06T00:00:00.000Z', filename: versionFilename(version, entryId) },
-    history: { summaryText, protectedPrompts: [], requiredModelFacts: {
-      latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } },
-    cutoffSourceIndex: rows.length - 1, cutoffMessageId: rows.at(-1)!.id,
-    continuation: { kind: 'between_rounds' },
-  });
-}
-
-function completedAction(root: string, body: string | ((stdoutPath: string) => string)) {
-  const invocation = randomUUID(), activation = randomUUID(), processId = `proc-${invocation.replaceAll('-', '').slice(0, 12)}`;
-  const files = (['stdout', 'stderr'] as const).map(stream => ({ kind: 'capture' as const, stream,
-    path: `.saivage/work/cards/project/processes/${processId}/${stream}.log` }));
-  const content = typeof body === 'string' ? body : body(join(root, files[0]!.path));
-  const captures = files.map(file => work(root, file.path.slice('.saivage/work/'.length), content));
-  const output = { source: 'command-stdout' as const, size_bytes: Buffer.byteLength(content), sha256: sha256Hex(content) };
-  const identity = { invocation_id: invocation, card_id: 'project', timestamp: '2026-11-06T00:00:00.000Z' };
-  appendCardExecutions(root, 'project', [
-    { ...identity, row_id: randomUUID(), kind: 'invocation_started', operation: 'shell.run', contract_version: 1,
-      provider: { kind: 'builtin', name: 'shell' }, output_source: 'command-stdout', artifact_paths: [],
-      binding: { kind: 'node', activation_id: activation, node_id: 'run', ordinal: 0 }, input: [], config: [],
-      shell: { script: 'echo inline', cwd: '/unrelated', argv: [], env: {} } },
-    { ...identity, row_id: randomUUID(), kind: 'process_started', process_id: processId, files },
-    { ...identity, row_id: randomUUID(), kind: 'invocation_finished', disposition: 'returned', summary: 'completed',
-      leader_exit: { exit_code: 0, signal: null, observed_at: identity.timestamp }, leader_error: null,
-      interruption: null, timeout_reason: null, process: { id: processId, group: 'absent', group_diagnostic: null,
-        stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null }, outcome: 'passed',
-      values: [], files, output, absent_artifacts: [], external_effects: 'unknown' },
-  ]);
-  return { captures, content, author: { kind: 'action-output' as const, operation: 'shell.run', contract_version: 1,
-    provider: { kind: 'builtin' as const, name: 'shell' }, activation_id: activation, invocation_id: invocation,
-    node_id: 'run', ordinal: 0, process_id: processId, output, outcome: 'passed', leader_exit: { exit_code: 0, signal: null } } };
-}
-
 describe('work GC two-phase selection', () => {
-  it('selects current card fields and baseline but leaves all superseded canonical bytes intact', async () => {
-    const root = fixture(), cards = new CardService(root);
-    const old = work(root, 'cards/project/tmp/old-card'), current = work(root, 'cards/project/tmp/current-card');
-    const selectedBaseline = work(root, 'cards/project/tmp/baseline');
-    cards.editCard('project', { title: 'tmp:///project/old-card' }, 'analyst');
-    const headPath = join(root, '.saivage/cards/project/card-head.json');
-    const head = JSON.parse(readFileSync(headPath, 'utf8'));
-    const oldPath = join(root, `.saivage/cards/project/card-history/${head.ordinary.entry_id}.json`);
-    cards.editCard('project', { title: 'tmp:///project/current-card' }, 'analyst');
-    baseline(root, 'tmp:///project/baseline');
-    const canonical = [oldPath, headPath, cardRecordHeadFile(root, 'project', definition())].map(path => [path, readFileSync(path)] as const);
-    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
-    expect(preview).toMatchObject({ would_delete_count: 1, retained: { protected: 2 } });
-    const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: 2000 }, context());
-    expect(deleted.deleted_count).toBe(preview.would_delete_count);
-    expect(existsSync(old)).toBe(false); expect([current, selectedBaseline].every(existsSync)).toBe(true);
-    for (const [path, bytes] of canonical) expect(readFileSync(path)).toEqual(bytes);
-  });
-
-  it.each([false, true])('action-output authorship selects inline bytes, never producer captures (explicit reference %s)', async explicit => {
-    const root = fixture(), cards = new CardService(root);
-    const producer = completedAction(root, explicit ? path => `Use ${path}` : 'Certified inline output');
-    cards.acceptRecord('project', 'review-extra.md', producer.content, producer.author);
-    const path = cardExecutionFile(root, 'project'), bytes = readFileSync(path);
-    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
-    expect(preview.would_delete_count).toBe(explicit ? 1 : 2);
-    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result.deleted_count).toBe(preview.would_delete_count);
-    expect(producer.captures.map(existsSync)).toEqual(explicit ? [true, false] : [false, false]);
-    expect(readFileSync(path)).toEqual(bytes);
-  });
-
-  it('current inline action content can explicitly retain an older producer capture without a provenance join', async () => {
-    const root = fixture(), cards = new CardService(root);
-    const old = completedAction(root, 'old inline bytes');
-    const content = `Use ${old.captures[0]}`;
-    const current = completedAction(root, content);
-    cards.acceptRecord('project', 'review-extra.md', content, current.author);
-    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result.deleted_count).toBe(3);
-    expect(existsSync(old.captures[0]!)).toBe(true);
-    expect(current.captures.some(existsSync)).toBe(false);
-  });
-
-  it('selects only effective summary and suffix payloads, including structured multimodal sources', async () => {
-    const root = fixture();
-    const names = ['original', 'superseded-summary', 'selected-summary', 'image-source.png', 'audio-source.wav', 'control'];
-    const paths = names.map(name => work(root, `cards/project/tmp/${name}`));
-    appendConversationBatch({ projectRoot: root }, [message('tmp:///project/original tmp:///project/selected-summary')]);
-    compact(root, 'tmp:///project/superseded-summary');
-    appendConversationBatch({ projectRoot: root }, [message('covered again')]);
-    compact(root, 'Retained old attachment: tmp:///project/selected-summary');
-    // MCP data is intentionally opaque and may contain audio/file descriptors. Images have
-    // their strict owning descriptor; source paths in the current payload remain references.
-    const content = JSON.stringify({ success: true, data: { image: { source_path: paths[3] },
-      audio: { source_path: paths[4], mime_type: 'audio/wav' } }, content: [{ type: 'image', image: {
-        id: randomUUID(), mime_type: 'image/png', width: 1, height: 1, byte_length: 4, sha256: 'a'.repeat(64) } }] });
-    const policies = toolRowPolicies({ content, template: OPERATIONAL_RESULT_POLICY_TEMPLATE });
-    const inputId = randomUUID(), callId = 'media';
-    const call = agentMessageSchema.parse({ ...message(''), id: `${inputId}:tool-call:${callId}`, role: 'assistant', kind: 'tool_call',
-      tool: 'mcp_media', tool_call_id: callId, context_policy: policies.call,
-      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'mcp_media', arguments: '{}' } }] }) });
-    const result = agentMessageSchema.parse({ ...message(content), id: `${inputId}:tool-result:${callId}`, role: 'tool', kind: 'tool_result',
-      tool: 'mcp_media', tool_call_id: callId, context_policy: policies.result });
-    appendConversationBatch({ projectRoot: root }, [call, result]);
-    const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(deleted.deleted_count).toBe(3);
-    expect(paths.map(existsSync)).toEqual([false, false, true, true, true, false]);
-  });
-
-  it('format13 card_acceptance observations and call identities do not revive historical captures', async () => {
-    const root = fixture(), cards = new CardService(root);
-    const producer = completedAction(root, 'old inline result');
-    cards.acceptRecord('project', 'review-extra.md', producer.content, producer.author);
-    const author = cards.create({ type: 'code', parent: 'project', title: 'factual author', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    cards.acceptRecord('project', 'review-extra.md', 'current inline result', { kind: 'card-agent', agent: 'planner', card_id: author.id });
-    const current = (await import('../../src/persistence/authored-record-files.js')).readCurrentAuthoredRecord(root, cards.read('project')!, definition())!;
-    const { RecordMutationSuccessSchema } = await import('../../src/contracts/record-mutation.js');
-    const mutation = RecordMutationSuccessSchema.parse({ kind: 'applied', data: {
-      card_id: 'project', name: 'review-extra.md', state: 'closed', version: current.accepted!.source_version,
-      target_version: null, revision: current.revision, head_id: current.headId, current_url: current.currentUrl,
-      accepted_version_url: current.acceptedVersionUrl, bytes: current.accepted!.size_bytes,
-      written: true, surface: 'card_acceptance', propagation: { ok: true },
-    } });
-    const inputId = randomUUID(), callId = `work:///cards/project/processes/${producer.author.process_id}/stdout.log`;
-    const content = JSON.stringify({ success: true, data: mutation.data });
-    const policy = toolRowPolicies({ content, template: OPERATIONAL_RESULT_POLICY_TEMPLATE });
-    const call = agentMessageSchema.parse({ ...message(''), id: `${inputId}:tool-call:${callId}`, role: 'assistant', kind: 'tool_call',
-      tool: 'write_file', tool_call_id: callId, context_policy: policy.call,
-      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'write_file', arguments: '{}' } }] }) });
-    const observation = { observed: { card_id: 'project', record_name: 'review-extra.md', view: 'accepted', selection_kind: 'current',
-      head: { head_id: current.headId, revision: current.revision }, selection: { kind: 'accepted',
-        entry_id: current.accepted!.source_entry_id, version: current.accepted!.source_version,
-        locator: current.acceptedVersionUrl, content_sha256: current.accepted!.content_sha256 }, exposure: { kind: 'reference_only' } },
-      source: { kind: 'mutation', input_id: inputId, tool_call_id: callId, tool_name: 'write_file' } };
-    const result = agentMessageSchema.parse({ ...message(content), id: `${inputId}:tool-result:${callId}`, role: 'tool', kind: 'tool_result',
-      tool: 'write_file', tool_call_id: callId, context_policy: policy.result, record_observations: [observation] });
-    appendConversationBatch({ projectRoot: root }, [call, result]);
-    const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
-    expect(segment.conversation.effectiveRequiredModelFacts.latestRecordObservations).toHaveLength(1);
-    const { providerConversationProjection } = await import('../../src/runtime/actors/conversation-session.js');
-    const projected = providerConversationProjection(segment.conversation, []);
-    expect(projected.messages).toContainEqual(result); // applicability metadata remains runtime evidence
-    const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(deleted.deleted_count).toBe(2);
-    expect(producer.captures.some(existsSync)).toBe(false);
-  });
-
-  it.each(['card', 'accepted', 'execution'])('malformed consumed old %s refuses despite contributing no marks', async kind => {
-    const root = fixture(), cards = new CardService(root);
-    const control = work(root, 'cards/project/tmp/control');
-    let path: string;
-    if (kind === 'card') {
-      const head = JSON.parse(readFileSync(join(root, '.saivage/cards/project/card-head.json'), 'utf8'));
-      path = join(root, `.saivage/cards/project/card-history/${head.ordinary.entry_id}.json`);
-      cards.editCard('project', { title: 'new selected title' }, 'analyst');
-    } else if (kind === 'accepted') {
-      cards.acceptRecord('project', 'review-extra.md', 'old body', { kind: 'agent', agent: 'analyst' });
-      const head = JSON.parse(readFileSync(cardRecordHeadFile(root, 'project', definition()), 'utf8'));
-      path = join(root, `.saivage/cards/project/records/accepted/${head.accepted.entry_id}.json`);
-      cards.acceptRecord('project', 'review-extra.md', 'current body', { kind: 'agent', agent: 'analyst' });
-    } else {
-      completedAction(root, 'past body');
-      path = cardExecutionFile(root, 'project');
-    }
-    // Exact canonical target, never a sibling scan. Keep the complete malformed bytes unchanged.
-    const bytes = Buffer.from('{malformed}\n'); writeFileSync(path, bytes);
-    const unlink = jest.spyOn(fs, 'unlinkSync');
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).rejects.toThrow();
-    expect(unlink).not.toHaveBeenCalled(); expect(readFileSync(path)).toEqual(bytes); expect(existsSync(control)).toBe(true);
-  });
-
   it.each([[8, 4, 1000], [32, 16, 4000]])('bounded scale: %i linked cards, %i segments/session, %i candidates', async (cardCount, segmentCount, candidates) => {
     const root = fixture(), cards = new CardService(root);
     const linked = [cards.read('project')!];
@@ -308,7 +136,7 @@ describe('work GC two-phase selection', () => {
       inventoryMs: inventoried - started, markingAndSelectionMs: performance.now() - inventoried, heapBytes: process.memoryUsage().heapUsed }));
   }, 60_000);
 
-  it('marks effective content including cwd and named literal context, not index/genesis metadata', async () => {
+  it('preserves the interpreted source union of a derived segment including cwd and named literal context', async () => {
     const root = fixture();
     const cwd = join(root, '.saivage/work/cards/project/tmp/context');
     const selected = ['relative-name', 'quoted space.txt', 'query.txt'].map(name => work(root, `cards/project/tmp/context/${name}`));
@@ -317,15 +145,28 @@ describe('work GC two-phase selection', () => {
       prose: '`quoted space.txt`', nested: JSON.stringify({ endpoint: `https://example.invalid/?path=${encodeURIComponent('tmp:///project/context/query.txt')}` }) }));
     appendConversationBatch({ projectRoot: root }, [row]);
     const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
-    const current = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
+    const read = fs.realpathSync;
+    let observed = new Set<string>(), resolutions = 0;
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      observed.add(String(path)); resolutions++;
+      return (read as any)(path, ...args);
+    }) as typeof read);
+    const found = await inventory(root);
+    const old = await collectWorkGarbage(found, { mode: 'dry_run' }, context({ operationalInputs: segment }));
+    const oldUnion = observed, oldResolutions = resolutions;
+    observed = new Set(); resolutions = 0;
+    const current = await collectWorkGarbage(found, { mode: 'dry_run' }, context({ operationalInputs: [segment.index, segment.genesis, segment.rows] }));
+    expect(current).toEqual(old);
+    expect(observed).toEqual(oldUnion);
+    expect(resolutions).toBeLessThan(oldResolutions);
     expect(current.retained.protected).toBe(selected.length);
-    expect(current.would_delete_count).toBe(1);
     const sources: unknown[] = [];
     await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { sources.push(value); });
-    expect(sources).not.toContainEqual(segment.index);
-    expect(sources).not.toContainEqual(segment.genesis);
-    expect(sources).toContainEqual([row.content]);
+    expect(sources).toContainEqual(segment.index);
+    expect(sources).toContainEqual(segment.genesis);
+    expect(sources).toContainEqual(segment.rows);
     expect(sources).not.toContainEqual(segment);
+    console.info('GC union evidence', JSON.stringify({ oldResolutions, sourceResolutions: resolutions, unionSize: observed.size }));
   });
 
   it.each(['nested values', 'text tokens'])('observes real event-loop cancellation during inventory and %s before effects', async kind => {
@@ -508,22 +349,16 @@ describe('work GC two-phase selection', () => {
   it('extracts compacted protected prompts and internal record facts without a model-visible observation ledger', async () => {
     const root = fixture(), inputId = randomUUID();
     const retained = work(root, 'cards/project/tmp/protected-prompt.txt');
-    const provenance = work(root, 'cards/project/tmp/provenance-only');
-    const fragmentFile = work(root, 'cards/project/tmp/selected-fragment.md', 'Actual record prompt: tmp:///project/protected-prompt.txt');
     const garbage = work(root, 'cards/project/tmp/control');
-    const { compilePromptTemplate, renderCompiledPrompt } = await import('../../src/utils/prompt-api.js');
-    const template = compilePromptTemplate({ host: { kind: 'process', cardType: 'project' }, name: 'retained',
-      path: '/synthetic/host.md', text: '{{> retained}}', resolveFragment: () => ({ path: fragmentFile, text: readFileSync(fragmentFile, 'utf8') }) });
-    const rendered = renderCompiledPrompt({ kind: 'process', cardType: 'project' }, 'retained', template, {});
     const { DURABLE_PRIMARY_CONTENT_POLICY } = await import('../../src/schemas/index.js');
     const { deriveRequiredModelFacts, selectConversationProtection } = await import('../../src/contracts/conversation-validation.js');
-    const row = agentMessageSchema.parse({ ...message(rendered), kind: 'record_prompt',
-      instruction_origin: 'workflow_prompt', record_prompt: { reference: 'tmp:///project/provenance-only', node_id: 'plan', reason: 'changed' },
+    const row = agentMessageSchema.parse({ ...message('Actual record prompt: tmp:///project/protected-prompt.txt'), kind: 'record_prompt',
+      instruction_origin: 'workflow_prompt', record_prompt: { reference: 'changed-record', node_id: 'plan', reason: 'changed' },
       context_policy: { ...DURABLE_PRIMARY_CONTENT_POLICY, compactable: false, compaction_key: 'record-brief' },
       record_observations: [{ observed: { card_id: 'project', record_name: 'brief.md', view: 'accepted', selection_kind: 'current',
         head: { head_id: inputId, revision: 1 }, selection: { kind: 'accepted', entry_id: inputId, version: 1,
           locator: 'record:///brief.md?card=project&v=1', content_sha256: 'a'.repeat(64) }, exposure: { kind: 'full_body' } },
-        source: { kind: 'prompt', input_id: inputId, node_id: 'plan', reference: 'tmp:///project/provenance-only' } }] });
+        source: { kind: 'prompt', input_id: inputId, node_id: 'plan', reference: 'changed-record' } }] });
     appendConversationBatch({ projectRoot: root }, [row]);
     const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const facts = deriveRequiredModelFacts({ inherited: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] },
@@ -539,21 +374,18 @@ describe('work GC two-phase selection', () => {
     const sources: unknown[] = [];
     await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { sources.push(value); });
     expect(facts.latestRecordObservations).toHaveLength(1);
-    expect(sources).not.toContainEqual(current.genesis);
-    expect(JSON.stringify(sources)).not.toContain('latestRecordObservations');
+    expect(sources).toContainEqual(current.genesis);
     const { providerConversationProjection } = await import('../../src/runtime/actors/conversation-session.js');
     expect(JSON.stringify(providerConversationProjection(current.conversation, []))).not.toContain('latestRecordObservations');
-    const selected = context({ operationalInputs: { selected_prompt_path: fragmentFile } });
-    expect((await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, selected)).would_delete_count).toBe(2);
-    expect((await collectWorkGarbage(await inventory(root), { mode: 'delete' }, selected)).deleted_count).toBe(2);
+    expect((await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context())).would_delete_count).toBe(1);
+    expect((await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).deleted_count).toBe(1);
     expect(existsSync(retained)).toBe(true); expect(existsSync(garbage)).toBe(false);
-    expect(existsSync(fragmentFile)).toBe(true); expect(existsSync(provenance)).toBe(false);
     const oldest = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
     appendFileSync(oldest, '{malformed}\n'); const bytes = readFileSync(oldest);
     await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).rejects.toThrow();
     expect(readFileSync(oldest)).toEqual(bytes);
   });
-  it('collects completed bootstrap captures but retains an incomplete native index through strict canonical reads', async () => {
+  it('selectively retains commissioned bootstrap commands and an incomplete native index through strict canonical reads', async () => {
     const root = publicNativeProject();
     roots.push(root);
     // Preserve this public commissioning fixture as qualification evidence.
@@ -577,7 +409,7 @@ describe('work GC two-phase selection', () => {
       card_id: 'project', timestamp: '2026-10-27T00:00:00.000Z', kind: 'native_started', step: 'captureRebase',
       binding: { origin: 'activation', activation_id: randomUUID(), parent_card_id: null,
         node: { node_id: 'git-rebase-correction', ordinal: 1 } }, artifact_paths: [indexRelative] }]);
-    const selected = [index, cardExecutionFile(root, 'project'),
+    const selected = [...captures, index, cardExecutionFile(root, 'project'),
       join(root, '.saivage/cards/project/card-head.json'), join(root, '.git/HEAD'),
       join(root, 'source.txt')].map(path => [path, readFileSync(path)] as const);
     const garbage = work(root, 'cards/project/tmp/unselected-control');
@@ -587,11 +419,10 @@ describe('work GC two-phase selection', () => {
     const gitIndex = readFileSync(join(root, '.git/index'));
     const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: Date.now() + 1000 },
       context({ workflows: fresh.workflows, operationalInputs: { config: fresh.config } }));
-    expect(preview.would_delete_count).toBe(captures.length + 1);
+    expect(preview.would_delete_count).toBe(1);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: Date.now() + 1000 },
       context({ workflows: fresh.workflows, operationalInputs: { config: fresh.config } }));
-    expect(result.deleted_count).toBe(captures.length + 1);
-    expect(captures.some(existsSync)).toBe(false);
+    expect(result.deleted_count).toBe(1);
     expect(existsSync(garbage)).toBe(false);
     for (const [path, bytes] of selected) expect(readFileSync(path)).toEqual(bytes);
     expect(fixtureGit(root, 'rev-parse', ref)).toBe(oid);
@@ -618,46 +449,7 @@ describe('work GC two-phase selection', () => {
     expect([index, ...captures].every(existsSync)).toBe(true);
     expect(existsSync(garbage)).toBe(false);
   });
-  it('completed native preservation indexes/captures are audit only; current candidate facts need Git objects, not captures', async () => {
-    const root = fixture(), cards = new CardService(root), paths: string[] = [];
-    const oid = 'a'.repeat(40), source = { branch_ref: 'refs/heads/saivage-project', observed_tip: oid };
-    const parent = { branch_ref: 'refs/heads/main', observed_tip: oid };
-    let preparationId = '';
-    for (const step of ['captureRebase', 'prepareCandidate'] as const) {
-      const invocation = randomUUID(), processId = `proc-${invocation.replaceAll('-', '').slice(0, 12)}`;
-      if (step === 'prepareCandidate') preparationId = invocation;
-      const identity = { invocation_id: invocation, card_id: 'project', timestamp: '2026-11-06T00:00:00.000Z' };
-      const indexPath = `.saivage/work/cards/project/tmp/native-git-${invocation}/index`;
-      const artifactPaths = step === 'captureRebase' ? [indexPath] : [];
-      for (const path of artifactPaths) paths.push(work(root, path.slice('.saivage/work/'.length)));
-      const files = (['stdout', 'stderr'] as const).map(stream => ({ kind: 'capture' as const, stream,
-        path: `.saivage/work/cards/project/processes/${processId}/${stream}.log` }));
-      for (const file of files) paths.push(work(root, file.path.slice('.saivage/work/'.length)));
-      appendCardExecutions(root, 'project', [
-        { ...identity, row_id: randomUUID(), kind: 'native_started', step, artifact_paths: artifactPaths,
-          binding: { origin: 'activation', activation_id: randomUUID(), parent_card_id: null, node: { node_id: 'native', ordinal: 1 } } },
-        { ...identity, row_id: randomUUID(), kind: 'native_process_started', process_id: processId, allowed_exit_codes: [0], files },
-        { ...identity, row_id: randomUUID(), kind: 'native_process_finished', process_id: processId, status: 'exited',
-          disposition: 'returned', leader_exit: { exit_code: 0, signal: null, observed_at: identity.timestamp },
-          leader_error: null, interruption: null, timeout_reason: null, process: { id: processId, group: 'absent',
-            group_diagnostic: null, stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null } },
-        { ...identity, row_id: randomUUID(), kind: 'native_finished', disposition: 'returned', summary: 'completed native operation',
-          interruption: null, timeout_reason: null, outcome: step === 'captureRebase' ? 'captured' : 'candidate',
-          effects: [], files: artifactPaths.map(path => ({ kind: 'artifact' as const, path, observed_at: identity.timestamp, size: 4, source: 'current' as const })),
-          absent_artifacts: [], external_effects: 'unknown', source_return: 'not_returned', facts: { source, parent,
-            base_oid: oid, original_tip: oid, retained_original_ref: 'refs/saivage/test/retained/project/original', parent_before: null,
-            preserved_source: step === 'captureRebase' ? { ref: 'refs/saivage/test/preserved/project/snapshot', oid, source_tip: oid, kind: 'unfinished-resolution' } : null,
-            rebase_observation: step === 'captureRebase' ? { starting_tip: oid, head_tip: oid } : null } },
-      ]);
-    }
-    cards.publishGitFacts('project', { kind: 'root', policy_digest: 'b'.repeat(64), ...source, parent,
-      base_oid: oid, candidate: { base_oid: oid, candidate_oid: oid, preparation_invocation_id: preparationId }, last_delivery: null, correction: null });
-    const evidence = cardExecutionFile(root, 'project'), bytes = readFileSync(evidence);
-    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result.deleted_count).toBe(5); expect(paths.some(existsSync)).toBe(false);
-    expect(readFileSync(evidence)).toEqual(bytes);
-  });
-  it('collects complete inline process captures while retaining current typed webfetch/source query selections', async () => {
+  it('retains terminal capture URLs hidden by primary projection and typed webfetch/source query selections', async () => {
     const root = fixture(), processId = 'proc-0123456789ab';
     const captures = ['stdout', 'stderr'].map(stream => work(root, `processes/${processId}/${stream}.log`, 'output'));
     const stash = work(root, 'tmp/stash/webfetch-1-0123456789abcdef.txt', 'downloaded');
@@ -685,9 +477,8 @@ describe('work GC two-phase selection', () => {
     baseline(root, JSON.stringify({ webfetch, image: { source_path: 'tmp:///project/source%20image.png' },
       endpoint: `https://example.invalid/api/files/image?path=${encodeURIComponent('tmp:///project/query-source.png')}` }));
     const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(deleted.deleted_count).toBe(3);
-    expect([stash, image, querySource].every(existsSync)).toBe(true);
-    expect(captures.some(existsSync)).toBe(false);
+    expect(deleted.deleted_count).toBe(1);
+    expect([...captures, stash, image, querySource].every(existsSync)).toBe(true);
     expect(existsSync(garbage)).toBe(false);
   });
 
@@ -885,25 +676,19 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(protectedPath) && existsSync(garbage)).toBe(true);
   });
 
-  it('collects historical-only references while retaining current acceptance, distinct draft and pending mailbox', async () => {
+  it('retains references only in original pre-compaction history, accepted predecessors, draft and pending mailbox', async () => {
     const root = fixture();
     const names = ['original', 'accepted-old', 'accepted-current', 'draft', 'pending'];
     const paths = names.map(name => work(root, `cards/project/tmp/${name}.txt`));
     const garbage = work(root, 'cards/project/tmp/garbage');
     const cards = new CardService(root);
     cards.acceptRecord('project', 'review-extra.md', 'tmp:///project/accepted-old.txt', { kind: 'agent', agent: 'analyst' });
-    const acceptedHead = JSON.parse(readFileSync(cardRecordHeadFile(root, 'project', definition()), 'utf8'));
-    const oldAcceptedPath = join(root, `.saivage/cards/project/records/accepted/${acceptedHead.accepted.entry_id}.json`);
-    const author = cards.create({ type: 'code', parent: 'project', title: 'author', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    cards.acceptRecord('project', 'review-extra.md', 'tmp:///project/accepted-current.txt', { kind: 'card-agent', agent: 'planner', card_id: author.id });
+    cards.acceptRecord('project', 'review-extra.md', 'tmp:///project/accepted-current.txt', { kind: 'agent', agent: 'analyst' });
     cards.openRecord('project', 'review-extra.md');
     cards.editRecord('project', 'review-extra.md', 'tmp:///project/draft.txt');
     cards.enqueueNotification('project', { id: randomUUID(), content: 'tmp:///project/pending.txt', created_at: '2026-10-24T00:00:00.000Z' });
     const row = message('tmp:///project/original.txt');
     appendConversationBatch({ projectRoot: root }, [row]);
-    const originalSegment = readCurrentConversationSegment(root, 'agent:planner:project')!;
-    const originalPath = cardConversationVersionFile(root, 'project', 'planner', originalSegment.entry.filename);
     const entryId = randomUUID();
     publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
       identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(2, entryId) },
@@ -912,12 +697,10 @@ describe('work GC two-phase selection', () => {
       cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
     });
     expect(JSON.stringify(readCurrentConversationSegment(root, 'agent:planner:project'))).not.toContain('original.txt');
-    const historical = [oldAcceptedPath, originalPath].map(path => [path, readFileSync(path)] as const);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result.deleted_count).toBe(3);
-    expect(paths.map(existsSync)).toEqual([false, false, true, true, true]);
+    expect(result.deleted_count).toBe(1);
+    expect(paths.every(existsSync)).toBe(true);
     expect(existsSync(garbage)).toBe(false);
-    for (const [path, bytes] of historical) expect(readFileSync(path)).toEqual(bytes);
   });
 
   it('never inspects filtered record/temp entries or enumerates canonical history siblings', async () => {

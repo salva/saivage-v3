@@ -23,33 +23,6 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
-Work-GC progress/transport from implementation source parent
-`297bab5008403f7b073ace7832407999be1e712d` adds only transient counts callbacks and
-authenticated NDJSON progress/result frames. No durable family, shape, selector or
-discriminator changes; the retention and permissions source boundaries below remain
-unchanged. Matching CLI/server adoption is required for the singular stream protocol;
-this grants no live operation or old-format adoption permission.
-
-Effective work-GC retention from implementation source parent
-`56ace41b72a25866f51f48bd4ea765e8e69bdd60` changes only optional disposable-work
-protection: current semantic selections replace the historical reference union.
-Complete linked card/accepted history, indexed conversations and execution evidence
-remain strictly consumed and unchanged. Superseded content/provenance alone no
-longer pins attachments; current references still protect old work. Historical URLs
-may stop resolving after a separately requested irreversible delete. Code rollback
-cannot restore deleted attachments; no reclamation or speedup is promised.
-
-No durable shape, selector meaning, compaction interpretation or validation grammar
-changes, and no discriminator is bumped: card6/head1, accepted-record6/record-head3,
-conversation13 (index/genesis/envelopes), execution3, shared evidence2, workflow6 and
-agent-capabilities1 remain unchanged, including raw owning descriptors. Evidence
-owners are `persistence/current-generated-graph.ts`, `card-execution-log.ts`, shared
-`utils/context/composition-projector.ts` and focused synthetic retention fixtures.
-This isolated GC change requires no additional conversion/reset on matching contracts.
-It does not extend the permissions cutover below or make an e1307 installation
-binary-upgrade-compatible. Installed applicability remains unknown; deployment,
-external migration, reset and actual collection require their separate authorization.
-
 Configured direct-object authority cutover from source parent
 `e1307b9b12a43df80396747af18b33d49457191b`: accepted-record **5→6** adds
 `card-agent {agent,card_id}` factual origin, including framework draft close and

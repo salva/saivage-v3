@@ -145,15 +145,9 @@ offline migration requires an explicit identified-project request and its full g
 Optional [explicit work reclamation](docs/runbook/work-gc.md) previews unreferenced
 scratch before a separate irreversible delete. It is not an installation/startup
 step, automatic cleanup or canonical-state repair.
-Current selected content/effective conversations protect work, not historical-only
-references or audit provenance. Canonical history remains, but old attachment URLs
-can cease resolving after delete; even current broad references can protect all work.
 Collection uses paused/stopped server maintenance or confirmed offline lifecycle
 exclusion. It has no elapsed deadline; cancellation is cooperative. Root package
 dependencies pin the Node-24-compatible direct Undici transport used only for GC.
-The [explicit work-GC CLI](docs/runbook/work-gc.md) reserves stdout for one final
-JSON response after settlement/release; stderr carries bounded counts-only progress
-and offline prompts. Online success uses authenticated NDJSON, not buffered JSON.
 
 | Owner | Exact responsibility |
 | --- | --- |

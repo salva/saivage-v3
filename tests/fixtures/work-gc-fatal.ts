@@ -21,14 +21,7 @@ const candidate = join(root, '.saivage/work/cards/project/tmp/disposable');
 fs.mkdirSync(dirname(candidate), { recursive: true }); fs.writeFileSync(candidate, 'scratch');
 const fatal = createApplicationFatalPort();
 const server = Fastify({ logger: false });
-server.addHook('onSend', async (_request, reply) => {
-  mark('stream-open');
-  const write = reply.raw.write.bind(reply.raw);
-  reply.raw.write = ((...args: Parameters<typeof write>) => {
-    if (deleting) mark('FORBIDDEN_frame');
-    return write(...args);
-  }) as typeof write;
-});
+server.addHook('onSend', async () => { mark('response'); });
 server.addHook('onError', async () => { mark('http-error'); });
 const unlink = fs.unlinkSync, fsync = fs.fsyncSync, close = fs.closeSync;
 let deleting = false;

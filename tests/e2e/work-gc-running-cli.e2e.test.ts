@@ -120,33 +120,8 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
           restartCapability: { available: false }, serverAvailabilityProvider() { throw new Error('Unused readiness'); } }));
       const origin = await server.listen({ host: '127.0.0.1', port: 0 });
       publishRuntimeControlEndpoint(lock, { origin, auth: 'bearer' });
-      if (!flags.length) {
-        const entered = deferred<void>(), release = deferred<void>();
-        const original = app.runWorkGc.bind(app);
-        const inventoryGate = jest.spyOn(app, 'runWorkGc').mockImplementation(input => original({ ...input,
-          inventory: async signal => { entered.resolve(); await release.promise; return input.inventory(signal); },
-        }));
-        const first = realFetch(`${origin}/api/runtime/gc-work`, { method: 'POST', headers: { authorization: 'Bearer synthetic-gc-token', 'content-type': 'application/json' }, body: '{"mode":"dry_run"}' });
-        try {
-          await entered.promise;
-          expect(() => app.assertWorkGcIngressAllowed()).not.toThrow(); // no Supervisor hold yet
-          const second = await realFetch(`${origin}/api/runtime/gc-work`, { method: 'POST', headers: { authorization: 'Bearer synthetic-gc-token', 'content-type': 'application/json' }, body: '{"mode":"dry_run"}' });
-          expect(second.status).toBe(409);
-          expect(second.headers.get('content-type')).toContain('application/json');
-          await second.json();
-        } finally { release.resolve(); inventoryGate.mockRestore(); }
-        const completed = await first;
-        const frames = (await completed.text()).trim().split('\n').map(line => JSON.parse(line));
-        expect(frames.at(-1)).toMatchObject({ type: 'result', response: { disposition: 'completed' } });
-      }
       process.chdir(root);
       const before = snapshot(join(root, '.saivage'));
-      if (!flags.length) {
-        const failedSink = await app.collectWorkGarbage({ mode: 'delete' }, new AbortController().signal,
-          progress => { if (progress.phase === 'validation_marking') throw new Error('Synthetic output failure'); });
-        expect(failedSink).toMatchObject({ disposition: 'refused', reason: 'cancelled', restoration: 'not_resumed' });
-        expect(snapshot(join(root, '.saivage'))).toEqual(before);
-      }
       const output = jest.spyOn(console, 'log').mockImplementation(() => {});
       process.env.SAIVAGE_API_TOKEN = 'wrong-synthetic-token';
       const count = requestCount;
@@ -164,26 +139,21 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
             '--input-type=module', '-e',
             `import { run } from ${JSON.stringify(pathToFileURL(join(cwd, 'src/cli.ts')).href)}; await run(['node','saivage','gc-work','--dry-run']);`],
           { cwd: root, env: { ...process.env, NODE_OPTIONS: '' }, timeout: 20_000, killSignal: 'SIGKILL' });
-        expect(JSON.parse(child.stdout)).toMatchObject({ disposition: 'completed', result: { would_delete_count: 2 } });
-        const progress = child.stderr.trim().split('\n').map(line => JSON.parse(line));
-        expect(progress.map(value => value.phase)).toContain('validation_marking');
-        expect(progress.at(-1)).toMatchObject({ phase: 'releasing', candidates_processed: 3, selected_files: 2 });
+        expect(JSON.parse(child.stdout)).toMatchObject({ disposition: 'completed', result: { would_delete_count: 1 } });
+        expect(child.stderr).toBe('');
         expect(snapshot(join(root, '.saivage'))).toEqual(before);
       }
       await run(['node', 'saivage', 'gc-work', ...flags]);
       reports.push(JSON.parse(output.mock.calls.at(-1)![0] as string));
       output.mockRestore();
       expect(reports.at(-1)).toMatchObject({ disposition: 'completed', restoration: 'not_resumed',
-        result: { retained: { protected: 1 } } });
+        result: { retained: { protected: 2 } } });
       expect(app.runtimeApi.getStatus().status).toBe('paused');
       expect(readFileSync(retained, 'utf8')).toBe('historical evidence');
+      expect(readFileSync(historical, 'utf8')).toBe('old accepted evidence');
       expect(existsSync(dirname(garbage))).toBe(true);
-      if (flags.includes('--delete')) {
-        expect(existsSync(garbage)).toBe(false); expect(existsSync(historical)).toBe(false);
-      } else {
-        expect(readFileSync(historical, 'utf8')).toBe('old accepted evidence');
-        expect(snapshot(join(root, '.saivage'))).toEqual(before);
-      }
+      if (flags.includes('--delete')) expect(existsSync(garbage)).toBe(false);
+      else expect(snapshot(join(root, '.saivage'))).toEqual(before);
       // Equivalent independent fixtures exercise the actual CLI filter transport,
       // inventory-to-mark change, strict cutoff and target stop in both effect modes.
       const filterRoot = dirname(garbage);
@@ -194,7 +164,6 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       }
       // Make the preceding deletion fixture equivalent again, without replaying a preview.
       if (!existsSync(garbage)) writeFileSync(garbage, 'disposable');
-      if (!existsSync(historical)) writeFileSync(historical, 'old accepted evidence');
       const originalRun = app.runWorkGc.bind(app);
       const atInventory = jest.spyOn(app, 'runWorkGc').mockImplementation(input => originalRun({ ...input,
         inventory: async signal => { const found = await input.inventory(signal); appendFileSync(join(filterRoot, 'filter-stale'), 'changed'); return found; },
@@ -207,7 +176,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         await run(['node', 'saivage', 'gc-work', ...flags, '--before', '1970-01-01T00:00:02Z', '--target-bytes', String(total - 4)]);
         const report = JSON.parse(filteredOutput.mock.calls.at(-1)![0] as string) as WorkGcResponse;
         filteredReports.push(report);
-        expect(report.result).toMatchObject({ retained: { protected: 1, recent: 4, stale: 1, target: 1 }, accounted_target_shortfall: 0 });
+        expect(report.result).toMatchObject({ retained: { protected: 2, recent: 3, stale: 1, target: 1 }, accounted_target_shortfall: 0 });
         expect(existsSync(join(filterRoot, 'filter-old-a'))).toBe(!flags.includes('--delete'));
         expect(existsSync(join(filterRoot, 'filter-old-b'))).toBe(true);
       } finally { atInventory.mockRestore(); filteredOutput.mockRestore(); }
@@ -216,7 +185,6 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       if (!flags.length) {
         // Real socket cancellation crosses Fastify's close hook and joins the actual
         // application GC task without cancelling the independently owned wait.
-        for (const interruption of ['SIGINT', 'SIGTERM'] as const) {
         const settling = deferred<void>(), releaseSettlement = deferred<void>();
         const naturalWait = jest.spyOn(app.analystRuntime, 'awaitNaturalTurnCompletion').mockImplementation(() => {
           settling.resolve(); return releaseSettlement.promise;
@@ -231,8 +199,8 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         child.stdout.on('data', chunk => { interruptedOutput += String(chunk); });
         try {
           await settling.promise;
-          child.kill(interruption);
-           expect(await exited).toEqual([1, null]);
+          child.kill('SIGTERM');
+          expect(await exited).toEqual([null, 'SIGTERM']);
           expect(interruptedOutput).toBe('');
           for (let i = 0; i < 1000; i++) {
             try { app.assertWorkGcIngressAllowed(); break; }
@@ -244,7 +212,6 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
           expect(app.runtimeApi.getStatus().status).toBe('paused');
           expect(snapshot(join(root, '.saivage'))).toEqual(before);
         } finally { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); releaseSettlement.resolve(); naturalWait.mockRestore(); }
-        }
         // A preview is not saved deletion authority. Publish a new canonical reference
         // and invoke an independent real CLI delete against a fresh mark.
         author.acceptRecord('project', 'review-new-reference.md', 'tmp:///project/garbage.txt', { kind: 'agent', agent: 'analyst' });
@@ -252,7 +219,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         try {
           await run(['node', 'saivage', 'gc-work', '--delete']);
           expect(JSON.parse(freshOutput.mock.calls.at(-1)![0] as string)).toMatchObject({
-            disposition: 'completed', result: { deleted_count: 1, retained: { protected: 2 } },
+            disposition: 'completed', result: { deleted_count: 0, retained: { protected: 3 } },
           });
           expect(readFileSync(garbage, 'utf8')).toBe('disposable');
         } finally { freshOutput.mockRestore(); }
@@ -313,8 +280,8 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
   expect(filteredReports[0]).toEqual(filteredReports[1]);
   expect(filteredReports[2]!.result!.deleted_logical_bytes).toBe(filteredReports[0]!.result!.would_delete_logical_bytes);
   expect(filteredReports[2]!.result!.retained).toEqual(filteredReports[0]!.result!.retained);
-  expect(reports[0]!.result).toMatchObject({ would_delete_count: 2, would_delete_logical_bytes: 31, deleted_count: 0 });
-  expect(reports[2]!.result).toMatchObject({ deleted_count: 2, deleted_logical_bytes: 31, would_delete_count: 0 });
+  expect(reports[0]!.result).toMatchObject({ would_delete_count: 1, would_delete_logical_bytes: 10, deleted_count: 0 });
+  expect(reports[2]!.result).toMatchObject({ deleted_count: 1, deleted_logical_bytes: 10, would_delete_count: 0 });
   expect(reports[2]!.result!.expected_accounted_logical_bytes_remaining)
     .toBe(reports[0]!.result!.expected_accounted_logical_bytes_remaining);
 }, 30_000);

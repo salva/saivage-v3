@@ -13,8 +13,8 @@ import { materializedToolContent, type ValidatedConversation } from '../../../co
 import {
   composeContextProjection,
   type SummarizerContextItem,
-} from '../../../utils/context-api.js';
-import { selectLatestContextBlocks } from '../../../utils/context-api.js';
+} from '../context/composition-projector.js';
+import { selectLatestContextBlocks } from '../context/context-blocks.js';
 import { type ContextBlock } from '../../../contracts/index.js';
 import {
   admitSummaryRequest,

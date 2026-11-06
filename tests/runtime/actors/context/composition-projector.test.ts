@@ -22,7 +22,7 @@ import {
   providerConversationFromComposedContext,
   type ComposedContextProjection,
   type EffectiveCompactedHistoryFacts,
-} from '../../../../src/utils/context/composition-projector.js';
+} from '../../../../src/runtime/actors/context/composition-projector.js';
 import { sha256Hex } from '../../../../src/schemas/index.js';
 import { type ContextBlock } from '../../../../src/contracts/index.js';
 import { buildContentPolicyRefusalMessage } from '../../../../src/runtime/actors/content-policy-messages.js';

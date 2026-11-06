@@ -155,15 +155,7 @@ type ParsedOperatorApiResponse<K extends OperatorApiOperationId, S extends numbe
     ? OperatorApiResponse<K, S>
     : OperatorApiResponse<K, OperatorApiResponseStatus<K>>;
 export type OperatorApiHandlerResult<K extends OperatorApiOperationId> =
-  | (K extends 'runtime.gcWork'
-      ? {
-          workGcStream: {
-            result: Promise<import('./work-gc.js').WorkGcResponse>;
-            observe(observer: import('./work-gc.js').WorkGcProgressObserver): void;
-            cancel(error: unknown): void;
-          };
-        }
-      : { statusCode?: 200; body: OperatorApiSuccess<K> })
+  | { statusCode?: 200; body: OperatorApiSuccess<K> }
   | {
       [S in Exclude<OperatorApiResponseStatus<K>, 200>]: {
         statusCode: S;

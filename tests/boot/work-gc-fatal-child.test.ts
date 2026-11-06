@@ -15,7 +15,7 @@ it('real MCP failed startup cleanup uncertainty exits at ingress before HTTP err
   expect(child.stderr).toContain('MCP cleanup uncertain');
   expect(readFileSync(join(root, 'marker'), 'utf8')).toBe('request\ncontainment\n');
 }, 25_000);
-it.each(['unlink', 'fsync'])('real HTTP GC %s uncertainty exits before further frames, descriptor cleanup or admission release', mode => {
+it.each(['unlink', 'fsync'])('real HTTP GC %s uncertainty exits before response, descriptor cleanup or admission release', mode => {
   const root = mkdtempSync(join(tmpdir(), 'work-gc-fatal-')); roots.push(root);
   const child = spawnSync(process.execPath, ['--import', 'tsx', 'tests/fixtures/work-gc-fatal.ts', root, mode],
     { cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' }, timeout: 20_000, killSignal: 'SIGKILL' });
@@ -23,7 +23,7 @@ it.each(['unlink', 'fsync'])('real HTTP GC %s uncertainty exits before further f
   expect(child.stdout).toBe('');
   expect(child.stderr).toContain('Fatal: PublicationOutcomeUnknownError');
   expect(child.stderr).toContain(mode === 'unlink' ? 'GC unlink uncertain' : 'GC directory fsync uncertain');
-  expect(readFileSync(join(root, 'marker'), 'utf8')).toBe(mode === 'unlink' ? 'request\nstream-open\nunlink\n' : 'request\nstream-open\nunlink\nfsync\n');
+  expect(readFileSync(join(root, 'marker'), 'utf8')).toBe(mode === 'unlink' ? 'request\nunlink\n' : 'request\nunlink\nfsync\n');
   // Only the parent observes the uncertain candidate; the child cannot read back.
   expect(existsSync(join(root, '.saivage/work/cards/project/tmp/disposable'))).toBe(mode === 'unlink');
 }, 25_000);

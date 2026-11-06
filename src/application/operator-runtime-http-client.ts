@@ -3,44 +3,9 @@ import {
   parseOperatorResponse,
   type OperatorApiSuccess,
   type WorkGcRequest,
-  WorkGcFrameSchema,
-  WORK_GC_FRAME_MAX_BYTES,
-  type WorkGcResponse,
-  type WorkGcProgressObserver,
 } from '../contracts/index.js';
 import type { RuntimeControlEndpoint } from '../runtime/runtime-api.js';
 import { Agent, request as undiciRequest } from 'undici';
-
-/** Byte-bounded line framing; terminal is authoritative only after a clean EOF. */
-export async function readWorkGcFrames(
-  source: AsyncIterable<Uint8Array>,
-  observer?: WorkGcProgressObserver,
-): Promise<WorkGcResponse> {
-  let pending = Buffer.alloc(0);
-  let result: WorkGcResponse | undefined;
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  for await (const bytes of source) {
-    const chunk = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    let start = 0;
-    while (start < chunk.length) {
-      const end = chunk.indexOf(10, start);
-      const piece = chunk.subarray(start, end === -1 ? chunk.length : end);
-      if (pending.length + piece.length + 1 > WORK_GC_FRAME_MAX_BYTES)
-        throw new Error('Work GC frame exceeds protocol bound.');
-      pending = Buffer.concat([pending, piece]);
-      if (end === -1) break;
-      if (result) throw new Error('Work GC frame after terminal result.');
-      const frame = WorkGcFrameSchema.parse(JSON.parse(decoder.decode(pending)));
-      pending = Buffer.alloc(0);
-      if (frame.type === 'result') result = frame.response;
-      else observer?.(frame.progress);
-      start = end + 1;
-    }
-  }
-  if (pending.length || !result)
-    throw new Error('Work GC stream ended without a complete terminal result.');
-  return result;
-}
 
 type RuntimeOperation =
   | 'runtime.gcWork'
@@ -57,16 +22,15 @@ export class OperatorRuntimeHttpClient {
     endpoint: RuntimeControlEndpoint,
     body: WorkGcRequest,
     signal?: AbortSignal,
-    progress?: WorkGcProgressObserver,
   ): Promise<OperatorApiSuccess<'runtime.gcWork'>> {
     const contract = operatorApiContracts['runtime.gcWork'];
     const headers = this.headers(endpoint, body);
-    headers.accept = 'application/x-ndjson';
     // This transport belongs to this call only. Other operator requests keep their
     // ordinary fetch policy; GC has no elapsed response/maintenance deadline.
     const dispatcher = new Agent({ connect: { timeout: 10_000 } });
     try {
       let response;
+      let text: string;
       try {
         response = await undiciRequest(`${endpoint.origin}${contract.path}`, {
           dispatcher,
@@ -77,22 +41,11 @@ export class OperatorRuntimeHttpClient {
           headersTimeout: 0,
           bodyTimeout: 0,
         });
+        text = await response.body.text();
       } catch (cause) {
         throw new Error('runtime.gcWork transport or response body read failed.', { cause });
       }
-      if (response.statusCode !== 200) {
-        let text = '';
-        for await (const chunk of response.body) {
-          if (Buffer.byteLength(text) + chunk.length > WORK_GC_FRAME_MAX_BYTES)
-            throw new Error('Work GC error response exceeds protocol bound.');
-          text += chunk.toString('utf8');
-        }
-        return this.interpret('runtime.gcWork', response.statusCode, text);
-      }
-      const contentType = response.headers['content-type'];
-      if (typeof contentType !== 'string' || contentType.split(';')[0] !== 'application/x-ndjson')
-        throw new Error('Work GC returned an unsupported content type.');
-      return await readWorkGcFrames(response.body, progress);
+      return this.interpret('runtime.gcWork', response.statusCode, text);
     } finally {
       await dispatcher.destroy();
     }

@@ -181,10 +181,6 @@ describe('source-derived publication owner inventory', () => {
       'src/runtime/actors/llm-actor.ts': 1,
     });
     expect(fileCountInventory(/\bobserve\(/gu)).toEqual({
-      // GC's transient synchronous sink attachment (plus its type declarations),
-      // not detached work. The stream result rejection reaches fatal before destroy.
-      'src/contracts/operator-api.ts': 1,
-      'src/server/work-gc-stream.ts': 2,
       'src/runtime/actors/llm-actor.ts': 9,
       // Synchronous entry/spawn/finish callbacks to the card evidence wrapper,
       // not detached tasks. Their shared owner sends publication uncertainty to

@@ -2,7 +2,7 @@ import {
   projectCanonicalConversationRow,
   projectRecordObservation,
 } from './canonical-conversation-outbound.js';
-import { currentCoveredRequiredFactRows } from '../../utils/context-api.js';
+import { currentCoveredRequiredFactRows } from '../../runtime/runtime-api.js';
 import {
   ConversationHistoricalVersionNotFoundError,
   readCurrentConversationSegment,

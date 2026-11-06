@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
-import { createWorkGcStream, type WorkGcStreamOperation } from './work-gc-stream.js';
 import type { z } from 'zod';
 import type { AuthPolicy } from './auth-policy.js';
 import type { EventLog } from '../observability/index.js';
@@ -52,7 +51,6 @@ type ContractHandler<TContract extends OperatorRouteContract = OperatorRouteCont
 interface ContractHandlerResult {
   statusCode?: number;
   body?: unknown;
-  workGcStream?: WorkGcStreamOperation;
 }
 
 interface ContractRuntimeOptions {
@@ -169,16 +167,6 @@ export class ContractRuntime {
               query: parsed.query,
               body: parsed.body,
             });
-            if (result.workGcStream) {
-              if (contract.responseEncoding !== 'work-gc-ndjson')
-                throw new Error('Unexpected work GC stream contract.');
-              const stream = createWorkGcStream(result.workGcStream, this.fatalPort);
-              reply.header('Content-Type', 'application/x-ndjson');
-              reply.header('Cache-Control', 'no-store');
-              reply.header('X-Content-Type-Options', 'nosniff');
-              reply.send(stream);
-              return reply;
-            }
             candidate = { statusCode: result.statusCode ?? 200, body: result.body };
           }
 

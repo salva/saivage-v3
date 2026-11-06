@@ -7,7 +7,7 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { LocalExactAdmissionError, localAdmissionFailureReason, projectAdmissionDiagnostics } from '../../src/contracts/index.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
-import { composeContextProjection, providerConversationFromComposedContext } from '../../src/utils/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
 import type { ContextBlock } from '../../src/contracts/index.js';
 import { agentMessageSchema, canonicalJson } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
