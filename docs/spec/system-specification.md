@@ -179,7 +179,10 @@ directory remains concrete; known resolved aliases follow the same classificatio
 Operational inputs, unfinished selections and process-owner protections retain
 their existing authority, including root-valued references. Concrete structured
 references remain exact; ambiguous free-text filename inference
-uses simple heuristics and can miss genuine references. Rare false negatives can
+uses simple heuristics and can miss genuine references, including newline-bearing
+filenames mentioned only in free text: decoded CR/LF
+quotations are inspected for nested references, not inferred as one whole path.
+Exact structured path values remain unchanged. Such inference misses can
 make old still-needed work eligible for later explicit deletion. No error rate is
 estimated, and an age cutoff does not protect against this risk. Recognized aliases
 whose scope cannot be resolved remain conservative; this inference exception weakens

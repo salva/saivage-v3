@@ -393,6 +393,7 @@ class WorkReferences {
     // adjacent to words are deliberately not a programming-language literal grammar.
     const tokens = new Set<string>();
     const addQuoted = (quoted: string): void => {
+      if (/[\r\n]/u.test(quoted)) return;
       if (
         quoted.includes('/') ||
         /^[\w.*?-]+$/u.test(quoted) ||

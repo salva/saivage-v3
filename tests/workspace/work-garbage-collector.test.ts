@@ -405,6 +405,63 @@ describe('work GC two-phase selection', () => {
     expect([selected, control].map(path => readFileSync(path))).toEqual(bytes);
   });
 
+  it.each([
+    ['plain LF', '\n', false], ['quoted LF', '\n', true],
+    ['plain CRLF', '\r\n', false], ['quoted CRLF', '\r\n', true],
+    ['plain CR', '\r', false], ['quoted CR', '\r', true],
+  ] as const)('selectively previews current record-prompt Markdown (%s)', async (_label, newline, quoted) => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/selected.txt');
+    const nested = work(root, 'cards/project/tmp/nested dir/with space.txt');
+    const subtree = work(root, 'cards/project/tmp/evidence/inside');
+    const control = work(root, 'cards/project/tmp/control');
+    const recent = work(root, 'cards/project/tmp/recent', 'recent', 3000);
+    const body = [
+      '# Current status', '**Keep useful evidence**; ordinary guidance follows.',
+      '[Selected evidence](tmp:///project/selected.txt)',
+      `Keep ${JSON.stringify(nested)} for the next review.`,
+      'Supporting subtree: work:///cards/project/tmp/evidence',
+    ].join(newline);
+    const { DURABLE_PRIMARY_CONTENT_POLICY } = await import('../../src/schemas/index.js');
+    const inputId = randomUUID();
+    const row = agentMessageSchema.parse({ ...message(`Record content: ${quoted ? JSON.stringify(body) : body}`),
+      kind: 'record_prompt', instruction_origin: 'workflow_prompt',
+      record_prompt: { reference: 'changed-record', node_id: 'plan', reason: 'changed' },
+      context_policy: { ...DURABLE_PRIMARY_CONTENT_POLICY, compactable: false, compaction_key: 'record-brief' },
+      record_observations: [{ observed: { card_id: 'project', record_name: 'brief.md', view: 'accepted', selection_kind: 'current',
+        head: { head_id: inputId, revision: 1 }, selection: { kind: 'accepted', entry_id: inputId, version: 1,
+          locator: 'record:///brief.md?card=project&v=1', content_sha256: 'a'.repeat(64) }, exposure: { kind: 'full_body' } },
+        source: { kind: 'prompt', input_id: inputId, node_id: 'plan', reference: 'changed-record' } }] });
+    appendConversationBatch({ projectRoot: root }, [row]);
+    const files = [selected, nested, subtree, control, recent];
+    const bytes = files.map(path => readFileSync(path));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(result).toMatchObject({ observed_count: 5, would_delete_count: 1, deleted_count: 0,
+      retained: { protected: 3, recent: 1 } });
+    expect(files.map(path => readFileSync(path))).toEqual(bytes);
+  });
+
+  it('protects an exact structured newline-bearing path independently of quotation inference', async () => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/line\nbreak.txt');
+    const control = work(root, 'cards/project/tmp/control');
+    baseline(root, JSON.stringify({ source_path: selected }));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(result).toMatchObject({ retained: { protected: 1 }, would_delete_count: 1, deleted_count: 0 });
+    expect([selected, control].every(existsSync)).toBe(true);
+  });
+
+  it.each(['unknown', 'scoped'] as const)('preserves genuine quoted %s wildcard protection', async scope => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/evidence/inside');
+    const control = work(root, 'cards/project/tmp/control');
+    baseline(root, scope === 'unknown' ? 'Keep "*.txt"' : `Keep "${dirname(selected)}/*.txt"`);
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(result).toMatchObject({ retained: { protected: scope === 'unknown' ? 2 : 1 },
+      would_delete_count: scope === 'unknown' ? 0 : 1, deleted_count: 0 });
+    expect([selected, control].every(existsSync)).toBe(true);
+  });
+
   it('protects complete matching-quoted common paths, Unicode and ASCII apostrophes, and escaped double quotes selectively', async () => {
     const root = fixture();
     const names = ['single dir/with space.txt', 'double dir/with space.txt', 'backtick dir/with space.txt',

@@ -57,8 +57,12 @@ Preview first, but neither preview nor an age cutoff proves that selected work i
 unneeded. Concrete explicit/structured paths are protected exactly; filename inference from
 ambiguous free text is heuristic and can miss genuine references. For example, a
 space-containing native path mentioned only as `open(r'data/with space.txt'r'')`
-may be missed and become eligible when old enough. Later explicit delete can
-irreversibly remove old still-needed work. No error probability is estimated.
+may be missed and become eligible when old enough. So can a filename containing
+line breaks mentioned only in free text: decoded CR/LF quotations are inspected
+for nested concrete references rather than
+treated as one filename/path. Exact explicit/structured references are unchanged.
+Later explicit delete can irreversibly remove old still-needed work. No error
+probability is estimated.
 Use unambiguous structured path fields or explicit work URIs identifying concrete
 files/subtrees when recording new references, rather than administrative roots or
 programming-language quote syntax in prose.
@@ -143,12 +147,14 @@ lock and operator exclusion above. There is no GC elapsed maintenance/header/bod
 total-request deadline or duration setting; connection establishment remains finite.
 Nested extraction and candidate loops yield cooperatively, but individual synchronous
 reads, JSON parsing and regex operations are indivisible. No cancellation latency
-or throughput is promised. Conservative ambiguous prose (including backtick/double-quoted
-text with path syntax) can protect all candidates: a completed preview may reclaim
-zero bytes. An unresolved recognized reference, including a path-length filesystem
+or throughput is promised. Conservative ambiguous single-line prose (including
+backtick/double-quoted text with path syntax) can protect all candidates: a completed
+preview may reclaim zero bytes. An unresolved recognized reference, including a path-length filesystem
 error during exact alias metadata resolution, also retains all; this never bypasses
 strict required history/native validation. Conversely, missed prose filenames can
 leave needed work eligible: useful reclamation is not proof of safe inference.
+The decoded-multiline correction removes one false global-retention trigger; it
+neither excludes other global-protection causes nor certifies candidates unneeded.
 
 ## Results, cancellation and restoration
 

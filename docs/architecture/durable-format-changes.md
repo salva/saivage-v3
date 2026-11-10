@@ -23,6 +23,24 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Decoded-multiline work-GC quotation correction from actual implementation parent
+`6bccc822cbc0baa4026e84919d4e052b66e4e17e` changes only operational free-text
+inference over unchanged strings. A CR/LF-containing decoded quotation remains
+text for nested extraction, not one inferred path. The evidenced `5cda26a1`
+record-prompt incident admitted a whole quoted Markdown body and its early bold
+syntax caused global retention. Public collector tests use synthetic current
+record prompts with LF/CRLF/CR, nested concrete references and selective eligibility;
+exact structured paths, including newline-bearing filenames, remain unchanged.
+No durable shape, selection, provenance, history meaning or migration-required
+contract changes: no family/discriminator bump, new GC family or persisted marks.
+No unreleased-cutover exception is claimed. Matching current-contract installations
+need no conversion/reset for this correction alone; installed-release applicability
+and whole-release compatibility remain separate. Later explicitly requested GC
+eligibility can change, but no retained bytes change here and code rollback cannot
+restore later deleted files. Old/mixed contracts remain strict blockers; deployment
+and external migration require their separate authorization and offline boundaries.
+No compatibility path or migration utility is introduced.
+
 Readable agent-session diagnostics from actual source parent
 `39fdc6003edf43458cc091569c7e24c3dc700e59` adds read-time `read_agent_session`
 diagnostics and exact-message queries only. No durable family or discriminator

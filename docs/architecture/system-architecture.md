@@ -718,13 +718,19 @@ before prose extraction. Recognized `project`, `system`, `work`, `tmp` and `file
 URIs remain eligible independently of native single-quote boundaries, including
 nested query references. Free-text extraction uses matching backtick, double-quote
 and single-quote delimiters, preserving JSON double-quote escape decoding and the
-independent whole-text bare-token/Markdown-link passes. Inferred native single-quoted
+independent whole-text bare-token/Markdown-link passes. Inferred
+quotations containing decoded CR or LF are inspected as text, not promoted as one
+filename/path; recursive decoded-text inspection still extracts nested concrete
+references, including quoted paths with spaces. The same multiline boundary applies
+to all inferred quotations, not exact structured path values. Native single-quoted
 filenames require no adjacent Unicode letter, number or underscore outside either
 delimiter; word-internal apostrophes remain filename content. Standalone quoted
 space-containing paths are recognized, but language literals such as
 `open(r'data/with space.txt'r'')` may miss the complete filename. This deliberate
 heuristic can expose old needed work to later deletion; no probability or age-based
-safety guarantee is claimed. Long backtick/double-quoted prose can still protect all.
+safety guarantee is claimed. Filenames containing line breaks may be missed when
+mentioned only in free text. Ambiguous single-line backtick/double-quoted prose can
+still protect all.
 
 At the reference resolver only, filesystem errors leaving scope unknown from either
 `realpathSync` or its ENOENT fallback `lstatSync`, including ENAMETOOLONG, retain all
