@@ -3467,7 +3467,7 @@ source-version chronology belongs only to the durable format reference.
 
 The selected strict YAML chooses card-type definitions through exactly one source form: a complete `card_types` map, or omission of `card_types`, which selects the bundled `classic` definitions.
 The deleted `card_type_set` selector key fails strict source validation as an unknown key; it never defaults, falls back, or merges with an explicit map.
-`saivage init [--profile <classic|classic-typed|paad-typed|classic-git|newloop>]` materializes the complete selected system template on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single configuration-materialization completion commit. `classic-git` additionally requires all four explicit native provisioning options and clean-repository commissioning; the other profiles remain OFF. This input publication is separate from generated-state admission and does not make retained generated work compatible with the materialized identities.
+`saivage init [--profile <classic|classic-typed|paad-typed|classic-git|newloop|newloop2>]` materializes the complete selected system template on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single configuration-materialization completion commit. `classic-git` additionally requires all four explicit native provisioning options and clean-repository commissioning; the other profiles remain OFF. This input publication is separate from generated-state admission and does not make retained generated work compatible with the materialized identities.
 An existing `.saivage/saivage.yaml` gates the whole template/config materialization: `init` preserves the prompt tree, marker, and YAML. Omitted `--profile` preserves selection; an explicit profile must match retained template metadata, and supplied provisioning must match the selected native policy. Init never switches profiles.
 After successful init the instance is the single runtime authority; templates are materialization data and are never consulted at runtime. Template provenance is not authority for the effective identities that produced retained generated work.
 `ResolvedConfigAuthority` resolves the source once to a complete effective `card_types` map before structural compilation.
@@ -3499,7 +3499,7 @@ Mapping/object forms and malformed members fail selected-YAML validation as a co
 
 ### Shipped project completion and profile graphs
 
-The five registered system templates are `classic`, `classic-typed`, `paad-typed`, `classic-git` and `newloop`; `classic` is the bundled default (the omission `card_types` source and the bundled prompt root). Each template is materialized whole by fresh `saivage init --profile <name>`; `classic-git` alone requires explicit provisioning and commissioning rather than supplying a default effective config.
+The six registered system templates are `classic`, `classic-typed`, `paad-typed`, `classic-git`, `newloop` and `newloop2`; `classic` is the bundled default (the omission `card_types` source and the bundled prompt root). Each template is materialized whole by fresh `saivage init --profile <name>`; `classic-git` alone requires explicit provisioning and commissioning rather than supplying a default effective config. Newloop2 owns a different explicit review loop, not the original three typed profiles' identical configuration.
 All are complete definitions containing `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops`, in that declaration order.
 `paad-typed` reuses classic-typed's immutable configuration exactly: graphs, outcomes, ordered tools/routes, record initialization and prompt declarations/retention are identical. Its complete independent physical prompt tree differs only in the shared Planner, Executor, Reviewer and architecture component/system review prose. It adapts PAAD pushback, bidirectional alignment, bounded structural review and anti-degradation discipline through existing owners, without new gates, BLOCKED reasons, roles, records or runtime selection. Analyst/Oversight and all six neutral project-guidance fragments remain unchanged. This is optional instruction guidance, not measured model quality; see [delivery and attribution](../architecture/prompts.md#optional-paad-typed-guidance). Existing-config init preserves YAML, prompts and marker, never upgrading or switching profiles. Later adoption requires separately authorized stopped reconciliation and independent identity/format compatibility assessment.
 `newloop` directly reuses the same frozen typed configuration, including named agents, ordered tools/routes, child permissions, record initialization/feeding and generated result contracts. Its independent complete prompt tree has exactly eight prose deltas from classic-typed: the three card roles, shared/project specialized plan/recover, and shared specialized review. All other prompts, including architecture nodes, assessment, globals and seven shared fragments, remain byte-identical. PAAD remains a separate unchanged five-path adaptation.
@@ -3523,7 +3523,7 @@ Analyst/Executor select `mcp_server_control`, `mcp_tools` and `mcp_tool_call` as
 In `classic-typed`, `paad-typed` and `newloop`, `project` and `goal` permit all eight non-root types in declaration order; every other type is a leaf.
 `project`, `goal`, and `architecture` declare `brief.md`, `status.md`, and `review.md`; all other types declare `brief.md` and `status.md`.
 `brief.md` is always the sole bootstrap record.
-The classic-typed, paad-typed and newloop configured graphs are identical:
+The classic-typed, paad-typed and newloop configured graphs are identical (newloop2 is separate below):
 
 | Type | Exact configured flow |
 | --- | --- |
@@ -3553,6 +3553,108 @@ The existing retry outcomes at typed code green, test repair, and data implement
 Shipped typed-test diagnose/verify guidance conditionally permits useful trustworthy independent discovery within the already-assigned finite boundary on an exact stable input and unchanged criteria before an original-owner repair handoff. Diagnosis remains classification. Verify separates rejection of acceptance from cancellation: a safe, useful, within-budget ongoing independent command may finish on unchanged relevant inputs in the same node before result emission; unsafe, invalid, masked/dependent, budget-conflicting or explicitly curtailed work is reported honestly, not forced to completion. Node-scope process cleanup is unchanged. Findings are consolidated by original semantic owner; Planner coordinates scoped corrections and shared-file ordering through direct children, uses focused/combined checks while input changes, then establishes actual stable combined input for independent non-author adjudication and every required full gate. Applicable settled evidence is reused without stale acceptance. This is prepared operating guidance, not a first-finding runtime transition, batching guarantee, new legal outcome, mandatory Reviewer-role gate or acceptance waiver. Classic retains its one-node Executor outcomes; PAAD retains its intentional additions. Existing materialized/custom prompts require deliberate authorized stopped reconciliation and a fresh process, not an init upgrade.
 
 All classic-typed, paad-typed and newloop non-planning entries begin at the first node shown; STOPPED adds `stopped-recovery`.
+
+### newloop2 explicit review loop
+
+Fresh opt-in `newloop2` owns a standalone deeply frozen nine-type declaration and
+complete physical prompt closure, using unchanged shared capabilities, native-Git
+OFF policy and workflow6 compiler/runtime. Existing profiles remain unchanged.
+Extra goal handoffs provide explicit review opportunities, not measured model
+insight/compliance or improved delivery quality. Original local wording draws
+conceptual input from [PAAD v2.1.0](https://curtispoe.org/paad/) (read November 10,
+2026), without mandatory human approval, specialist counts, coverage quotas or Git rituals.
+
+Project/goal use one named Planner and one distinct named Reviewer session, reused
+across nodes rather than fresh independent reviewers per examination. BACKLOG
+enters frame-plan; CHANGED/BLOCKED/STOPPED enter resume-assess, with stopped-recovery
+on STOPPED. FAILED requires supported reopen to CHANGED before separate activation.
+Every node also has blocked→BLOCKED and failed→FAILED, promoting/exporting its
+current required record. There are no other terminals or direct planning DONE.
+
+| Node | Agent | Nonfailure outcomes → destinations |
+| --- | --- | --- |
+| resume-assess | Planner | frame→frame-plan; align→alignment; deliver→deliver; accept→integrated-acceptance; assess_debt→debt-assessment; root also reconcile→objective-assessment |
+| frame-plan | Planner | ready→alignment |
+| alignment | Reviewer | aligned→deliver; revise→frame-plan |
+| deliver | Planner | replan→frame-plan; candidate_ready→integrated-acceptance (root: objective-assessment) |
+| objective-assessment (root only) | Planner | replan→frame-plan; candidate_ready→integrated-acceptance |
+| integrated-acceptance | Reviewer | accepted→debt-assessment; repair→deliver; replan→frame-plan |
+| debt-assessment | Reviewer | clear→DONE; refactor→frame-plan; reassess→resume-assess |
+
+Framing authors reviewable expanded functional analysis separately from its brief:
+need/scope, facts/assumptions, constraints/acceptance, approach/design, useful next
+slice and full remainder in status, without a compulsory new document/schema.
+Alignment independently challenges premises and bidirectional intent/plan coverage
+against actual facts, verifies/deduplicates findings and separates defect from
+remedy. A bounded exploratory slice can align while implementation remains
+undecided. Planner commissions production children, not source delivery/builds/tests;
+newly detailed implementation after exploration returns via replan for alignment.
+Same-approach correction stays delivery; material changes revisit framing/alignment.
+Partial slices and child DONE are not full-goal acceptance.
+
+Root reconciliation addresses the whole objective/continuing obligations, not a
+milestone, and dispatches no children there. Integrated acceptance independently
+inspects combined output against intent/design; isolated green checks or consistent
+prose alone are insufficient. Reviewer has no command tool and is instructed not
+to repair judged assets despite unchanged workspace-write capability. Needed
+independently executed checks return through Planner and a suitable child.
+Debt is a subsequent explicit decision on structure introduced/exposed relevant
+to this delivery. Justified no-change is clear; necessary scoped refactoring
+returns through alignment, delivery, acceptance and debt with affected validation.
+Unrelated cleanup is deferred. Non-code work needs usable structure, consistency,
+provenance/method, not compulsory code edits. Missing prerequisites or invalidated
+prior examination uses reassess, not fictitious refactoring or clearance.
+
+Assessment selects the earliest materially affected obligation from current inputs
+and exact earlier evidence, not an encoded cursor or automatic restart. Domain
+answers may resume design, supplied data delivery, verification acceptance and
+debt-only resolutions debt. Changed criteria revisit affected obligations; sound
+examinations may be reused, checked for applicability by the receiving reviewer.
+Only current debt clearance finishes project/goal and substantively establishes
+applicable alignment/functional acceptance plus root objective reconciliation.
+The engine does not certify those historical relationships or substantive judgment.
+Clear promotes current review; pending notifications return to Planner assessment
+with historical verdict retained, not successful silent closure. Agent-wide Planner
+capabilities allow framing to activate children: graph order does not prohibit all
+production effects before alignment.
+
+Every type has bootstrap brief/status; project/goal/architecture also have review.
+Planner/Executor require status continue/updated; Reviewer review clean/updated.
+Only the required record is initialized; scaffolds/unchanged drafts do not pass.
+Every node feeds required accepted brief, optional effective status, optional
+accepted review where declared and, on review nodes, optional effective review.
+Full bootstrap is independently supplied every logical operation. Clean draft
+does not erase history: preserve useful immutable citations before replacing review
+and read exact earlier versions as needed. Optional absence is not approval;
+conditional suppression/excerpts and compaction do not guarantee body recall.
+All three project/goal reviews fence consumed descendant status/bootstrap selections,
+not workspace or automatic own-record tuples. Own feeds require substantive
+applicability assessment of changes. Architecture has no descendant context.
+
+Typed leaf production edges remain as above, except architecture final review
+promotes current rather than latest draft. Code/research/data/architecture add
+Executor resume-assess for CHANGED/BLOCKED/STOPPED; BACKLOG keeps first production.
+Their nonfailure routes are respectively red/green/refactor; explore/assess/report;
+schema/validate/implement; draft/component_review/system_review (underscore outcomes
+target hyphenated component-review/system-review nodes). Assessment cannot DONE.
+Test enters diagnose for all eligible statuses and retains verify-owned closure;
+doc/ops enter distinct execute hosts for factual task usability versus authorized
+observable operations/uncertainty. STOPPED always adds recovery context. Architecture
+pending final notifications return to Executor assessment, not unconditional
+redrafting; review-only reentry needs applicable draft/component evidence, not a
+fabricated current-activation draft result. All leaves remain childless; local DONE
+does not replace parent integrated acceptance.
+
+Existing grants allow parent acceptance of eligible inactive immediate-child briefs;
+default self/grandchild brief edits, active targets and open nonself drafts refuse.
+Accepted amendment changes BLOCKED to CHANGED, not running. Metadata/direction do
+not amend requirements or weaken upstream obligations. Root/settled ancestors need
+separately admitted outer Run. STOPPED uses existing Supervisor/session uncertainty
+settlement unchanged, never uncertain-call replay or an invented saved approval.
+Fresh selection only: retained node/participant identities cannot be switched by
+YAML replacement or init. Equal outer formats do not prove adoption compatibility;
+future retained adoption needs separately authorized identified source/target
+assessment under the existing external-migration/reset boundary. No durable bump.
 Node IDs use the exact lowercase hyphenated form, notably `assess-completion`, goal `handle-notifications`, `add-coverage`, `component-review`, and `system-review`; underscore-bearing outcome IDs remain exact outcomes rather than node IDs.
 
 ### Planning, assessment and current status
@@ -3592,7 +3694,7 @@ Shared Planner owns generic project/goal responsibility, strategy and remedy jud
 
 Classic goal plan likewise coordinates remaining work against current evidence before direct completion or review; child count alone does not choose the outcome. Project plan/recover instead request assessment or review before closure. Classic execute satisfies the scoped brief with relevant verification and evidence, permitting a justified no-change result rather than manufactured edits. The typed code refactor handoff carries accepted green or already-green evidence into the existing conditional verification policy; it imposes no unconditional rerun. Correction guidance repairs the diagnosed result or required-record violations using the supplied remaining attempts, without automatically repeating otherwise valid delivery.
 
-In all shipped profiles, Main Planner at `assess-completion` reconciles the current accepted owner brief, remaining plan/status, direct-child delivery, applicable accepted review and underlying evidence, and delivered owner context. Bounded report/inventory, child or milestone acceptance is not necessarily project-objective acceptance; a bounded request does not silently replace the objective. Assessment updates `status.md` (`continue/updated`) with actual fulfillment/acceptance, evidence and applicability, meaningful authorized work remaining and the next scope or precise blocker. It neither implements nor activates children. Once reconciled, open beta or explicit post-beta obligations call for submitting `replan`, not further readiness edits or another review merely to return remaining work to planning. Missing necessary independent acceptance requires `admit_review`. Legitimate direct-evidence completion remains available, never as a bypass of required review or outstanding findings. A fulfilled finite objective with no continuing obligation can finish; ambiguous continuing scope requiring an owner decision yields BLOCKED with that exact decision and known accomplishments, not invented goals or endless cycling. This is a configured assessment responsibility, not a deterministic product-quality guarantee.
+In the classic/classic-typed/paad-typed/classic-git/newloop family, Main Planner at `assess-completion` reconciles the current accepted owner brief, remaining plan/status, direct-child delivery, applicable accepted review and underlying evidence, and delivered owner context. Bounded report/inventory, child or milestone acceptance is not necessarily project-objective acceptance; a bounded request does not silently replace the objective. Assessment updates `status.md` (`continue/updated`) with actual fulfillment/acceptance, evidence and applicability, meaningful authorized work remaining and the next scope or precise blocker. It neither implements nor activates children. Once reconciled, open beta or explicit post-beta obligations call for submitting `replan`, not further readiness edits or another review merely to return remaining work to planning. Missing necessary independent acceptance requires `admit_review`. Legitimate direct-evidence completion remains available, never as a bypass of required review or outstanding findings. A fulfilled finite objective with no continuing obligation can finish; ambiguous continuing scope requiring an owner decision yields BLOCKED with that exact decision and known accomplishments, not invented goals or endless cycling. This is a configured assessment responsibility, not a deterministic product-quality guarantee. Newloop2 instead uses the separate objective-assessment and current final debt contract below.
 
 `complete_reviewed` requires applicable review accepted in this activation and promotes the real Reviewer's executor/node/outcome/summary through `latest_node: review`, while terminal exports come from assessment's accepted Planner `status.md`, citing the immutable review. Reviewer alone authors/accepts `review.md`; no verdict is copied or reaccepted by Planner. Direct/blocked/failed assessment results remain Planner-attributed. Changed work/input needs replanning or fresh review. Historical review cannot supply latest-node promotion after STOPPED re-entry; urgent interruption still enters `recover`, not the removed project handler.
 

@@ -1,0 +1,3 @@
+Reconcile the actual complete owner objective, remaining authorized work, delivery context and continuing obligations—not merely the latest milestone or bounded child review. Examine current brief, status, actual outputs and applicable evidence. Do not dispatch children here: remaining useful work returns through `replan` to framing/alignment. Do not invent endless improvements when the finite objective is fulfilled.
+
+Write the objective-relative conclusion and evidence in status. Submit `candidate_ready` only when the whole objective is a genuine integrated-acceptance candidate; that outcome is not DONE or independent acceptance. A required owner decision that cannot be resolved within the assignment is `blocked` with the precise decision/options.

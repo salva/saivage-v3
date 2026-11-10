@@ -209,7 +209,7 @@ function runCopySystemTemplatePromptsTest() {
 
     const classicRoot = resolveSystemTemplate('classic').promptRoot;
     const typedRoot = resolveSystemTemplate('classic-typed').promptRoot;
-    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed,classic-git,newloop', 'registered template order changed');
+    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed,classic-git,newloop,newloop2', 'registered template order changed');
     const paad = resolveSystemTemplate('paad-typed');
     assert(collectTemplatePromptClosure({ template: paad }).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed selected closure differs');
     assert(walkFiles(paad.promptRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed has missing or unselected artifacts');
@@ -231,6 +231,9 @@ function runCopySystemTemplatePromptsTest() {
     const paadOutput = join(distRoot, 'src', 'config', 'system-templates', 'paad-typed', 'prompts');
     assertTreesEqual(paad.promptRoot, paadOutput);
     assertTreesEqual(newloop.promptRoot, join(distRoot, 'src/config/system-templates/newloop/prompts'));
+    const newloop2 = resolveSystemTemplate('newloop2');
+    assert(walkFiles(newloop2.promptRoot).join('\n') === collectTemplatePromptClosure({template:newloop2}).join('\n'), 'newloop2 physical tree must equal its independently compiled closure');
+    assertTreesEqual(newloop2.promptRoot, join(distRoot, 'src/config/system-templates/newloop2/prompts'));
     const plannerPath = 'agents/_shared/planner.md';
     const notice = readFileSync(join(paad.promptRoot, plannerPath), 'utf8').split('MIT License')[1];
     assert(notice && readFileSync(join(paadOutput, plannerPath), 'utf8').endsWith(notice), 'carried attribution did not survive packaging');

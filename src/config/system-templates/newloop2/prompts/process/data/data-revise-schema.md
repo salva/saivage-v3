@@ -1,0 +1,1 @@
+The accepted evidence disproves a schema assumption. Carry that evidence into the schema revision and record the changed shape or invariant; renewed validation is still required before implementation.

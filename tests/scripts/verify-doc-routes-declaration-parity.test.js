@@ -27,6 +27,7 @@ describe('verify-doc-routes.d.ts declaration parity', () => {
       'src/config/system-templates/classic-typed/template.ts',
       'src/config/system-templates/classic/template.ts',
       'src/config/system-templates/newloop/template.ts',
+      'src/config/system-templates/newloop2/template.ts',
       'src/config/system-templates/paad-typed/template.ts',
       'src/config/system-templates/registry.ts',
       'src/contracts/index.ts',

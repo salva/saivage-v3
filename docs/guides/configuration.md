@@ -95,6 +95,7 @@ Run `saivage init --profile NAME` from the fresh target directory:
 | `paad-typed` | The same typed graphs with optional adapted planning guidance | Five selected prose paths differ, not tools, routing or outcomes; [attribution and scope](../architecture/prompts.md#optional-paad-typed-guidance) |
 | `classic-git` | Native source ownership on classic graphs | Requires all four explicit `--git-*` provisioning options and clean-repository commissioning described above; not an OFF-profile toggle |
 | `newloop` | Intent-to-delivery quality for code or other assets | Identical typed configuration; eight prose paths foreground critical analysis, progressive planning and substantive assessment; [method and limits](../architecture/prompts.md#optional-newloop-guidance) |
+| `newloop2` | Explicit early challenge, integrated acceptance and debt decision | Independent nine-type graph, selective reentry, shared native-OFF capabilities; extra goal handoffs, not proven model quality. [Exact loop and limits](../spec/system-specification.md#newloop2-explicit-review-loop) |
 
 All include nine types: project, goal, architecture, code, test, doc, data, research
 and ops. All specialize root completion with Planner assessment after approved

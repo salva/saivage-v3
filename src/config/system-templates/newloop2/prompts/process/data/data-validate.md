@@ -1,0 +1,3 @@
+Test the accepted schema, invariants and assumptions against representative inputs before implementation. Summarize exact inputs, relevant checks/results and disproved assumptions in current `status.md`, citing evidence for execution detail. Correct rejection of invalid samples is not itself a schema defect.
+
+Select `valid` for technical support of the schema, not owner/policy approval; `schema_invalid` when evidence requires schema revision; `blocked` only when an actually mandatory decision, data or input is unavailable; or `failed` for a conclusive failure. Ordinary engineering and accepted graph nodes require no new human signoff.

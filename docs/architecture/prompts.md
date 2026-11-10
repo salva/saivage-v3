@@ -493,7 +493,10 @@ Retry, rephrasing, fresh conversation/card, provider/model switching and delegat
 must not obtain refused output; only genuinely authorized non-refused work may
 proceed. Accepted constraints and independent assessment remain binding. This reusable
 method is prepared with the role, not repeated in each node or entrusted to old
-notices or summaries. It grants Planner no child-brief editing or public notices.
+notices or summaries. Current supported Planner grants do allow immediate-child
+brief editing on eligible inactive targets, but no public notices. This is
+accepted requirement amendment, not activation direction; deliberate custom grants
+may differ. Ordinary workspace capability does not bypass record admission.
 
 Prepared Planner, Executor and Reviewer roles connect completion of the current
 node's work and required records to an explicit `emit_result` call with a supported
@@ -590,6 +593,34 @@ This is future work-product guidance, not permission to delete unique/historical
 evidence or rewrite Git history. Role preparation, generated contracts and separate
 installed/customized-host adoption remain unchanged.
 
+## newloop2 task and composition ownership
+
+Newloop2 is a separate graph and physical closure, not another prose delta on
+classic-typed. Always-prepared roles own stable method; full current-node hosts own
+framing, alignment, delivery, root reconciliation, acceptance, debt and reentry.
+Generated contracts remain the sole result authority; generic correction uses
+actual diagnostics. Final pending-context handoff is historical, not duplicate
+next-node instruction. Distinct doc/ops hosts retain asset-specific completion.
+
+One Planner and one distinct Reviewer session recur across nodes. Accepted prior
+review and effective clean draft feed separately; only the required record is
+initialized. Conditional feeds may be suppressed/excerpted; compaction retains
+current prepared task without guaranteeing earlier body recall. Read exact history
+where needed and retain useful immutable citations before replacing review.
+Own feeds are not an automatic own-record tuple fence; descendant freshness is
+bounded to consumed selections, not workspace. Selective reentry reuses applicable
+work, never old activation-local accepted results. Only current final debt/system
+verdict is promoted.
+
+Original local wording is informed by [PAAD v2.1.0](https://curtispoe.org/paad/),
+read November 10, 2026: reality-grounded premise challenge, bidirectional intent
+coverage, alignment, verified/deduplicated findings and structural quality for code
+and non-code work. No human-approval/specialist-count/coverage-quota/Git ritual is
+imported. See the [exact graph and limits](../spec/system-specification.md#newloop2-explicit-review-loop)
+and [profile README](https://github.com/salva/saivage-v3/blob/HEAD/src/config/system-templates/newloop2/README.md).
+Scripted real-owner/composition evidence qualifies configuration/instructions, not
+empirical model wisdom, compliance or improved output quality.
+
 ## Shipped profiles and customization
 
 `classic` is default; explicitly provisioned `classic-git` adds native source
@@ -611,7 +642,7 @@ Existing-config init preserves all three.
 
 ### Project objective assessment
 
-Every shipped project selects `assess-completion` and project plan/recover hosts
+The classic/classic-typed/paad-typed/classic-git/newloop family selects `assess-completion` and project plan/recover hosts
 (classic `plan/recover`, typed `specialized-plan/specialized-recover`). Assessment
 is current-node context through turns/summary, not an init reminder. It reconciles
 accepted brief, current status/children, applicable review/evidence and delivered

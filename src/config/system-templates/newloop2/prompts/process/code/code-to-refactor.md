@@ -1,0 +1,1 @@
+The accepted green or already-green result establishes the focused behavior, with its cited versioned `status.md` evidence. Preserve that evidence and any remaining verification obligations; it neither mandates cleanup nor waives the refactor node's conditional checks.

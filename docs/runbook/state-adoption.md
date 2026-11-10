@@ -122,10 +122,13 @@ Rollback needs a separately authorized matching complete-state/release decision.
 Configuration warnings for missing interpolation variables do not probe credentials
 or authorize repair. Correct variables in the actual service environment.
 
-`init --profile classic|classic-typed|paad-typed` selects a complete template only
+`init --profile classic|classic-typed|paad-typed|classic-git|newloop|newloop2` selects a complete template only
 when YAML is absent. It materializes missing prompt files, writes provenance, then
 publishes YAML last. Existing YAML preserves the entire config/prompt/marker choice;
-another profile is not an upgrade command. Layout and configuration outcomes are
+another profile is not an upgrade command.
+For newloop2's separate graph, follow [fresh profile selection](../guides/configuration.md#choose-a-fresh-profile).
+Replacing retained YAML is not identity adoption; this source task supplies no
+migration recipe, live adoption or deployment authorization. Layout and configuration outcomes are
 reported independently, only after strict admission succeeds. A partial prompt-only
 materialization with no generated work can be completed by ordinary init, skipping
 existing files. Existing generated work still requires compatible selected identities.

@@ -49,13 +49,20 @@ describe('init provisioning before-effects admission', () => {
     expect(init(root,mismatched).stderr).toContain('conflicts with the existing source policy');
     expect(paths.map(path => readFileSync(path))).toEqual(before);
   });
-  it.each(['classic-typed', 'newloop'])('preserves existing %s selection without default reselection and refuses explicit profile conflicts', (profile) => {
+  it.each(['classic-typed', 'newloop', 'newloop2'])('preserves existing %s selection without default reselection and refuses explicit profile conflicts', (profile) => {
     const root = mkdtempSync(join(tmpdir(), 'init-profile-'));
     expect(init(root, ['--profile', profile]).status).toBe(0);
     const configPath = join(root, '.saivage/saivage.yaml');
     const metadata = join(root, '.saivage/config/template.json');
     const head = join(root, '.saivage/cards/project/card-head.json');
     const before = [configPath, metadata, head].map(path => readFileSync(path));
+    expect(before[1]!.toString()).toContain(profile);
+    if(profile==='newloop2') {
+      expect(before[0]!.toString()).toContain('frame-plan');
+      expect(before[0]!.toString()).toContain('debt-assessment');
+      expect(existsSync(join(root,'.saivage/config/prompts/process/_shared/debt-assessment.md'))).toBe(true);
+      expect(existsSync(join(root,'.saivage/config/prompts/process/ops/ops-execute.md'))).toBe(true);
+    }
     expect(init(root).status).toBe(0);
     expect([configPath, metadata, head].map(path => readFileSync(path))).toEqual(before);
     const conflict = init(root, ['--profile', 'classic']);

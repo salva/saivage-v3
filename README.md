@@ -34,7 +34,7 @@ can publish factual reports through the ordinary record owner using
 [`output_record`](docs/guides/configuration.md); command stdout and returned text
 retain distinct provenance, not automatic acceptance of the work.
 
-All five profiles (`classic`, `classic-typed`, `paad-typed`, `classic-git`, `newloop`)
+All six profiles (`classic`, `classic-typed`, `paad-typed`, `classic-git`, `newloop`, `newloop2`)
 use [configured direct-object grants](docs/reference/configuration.md#direct-object-capabilities).
 Defaults give Planner self status and immediate-child briefs; children propose
 requirement changes through BLOCKED, parents amend the same inactive child without
@@ -114,6 +114,12 @@ inside the isolated deployment. It separates these decisions:
    other assets**, without adding stages or gates. PAAD retains its separate
    five-path adaptation; newloop has eight original prose deltas. This is source
    guidance, not proof of model compliance or improved output quality.
+   [newloop2](src/config/system-templates/newloop2/README.md) instead owns an explicit
+   alignment → delivery → integrated acceptance → debt loop, with whole-objective
+   reconciliation at root and selective evidence-based reentry. It trades extra
+   goal handoffs for explicit review opportunities, not a quality guarantee.
+   Native Git and shared capabilities remain unchanged/OFF. It is fresh-only;
+   existing-config init cannot switch retained workflow identities.
    `classic-git` separately requires the explicit provisioning described above.
    Existing-config init preserves inputs; it is not a profile switch or upgrade.
    Later adoption requires [separately authorized stopped prompt reconciliation](docs/runbook/state-adoption.md#selected-configuration-and-prompts)

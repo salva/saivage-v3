@@ -9,6 +9,7 @@ import { CLASSIC_TEMPLATE } from './classic/template.js';
 import { CLASSIC_TYPED_TEMPLATE } from './classic-typed/template.js';
 import { PAAD_TYPED_TEMPLATE } from './paad-typed/template.js';
 import { NEWLOOP_TEMPLATE } from './newloop/template.js';
+import { NEWLOOP2_TEMPLATE } from './newloop2/template.js';
 import { CLASSIC_GIT_TEMPLATE, type GitProvisioning } from './classic-git/template.js';
 
 export interface SystemTemplateDefinition {
@@ -38,6 +39,7 @@ export const SYSTEM_TEMPLATES: readonly RegisteredSystemTemplate[] = Object.free
   PAAD_TYPED_TEMPLATE,
   CLASSIC_GIT_TEMPLATE,
   NEWLOOP_TEMPLATE,
+  NEWLOOP2_TEMPLATE,
 ]);
 
 export const DEFAULT_SYSTEM_TEMPLATE = 'classic' satisfies SystemTemplateName;
@@ -55,7 +57,7 @@ export function validateSystemTemplates(templates: readonly RegisteredSystemTemp
 validateSystemTemplates(SYSTEM_TEMPLATES);
 
 export function resolveSystemTemplate(
-  name: 'classic' | 'classic-typed' | 'paad-typed' | 'newloop',
+  name: 'classic' | 'classic-typed' | 'paad-typed' | 'newloop' | 'newloop2',
 ): SystemTemplateDefinition;
 export function resolveSystemTemplate(name: string): RegisteredSystemTemplate;
 export function resolveSystemTemplate(name: string): RegisteredSystemTemplate {

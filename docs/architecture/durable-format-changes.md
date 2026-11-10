@@ -23,6 +23,27 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Newloop2 fresh-profile addition: original examined/implementation baseline
+`a1e890a7611349c110a11c5b489486f57f5c4af2` (November 10, 2026);
+continuation/precommit parent `60456369fc0dbebe0ab221fb6bdb8e93175a3da7`.
+Intervening commits `34fcef68` and `60456369` contain only unrelated migration-skill
+edits, with no contract impact. The original baseline is not the final Git commit
+parent. No bump:
+new legal graphs/names and ordinary Markdown use unchanged workflow6,
+capabilities1, card-head1/history6/mailbox1, record-head3/accepted6, conversation
+index/genesis/envelope13, shared provider/app envelope2, execution3 and initializer1.
+Template marker producer/reader and format are unchanged. Evidence owners are
+the newloop2 template, existing registry/compiler/init/marker consumers and
+newloop2 compiler/actor/CLI/package tests. No new durable approval/routing family,
+retained interpretation change or assumed unreleased cutover is introduced.
+
+Selection is config-absent fresh init only. Retained node/participant identities
+cannot be switched by YAML replacement or init; equal versions do not certify
+whole-project adoption. Future identified adoption needs separate source/target
+assessment and explicit authorization under existing external offline migration
+or separately consented complete reset boundaries. No installed project,
+conversion, deployment inventory or target-not-deployed claim is implied.
+
 Current-only work retention from source parent
 `678b8bff375306a94866409d5672f075deeaec4b` changes collector liveness policy only:
 historical content/producer provenance alone no longer retains work attachments.

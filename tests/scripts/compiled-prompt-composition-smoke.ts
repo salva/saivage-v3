@@ -246,6 +246,12 @@ try {
   const newloopWorkflows = compileProjectWorkflows(newloopConfig, { defaultPromptRoot: newloop.promptRoot, projectRoot, artifactObserver: observeInside(newloop.name, newloop.promptRoot) });
   const newloopSourceWorkflows = compileProjectWorkflows(newloopConfig, { defaultPromptRoot: newloopSourceRoot, projectRoot, artifactObserver: observeInside('newloop source', newloopSourceRoot) });
   assertRoleComposition(newloop.name, newloop.promptRoot, newloopSourceRoot, newloopWorkflows, newloopSourceWorkflows);
+  const newloop2 = resolveSystemTemplate('newloop2');
+  const newloop2Config = effectiveSaivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(newloop2.config.card_types) });
+  const newloop2SourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', newloop2.name, 'prompts');
+  const newloop2Workflows = compileProjectWorkflows(newloop2Config, { defaultPromptRoot: newloop2.promptRoot, projectRoot, artifactObserver: observeInside(newloop2.name, newloop2.promptRoot) });
+  const newloop2SourceWorkflows = compileProjectWorkflows(newloop2Config, { defaultPromptRoot: newloop2SourceRoot, projectRoot, artifactObserver: observeInside('newloop2 source', newloop2SourceRoot) });
+  assertRoleComposition(newloop2.name, newloop2.promptRoot, newloop2SourceRoot, newloop2Workflows, newloop2SourceWorkflows);
   const native = resolveSystemTemplate('classic-git');
   const nativeConfig = effectiveSaivageConfigSchema.parse({ ...templateConfig(native),
     models: structuredClone(baseConfig.models), providers: structuredClone(baseConfig.providers),

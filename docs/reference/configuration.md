@@ -11,7 +11,7 @@ the real Executor correction participant on every type. Selected role overrides
 must retain the `native-source` (card) or `native-global` capability include.
 
 Registered profiles are `classic` (default), `classic-typed`, `paad-typed`,
-`classic-git` and `newloop`. The three typed profiles share the exact frozen
+`classic-git`, `newloop` and `newloop2`. The original three typed profiles share the exact frozen
 configuration, including graphs, agents, tools, routes, records and permissions;
 PAAD and newloop select independent prompt closures with five and eight prose
 deltas respectively. Newloop applies critical intent examination, progressive
@@ -19,6 +19,16 @@ planning and evidence-grounded quality assessment to code or other assets, not a
 new workflow format or enforced quality guarantee. All except provision-required
 `classic-git` remain native-Git OFF. See [fresh selection](../guides/configuration.md#choose-a-fresh-profile)
 and [newloop's instruction policy](../architecture/prompts.md#optional-newloop-guidance).
+
+`newloop2` owns an independent deeply frozen nine-type declaration and physical
+prompt closure, using the same shared capabilities/routes and native-OFF policy.
+Fresh project/goal success requires alignment, delivery, integrated acceptance and
+current debt clearance; root also reconciles the whole objective. Selective reentry
+reuses applicable evidence, not old activation-local acceptance. More handoffs are
+an overhead/quality tradeoff, not proof of model insight. See the
+[exact graph/record contract](../spec/system-specification.md#newloop2-explicit-review-loop).
+Select only with config-absent `init --profile newloop2`; retained identity adoption
+is a separate authorized assessment, never YAML replacement or an init switch.
 
 Config-absent init materializes the selected prompts, marker and complete YAML.
 Existing-config init preserves all three; omitted `--profile` preserves selection,

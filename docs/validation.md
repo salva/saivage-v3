@@ -1,5 +1,32 @@
 # Validation
 
+## newloop2 synthetic qualification
+
+Under supported Node24/npm (record resolved executables and versions), run:
+
+```bash
+npm run test:direct -- --runInBand --runTestsByPath tests/config/newloop2.test.ts tests/config/system-template-registry.test.ts tests/cli/init-provisioning.test.ts tests/runtime/actors/supervisor-notification-admission.test.ts tests/runtime/actors/project-completion.test.ts tests/scripts/copy-system-template-prompts.test.js
+npm run test:e2e:direct -- --runInBand --runTestsByPath tests/e2e/newloop2-flows.e2e.test.ts tests/e2e/specialized-card-type-flows.e2e.test.ts
+npm run validate:routine
+npm run validate:docs
+npm run build
+```
+
+Set `SAIVAGE_TEST_COMPOSITION_EVIDENCE` to an external workspace tmp directory
+before E2E/build to capture actual prepared invocations, compaction projections
+and every compiled role/node/generated-contract/tool/correction composition.
+These offline scripted fixtures call real compiler, actor, record, capability,
+notification and conversation owners, not a test-owned workflow engine or live
+provider. They cover fresh graph ordering and loops, selective reentry, gates,
+descendant versus own-record freshness, FAILED versus actual Stop/recovery and
+uncertainty settlement, parent grants, final notifications, feeds/session reuse,
+compaction/history, all typed leaves and fresh CLI/package closure. Existing
+profile parity and specialized/completion regressions remain separate. Inspect
+complete composed output independently after final edits: tests are not proof of
+substantive judgment, model compliance or improved output quality. No deployment,
+adoption, provider pilot or dependency-security waiver is implied; focused success
+is not aggregate release green.
+
 Native Git bundle qualification uses synthetic repositories and scripted providers,
 never a live project: `tests/config/classic-git-materialization.test.ts` compiles and
 binds the selected roles/correction nodes and custom overrides; the packaging tests

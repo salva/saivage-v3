@@ -176,7 +176,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
     expect(coveredTools.size).toBe(catalog.size);
     expect(coveredTools).toEqual(new Set([...catalog.values()].map((entry) => `${entry.group.scope}/${entry.binder.name}`)));
 
-    expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed', 'classic-git', 'newloop']);
+    expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed', 'classic-git', 'newloop', 'newloop2']);
     const coveredNodes = new Set<string>();
     let expectedNodeCount = 0;
     for (const registeredTemplate of SYSTEM_TEMPLATES) {

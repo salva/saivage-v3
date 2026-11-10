@@ -153,15 +153,16 @@ function notification() {
   };
 }
 
-async function recordMutationHarness() {
+async function recordMutationHarness(profile?: 'newloop2') {
   const entered=deferred();
-  const config=structuredClone(TEST_SAIVAGE_CONFIG);
-  setRecordWriteGrants(config.agents.planner!, [
+  const config=profile ? effectiveSaivageConfigSchema.parse({...structuredClone(resolveSystemTemplate(profile).config),models:structuredClone(TEST_SAIVAGE_CONFIG.models),providers:structuredClone(TEST_SAIVAGE_CONFIG.providers),compaction:structuredClone(TEST_SAIVAGE_CONFIG.compaction)}) : structuredClone(TEST_SAIVAGE_CONFIG);
+  if(!profile)setRecordWriteGrants(config.agents.planner!, [
     {kind:'record',scopes:['self'],patterns:['status.md']},
     {kind:'record',scopes:['children'],patterns:['brief.md','status.md','design-*.md']},
   ]);
+  if(profile)config.providers.test!.capabilities={...config.providers.test!.capabilities,transportProtocol:'openai-responses',imageInput:true};
   const registry=new ProviderRegistry(config);
-  const workflows=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction,{internalAnalystEnabled:true});
+  const workflows=bindRuntimeWorkflows(compileProjectWorkflows(config,profile?{defaultPromptRoot:resolveSystemTemplate(profile).promptRoot}:undefined),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction,{internalAnalystEnabled:true});
   const h=harness(scriptedAdmissionProvider(async (_input,signal)=>{
     entered.resolve();
     return await new Promise<never>((_resolve,reject)=>{
@@ -226,8 +227,8 @@ describe('bound runtime record acceptance',()=>{
     } finally {await h.supervisor.stopProject();}
   });
 
-  it('checks actual caller/ordinal, target owner, pause, GC and native work before publication',async()=>{
-    const h=await recordMutationHarness();
+  it.each([undefined,'newloop2'] as const)('checks actual caller/ordinal, target owner, pause, GC and native work before publication (%s)',async(profile)=>{
+    const h=await recordMutationHarness(profile);
     const internals=h.supervisor as unknown as {status:string;workGcHold:unknown;activationOwners:Map<string,CardActivationOwner>;applicationAdmissionOpen:boolean};
     const child=h.cards.create({type:'goal',parent:'project',title:'inactive',bootstrap_content:'requirements',bootstrap_author:{kind:'agent',agent:'analyst'},priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
     const request={...h.request,path:`record:///brief.md?card=${child.id}`,content:'must refuse'};

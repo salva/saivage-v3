@@ -17,7 +17,7 @@ import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, assertNew
 
 describe('system template registry',()=>{
   it('registers the profiles with isolated module-relative prompt roots',()=>{
-    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed','classic-git','newloop']);
+    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed','classic-git','newloop','newloop2']);
     expect(new Set(SYSTEM_TEMPLATES.map(template=>template.promptRoot)).size).toBe(SYSTEM_TEMPLATES.length);
     expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic');
     for(const template of SYSTEM_TEMPLATES){
@@ -33,7 +33,7 @@ describe('system template registry',()=>{
     }
   });
 
-  it.each(SYSTEM_TEMPLATES)('compiles the scoped status/review starters and existing authorship authority in $name',template=>{
+  it.each(SYSTEM_TEMPLATES.filter(template=>template.name!=='newloop2'))('compiles the scoped status/review starters and existing authorship authority in $name',template=>{
     const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot});
     const typed=template.name==='classic-typed'||template.name==='paad-typed'||template.name==='newloop';
     const statusNodes:Record<string,string[]>={
@@ -89,7 +89,7 @@ describe('system template registry',()=>{
   });
 
   it('fails unknown names with the exact listing and profile field path',()=>{
-    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed, paad-typed, classic-git, newloop.");
+    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed, paad-typed, classic-git, newloop, newloop2.");
     try { resolveSystemTemplate('Standard'); } catch (error) {
       expect((error as Error & { fieldPath?: string }).fieldPath).toBe('profile');
     }
@@ -116,7 +116,7 @@ describe('system template registry',()=>{
     const typed=resolveSystemTemplate('classic-typed');
     expect(typed.config.card_types).not.toEqual(classic.config.card_types);
     expect(()=>assertClassicFamilyPromptParity({templates:SYSTEM_TEMPLATES})).not.toThrow();
-    const assessments=SYSTEM_TEMPLATES.map(template=>{
+    const assessments=SYSTEM_TEMPLATES.filter(template=>template.name!=='newloop2').map(template=>{
        const workflow=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot}).cardTypes.get('project')!;
       const node=workflow.states.get('node:assess-completion')!;
       if(node.kind!=='node')throw new Error('Missing project assessment');

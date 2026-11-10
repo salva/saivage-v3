@@ -253,6 +253,7 @@ function stringArray(node, context) {
 const CLASSIC_FACTORY_SOURCE = 'src/config/system-templates/classic-shared.ts';
 const OVERSIGHT_POLICY_SOURCE = 'src/contracts/oversight-tool-policy.ts';
 const SHIPPED_TEMPLATE_SOURCES = [
+  'src/config/system-templates/newloop2/template.ts',
   'src/config/system-templates/classic-git/template.ts',
   'src/config/system-templates/classic-typed/template.ts',
   'src/config/system-templates/classic/template.ts',
@@ -836,7 +837,7 @@ const PATHS = Object.freeze({
   loggedEvents: sourcePathSet(['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/global-observation-tools.ts']),
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
-  shippedTools: sourcePathSet(['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
+  shippedTools: sourcePathSet(['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/newloop2/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
   toolRelations: sourcePathSet(['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
   uiDiff: sourcePathSet(['web/src/api/client.ts', 'web/src/stores/cards.ts']),
 });
