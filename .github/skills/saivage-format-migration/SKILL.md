@@ -15,6 +15,27 @@ completion or a backup alone authorizes no migration. Failed startup is no trigg
 for automatic migration or reset. Reset remains a separately consented destructive
 alternative; exact-target current-format repair remains independent.
 
+## Essential checks only
+
+Optimize for completing the requested migration, not accumulating assurances.
+Run a check only when it establishes a required fact not already evidenced or
+when a concrete change/failure invalidated that evidence. Reuse applicable pinned
+build/test results, converter payload-preservation checks and candidate validation;
+do not repeat full-history scans, full-tree byte comparisons or review rounds for
+reassurance. Group required canonical coverage into one target-release pass.
+
+Use successful independent OS copying for unchanged contents unless a concrete
+copy problem requires further checking; verify intended transforms and disclose
+what was copied versus byte-compared. Do not automatically add a second full-copy
+comparison. After exact validated-inode cutover to a byte-matched release, rely on
+ordinary startup admission rather than rerunning offline history/prompt validation.
+Check service readiness and, when resume was requested, actual same-project
+continuation. Browser/UI/docs sweeps, unrelated test suites, extra certifications
+and new approval gates are not migration requirements. Once the necessary gates
+pass, proceed with the authorized cutover/start/resume; do not keep polishing proof.
+These rules remove duplicated work, not required coverage, preservation, ownership
+exclusion or honest treatment of failures and uncertainty.
+
 ## Ordered workflow
 
 ### 1. Request and identify
@@ -104,9 +125,10 @@ predecessor or empty publication directory. See [Storage and interruption](../..
 
 Offline validation must call no providers/tools and mutate neither original nor
 backup; do not assume init/startup is pure validation. Failure blocks cutover.
-Known candidate-construction mistakes can be corrected externally, then the whole
-candidate revalidated, without new per-rule overrides. No partial promotion,
-validation relaxation or selective merge.
+Known candidate-construction mistakes can be corrected externally without new
+per-rule overrides. Rerun the coverage invalidated by the correction, reusing still
+applicable results; all required candidate coverage must remain established before
+cutover. No partial promotion, validation relaxation or selective merge.
 
 ### 6. Complete cutover; stop on uncertainty
 
