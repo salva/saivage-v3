@@ -17,6 +17,16 @@ alternative; exact-target current-format repair remains independent.
 
 ## Essential checks only
 
+Migration MUST NOT block Saivage development. Pin the selected committed release
+once and build/use an isolated export or existing matching package. Exclusion is
+for the target instance, never the development checkout: do not acquire or hold a
+Saivage implementation-manager/development lock for migration, stop development,
+require a clean/stable development tree, or rebuild its mutable files. Concurrent
+source edits and new commits do not invalidate the pinned migration or trigger
+repinning/revalidation. Keep migration artifacts under workspace `tmp/`; preserve
+developers' checkout, index and work. Changing the selected pin is a separate
+explicit decision, not an automatic response to development progressing.
+
 Optimize for completing the requested migration, not accumulating assurances.
 Run a check only when it establishes a required fact not already evidenced or
 when a concrete change/failure invalidated that evidence. Reuse applicable pinned
