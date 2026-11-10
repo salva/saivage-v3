@@ -646,7 +646,7 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 ### Recorded preparation and record observations
 
-Prepared format-12 activation evidence uses `activation_id`, `caller`, `card`,
+Prepared format-13 activation evidence uses `activation_id`, `caller`, `card`,
 `parent_direction`, `role_text` and `node`. Card ingress records actual activation
 and stable orientation. Globals have null activation/card/parent and a global
 caller. Parent callers retain exact card/session/source-input/call/tool provenance

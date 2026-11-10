@@ -168,8 +168,10 @@ different identities even when the source environment bound that variable to
 `expanded-name`. Keeping old rows unchanged can retain both protected occurrences;
 a later literal occurrence supersedes only that literal key. Do not relabel old
 expanded keys as authored names or promise continuity, release, supersession or
-losslessness without evidence. Conversation format12 and its exact stored-key
-comparison are unchanged. Bundled current templates declare no environment-generated
+losslessness without evidence. At this historical workflow2→3 cutover, conversation
+format12 and its exact stored-key comparison were unchanged; current conversation
+format13 is recorded in the [format reference](../architecture/durable-format-changes.md).
+Bundled current templates declare no environment-generated
 protection keys; that says nothing about installed customizations.
 
 Use authorized stopped matching-release input reconciliation. Where retained-state

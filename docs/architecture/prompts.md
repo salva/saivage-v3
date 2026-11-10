@@ -286,7 +286,7 @@ requirements remain binding; the separate accepted bootstrap stays complete.
 
 Typed observations preserve source selection, exposure and coordinates separately
 from actual text. Current metadata/slice/full reads and known mutations can advance
-knowledge without preserving bodies. Conversation format 12 compacted facts retain the
+knowledge without preserving bodies. Conversation format 13 compacted facts retain the
 newest descriptor per key in surviving occurrence order (A1,B1,A2 becomes B1,A2),
 not revision/time or first-key insertion order. Source hashes/head revisions identify
 source, not transformed display bytes. Facts confer neither body recall nor write

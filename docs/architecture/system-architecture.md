@@ -1435,7 +1435,7 @@ pixels, selected PNG 16 MiB, shared max dimension default 1600.
 Transient produced content crosses exact invoking-signal fence before real LLM
 settlement publishes `images/<UUID>.png` via fresh-file primitive and canonical result
 descriptors. External calls return call-local bytes instead. Descriptors select raw
-PNG under conversation format 12, no image index/family wrapper/scan/GC. Physical Files
+PNG under conversation format 13, no image index/family wrapper/scan/GC. Physical Files
 excludes this subtree. Source/session ownership and repeated occurrence order survive.
 
 `conversation-image-materialization.ts` follows selected original-source descriptors,
