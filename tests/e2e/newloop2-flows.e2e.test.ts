@@ -576,6 +576,8 @@ describe('newloop2 real owner semantic flows', () => {
         status: 'blocked',
       });
       expect(f.cards.read('card-a')!.lifecycle.status).toBe('done');
+      const initialReviewVersion =
+        type === 'architecture' ? f.record('review.md', 'card-a')!.accepted!.source_version : null;
       const reentry: Step[] = [
         { node: 'deliver', tool: 'reopen_card', args: { card_id: 'card-a' } },
         activate(
@@ -629,10 +631,37 @@ describe('newloop2 real owner semantic flows', () => {
             : ['resume-assess', 'resume-assess', target, target],
       );
       expect(f.cards.read('card-a')!.lifecycle).toMatchObject({ status: 'done' });
-      if (type === 'architecture')
-        expect(f.record('review.md', 'card-a')!.accepted!.content).toBe(
-          'architecture: refreshed current verdict.',
+      if (type === 'architecture') {
+        const review = f.record('review.md', 'card-a')!;
+        expect(review.accepted!.content).toBe('architecture: refreshed current verdict.');
+        expect(review.accepted!.source_version).not.toBe(initialReviewVersion);
+        const expectedRecords = [
+          {
+            name: 'review.md',
+            url: `${review.currentUrl}&v=${review.accepted!.source_version}`,
+            version: review.accepted!.source_version,
+          },
+        ];
+        const lifecycle = f.cards.read('card-a')!.lifecycle;
+        if (lifecycle.status !== 'done') throw new Error('Expected completed architecture child');
+        expect(lifecycle.result.records).toEqual(expectedRecords);
+
+        const rows = readConversation(f.root, 'agent:planner:project').sourceRows;
+        const activations = rows.filter(
+          (row) =>
+            row.kind === 'tool_call' &&
+            row.tool === 'activate_card' &&
+            JSON.parse(JSON.parse(row.content).tool_calls[0].function.arguments).card_id === 'card-a',
         );
+        expect(activations).toHaveLength(2);
+        const settlements = rows.filter(
+          (row) => row.kind === 'tool_result' && row.tool_call_id === activations[1]!.tool_call_id,
+        );
+        expect(settlements).toHaveLength(1);
+        const settlement = JSON.parse(settlements[0]!.content);
+        expect(settlement).toMatchObject({ success: true, data: { outcome: 'done' } });
+        expect(settlement.data.result.records).toEqual(expectedRecords);
+      }
     },
   );
 
