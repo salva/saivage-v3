@@ -1,6 +1,7 @@
 import { agentExecution } from '../../helpers/workflow-execution.js';
+import { runtimeFailure, workflowResult } from '../../helpers/workflow-result.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -59,6 +60,42 @@ function seedInterruptedSession(root: string, sessionId: CardConversationSession
 }
 
 describe('Supervisor initialization lifecycle', () => {
+  it.each(['missing', 'malformed'] as const)('keeps %s exact root strict at Start admission', async damage => {
+    const { runtime } = fixture();
+    await runtime.start();
+    const head = cardHeadFile(roots.at(-1)!, 'project');
+    if (damage === 'missing') unlinkSync(head);
+    else writeFileSync(head, '{malformed');
+    await expect(runtime.startProject()).rejects.toThrow();
+    expect(runtime.getRuntimeState()).toBeNull();
+    expect(runtime.getActorRuntimeReadModel().cards).toEqual([]);
+  });
+  it.each(['failed', 'done', 'cancelled'] as const)('returns terminal-root %s admission refusal without launch or correction', async status => {
+    const { cards, runtime } = fixture();
+    cards.setStatus('project', 'running');
+    if (status === 'cancelled') cards.setStatus('project', status);
+    else if (status === 'failed') cards.commitActivationOutcome('project', { status, summary: status, result: runtimeFailure(status) }, new Date().toISOString());
+    else cards.commitActivationOutcome('project', { status, summary: status, result: workflowResult('DONE', status) }, new Date().toISOString());
+    const root = roots.at(-1)!;
+    seedInterruptedSession(root, 'agent:planner:project', 'pending_call');
+    const beforeHead = readFileSync(cardHeadFile(root, 'project'));
+    const beforeCard = cards.read('project');
+    const beforeRows = readConversation(root, 'agent:planner:project').physicalRows;
+    await runtime.start();
+    await expect(runtime.startProject()).resolves.toMatchObject({
+      runtime: null, status: 'stopped', started: false, stopped: true,
+      refusal: { reason: 'root_not_startable', card_id: 'project', card_status: status },
+      error: expect.stringContaining('did not launch project work'),
+    });
+    expect(readFileSync(cardHeadFile(root, 'project'))).toEqual(beforeHead);
+    expect(cards.read('project')).toEqual(beforeCard);
+    expect(readConversation(root, 'agent:planner:project').physicalRows).toEqual(beforeRows);
+    expect(runtime.getActorRuntimeReadModel().cards).toEqual([]);
+    expect(runtime.captureAutonomousExecutingLlmSnapshots().size).toBe(0);
+    expect(runtime.getRuntimeState()).toBeNull();
+    if (status === 'cancelled') expect((await runtime.startProject() as { error: string }).error).not.toContain('use reopen_card');
+  });
+
   it('settles configured multi-agent sessions of a deep chain in card order, without touching an unrelated sibling or launching work', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-configured-recovery-')); roots.push(root);
     const config = structuredClone(TEST_SAIVAGE_CONFIG);

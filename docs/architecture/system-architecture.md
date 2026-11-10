@@ -1,5 +1,7 @@
 # System architecture
 
+Start admission remains Supervisor-owned. Expected application/runtime or terminal-root refusal is a typed value, not an invocation exception. The Analyst wrapper carries that value as an ordinary executed-tool failed settlement and can continue its turn. Terminal-root refusal precedes activation-owner/Run installation; the distinct post-launch `entry_refused` may follow effects. Unexpected failures still throw, and publication uncertainty retains the fatal boundary. This adds no lifecycle state, coordinator, preflight reader or automatic recovery.
+
 ## Static brand ownership
 
 The twelve canonical logo/badge SVGs live only in `docs/public/brand`. Vite's

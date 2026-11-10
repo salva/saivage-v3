@@ -29,11 +29,12 @@ export async function start_project(
     if (error instanceof WorkGcBusyError) return toolFailure(error.message);
     throw error;
   }
-  if (!data.error) return toolSucceeded(data);
+  if (data.started) return toolSucceeded(data);
   return toolFailure(data.error, {
     status: data.status,
     started: data.started,
     stopped: data.stopped,
+    refusal: data.refusal,
   });
 }
 
@@ -117,7 +118,8 @@ async function read_control_actions(
 export const analystRuntimeToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
   defineToolBinder({
     name: 'start_project',
-    description: 'Start root project execution.',
+    description:
+      'Launch root project execution from stopped runtime; success means launch, not project completion. Paused execution uses resume_runtime for authorized continuation of the same Run. Terminal roots return an ordinary failed result: inspect get_card/get_status and relevant read_agent_session diagnostics. FAILED/DONE require explicit authorized, intervention-ready reopen_card({cardId:"project"}) before a separately authorized Start; DONE may remain done. CANCELLED requires operator disposition. Refusal metadata is an observation, not permission or a retry guarantee; entry refusal may follow effects. Never blindly repeat unknown effects.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: () => emptyInput,
     executor: (ctx, args) => executeToolAction('none', () => start_project(ctx, args)),

@@ -473,7 +473,10 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (!prepared.accepted) return prepared.result;
     const runtime = this.launchStartedProject(prepared.launch);
     if (prepared.launch.owner.entryRefusal)
-      return this.startRejected(prepared.launch.owner.entryRefusal.summary);
+      return this.startRejected(
+        `${prepared.launch.owner.entryRefusal.summary} Inspect get_status and current runtime/session diagnostics before deciding the next action.`,
+        { reason: 'entry_refused' },
+      );
     if (!runtime) throw new Error('Admitted project launch has no runtime state.');
     return { runtime, status: runtime.status, started: true, stopped: false };
   }
@@ -485,11 +488,20 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     this.initializeStoppedRuntime();
     this.assertWorkGcIngressAllowed();
     if (!this.applicationAdmissionOpen)
-      return { accepted: false, result: this.startRejected('Application is closing.') };
+      return {
+        accepted: false,
+        result: this.startRejected(
+          'Application is closing. The lifecycle/operator owner must handle this; do not retry Start.',
+          { reason: 'application_closing' },
+        ),
+      };
     if (this.status !== 'stopped' || this.runIdentity || this.preparedLaunch)
       return {
         accepted: false,
-        result: this.startRejected(`Cannot start runtime from '${this.status}'.`),
+        result: this.startRejected(
+          `Cannot start runtime from '${this.status}'. ${this.status === 'paused' ? 'Use resume_runtime for authorized continuation of the same Run.' : this.status === 'running' ? 'Running execution does not need another Start.' : 'Inspect get_status and current runtime/session diagnostics; do not loop Start.'}`,
+          { reason: 'runtime_not_stopped' },
+        ),
       };
 
     const runningChain = selectLinkedRunningChain(this.behavior.actorStore);
@@ -498,6 +510,19 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
     const entry =
       runningChain.length > 0 ? 'STOPPED' : cardProcessEntryForStatus(root.lifecycle.status);
+    if (
+      entry === null &&
+      (root.lifecycle.status === 'done' ||
+        root.lifecycle.status === 'failed' ||
+        root.lifecycle.status === 'cancelled')
+    )
+      return {
+        accepted: false,
+        result: this.startRejected(
+          `Project root is '${root.lifecycle.status}'; this call did not launch project work. ${root.lifecycle.status === 'cancelled' ? 'It cannot be started or reopened by this operation. Ask the operator for the intended disposition.' : "Inspect get_card, the reason and current requirements. Only when authorized and intervention-ready, use reopen_card({cardId:'project'}), then a separately authorized start_project. DONE may correctly remain done."}`,
+          { reason: 'root_not_startable', card_id: 'project', card_status: root.lifecycle.status },
+        ),
+      };
     if (entry === null)
       throw new Error(`Project card in status '${root.lifecycle.status}' cannot start.`);
     const runIdentity = {};
@@ -2654,7 +2679,10 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       `Runtime invariant failed: operation=settle_result card=${owner.cardId} card_status=${card.lifecycle.status} activation=${owner.activationId} child=${childCardId} child_status=${child.lifecycle.status}.`,
     );
   }
-  private startRejected(error: string): StartProjectResult {
+  private startRejected(
+    error: string,
+    refusal: Extract<StartProjectResult, { started: false }>['refusal'],
+  ): StartProjectResult {
     const status = this.publicRuntimeStatus();
     return {
       runtime: this.runtimeState(),
@@ -2662,6 +2690,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       started: false,
       stopped: status === 'stopped',
       error,
+      refusal,
     };
   }
   private runtimeState(): RuntimeState | null {

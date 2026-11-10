@@ -568,11 +568,20 @@ test('untouched-parent entry refusal publishes runtime Git BLOCKED without a fab
     }),
   });
   try {
-    await supervisor.startProject();
+    const start = await supervisor.startProject();
+    expect(start).toMatchObject({
+      runtime: null,
+      status: 'stopped',
+      started: false,
+      stopped: true,
+      refusal: { reason: 'entry_refused' },
+    });
     await stopped;
     expect(calls).toBe(0);
     const card = f.store.read('project')!;
     expect(card.lifecycle.result).toMatchObject({ kind: 'git-workflow-blocked', step: 'enter' });
+    if (start.started) throw new Error('Expected native entry refusal.');
+    expect(start.error).toContain(card.lifecycle.result!.summary);
     expect(card.git!.observed_tip).toBe(f.original);
     expect(git(f.root, 'rev-parse', f.branch)).toBe(moved);
     expect(git(f.root, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');

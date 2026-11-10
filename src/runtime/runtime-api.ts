@@ -10,11 +10,19 @@ import type { NotificationUrgency } from '../contracts/index.js';
 interface RuntimeControlStateResult {
   runtime: RuntimeState | null;
   status: RuntimeStatus;
-  started: boolean;
   stopped: boolean;
-  error?: string;
 }
-export type StartProjectResult = RuntimeControlStateResult;
+type StartProjectRefusal =
+  | { reason: 'application_closing' }
+  | { reason: 'runtime_not_stopped' }
+  | {
+      reason: 'root_not_startable';
+      card_id: 'project';
+      card_status: 'done' | 'failed' | 'cancelled';
+    }
+  | { reason: 'entry_refused' };
+export type StartProjectResult = RuntimeControlStateResult &
+  ({ started: true } | { started: false; error: string; refusal: StartProjectRefusal });
 export interface StopProjectResult {
   readonly status: 'stopped';
   readonly contained: boolean;

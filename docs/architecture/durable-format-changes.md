@@ -23,6 +23,20 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Truthful Analyst Start refusal from actual implementation parent
+`e0209bfb5412de834e8d56525ce44fc018e96d88` changes expected Supervisor admission and future opaque control-tool
+result data only. No family/discriminator changes: conversation index/genesis/
+envelope13, shared provider/app envelope2, card head1/history6/mailbox1, record
+head3/accepted6, execution3, workflow6 and capabilities1 remain unchanged.
+Owning schemas and `ToolResultSchema.data`/historical outbound projection were
+inspected; regression tests project old Start success/failure, retained unknown
+effects and new refusal metadata without current-result admission or history
+reinterpretation. No new settlement origin, retention/provenance/layout change,
+new family or unreleased-cutover exception. Matching-source runtime and tool
+adoption needs no state conversion for this fix alone; whole-release compatibility
+and installed applicability remain separate. Old uncertainty stays unknown.
+No deployment, reset, external migration or automatic retry is implied.
+
 Decoded-multiline work-GC quotation correction from actual implementation parent
 `6bccc822cbc0baa4026e84919d4e052b66e4e17e` changes only operational free-text
 inference over unchanged strings. A CR/LF-containing decoded quotation remains

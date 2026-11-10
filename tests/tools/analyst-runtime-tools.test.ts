@@ -33,7 +33,7 @@ describe('analyst runtime tools', () => {
   function controlContext(overrides: Record<string, unknown> = {}): ToolContext {
     return {
       runtime: {
-        startProject: jest.fn(async () => ({ runtime: null, status: 'stopped', started: true, stopped: false })),
+        startProject: jest.fn(async () => ({ runtime: { status: 'running', project_id: 'project', current_card_id: 'project', pid: 4242, started_at: '2026-07-18T00:00:00.000Z', updated_at: '2026-07-18T00:00:00.000Z' }, status: 'running', started: true, stopped: false })),
         pause: jest.fn(),
         hasWorkGcMaintenanceHold: jest.fn(() => false),
         resume: jest.fn(),
@@ -47,17 +47,29 @@ describe('analyst runtime tools', () => {
 
   it('delegates Start without arguments and preserves success and failure mappings', async () => {
     const success = controlContext();
-    await expect(start_project(success, {})).resolves.toEqual({ kind: 'succeeded', data: { runtime: null, status: 'stopped', started: true, stopped: false } });
+    await expect(start_project(success, {})).resolves.toMatchObject({ kind: 'succeeded', data: { runtime: { status: 'running', current_card_id: 'project' }, status: 'running', started: true, stopped: false } });
     expect(success.runtime!.startProject).toHaveBeenCalledWith();
 
-    const failure = controlContext({ startProject: jest.fn(async () => ({ runtime: null, status: 'stopped', started: false, stopped: true, error: 'start failed' })) });
-    await expect(start_project(failure, {})).resolves.toEqual({ kind: 'failed', error: 'start failed', data: { status: 'stopped', started: false, stopped: true } });
+    const failure = controlContext({ startProject: jest.fn(async () => ({ runtime: null, status: 'stopped', started: false, stopped: true, error: 'start failed', refusal: { reason: 'entry_refused' } })) });
+    await expect(start_project(failure, {})).resolves.toEqual({ kind: 'failed', error: 'start failed', data: { status: 'stopped', started: false, stopped: true, refusal: { reason: 'entry_refused' } } });
     expect(failure.runtime!.startProject).toHaveBeenCalledWith();
   });
 
   it('propagates launch failure without manufacturing successful Analyst data', async () => {
     const context = controlContext({ startProject: jest.fn(async () => { throw new Error('launch failed'); }) });
     await expect(start_project(context, {})).rejects.toThrow('launch failed');
+  });
+
+  it.each([
+    { reason: 'application_closing' },
+    { reason: 'runtime_not_stopped' },
+    { reason: 'root_not_startable', card_id: 'project', card_status: 'failed' },
+    { reason: 'entry_refused' },
+  ])('preserves $reason facts without performing another control', async refusal => {
+    const context = controlContext({ startProject: jest.fn(async () => ({ runtime: null, status: 'paused', started: false, stopped: false, error: 'Known refusal', refusal })) });
+    await expect(start_project(context)).resolves.toEqual({ kind: 'failed', error: 'Known refusal', data: { status: 'paused', started: false, stopped: false, refusal } });
+    expect(context.runtime.resume).not.toHaveBeenCalled();
+    expect(context.runtime.pause).not.toHaveBeenCalled();
   });
 
   it('delegates Pause, Resume, and Stop without arguments and preserves status results', async () => {

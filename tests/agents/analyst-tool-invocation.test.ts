@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -30,6 +30,9 @@ import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { ActivationOperationTracker } from '../../src/runtime/actors/invocation-lifecycle.js';
 import { deferred } from '../../src/runtime/actors/deferred.js';
+import { analystRuntimeToolBinders } from '../../src/tools/analyst-runtime-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { runtimeFailure } from '../helpers/workflow-result.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -59,7 +62,7 @@ function analyst(
       return executor(args, signal, context);
     },
   });
-  const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'demo', tools: [definition] }] };
+  let surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'demo', tools: [definition] }] };
   const capabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
   let turns = 0;
   const completeTurn = jest.fn(async (_input:LlmInvocationInput): Promise<ProviderTurnCompletion> => {
@@ -77,7 +80,7 @@ function analyst(
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest,
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     routeUsableInputTokens: 80_000,
-    promptTemplates: { render: () => 'test analyst prompt' },
+    promptTemplates: options.requestedToolName === 'start_project' ? createTestPromptTemplateRegistry() : { render: () => 'test analyst prompt' },
     restartCapability: options.restartCapability ?? { available: false },
     provider: scriptedAdmissionProvider(completeTurn),
     conversations: options.conversationChanged ? { projectRoot, changes: { conversationChanged: options.conversationChanged, agentMembershipChanged() {} } } : { projectRoot },
@@ -92,10 +95,58 @@ function analyst(
   });
   const createSession = jest.fn(() => session);
   const runtime = new AnalystRuntime({ assertIngressAllowed() {}, internalEnabled: true, createSession, getAvailableToolNames: () => [definition.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
-  return { session, runtime, createSession, completeTurn, capabilityRequest, projectRoot, list, cardStore };
+  return { session, runtime, createSession, completeTurn, capabilityRequest, projectRoot, list, cardStore, setSurface(next: InvocationSurface) { surface = next; } };
 }
 
 describe('Analyst parsed tool invocation', () => {
+  it('settles real terminal-root Start refusal and continues the same Analyst turn', async () => {
+    const test = analyst('{}', async () => { throw new Error('Demo must not run'); }, { requestedToolName: 'start_project' });
+    test.cardStore.setStatus('project', 'running');
+    test.cardStore.commitActivationOutcome('project', { status: 'failed', summary: 'failed', result: runtimeFailure('failed') }, new Date().toISOString());
+    const processes = createTestProcessRunner(test.projectRoot);
+    const projectProvider = jest.fn(async (): Promise<ProviderTurnCompletion> => { throw new Error('No project launch'); });
+    const supervisor = createSupervisorRuntimeApi({
+      fatalPort: testApplicationFatalPort, ...testAutonomousCompaction,
+      runtimeGate: new RuntimeGate(), projectRoot: test.projectRoot, actorStore: test.cardStore,
+      provider: scriptedAdmissionProvider(projectProvider), conversations: { projectRoot: test.projectRoot },
+      retrieval: createObservedCollections(test.projectRoot),
+      freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
+      processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+      processIdentity: { pid: process.pid, startedAt: 'now' }, promptTemplates: createTestPromptTemplateRegistry(),
+    });
+    await supervisor.start();
+    const binder = analystRuntimeToolBinders.find(tool => tool.name === 'start_project')!;
+    const definition = binder.bind({ runtime: supervisor } as unknown as ToolContext);
+    test.setSurface({ agentName: 'analyst', tools: new Map([['start_project', definition]]), providers: [{ providerName: 'runtime', tools: [definition] }] });
+    const before = test.cardStore.read('project');
+    try {
+      const response = await test.runtime.submit({ userContent: 'Try Start once; report a refusal without retrying or reopening.' });
+      await test.runtime.awaitNaturalTurnCompletion();
+      expect(test.completeTurn).toHaveBeenCalledTimes(2);
+      const expected = { success: false, data: { started: false, stopped: true, status: 'stopped', refusal: { reason: 'root_not_startable', card_id: 'project', card_status: 'failed' } } };
+      expect(response.toolInvocations).toHaveLength(1);
+      expect(response.toolInvocations![0]!.result).toMatchObject(expected);
+      const history = readConversation(test.projectRoot, 'agent:analyst:global');
+      expect(history.unmatchedCall).toBeNull();
+      expect(history.sourceRows.filter(row => row.kind === 'tool_call')).toHaveLength(1);
+      const results = history.sourceRows.filter(row => row.kind === 'tool_result');
+      expect(results).toHaveLength(1);
+      expect(JSON.parse(results[0]!.content)).toMatchObject(expected);
+      const visible = test.completeTurn.mock.calls[1]![0].providerConversation.messages.find(row => row.kind === 'tool_result');
+      expect(visible).toMatchObject({ tool: 'start_project', tool_call_id: 'call-1', content: results[0]!.content });
+      expect(results[0]!.context_policy).toMatchObject({ settlement_origin: 'executed' });
+      expect(results[0]!.content).not.toContain('outcome_unknown');
+      expect(test.cardStore.read('project')).toEqual(before);
+      expect(projectProvider).not.toHaveBeenCalled();
+      expect(supervisor.getRuntimeState()).toBeNull();
+      // Opt-in ignored artifact: complete synthetic owner-prepared requests, no live/model traffic.
+      if (process.env.SAIVAGE_START_COMPOSITION_ARTIFACT)
+        writeFileSync(process.env.SAIVAGE_START_COMPOSITION_ARTIFACT, JSON.stringify({ boundHelp: definition.description, requests: test.completeTurn.mock.calls.map(call => call[0]), settled: response.toolInvocations }, null, 2));
+    } finally {
+      supervisor.closeApplicationAdmission();
+      await supervisor.cleanupForApplicationStop();
+    }
+  });
   it.each(['natural', 'disconnect', 'caller cancellation', 'stop', 'close'] as const)(
     'actual GC maintenance waits for a real accepted Analyst tool; %s never disposes that turn', async mode => {
       const entered = deferred<void>(), release = deferred<void>();

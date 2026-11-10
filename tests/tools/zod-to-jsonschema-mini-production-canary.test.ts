@@ -100,7 +100,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       store,
       sessionId: 'agent:analyst:global',
       runtime: {
-        startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }),
+        startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true, error: 'Application is closing.', refusal: { reason: 'application_closing' } }),
         pause() {},
         hasWorkGcMaintenanceHold: () => false,
         resume() {},

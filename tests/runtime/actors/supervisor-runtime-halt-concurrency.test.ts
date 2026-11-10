@@ -355,6 +355,21 @@ async function within<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe('Supervisor singular runtime halt concurrency', () => {
+  it('returns distinct ordinary Start refusals for running, settled paused and application close', async () => {
+    const h = harness();
+    await expect(h.supervisor.startProject()).resolves.toMatchObject({ started: false, status: 'running', refusal: { reason: 'runtime_not_stopped' }, error: expect.stringContaining('does not need another Start') });
+    h.supervisor.pause();
+    const frontier = h.runtimeGate.waitUntilOpen(new AbortController().signal);
+    expect(h.supervisor.getStatus().status).toBe('paused');
+    await expect(h.supervisor.startProject()).resolves.toMatchObject({ started: false, status: 'paused', refusal: { reason: 'runtime_not_stopped' }, error: expect.stringContaining('resume_runtime') });
+    h.supervisor.resume();
+    await frontier;
+    h.supervisor.closeApplicationAdmission();
+    await expect(h.supervisor.startProject()).resolves.toMatchObject({ started: false, refusal: { reason: 'application_closing' } });
+    const stop = h.supervisor.cleanupForApplicationStop();
+    h.rootProcessor.join.resolve([]); h.processTermination.resolve(processReport);
+    await stop;
+  });
   it('has no elapsed GC timer during settling or collection beyond the old minute', async () => {
     const h = harness();
     jest.useFakeTimers();

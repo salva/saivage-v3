@@ -28,6 +28,21 @@ const sessionId = parseConversationSessionId('agent:planner:project');
 const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
+it('projects historical and current opaque Start results without reclassifying history', () => {
+  for (const result of [
+    { success: true, data: { started: true, historical_field: marker } },
+    { success: false, error: 'old refusal', data: { started: false } },
+    { success: false, error: 'Prior effects unknown', data: { outcome_unknown: true } },
+    { success: false, error: 'Root failed', data: { started: false, refusal: { reason: 'root_not_startable', card_id: 'project', card_status: 'failed' }, note: marker } },
+  ] as ToolResult[]) {
+    const projected = projectToolInvocation({ shape: 'complete', identity: { sessionId, sourceInputId, toolCallId: 'old-start', toolName: 'start_project' }, arguments: {}, result });
+    expect(JSON.stringify(projected)).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(projected.result!.success).toBe(result.success);
+    expect(projected.result!.data).toEqual(JSON.parse(JSON.stringify(result.data).replaceAll(marker, 'Authorization: [REDACTED]')));
+    expect(projectToolInvocation(projected)).toEqual(projected);
+  }
+});
+
 it('keeps historical old/new session queries and nested observational data opaque to current admission', () => {
   for (const args of [
     { session_id: sessionId, last_n: 1 },

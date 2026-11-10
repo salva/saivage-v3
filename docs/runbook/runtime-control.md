@@ -22,6 +22,34 @@ HTTP Pause/Resume/Stop must **omit body and JSON Content-Type**. Any payload is
 schemas. Wrong-state Pause/Resume are ordinary failed tool results; Stop joins its
 existing halt including closing/error cases. Stopped needs Run, not Resume.
 
+### When Analyst Start is refused
+
+`start_project` success proves launch, not completion. Expected refusal returns an
+ordinary settled failed tool result with `status`, `started:false`, `stopped` and
+`refusal.reason`; the Analyst can explain it and continue in the same turn.
+
+- `root_not_startable` includes `card_id:'project'` and the observed terminal
+  `card_status`. For FAILED/DONE, inspect `get_card`, current requirements and the
+  actual failure evidence. If authorized and intervention-ready, explicitly use
+  Analyst `reopen_card({cardId:'project'})`, then a separately authorized
+  `start_project({})`. An existing owner request can already authorize these steps;
+  no ceremonial reconfirmation is required. DONE may correctly remain done.
+- CANCELLED is not startable or reopenable by this operation. Ask the operator
+  for the intended disposition; do not automatically reset or replace it.
+- `runtime_not_stopped`: settled paused uses authorized `resume_runtime({})` for
+  the same Run; running needs no new Start. For transitional/error status inspect
+  `get_status` and relevant runtime/session diagnostics, rather than looping.
+- `application_closing` requires the lifecycle/operator owner, not Start retries.
+- `entry_refused` retains its current entry summary and may follow owner/source
+  or publication effects. Inspect status/diagnostics; it is not a no-effects claim.
+
+Use selected `read_agent_session` diagnostics and exact-message inspection for
+dated evidence; retained failure text is not a fresh execution. These are
+matching-source tools, not proof any particular installation (including PM) has
+adopted them. Unexpected handler failures can still produce HTTP500; unknown
+effects and fatal publication failures must not be blindly replayed. Refusal
+metadata grants no reopen, Resume, Run, deployment or migration authority.
+
 ## Five ownership outcomes
 
 CLI `status`, `pause`, `resume`, `stop`, `restart_server` classify the exact
