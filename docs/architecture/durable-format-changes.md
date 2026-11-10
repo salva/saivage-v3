@@ -23,6 +23,17 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Bounded work-GC failure attribution from actual source parent
+`5cda26a1b6f68af13319e48d1b0eb2a57200c5eb` is API/CLI-only: the strict response
+adds required nullable `failure` with closed original filesystem code/syscall
+metadata. Completion/cancellation uses null; other ordinary failures use bounded
+metadata, including `unknown`/null when unavailable. Evidence owners are
+`contracts/work-gc.ts`, `application/work-gc-operation.ts` and their route/client/CLI
+tests. No durable family, discriminator, retained interpretation, selection, layout
+or retention policy changes; no bump or migration applies. Matching server/CLI
+adoption is required; installed-release applicability is unknown and no deployment
+or reset is authorized by this source change.
+
 Newloop2 fresh-profile addition: original examined/implementation baseline
 `a1e890a7611349c110a11c5b489486f57f5c4af2` (November 10, 2026);
 continuation/precommit parent `60456369fc0dbebe0ab221fb6bdb8e93175a3da7`.

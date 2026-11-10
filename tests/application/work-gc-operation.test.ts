@@ -2,7 +2,7 @@ import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runWorkGcOperation } from '../../src/application/work-gc-operation.js';
+import { runWorkGcOperation, workGcFailureResponse } from '../../src/application/work-gc-operation.js';
 import { WorkGcMaintenanceError, WorkGcResponseSchema, WorkGcBusyError, PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { WorkGcInterruptedError } from '../../src/workspace/index.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
@@ -34,7 +34,7 @@ function fixture() {
 it('composes fresh inputs with actual engine preview and deletion, preserving effect attribution', async () => {
   const { input, path, loadEffective } = fixture();
   const preview = await runWorkGcOperation(input);
-  expect(preview).toMatchObject({ disposition: 'completed', restoration: 'resumed',
+  expect(preview).toMatchObject({ disposition: 'completed', restoration: 'resumed', failure: null,
     result: { would_delete_count: 1, deleted_count: 0 } });
   expect(WorkGcResponseSchema.safeParse(preview).success).toBe(true);
   expect(existsSync(path)).toBe(true);
@@ -63,7 +63,7 @@ it('keeps duplicate rejection distinct and reports owner cancellation/restoratio
   await expect(runWorkGcOperation({ ...input, run: async () => { throw new WorkGcBusyError(); } })).rejects.toBeInstanceOf(WorkGcBusyError);
   expect(await runWorkGcOperation({ ...input, run: async () => {
     throw new WorkGcMaintenanceError(false, new Error('private error text'), true);
-  } })).toEqual({ mode: 'dry_run', disposition: 'refused', reason: 'cancelled', restoration: 'not_resumed', result: null });
+  } })).toEqual({ mode: 'dry_run', disposition: 'refused', reason: 'cancelled', restoration: 'not_resumed', failure: null, result: null });
 });
 it('preserves known partial deletion and refuses hypothetical effects in delete reports', async () => {
   const { input } = fixture();
@@ -79,9 +79,13 @@ it('preserves known partial deletion and refuses hypothetical effects in delete 
       throw new WorkGcMaintenanceError(false, new WorkGcInterruptedError(result, new Error('interrupted')), true);
     } });
   expect(response).toEqual({ mode: 'delete', disposition: 'interrupted', reason: 'cancelled',
-    restoration: 'not_resumed', result });
+    restoration: 'not_resumed', failure: null, result });
   expect(WorkGcResponseSchema.safeParse(response).success).toBe(true);
   expect(WorkGcResponseSchema.safeParse({ ...response, result: { ...result, would_delete_count: 1 } }).success).toBe(false);
+  expect(workGcFailureResponse({ mode: 'delete' }, new WorkGcMaintenanceError(false,
+    new WorkGcInterruptedError(result, { code: 'EIO', syscall: 'read', path: 'SECRET' })),
+    'collection_failed', false, 'not_resumed')).toEqual({ mode: 'delete', disposition: 'interrupted',
+    reason: 'collection_failed', restoration: 'not_resumed', failure: { code: 'EIO', syscall: 'read' }, result });
 });
 it('delivers uncertainty to fatal before producing an ordinary refusal report', async () => {
   const { input } = fixture();
@@ -93,4 +97,49 @@ it('delivers uncertainty to fatal before producing an ordinary refusal report', 
     run: async () => { throw unknown; },
   })).rejects.toBe(terminal);
   expect(fatal).toHaveBeenCalledWith(unknown);
+});
+
+it.each(['direct', 'maintenance', 'interrupted'] as const)('projects only allowlisted original metadata through %s ownership', async owner => {
+  const { input } = fixture();
+  const result = (await runWorkGcOperation(input)).result!;
+  const original = Object.assign(new Error('SECRET message', { cause: { code: 'EPERM', secret: 'SECRET cause' } }), {
+    code: 'ENAMETOOLONG', syscall: 'lstat', stack: 'SECRET stack', path: 'SECRET path', dest: 'SECRET dest',
+  });
+  const error = owner === 'direct' ? original : new WorkGcMaintenanceError(true,
+    owner === 'interrupted' ? new WorkGcInterruptedError(result, original) : original);
+  const response = await runWorkGcOperation({ ...input, run: async () => { throw error; } });
+  expect(response).toEqual({ mode: 'dry_run', disposition: owner === 'interrupted' ? 'interrupted' : 'refused',
+    reason: 'inventory_failed', restoration: owner === 'direct' ? 'not_acquired' : 'resumed',
+    failure: { code: 'ENAMETOOLONG', syscall: 'lstat' }, result: owner === 'interrupted' ? result : null });
+  expect(WorkGcResponseSchema.parse(response)).toEqual(response);
+});
+
+it.each([
+  [null, 'unknown', null], ['SECRET primitive', 'unknown', null], [42, 'unknown', null],
+  [{ code: 'SECRET'.repeat(10000), syscall: 'SECRET'.repeat(10000) }, 'unknown', null],
+  [{ code: ' EACCES', syscall: 'open' }, 'unknown', 'open'],
+  [{ code: 'EIO', syscall: 'read SECRET' }, 'EIO', null],
+  [{ cause: { code: 'EACCES', syscall: 'open' } }, 'unknown', null],
+] as const)('does not infer or expose unrecognized metadata %#', (error, code, syscall) => {
+  expect(workGcFailureResponse({ mode: 'dry_run' }, error, 'collection_failed', false, 'not_acquired'))
+    .toEqual({ mode: 'dry_run', disposition: 'refused', reason: 'collection_failed', restoration: 'not_acquired',
+      failure: { code, syscall }, result: null });
+});
+
+it('strictly requires the bounded failure shape and outcome consistency', async () => {
+  const refusal = workGcFailureResponse({ mode: 'dry_run' }, { code: 'ENOENT', syscall: 'open' },
+    'collection_failed', false, 'not_acquired');
+  expect(WorkGcResponseSchema.parse(refusal)).toEqual(refusal);
+  const { failure: _failure, ...missing } = refusal;
+  const { input } = fixture();
+  const completed = await runWorkGcOperation(input);
+  const cancelled = { ...refusal, reason: 'cancelled', failure: null };
+  expect(WorkGcResponseSchema.safeParse(cancelled).success).toBe(true);
+  for (const invalid of [missing, { ...refusal, failure: null },
+    { ...refusal, failure: { ...refusal.failure, path: 'SECRET' } },
+    { ...refusal, failure: { code: 'PRIVATE', syscall: 'open' } },
+    { ...refusal, failure: { code: 'EIO', syscall: 'PRIVATE' } },
+    { ...completed, failure: refusal.failure }, { ...cancelled, failure: refusal.failure }]) {
+    expect(WorkGcResponseSchema.safeParse(invalid).success).toBe(false);
+  }
 });

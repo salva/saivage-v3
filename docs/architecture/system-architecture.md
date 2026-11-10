@@ -1635,7 +1635,12 @@ Work reclamation uses the strict `runtime.gcWork` operation with required
 `mode: dry_run|delete`, optional RFC3339-zone `before` and nonnegative safe-integer
 `target_bytes`; unknown keys fail. The response carries `mode`,
 `disposition: completed|interrupted|refused`, a bounded `reason`,
-`restoration: not_acquired|resumed|not_resumed`, and nullable accounted `result`.
+`restoration: not_acquired|resumed|not_resumed`, required nullable `failure`, and
+nullable accounted `result`. Completion and cancellation require `failure: null`;
+other ordinary failures require only closed allowlisted original `{code, syscall}`
+metadata (unrecognized code becomes `unknown`, absent/unrecognized syscall becomes
+null), never private error text or paths. Matching CLI/server contracts must be
+adopted together; no old-response compatibility is provided.
 Ordinary refusal/interruption can be a 200 response: inspect disposition, not HTTP
 status alone. Duplicate/held ingress uses 409
 `{error:'WorkGcBusy',message:'Work garbage collection is busy.'}`; existing validation,

@@ -59,6 +59,29 @@ export const WorkGcResponseSchema = z
       'maintenance_refused',
     ]),
     restoration: z.enum(['not_acquired', 'resumed', 'not_resumed']),
+    failure: z
+      .object({
+        code: z.enum([
+          'EACCES',
+          'EPERM',
+          'ENOENT',
+          'ENOTDIR',
+          'EISDIR',
+          'ENAMETOOLONG',
+          'ELOOP',
+          'EMFILE',
+          'ENFILE',
+          'ENOSPC',
+          'EROFS',
+          'EIO',
+          'unknown',
+        ]),
+        syscall: z
+          .enum(['scandir', 'readdir', 'lstat', 'stat', 'realpath', 'open', 'read', 'close'])
+          .nullable(),
+      })
+      .strict()
+      .nullable(),
     result: WorkGcResultSchema.nullable(),
   })
   .strict()
@@ -67,6 +90,11 @@ export const WorkGcResponseSchema = z
       ctx.addIssue({ code: 'custom', message: 'GC result mode mismatch.' });
     if (value.disposition === 'completed' && (!value.result || value.reason !== 'completed'))
       ctx.addIssue({ code: 'custom', message: 'Completed GC requires its result.' });
+    if (
+      (value.disposition === 'completed' || value.reason === 'cancelled') !==
+      (value.failure === null)
+    )
+      ctx.addIssue({ code: 'custom', message: 'GC failure metadata must match its outcome.' });
   });
 export type WorkGcResponse = z.infer<typeof WorkGcResponseSchema>;
 export type WorkGcResult = z.infer<typeof WorkGcResultSchema>;

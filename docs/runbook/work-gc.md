@@ -153,8 +153,26 @@ leave needed work eligible: useful reclamation is not proof of safe inference.
 ## Results, cancellation and restoration
 
 The CLI prints the bounded response: `mode`, `disposition` (`completed`,
-`interrupted`, `refused`), `reason`, `restoration` and nullable `result`.
+`interrupted`, `refused`), `reason`, `restoration`, nullable `failure` and nullable `result`.
 `completed` does not mean every file was eligible or the target was reached.
+
+`failure` is null for completion and cancellation. Other ordinary failures expose
+only `{code, syscall}`: code is one of `EACCES`, `EPERM`, `ENOENT`, `ENOTDIR`,
+`EISDIR`, `ENAMETOOLONG`, `ELOOP`, `EMFILE`, `ENFILE`, `ENOSPC`, `EROFS`, `EIO`,
+or `unknown`; syscall is one of `scandir`, `readdir`, `lstat`, `stat`, `realpath`,
+`open`, `read`, `close`, or null. These are independently allowlisted original
+metadata, never inferred from error text. No message, stack, path, identity or
+nested cause is returned. `reason` gives the coarse stage; `unknown`/null means
+safe metadata was unavailable, not that the failure is harmless. Semantic validation
+errors can remain `unknown`.
+
+For separately scoped diagnosis, permission codes (`EACCES`/`EPERM`) point toward
+access checks; `ENOENT`/`ENOTDIR`/`EISDIR` toward missing or wrong-type required
+data; `ENAMETOOLONG`/`ELOOP` toward path length or resolution loops;
+`EMFILE`/`ENFILE` toward descriptor limits; and `ENOSPC`/`EROFS`/`EIO` toward
+storage capacity, read-only storage or I/O. These labels do not identify the failed
+file or prove a root cause. Do not automatically retry deletion, change permissions,
+bypass protections, modify history or launch another live sweep to obtain details.
 
 * `observed_count` / `observed_logical_bytes` describe the phase-1 accounted
   regular files, not a coherent current snapshot. `opaque_entries` does not count
@@ -163,7 +181,8 @@ The CLI prints the bounded response: `mode`, `disposition` (`completed`,
   `opaque` or `target` (eligible but not needed). Protections beat age/size.
 * Preview reports `would_delete_count` / `would_delete_logical_bytes`, with actual
   deleted fields zero. Delete reports `deleted_count` / `deleted_logical_bytes`,
-  with hypothetical fields zero. A known partial result is not a rollback.
+  with hypothetical fields zero. A known partial result is not a rollback; failure
+  attribution does not reconstruct or enlarge those known effect counts.
 * `expected_accounted_logical_bytes_remaining` subtracts hypothetical or known
   removals from observed bytes. `accounted_target_shortfall` is null without a
   target, otherwise the remaining accounted excess. Zero shortfall does **not**

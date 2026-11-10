@@ -17,7 +17,7 @@ let app: FastifyInstance | undefined;
 let root: string | undefined;
 afterEach(async () => { await app?.close(); if (root) rmSync(root, { recursive: true, force: true }); });
 const refusal: WorkGcResponse = { mode: 'dry_run', disposition: 'refused',
-  reason: 'maintenance_refused', restoration: 'not_acquired', result: null };
+  reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EIO', syscall: 'read' }, result: null };
 it('strict route authenticates, rejects invalid filters and maps duplicate GC to busy without invoking twice', async () => {
   root = mkdtempSync(join(tmpdir(), 'gc-routes-'));
   app = Fastify({ logger: false });
@@ -47,7 +47,7 @@ it('disconnect cancels the running request signal rather than any accepted turn 
   const collect = jest.fn<RuntimeApplication['collectWorkGarbage']>(async (_body, signal) => {
     entered();
     await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
-    return { ...refusal, reason: 'cancelled' };
+    return { ...refusal, reason: 'cancelled', failure: null };
   });
   const handler = buildWorkGcOperatorContractHandlers({ collectWorkGarbage: collect } as unknown as RuntimeApplication)['runtime.gcWork'];
   const task = handler({ body: { mode: 'dry_run' }, request: { raw }, reply: { raw: reply } } as unknown as Parameters<typeof handler>[0]);

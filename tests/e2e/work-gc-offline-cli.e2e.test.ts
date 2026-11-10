@@ -30,7 +30,7 @@ async function cli(root: string, options: { delete?: boolean; before?: string; p
   const entry = resolve(options.fault ? 'tests/fixtures/offline-gc-child.ts' : 'src/cli.ts');
   const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : []), ...(options.before ? ['--before', options.before] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ');
   const child = spawn('script', ['-qefc', command, '/dev/null'], { cwd: root, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
-  let output = '', sent = false, lockObserved = false;
+  let output = '', sent = false, lockObserved = false, lockPresentAtResponse: boolean | null = null;
   const watchdog = setTimeout(() => child.kill('SIGKILL'), 20_000);
   const observe = setInterval(() => {
     if (!options.onLock || lockObserved || !existsSync(runtimeProcessLockFile(root))) return;
@@ -42,13 +42,15 @@ async function cli(root: string, options: { delete?: boolean; before?: string; p
   }, 1);
   child.stdout.on('data', (chunk: Buffer) => {
     output += chunk.toString();
+    if (lockPresentAtResponse === null && /(?:^|\n)\{"mode":/.test(output))
+      lockPresentAtResponse = existsSync(runtimeProcessLockFile(root));
     if (!sent && output.includes('to confirm:')) { sent = true; options.beforeAck?.(); child.stdin.write(options.eof ? '\u0004' : `${options.phrase ?? `GC OFFLINE QUIESCENT ${root}`}\n`); }
   });
   child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
   try {
     const code = await new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done); });
     const row = output.split(/\r?\n/).find(line => line.startsWith('{"mode":'));
-    return { code, output, response: row ? JSON.parse(row) : null, lockObserved };
+    return { code, output, response: row ? JSON.parse(row) : null, lockObserved, lockPresentAtResponse };
   } finally { clearInterval(observe); clearTimeout(watchdog); }
 }
 
@@ -163,8 +165,28 @@ it.each(['identity', 'bootstrap', 'malformed', 'torn'] as const)('offline %s fai
 it('strict missing selected index fails without initialization or recovery and releases exclusion', async () => {
   const root = fixture(), path = globalAgentConversationVersionIndexFile(root, 'analyst'); unlinkSync(path);
   const result = await cli(root);
-  expect(result).toMatchObject({ code: 1, response: { disposition: 'refused', restoration: 'not_resumed' } });
+  expect(result.code).toBe(1);
+  expect(result.response).toEqual({ mode: 'dry_run', disposition: 'refused', reason: 'collection_failed',
+    restoration: 'not_resumed', failure: { code: 'unknown', syscall: null }, result: null });
+  expect(JSON.stringify(result.response)).not.toContain(root);
   expect(existsSync(path)).toBe(false); expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+}, 30_000);
+
+it('missing required selected segment reports only safe ENOENT metadata after lock release', async () => {
+  const root = fixture();
+  appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global',
+    randomUUID(), 'fixture', { kind: 'unavailable', reason: 'not_recorded' }));
+  const selected = readCurrentConversationSegment(root, 'agent:analyst:global')!;
+  const path = globalAgentConversationVersionFile(root, 'analyst', selected.entry.filename);
+  unlinkSync(path);
+  const result = await cli(root);
+  expect(result.code).toBe(1);
+  expect(result.response).toEqual({ mode: 'dry_run', disposition: 'refused', reason: 'collection_failed',
+    restoration: 'not_resumed', failure: { code: 'ENOENT', syscall: 'open' }, result: null });
+  expect(JSON.stringify(result.response)).not.toContain(root);
+  expect(result.lockPresentAtResponse).toBe(false);
+  expect(existsSync(path)).toBe(false);
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
 }, 30_000);
 
 it('real offline child release uncertainty exits fatally without response or prompt cleanup', async () => {

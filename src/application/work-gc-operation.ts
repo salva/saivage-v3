@@ -71,6 +71,7 @@ export function workGcCompletedResponse(
     disposition: 'completed',
     reason: 'completed',
     restoration: restoredRunning ? 'resumed' : 'not_resumed',
+    failure: null,
     result,
   };
 }
@@ -85,11 +86,45 @@ export function workGcFailureResponse(
 ): WorkGcResponse {
   const cause = error instanceof WorkGcMaintenanceError ? error.cause : error;
   const result = cause instanceof WorkGcInterruptedError ? cause.result : completedResult;
+  const original = cause instanceof WorkGcInterruptedError ? cause.cause : cause;
+  const code =
+    original !== null && typeof original === 'object' && 'code' in original
+      ? original.code
+      : undefined;
+  const syscall =
+    original !== null && typeof original === 'object' && 'syscall' in original
+      ? original.syscall
+      : undefined;
   return {
     mode: request.mode,
     disposition: result ? 'interrupted' : 'refused',
     reason: cancelled ? 'cancelled' : reason,
     restoration,
+    failure: cancelled
+      ? null
+      : {
+          code:
+            (
+              [
+                'EACCES',
+                'EPERM',
+                'ENOENT',
+                'ENOTDIR',
+                'EISDIR',
+                'ENAMETOOLONG',
+                'ELOOP',
+                'EMFILE',
+                'ENFILE',
+                'ENOSPC',
+                'EROFS',
+                'EIO',
+              ] as const
+            ).find((value) => value === code) ?? 'unknown',
+          syscall:
+            (
+              ['scandir', 'readdir', 'lstat', 'stat', 'realpath', 'open', 'read', 'close'] as const
+            ).find((value) => value === syscall) ?? null,
+        },
     result,
   };
 }

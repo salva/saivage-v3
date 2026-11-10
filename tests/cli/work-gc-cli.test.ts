@@ -58,7 +58,7 @@ it('default and explicit preview send the same strict mode only to the published
     requests.push({ path: request.url, body });
     reply.writeHead(status, { 'content-type': 'application/json' });
     reply.end(JSON.stringify(status === 200 ? { mode: body.mode, disposition: 'refused',
-      reason: 'maintenance_refused', restoration: 'not_acquired', result: null } : {}));
+      reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EACCES', syscall: 'open' }, result: null } : {}));
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address();
@@ -72,7 +72,7 @@ it('default and explicit preview send the same strict mode only to the published
     try {
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('runtime control unavailable');
       publishRuntimeControlEndpoint(lock, { origin: `http://127.0.0.1:${address.port}`, auth: 'disabled' });
-      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const output = jest.spyOn(console, 'log').mockImplementation(() => {});
       for (const args of [[], ['--dry-run'], ['--delete']])
         await run(['node', 'saivage', 'gc-work', ...args, '--before', '2026-10-24T12:00:00+02:00', '--target-bytes', '0']);
       expect(requests.map(request => request.path)).toEqual(Array(3).fill('/api/runtime/gc-work'));
@@ -80,6 +80,11 @@ it('default and explicit preview send the same strict mode only to the published
       expect(bodies[0]).toEqual(bodies[1]);
       expect(bodies[0]).toEqual({ mode: 'dry_run', before: '2026-10-24T12:00:00+02:00', target_bytes: 0 });
       expect(bodies[2].mode).toBe('delete');
+      expect(process.exitCode).toBe(1);
+      expect(output.mock.calls.map(([text]) => JSON.parse(text as string))).toEqual(
+        bodies.map(({ mode }) => ({ mode, disposition: 'refused', reason: 'maintenance_refused',
+          restoration: 'not_acquired', failure: { code: 'EACCES', syscall: 'open' }, result: null })),
+      );
       status = 401;
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('401');
       expect(requests).toHaveLength(4);

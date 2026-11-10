@@ -217,7 +217,10 @@ reports hypothetical would-delete effects; delete reports only known removals.
 Remaining accounted logical bytes are estimates, never whole-root/physical/free-space
 claims. A separate delete always starts fresh, not from a preview report. First
 failure ends collection; outcome uncertainty is fatal before reporting, cleanup or
-resume. This optional operation introduces no public maintenance status, automatic
+resume. Ordinary failures expose only bounded allowlisted original filesystem code
+and syscall metadata, never messages, stacks, paths or other private error content;
+unrecognized metadata is `unknown`/null, and completion/cancellation has no diagnostic.
+Uncertainty remains terminal before any normal response/output. This optional operation introduces no public maintenance status, automatic
 schedule, saved job or durable GC event/report.
 
 Analyst tool composition separates the configured policy identity and effective
