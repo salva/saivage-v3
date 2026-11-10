@@ -138,7 +138,37 @@ export const readAgentSessionInputSchema = z.union([
     })
     .strict(),
   z.object({ ...readAgentSessionSharedInput, section: z.literal('context') }).strict(),
+  z
+    .object({
+      ...readAgentSessionSharedInput,
+      section: z
+        .literal('diagnostics')
+        .describe(
+          'Readable actual current-segment diagnostic rows; excludes inherited synthesized notices.',
+        ),
+      last_n: z
+        .number()
+        .int()
+        .min(1)
+        .max(1000)
+        .optional()
+        .describe('Diagnostic tail limit after kind selection; defaults to 50.'),
+    })
+    .strict(),
+  z
+    .object({
+      ...readAgentSessionSharedInput,
+      section: z
+        .literal('message')
+        .describe('Exact current-visible entry, losslessly paged if necessary.'),
+      message_id: z
+        .string()
+        .min(1)
+        .describe('Exact visible message ID, including entries outside the default tail.'),
+    })
+    .strict(),
 ]);
+export type ReadAgentSessionInput = z.infer<typeof readAgentSessionInputSchema>;
 export const readRuntimeEventsInputSchema = z
   .object({
     limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(),

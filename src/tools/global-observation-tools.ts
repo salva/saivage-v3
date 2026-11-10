@@ -35,6 +35,7 @@ import { toolFailureFromError } from './analyst-tool-helpers.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES, packCollectionData } from './response-packer.js';
 import type { QueueNotificationToolInput } from './notification-tool.js';
 import type { ToolExecutionResult } from './invocation.js';
+import type { ReadAgentSessionInput } from '../contracts/builtin-tool-inputs.js';
 
 const DEFAULT_LIMIT = 50;
 
@@ -97,12 +98,14 @@ function packed(
   responseBytes: number | undefined,
   key: string,
   base: Record<string, unknown> = {},
+  wholeItems = false,
 ): ToolActionOutcome {
   const { data } = packCollectionData({
     cap: responseBytes ?? DISCOVERY_RESPONSE_MAX_BYTES,
     total: items.length,
     position: position ?? { item_index: 0, item_byte_offset: 0 },
     item: (index) => items[index]!,
+    wholeItems,
     render: (page) => ({ ...base, [key]: page }),
   });
   return toolSucceeded(data);
@@ -125,20 +128,26 @@ async function listAgentSessions(
 
 async function readAgentSession(
   ctx: GlobalObservationToolContext,
-  input: {
-    session_id: ConversationSessionId;
-    section?: 'messages' | 'context';
-    last_n?: number;
-    position?: { item_index: number; item_byte_offset: number };
-    response_bytes?: number;
-  },
+  input: ReadAgentSessionInput,
 ): Promise<ToolActionOutcome> {
   try {
-    const response = new AgentOperatorReadModelService(
+    const service = new AgentOperatorReadModelService(
       ctx.projectRoot,
       ctx.store.workflows,
       ctx.captureExecutingLlmSnapshots,
-    ).readCurrentSegmentTail(input.session_id, input.last_n ?? DEFAULT_LIMIT);
+    );
+    const response =
+      input.section === 'diagnostics' || input.section === 'message'
+        ? service.readCurrentNavigation(
+            input.session_id,
+            input.section === 'diagnostics'
+              ? { section: 'diagnostics', lastN: input.last_n ?? DEFAULT_LIMIT }
+              : { section: 'message', messageId: input.message_id },
+          )
+        : service.readCurrentSegmentTail(
+            input.session_id,
+            'last_n' in input ? (input.last_n ?? DEFAULT_LIMIT) : DEFAULT_LIMIT,
+          );
     if (response.kind === 'empty')
       return toolFailed('Agent session has no current conversation segment.', {
         code: 'agent_session_empty',
@@ -154,14 +163,34 @@ async function readAgentSession(
       has_segment_context: response.conversation.segmentContext !== null,
       total_visible_entries: response.conversation.totalEntries,
     };
-    return section === 'messages'
-      ? packed(
-          response.conversation.entries,
+    const conversation = response.conversation;
+    if ('kind' in conversation) {
+      if (conversation.kind === 'diagnostics')
+        return packed(
+          conversation.diagnostics,
           input.position,
           input.response_bytes,
-          'messages',
-          base,
-        )
+          'diagnostics',
+          { ...base, ...conversation.coverage },
+          true,
+        );
+      if (!conversation.match)
+        return toolFailed('Agent message not found in the current visible segment.', {
+          code: 'agent_message_not_found',
+          session_id: input.session_id,
+          segment_id: conversation.segmentId,
+          segment_version: conversation.segmentVersion,
+        });
+      return packed([conversation.match.entry], input.position, input.response_bytes, 'message', {
+        ...base,
+        entry_origin: conversation.match.origin,
+        ...(conversation.match.origin === 'carried_synthesized_notice'
+          ? { original_event_metadata: 'not_available' }
+          : {}),
+      });
+    }
+    return section === 'messages'
+      ? packed(conversation.entries, input.position, input.response_bytes, 'messages', base)
       : packed(
           response.conversation.segmentContext === null
             ? []
@@ -282,7 +311,7 @@ export const globalObservationToolBinders: readonly ToolBinder<
   defineToolBinder({
     name: 'read_agent_session',
     description:
-      "Read one bounded section of a canonical admitted agent session. Messages are the default selected tail. When has_segment_context is true and prior compacted history matters, read section 'context', then page messages.",
+      "Read a bounded canonical admitted session. For failure/activation questions start with section 'diagnostics': readable actual current-segment rows, filtered before last_n (default 50), excluding inherited notices. Compare row timestamps and recorded caller linkage in explicitly named parent/child sessions before calling a failure fresh. Counts/endpoints describe only the selected segment/tail; next=null exhausts that tail, not lifetime history. Previews are redacted UTF-8 excerpts, not conclusions; success does not prove child execution. Inspect detail with section 'message' and exact message_id. Messages remain the default tail. When has_segment_context is true and prior compacted history matters, read section 'context', then page messages. Carried synthesized notices have no original event metadata: their epoch/coordinates are placeholders, not fresh evidence. For sliced message/context items hex-decode content_hex chunks, concatenate at decoded-byte positions, then UTF-8-decode and JSON-parse the whole item. Copy next unchanged with the same query; never use a final slice endpoint as continuation. Positions are stateless: compare exact segment UUID/version and coverage endpoints; changed rows/selection require fresh observation, not automatic retry. Diagnostics uses whole items and zero item_byte_offset only; raise response_bytes if an item cannot fit. Use get_card for current lifecycle, get_status for runtime; absent/truncated evidence is not proof of absence. Unknown effects never authorize replay.",
     resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
     inputSchema: () => readAgentSessionInputSchema,
     executor: (ctx, args) =>

@@ -1467,7 +1467,7 @@ Missing current-format facts and unsupported old/mixed contracts fail.
 One canonical durable conversation state machine owns exact session and message identity, source classification, tool call/result settlement and ordering, source rounds/segments, provider bundles, atomic compaction-prefix validation, protected prompts, required model facts, and the zero-or-one final-source unmatched-call rule.
 Its in-memory adapter returns immutable `ValidatedConversation` physical/source rows and derived durable facts.
 Append admission, `readConversation`, complete Agent transcripts, bounded `read_agent_session`, compaction source selection, ordinary provider source selection, Supervisor card-chain recovery, and exact selected card-session activation settlement consume this grammar or its facts.
-`GET /api/agents/:id/conversation` returns exactly `{session_id,segment_id,segment_version,segment_context,entries,cursor:{segment_id,segment_version,message_id}}` only after complete exact validation. `segment_id` is the selected immutable segment's `entry_id` UUID, not a generated read token. Selected conversation history returns exactly `{session_id,version,entry_id,published_at,segment_context,entries}`. Its ordinal selects from the present catalog; it is not an immutable identity handle. An ordinary format-12 segment has `segment_context:null`; each compacted version has exactly `{kind,source_version,covered_through_message_id,summary_text,protected_prompts,required_model_facts,continuation}` as strict separately projected context, also shared by `read_agent_session`. No checksum-only lineage, group counts, disposition accounting, or coverage objects are exposed. Segment identity, cursors, and navigation are unchanged.
+`GET /api/agents/:id/conversation` returns exactly `{session_id,segment_id,segment_version,segment_context,entries,cursor:{segment_id,segment_version,message_id}}` only after complete exact validation. `segment_id` is the selected immutable segment's `entry_id` UUID, not a generated read token. Selected conversation history returns exactly `{session_id,version,entry_id,published_at,segment_context,entries}`. Its ordinal selects from the present catalog; it is not an immutable identity handle. An ordinary current-format segment has `segment_context:null`; each compacted version has exactly `{kind,source_version,covered_through_message_id,summary_text,protected_prompts,required_model_facts,continuation}` as strict separately projected context, also shared by `read_agent_session`. No checksum-only lineage, group counts, disposition accounting, or coverage objects are exposed by these transcript responses. Segment identity, cursors, and navigation are unchanged.
 Incremental reads require `segment_id`, `segment_version`, and opaque equality token `since` together; omission of all three selects a complete current read. Identity or version mismatch returns `409 conversation_segment_changed` with requested/current IDs and versions before any cursor lookup, even if both incarnations retain that row. A missing token within the matching segment is `400 conversation_cursor_not_found`, carrying the segment ID/version. Later outward rows are selected only after complete validation, and the cursor advances over filtered provider-private rows. An empty established catalog still has no current segment or segment identity; no placeholder UUID is invented.
 A sole final unmatched call has no active, waiting, pending, or snapshot meaning. When a later ordinary card workflow selects that exact configured session for imminent activation, or a later explicit submission is newly admitted to the configured global Analyst session in an already-running server, the consuming owner may pair it with one permanent synthetic failed result stating exactly `Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.` The result preserves the old source input, call, tool, and persisted result-policy template bytes/hash, carries exactly `{outcome_unknown:true}` and evidence `none`, and is appended immediately before the fresh activation marker. It neither continues nor replays the old invocation and appends no recovery notice.
 Fresh [startup recovery](#startup-and-run-recovery) uses the same permanent
@@ -1488,6 +1488,53 @@ Current inspection admits `get_card.id`, `get_tree.rootId`, and optional `list_c
 
 Planner create/edit titles reject empty or whitespace-only input in the argument schema without trimming meaningful title bytes; optional card urgency is exactly `low | normal | high | critical`, defaulting to `normal` for create. These invalid arguments settle before executor entry and do not fail the activation. Analyst create's missing dependency and depth denials, and delete's missing/root/running-subtree denials, are executed failed results with one denied audit; multi-root running admission precedes all deletions, so a blocked later root leaves earlier roots intact. The model may continue after those denials. Strict store corruption, survivor-dependency failures, and other unclassified domain errors are not generalized into denials.
 Successful `list_agent_sessions` and `list_processes_tool` data contain byte-packed `sessions` and `processes` pages. Successful `read_runtime_events` and `read_runtime_errors` data contain byte-packed `events` and `errors` pages whose page total is the selected newest tail and whose separate `total_lines` is the full matching retained line count. `read_agent_session` selects one byte-packed section: omitted or `section:'messages'` returns `{session,ownership,segment_id,segment_version,section:'messages',has_segment_context,total_visible_entries,messages}`, where `messages.total` is the selected last-N tail count; `section:'context'` returns the same metadata with `section:'context'` and a zero-or-one-item `context` page containing the complete current projected segment-context object, using ordinary JSON slices when necessary. Context accepts no `last_n`. All pages are fresh stateless observations, redact before packing, and measure the complete settled success envelope against `response_bytes`. Continuation positions do not confer a snapshot; consumers compare the returned exact segment identity across pages rather than trusting equal numeric versions.
+
+`section:'diagnostics'` uses the same admitted strict current-segment read and
+common metadata, with a whole-item `diagnostics` collection. Select actual rows
+of kinds `activity`, `model_issue`, `model_recovered`, `content_policy_refusal`,
+`tool_call` and `tool_result` in source order **before** applying `last_n`
+(1–1000, default 50). Narrative text, prepared instructions and inherited
+synthesized notices are not diagnostic evidence. Each item preserves exact public
+message identity, timestamp, kind, role, round and message/block coordinates with
+`origin:'segment_row'`, plus recorded tool/call identity where present. Activation
+items expose event/input ID and instruction availability; prepared metadata adds
+activation/node ID and recorded caller linkage, omitting role/node/parent text and
+card title with `instructions_omitted:true`. Other items contain a redacted
+UTF-8-safe prefix of at most 512 bytes, `preview_utf8_bytes`,
+`content_utf8_bytes` and `preview_complete`. Stable redaction spans are not split.
+These counts describe the complete public preview source, not private stored
+bytes. Failed tool results preview the error, successful results the public result
+JSON; both expose factual `success` and recorded `settlement_origin`. Calls and
+results stay separate; no pairing, causal inference or execution proof is added.
+
+Diagnostic metadata includes `scope:'current_segment_rows'`,
+`total_diagnostic_entries` before tail selection, `selected_diagnostic_entries`,
+`omitted_earlier_diagnostic_entries`, and selected source-order
+`first_message_id`, `last_message_id`, `first_timestamp`, `last_timestamp`
+(null when empty). Inherited notices count only in `total_visible_entries`, never
+these diagnostic counts/endpoints. `historical_segments_included:false` and
+`inherited_notices_included:false` disclose scope, not historical absence.
+`next:null` exhausts only the selected tail. A zero-match result is not proof of
+no prior activation/failure. Summaries are authored context, not fresh execution
+evidence. Diagnostic positions require zero `item_byte_offset`; an item plus its
+fixed settled envelope that cannot fit raises the ordinary budget-too-small
+failure, never hex slicing or identifier truncation.
+
+`section:'message',message_id` resolves an exact ID across current visible entries,
+not merely the default tail, and rejects `last_n`. It returns common metadata and
+a one-item losslessly packed `message` page with the unchanged public/redacted
+entry. Outside that possibly sliced entry, `entry_origin` is `segment_row` or
+`carried_synthesized_notice`; the latter also supplies
+`original_event_metadata:'not_available'`. Its epoch/round/ordering fields are
+projection placeholders, not original historical event facts. Missing IDs fail
+with `agent_message_not_found` and the selected segment locator; there is no
+historical fallback. Decode hex chunks, concatenate at decoded-byte positions,
+then UTF-8-decode and JSON-parse the whole item. Copy `next` unchanged with the
+same query; a final slice endpoint is not a continuation. Compare exact segment
+identity and coverage endpoints; even an unchanged segment UUID can grow. Changed
+selection/rows require a fresh observation, not snapshot/retry machinery.
+Current card lifecycle and runtime status remain `get_card`/`get_status`
+observations; unknown effects never authorize replay.
 A failure is the one top-level `{success:false,error,data?}` ToolResult.
 Persisted result `data` remains opaque unknown JSON.
 

@@ -1,5 +1,13 @@
 # Prompt handling
 
+Selected `read_agent_session` tool help owns diagnostic-first navigation, exact
+visible-entry inspection, coverage limitations and lossless hex-slice decoding
+for Analyst and Oversight. Existing role-level compacted-context guidance remains
+applicable. This is not a recovery skill or an automatic update of materialized
+role files; the selected bound tool definition delivers the guidance with each
+prepared request. Offline compositions establish delivery structure, not model
+understanding or live incident resolution.
+
 Selected quality-tool descriptions own the concise direction to analyze the bound
 scope, inspect coverage/full work evidence and use ordinary assessment. They are
 absent from default agent selections and do not prescribe automatic fixes, record

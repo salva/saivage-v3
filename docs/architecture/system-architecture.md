@@ -1186,10 +1186,21 @@ head files. Current reads are observations; immutable version tools alone emit
 retained locators/hashes.
 
 Shared collection packing measures final settled envelope, with stateless continuation
-and lowercase-hex JSON byte slices for complete projected items. Scalar summary/
+and lowercase-hex JSON byte slices for complete projected items. The global
+`read_agent_session` diagnostics section instead uses whole-item packing: nonzero
+item byte offsets reject, and an item that cannot fit refuses the budget rather
+than producing hex. Its conversation owner strictly reads the admitted current
+segment once and projects actual diagnostic rows before last-N selection. Typed
+activation metadata omits prepared instruction text; redacted UTF-8 previews
+remain excerpts. Counts and source-order endpoints disclose selected-tail scope,
+not lifetime coverage or a snapshot. Inherited synthesized notices never enter
+diagnostics; exact `message_id` lookup can inspect either an actual row or a
+labeled synthesized notice with unavailable original event metadata. Default
+messages, compacted context and exact-entry details retain lossless slicing;
+UI/full transcripts and strict consumed-state validation are unchanged. Scalar summary/
 workflow rejects position; historical children page stored carrier without live-child
-claims. Plain text/diffs use their own slices. Process/MCP/session/diagnostic/control
-surfaces do not join that paging API. Bounded webfetch owns one reader; metadata GET
+claims. Plain text/diffs use their own slices. These tool pages do not change
+process/MCP/session/diagnostic/control operator-API pagination. Bounded webfetch owns one reader; metadata GET
 discards bodies by awaited cancellation. Only successful no-save text overflow can
 retain normalized raw source to exact stash and return certified redacted head/count/
 pointer under final-envelope budget. Binary/non-2xx/save paths fail max bytes.

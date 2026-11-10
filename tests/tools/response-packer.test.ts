@@ -22,6 +22,23 @@ import { redactTextForOutbound, redactTextWithStablePrefixesForOutbound } from '
 const envelope = (data: unknown): number => Buffer.byteLength(canonicalJson({ success: true, data }), 'utf8');
 
 describe('response packer primitives', () => {
+  it('whole-item mode keeps exact settled pages, refuses byte offsets and never slices an unfit item', () => {
+    const values = [{ id: 'a', preview: 'é'.repeat(80) }, { id: 'b', preview: '🚀'.repeat(40) }];
+    const input = { cap: 400, total: 2, position: { item_index: 0, item_byte_offset: 0 }, wholeItems: true, item: (index: number) => values[index], render: (page: unknown) => ({ diagnostics: page }) };
+    const first = packCollectionData(input);
+    expect(first.page.items).toEqual([values[0]]);
+    expect(first.page.next).toEqual({ item_index: 1, item_byte_offset: 0 });
+    expect(Buffer.byteLength(settledSuccessBytes(first.data))).toBeLessThanOrEqual(input.cap);
+    const second = packCollectionData({ ...input, position: first.page.next! });
+    expect(second.page.items).toEqual([values[1]]);
+    expect(second.page.next).toBeNull();
+    expect(() => packCollectionData({ ...input, position: { item_index: 0, item_byte_offset: 1 } })).toThrow(DiscoveryCollectionPositionError);
+    expect(() => packCollectionData({ ...input, position: { item_index: 2, item_byte_offset: 1 } })).toThrow(DiscoveryCollectionPositionError);
+    expect(() => packCollectionData({ ...input, cap: 180 })).toThrow(DiscoveryBudgetTooSmallError);
+    expect(packCollectionData({ ...input, total: 0 }).page).toMatchObject({ returned: 0, items: [], next: null });
+    // Existing callers still get lossless JSON slicing at the same small budget.
+    expect(packCollectionData({ ...input, wholeItems: false, cap: 512, item: () => ({ id: 'oversized', preview: 'é'.repeat(1000) }) }).page.items[0]).toHaveProperty('content_hex');
+  });
   it.each([
     ['sk-synthetic123', 'sk'], ['tid=synthetic123', 'tid'],
     ['ghu_synthetic123', 'ghu'], ['rt_synthetic123', 'rt'], ['tok_synthetic123', 'tok'],

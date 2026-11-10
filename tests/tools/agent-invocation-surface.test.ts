@@ -37,6 +37,11 @@ import {
   composeContextProjection,
   providerConversationFromComposedContext,
 } from '../../src/runtime/actors/context/composition-projector.js';
+import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
+import { formatVocabularySnippet } from '../../src/tools/prompt-api.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 
 function expectRecordReaderPreparedDelivery(surface: Parameters<typeof surfaceToolDefinitions>[0]) {
   const tools = surfaceToolDefinitions(surface);
@@ -262,6 +267,47 @@ const expected = {
 } as const;
 
 describe('named-agent inventories and composition', () => {
+  it.each(['analyst', 'oversight'] as const)('delivers the actual bound %s session navigation and result through offline provider requests with its selected role', async (agentName) => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-diagnostic-composition-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const workflows = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never);
+    const selected = workflows.agents.get(agentName)!;
+    const store = new CardService(projectRoot);
+    const processRunner = { closeAndTerminateDirectScope: async () => ({ failed: [] }) } as never;
+    const observationToolContext = { agentName, projectRoot, store, processRunner, eventQueries: {} as never, runtime: { getStatus: () => ({ status: 'stopped' as const, currentCardId: null, pid: 1, startedAt: '2026-11-10T00:00:00.000Z' }) }, queueNotification: async () => { throw new Error('not invoked'); }, captureExecutingLlmSnapshots: () => new Map() };
+    const vocabulary = [...workflows.cardTypes.keys()];
+    const surface = new BoundAgentToolSet(selected.tools).bind({ scope: 'global', agentName, projectRoot, store, processRunner, processScope: {} as never, processOwnerId: 'offline-composition', mcpToolInvocation: {} as never, retrieval: createObservedCollections(projectRoot), analystToolContext: { ...observationToolContext, cardTypeVocabulary: vocabulary } as unknown as ToolContext, observationToolContext, cardTypeVocabulary: vocabulary });
+    const sessionId = `agent:${agentName}:global` as const;
+    const timestamp = '2026-11-10T00:00:00.000Z';
+    appendConversationBatch({ projectRoot }, [{ id: 'narrative-only', session_id: 'agent:planner:project', timestamp, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'Old reported failure, not an observed diagnostic.', round_id: 'r-user-11111111111141118111111111111111', message_index: 0, block_index: 0 }]);
+    const reader = surface.tools.get('read_agent_session')!;
+    const args = reader.inputSchema.parse({ session_id: 'agent:planner:project', section: 'diagnostics' });
+    const execution = await reader.executor(args, new AbortController().signal);
+    if (execution.providerOutcome.kind !== 'succeeded') throw new Error(execution.providerOutcome.error);
+    expect(execution.providerOutcome.data).toMatchObject({ total_diagnostic_entries: 0, scope: 'current_segment_rows' });
+    const tools = surfaceToolDefinitions(surface);
+    const definition = tools.find(tool => tool.function.name === 'read_agent_session')!;
+    expect(definition.function.description).toBe(reader.description);
+    const systemPrompt = createPromptTemplateRegistry(workflows).render({ kind: 'global-agent' }, agentName, { vocabularySnippet: formatVocabularySnippet(vocabulary) });
+    const content = JSON.stringify({ success: true, data: execution.providerOutcome.data });
+    const policies = toolRowPolicies({ content });
+    const inputId = '11111111-1111-4111-8111-111111111111';
+    const common = { session_id: sessionId, timestamp, round_id: 'r-assistant-11111111111141118111111111111111', message_index: 1, block_index: 0, tool: 'read_agent_session', tool_call_id: 'diagnostic-read' };
+    const providerConversation = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: sessionId, effectiveHistory: null, dynamicBlocks: [], uncoveredRows: [
+      { ...common, id: `${inputId}:tool-call:diagnostic-read`, role: 'assistant', kind: 'tool_call', context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'diagnostic-read', type: 'function', function: { name: 'read_agent_session', arguments: JSON.stringify(args) } }] }) },
+      { ...common, id: `${inputId}:tool-result:diagnostic-read`, role: 'tool', kind: 'tool_result', context_policy: policies.result, content },
+    ] }));
+    for (const transportProtocol of ['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const) {
+      const plan = buildCandidateRequest({ candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, adapter: selectLlmProtocolAdapter(transportProtocol), capabilities: { transportProtocol, imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] }, systemPrompt, providerConversation, options: { providerSessionId: 'offline-session-navigation', inputId, temperature: 0, max_tokens: 512, contract_id: 'session-navigation', contractName: 'session-navigation', terminalToolOffered: [], tools, tool_choice: 'auto' } });
+      const prepared = JSON.parse(plan.request.serializedBody);
+      expect(prepared.tools.find((tool: any) => (tool.function?.name ?? tool.name) === 'read_agent_session')).toEqual(transportProtocol === 'openai-chat-completions' ? definition : { type: 'function', ...definition.function });
+      expect(JSON.stringify(prepared)).toContain(JSON.stringify(systemPrompt).slice(1, -1));
+      expect(plan.request.serializedBody).toContain('current_segment_rows');
+      expect(plan.request.serializedBody).toContain('diagnostic-read');
+    }
+    await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: 'done' });
+  });
   it.each(SYSTEM_TEMPLATES)(
     'compiles the exact $name named inventory in declared order without MCP reconcile',
     (template) => {

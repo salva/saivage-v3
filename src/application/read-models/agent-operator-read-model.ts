@@ -25,6 +25,7 @@ import {
   ConversationCursorNotFoundError,
   ConversationSegmentChangedError,
   foldConversation,
+  readConversationNavigation,
   foldHistoricalConversationRows,
   segmentContext,
   coveredRequiredFactRows,
@@ -304,6 +305,21 @@ export class AgentOperatorReadModelService {
   }
 
   readCurrentSegmentTail(sessionId: ConversationSessionId, lastN: number) {
+    return this.readCurrentSelection(sessionId, () =>
+      foldConversation(this.projectRoot, sessionId, { lastN }),
+    );
+  }
+
+  readCurrentNavigation(
+    sessionId: ConversationSessionId,
+    query: Parameters<typeof readConversationNavigation>[2],
+  ) {
+    return this.readCurrentSelection(sessionId, () =>
+      readConversationNavigation(this.projectRoot, sessionId, query),
+    );
+  }
+
+  private readCurrentSelection<T>(sessionId: ConversationSessionId, read: () => T) {
     const snapshots = this.captureExecutingLlmSnapshots();
     const catalog = this.admitConversationCatalog(sessionId);
     const identity = conversationSessionIdentity(sessionId);
@@ -325,7 +341,7 @@ export class AgentOperatorReadModelService {
         kind: 'populated' as const,
         ownership,
         session,
-        conversation: foldConversation(this.projectRoot, sessionId, { lastN }),
+        conversation: read(),
       };
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);

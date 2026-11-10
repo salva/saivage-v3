@@ -23,6 +23,23 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Readable agent-session diagnostics from actual source parent
+`39fdc6003edf43458cc091569c7e24c3dc700e59` adds read-time `read_agent_session`
+diagnostics and exact-message queries only. No durable family or discriminator
+changes: conversation index/genesis/envelope13, shared provider/app envelope2,
+card-head1/history6/mailbox1, record-head3/accepted6, execution3, workflow6 and
+capabilities1 remain unchanged. `ToolResultSchema.data` is opaque; historical
+`tool-invocation-outbound` arguments/results remain generic outbound projections,
+not current query admission or nested-data reinterpretation. Regression coverage
+preserves old message/context wrappers and new diagnostic data. Inherited
+required-fact slots and their synthesized notices are unchanged: diagnostics
+excludes them, while exact visible-entry lookup labels their unavailable original
+event metadata outside the unchanged entry. No retained conversion, provenance,
+selection, compaction or layout change applies. Matching source-built definitions
+and runtime expose the new queries; this change alone requires no migration.
+Installed-release applicability and whole-release compatibility remain separate,
+unknown here; no deployment, reset, migration or runtime fallback is authorized.
+
 Filesystem scoped-URL punctuation correction from actual source parent
 `0745bfbcebd34deb210bba1d117320902684cd5c` changes filesystem/API addressability,
 not a durable contract. The shared segment codec admits encoded literal `#`/`?`

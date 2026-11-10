@@ -28,6 +28,31 @@ const sessionId = parseConversationSessionId('agent:planner:project');
 const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
+it('keeps historical old/new session queries and nested observational data opaque to current admission', () => {
+  for (const args of [
+    { session_id: sessionId, last_n: 1 },
+    { session_id: sessionId, section: 'context' },
+    { session_id: sessionId, section: 'diagnostics', last_n: 1 },
+    { session_id: sessionId, section: 'message', message_id: 'exact-message' },
+    { session_id: sessionId, section: 'historical-unrecognized-query', opaque: { prior: true } },
+  ]) {
+    const data = { opaque_old_wrapper: { messages: { items: [{ content: '{"nested":"unchanged"}' }] } }, diagnostics: { items: [{ message_id: 'exact-message', preview: 'safe text', unknown_historical_field: { retained: true } }] }, nested: { success: true, data: { message: { items: [] } } } };
+    const projected = projectToolInvocation({ shape: 'complete', identity: { sessionId, sourceInputId, toolCallId: 'historical-query', toolName: 'read_agent_session' }, arguments: args, result: { success: true, data } });
+    expect(projected).toMatchObject({ arguments: args, result: { success: true, data } });
+    expect(projectToolInvocation(projected)).toEqual(projected);
+  }
+});
+
+it('redacts exact-message query text in live and historical call arguments without changing ordinary identities', () => {
+  const input: ToolInvocationProjectionInput = { shape: 'complete', identity: { sessionId, sourceInputId, toolCallId: 'exact-query', toolName: 'read_agent_session' }, arguments: { session_id: sessionId, section: 'message', message_id: `id token=${OUTBOUND_RAW_MARKER}` }, result: { success: false, error: 'not found' } };
+  const historical = projectToolInvocation(input);
+  const live = projectLiveToolInvocation(input);
+  expect(historical).toEqual(live);
+  expect(historical).toMatchObject({ arguments: { session_id: sessionId, section: 'message', message_id: 'id token=[REDACTED]' } });
+  expect(JSON.stringify(historical)).not.toContain(OUTBOUND_RAW_MARKER);
+  expect(projectToolInvocation(historical)).toEqual(historical);
+});
+
 const validArguments: Record<KnownToolInvocationName, unknown> = {
   checkpoint_source: {},
   code_quality_javascript_eslint: {},

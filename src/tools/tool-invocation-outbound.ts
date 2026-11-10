@@ -242,6 +242,8 @@ function projectValidArguments(
       return copyWithText(input, ['instructions']);
     case 'queue_notification':
       return copyWithText(input, ['body']);
+    case 'read_agent_session':
+      return copyWithText(input, ['message_id']);
     case 'edit_card':
       return copyWithText(input, ['title']);
     case 'navigate_workspace': {
@@ -322,7 +324,6 @@ function projectValidArguments(
     case 'read_control_actions':
     case 'list_processes_tool':
     case 'list_agent_sessions':
-    case 'read_agent_session':
     case 'get_card':
     case 'get_tree':
     case 'list_card_versions':

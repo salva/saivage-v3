@@ -71,12 +71,13 @@ export async function requireCompacted(
   projectRoot: string,
   strategy: 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission',
   summaryText: string,
+  tailFraction = POLICY.tail_fraction,
 ): Promise<void> {
   const conversation = readConversation(projectRoot, SESSION);
   const result = await compact({ summaryRefusal: null,
     strategy,
     conversations: { projectRoot },
-    input: invocation(conversation),
+    input: invocation(conversation, tailFraction),
     summarizerProvider: {
       candidate: CANDIDATE,
       contextWindowTokens: 100_000,
@@ -95,8 +96,8 @@ export async function requireCompacted(
   if (result.kind !== 'compacted') throw new Error(`Expected fixture compaction, got ${result.kind}.`);
 }
 
-function invocation(conversation: ValidatedConversation): PreparedLlmInvocationInput {
-  const preparedCompaction = prepareCompaction(POLICY, 'system', [], 8_000, 2_000);
+function invocation(conversation: ValidatedConversation, tailFraction: number): PreparedLlmInvocationInput {
+  const preparedCompaction = prepareCompaction({ ...POLICY, tail_fraction: tailFraction }, 'system', [], 8_000, 2_000);
   return {
     inputId: '00000000-0000-4000-8000-000000000099',
     agentId: SESSION,

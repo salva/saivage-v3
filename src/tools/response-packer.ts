@@ -144,6 +144,7 @@ export function packCollectionData(
     total: number;
     position: CollectionPosition;
     maxItems?: number;
+    wholeItems?: boolean;
     item: (index: number) => unknown;
     render: (page: CollectionPage) => unknown;
   }>,
@@ -156,6 +157,8 @@ export function packCollectionData(
   }
 
   const emitted: unknown[] = [];
+  if (input.wholeItems && input.position.item_byte_offset !== 0)
+    throw new DiscoveryCollectionPositionError();
   const pageOf = (items: readonly unknown[], next: CollectionPosition | null): CollectionPage => ({
     total: input.total,
     position: input.position,
@@ -236,6 +239,7 @@ export function packCollectionData(
       return renderPage(emitted, { item_index: index, item_byte_offset: 0 });
     }
 
+    if (input.wholeItems) throw new DiscoveryBudgetTooSmallError(input.cap);
     const completeSlice = sliceOf(itemBytes, itemByteOffset, itemBytes.length);
     if (fits([...emitted, completeSlice], completedNext)) {
       emitted.push(completeSlice);

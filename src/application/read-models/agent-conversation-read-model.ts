@@ -14,6 +14,7 @@ import type { ConversationSegmentContext } from '../../contracts/index.js';
 import type { AgentConversationEntry } from '../../contracts/index.js';
 import { projectToolInvocation } from '../../tools/tool-api.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
+import { projectConversationDiagnostic } from './agent-conversation-diagnostics.js';
 
 export interface FoldedConversation {
   readonly sessionId: ConversationSessionId;
@@ -63,12 +64,12 @@ export function foldConversation(
       segment.entry.entry_id,
     );
 
-  const rows = [...coveredRequiredFactRows(segment), ...segment.rows];
+  const rows = visibleRows(segment);
   const selected: AgentConversationEntry[] = [];
   let cursorFound = options.since === undefined;
   let cursor: string | null = options.since ?? null;
   let totalEntries = 0;
-  for (const row of rows) {
+  for (const { row } of rows) {
     if (options.since !== undefined && !cursorFound) {
       if (row.id === options.since) cursorFound = true;
       continue;
@@ -90,6 +91,63 @@ export function foldConversation(
     segmentId: segment.entry.entry_id,
     segmentContext: segmentContext(segment.genesis),
   });
+}
+
+export function readConversationNavigation(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+  query: { section: 'diagnostics'; lastN: number } | { section: 'message'; messageId: string },
+) {
+  const segment = readCurrentConversationSegment(projectRoot, sessionId);
+  if (!segment) throw new ConversationHistoricalVersionNotFoundError();
+  const visible = visibleRows(segment)
+    .filter(({ row }) => row.kind !== 'provider_private')
+    .map(({ row, origin }) => ({
+      entry: projectCanonicalConversationRow(stripProviderProjection(row), projectToolInvocation),
+      origin,
+    }));
+  const common = {
+    segmentVersion: segment.entry.version,
+    segmentId: segment.entry.entry_id,
+    segmentContext: segmentContext(segment.genesis),
+    totalEntries: visible.length,
+  };
+  if (query.section === 'message') {
+    const match = visible.find(({ entry }) => entry.id === query.messageId);
+    return { ...common, kind: 'message' as const, match };
+  }
+  const diagnostics = visible.flatMap(({ entry, origin }) => {
+    const diagnostic = origin === 'segment_row' ? projectConversationDiagnostic(entry) : null;
+    return diagnostic === null ? [] : [diagnostic];
+  });
+  const selected = diagnostics.slice(-query.lastN);
+  return {
+    ...common,
+    kind: 'diagnostics' as const,
+    diagnostics: selected,
+    coverage: {
+      scope: 'current_segment_rows' as const,
+      total_diagnostic_entries: diagnostics.length,
+      selected_diagnostic_entries: selected.length,
+      omitted_earlier_diagnostic_entries: diagnostics.length - selected.length,
+      first_message_id: selected[0]?.message_id ?? null,
+      last_message_id: selected.at(-1)?.message_id ?? null,
+      first_timestamp: selected[0]?.timestamp ?? null,
+      last_timestamp: selected.at(-1)?.timestamp ?? null,
+      historical_segments_included: false,
+      inherited_notices_included: false,
+    },
+  };
+}
+
+function visibleRows(segment: ConversationSegment) {
+  return [
+    ...coveredRequiredFactRows(segment).map((row) => ({
+      row,
+      origin: 'carried_synthesized_notice' as const,
+    })),
+    ...segment.rows.map((row) => ({ row, origin: 'segment_row' as const })),
+  ];
 }
 
 export function segmentContext(genesis: ConversationSegmentGenesis): ConversationSegmentContext {
