@@ -87,7 +87,7 @@ async function canonicalBytes(root: string): Promise<Map<string, Buffer>> {
     return value;
   }) as typeof read);
   try {
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async () => {});
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async () => {}, operational: async () => {} });
   } finally { spy.mockRestore(); }
   expect(bytes.size).toBeGreaterThan(0);
   return bytes;
@@ -106,6 +106,155 @@ function toolExchange(tool: string, content: string, argumentsText = '{}') {
 }
 
 describe('work GC two-phase selection', () => {
+  it('previews and deletes work beneath content administrative roots while preserving concrete artifacts and canonical bytes', async () => {
+    const root = fixture(), w = join(root, '.saivage/work'), c = join(w, 'cards/project');
+    const selected = [
+      'cards/project/foo/inside', 'cards/project/tmp/foo/inside',
+      'cards/project/processes/proc-selected/stdout.log', 'processes/proc-selected/stderr.log',
+      'tmp/stash/selected/inside', 'cards/project/tmp/exact.txt',
+    ].map(name => work(root, name));
+    const garbage = [
+      'cards/project/foobar/outside', 'cards/project/tmp/foobar/outside',
+      'cards/project/processes/proc-other/stdout.log', 'processes/proc-other/stderr.log',
+      'tmp/stash/other/inside', 'cards/project/tmp/unreferenced',
+    ].map(name => work(root, name));
+    const recent = work(root, 'cards/project/tmp/recent', 'recent', 3000);
+    const administrative = [root, dirname(root), '/', join(root, '.saivage'), w,
+      join(w, 'cards'), c, join(c, 'tmp'), join(c, 'processes'),
+      join(w, 'processes'), join(w, 'tmp'), join(w, 'tmp/stash')];
+    new CardService(root).acceptRecord('project', 'status.md', [
+      `The project is in ${root}.`,
+      ...administrative.map(path => JSON.stringify({ source_path: path })),
+      JSON.stringify({ paths: [join(c, 'foo'), join(c, 'tmp/foo'),
+        join(c, 'processes/proc-selected'), join(w, 'processes/proc-selected'),
+        join(w, 'tmp/stash/selected'), selected[5]] }),
+    ].join('\n'), { kind: 'agent', agent: 'analyst' });
+    const before = await canonicalBytes(root);
+    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+    expect(preview).toMatchObject({ observed_count: 13, would_delete_count: 6, deleted_count: 0,
+      retained: { protected: 6, recent: 1 } });
+    expect([...selected, ...garbage, recent].every(existsSync)).toBe(true);
+    expect(await canonicalBytes(root)).toEqual(before);
+    const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: 2000 }, context());
+    expect(deleted.deleted_count).toBe(preview.would_delete_count);
+    expect(garbage.every(path => !existsSync(path))).toBe(true);
+    expect([...selected, recent].every(existsSync)).toBe(true);
+    expect(garbage.map(dirname).every(existsSync)).toBe(true);
+    expect(await canonicalBytes(root)).toEqual(before);
+  });
+
+  it.each(['prose', 'structured'] as const)('normalizes administrative roots and concrete references equally in %s, including known aliases and missing suffixes', async origin => {
+    const root = fixture(), w = join(root, '.saivage/work');
+    const selected = work(root, 'cards/project/tmp/selected space/inside');
+    const garbage = work(root, 'cards/project/tmp/control');
+    symlinkSync(w, join(root, 'work-alias'));
+    symlinkSync(join(w, 'cards/project/tmp/selected space'), join(root, 'concrete-alias'));
+    symlinkSync(root, join(root, 'project-alias'));
+    const references = [
+      `${root}/`, `${root}/.saivage/..`, dirname(root), '/',
+      '.saivage/', '.saivage/work/cards/project/tmp/../',
+      'project:///', 'project:///.saivage/work/', 'system:///',
+      `system:///${w.slice(1)}/cards/./project/tmp/`, 'work:///',
+      'work:///cards', 'work:///cards/project', 'tmp:///project/',
+      'work:///cards/project/processes', 'work:///processes/', 'work:///tmp/stash/../stash/',
+      `file://${w}/tmp/stash/`, 'project:///work-alias', 'project:///project-alias',
+      'project:///work-alias/cards/project/tmp/absent/../',
+      'project:///concrete-alias', 'project:///concrete-alias/missing-suffix',
+      'work:///cards/project/tmp/selected%20space',
+      '.saivage/work/cards/project/tmp/selected space/./',
+    ];
+    baseline(root, origin === 'structured' ? JSON.stringify({ paths: references })
+      : references.map(path => `Keep \`${path}\``).join('\n'));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(result).toMatchObject({ deleted_count: 1, retained: { protected: 1 } });
+    expect(existsSync(selected)).toBe(true); expect(existsSync(garbage)).toBe(false);
+  });
+
+  it('does not broaden concrete alias missing suffixes, case-distinct names or sibling prefixes', async () => {
+    const root = fixture(), w = join(root, '.saivage/work');
+    const selected = work(root, 'cards/project/foo/inside');
+    const garbage = ['cards/project/foobar/inside', 'cards/project/tmp/case/inside',
+      'cards/project/tmp/alias-parent/other'].map(name => work(root, name));
+    symlinkSync(join(w, 'cards/project/tmp/alias-parent'), join(root, 'alias'));
+    symlinkSync(`${w}-sibling`, join(root, 'unrelated-alias'));
+    mkdirSync(`${w}-sibling`);
+    baseline(root, JSON.stringify({ paths: [
+      'work:///cards/project/foo', 'work:///cards/project/tmp/Case',
+      'work:///cards/projectish', 'project:///alias/missing/file', 'project:///unrelated-alias',
+      `${w}-sibling`, 'work:///cards/card-n', 'work:///cards/card-na/tmp',
+    ] }));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(result).toMatchObject({ deleted_count: 3, retained: { protected: 1 } });
+    expect(existsSync(selected)).toBe(true); expect(garbage.every(path => !existsSync(path))).toBe(true);
+  });
+
+  it.each(['work:///%ZZ', 'tmp:///not-a-card/', 'work:///cards/project/tmp?unknown'])('retains unknown scope for malformed recognized content URI %s', async reference => {
+    const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
+    baseline(root, JSON.stringify({ path: reference }));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(result).toMatchObject({ deleted_count: 0, retained: { protected: 1 } });
+    expect(existsSync(candidate)).toBe(true);
+  });
+
+  it('still resolves administrative lexical content paths to concrete targets or unknown scope', async () => {
+    const root = fixture(), w = join(root, '.saivage/work');
+    const selected = work(root, 'cards/project/foo/inside'), garbage = work(root, 'tmp/stash/control');
+    baseline(root, JSON.stringify({ path: w }));
+    const realpath = fs.realpathSync;
+    const spy = jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) =>
+      String(path) === w ? join(w, 'cards/project/foo') : (realpath as any)(path, ...args)) as typeof realpath);
+    expect((await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context())).would_delete_count).toBe(1);
+    spy.mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path) === w) throw Object.assign(new Error('unknown scope'), { code: 'EACCES' });
+      return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    expect((await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).deleted_count).toBe(0);
+    expect([selected, garbage].every(existsSync)).toBe(true);
+  });
+
+  it.each(['retainAll', 'capture parent', 'operational inputs', 'unfinished artifact', 'unfinished file', 'configured prompt', 'workflow inputs'] as const)(
+    'preserves operational administrative-root protection: %s', async source => {
+      const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
+      baseline(root, `Project ${root}; work:///cards/project/tmp`);
+      const overrides: { -readonly [K in keyof WorkGcCollectionContext]?: WorkGcCollectionContext[K] } = {};
+      if (source === 'retainAll') overrides.protection = { retainAll: true, capturePaths: [] };
+      if (source === 'capture parent') overrides.protection = { retainAll: false, capturePaths: [join(root, 'stdout.log')] };
+      if (source === 'operational inputs') overrides.operationalInputs = { root };
+      if (source === 'configured prompt') overrides.workflows = { ...TEST_WORKFLOWS,
+        analystPrompt: { ...TEST_WORKFLOWS.analystPrompt, path: root } };
+      if (source === 'workflow inputs') {
+        const workflow = TEST_WORKFLOWS.cardTypes.get('project')!;
+        const states = new Map([...workflow.states].map(([key, state]) => [key,
+          state.kind !== 'node' || state.execution.kind !== 'agent' ? state
+            : { ...state, execution: { ...state.execution, inputs: { source_path: { literal: root } } } },
+        ] as const));
+        overrides.workflows = { ...TEST_WORKFLOWS, cardTypes: new Map(TEST_WORKFLOWS.cardTypes).set('project', { ...workflow, states }) };
+      }
+      if (source === 'unfinished artifact' || source === 'unfinished file') {
+        const start: CardExecutionStart = { kind: 'invocation_started', row_id: randomUUID(), invocation_id: randomUUID(),
+          card_id: 'project', timestamp: '2026-10-24T00:00:00.000Z', operation: 'shell.run', contract_version: 1,
+          provider: { kind: 'builtin', name: 'shell' }, binding: { kind: 'node', activation_id: randomUUID(), node_id: 'run', ordinal: 0 },
+          output_source: 'command-stdout', artifact_paths: source === 'unfinished artifact' ? ['.saivage/work'] : [],
+          input: [], config: [], shell: { script: 'echo hello', cwd: '/unrelated', argv: [], env: {} } };
+        appendCardExecutions(root, 'project', source === 'unfinished artifact' ? [start] : [start, {
+          kind: 'process_started', row_id: randomUUID(), invocation_id: start.invocation_id, card_id: 'project',
+          timestamp: start.timestamp, process_id: 'proc', files: [
+            { kind: 'capture', stream: 'stdout', path: '.saivage/work' },
+            { kind: 'capture', stream: 'stderr', path: '.saivage/work/cards' },
+          ],
+        }]);
+      }
+      const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context(overrides));
+      expect(result).toMatchObject({ deleted_count: 0, retained: { protected: 1 } });
+      expect(existsSync(candidate)).toBe(true);
+      appendConversationBatch({ projectRoot: root }, [message('Strict canonical validation still applies.')]);
+      const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
+      const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
+      appendFileSync(path, '{malformed}\n');
+      await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context(overrides))).rejects.toThrow();
+      expect(existsSync(candidate)).toBe(true);
+    });
+
   it.each([[8, 4, 1000], [32, 16, 4000]])('bounded scale: %i linked cards, %i segments/session, %i candidates', async (cardCount, segmentCount, candidates) => {
     const root = fixture(), cards = new CardService(root);
     const linked = [cards.read('project')!];
@@ -188,7 +337,7 @@ describe('work GC two-phase selection', () => {
     expect(resolutions).toBeLessThan(oldResolutions);
     expect(current.retained.protected).toBe(selected.length);
     const sources: unknown[] = [];
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { sources.push(value); });
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async value => { sources.push(value); }, operational: async () => {} });
     expect(sources).toContain(row.content);
     expect(sources).not.toContainEqual(segment.index);
     expect(sources).not.toContainEqual(segment.genesis);
@@ -401,7 +550,7 @@ describe('work GC two-phase selection', () => {
     });
     const current = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const sources: unknown[] = [];
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { sources.push(value); });
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async value => { sources.push(value); }, operational: async () => {} });
     expect(facts.latestRecordObservations).toHaveLength(1);
     expect(sources).toContain(row.content);
     expect(sources).toContain(current.conversation.effectiveCompactedHistory!.summaryText);
@@ -547,7 +696,7 @@ describe('work GC two-phase selection', () => {
     const unmatched = toolExchange('read', JSON.stringify({ success: true }), JSON.stringify({ path: 'tmp:///project/call-argument.txt' }))[0]!;
     appendConversationBatch({ projectRoot: root }, [unmatched]);
     const values: unknown[] = [];
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, async value => { values.push(value); });
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async value => { values.push(value); }, operational: async () => {} });
     expect(values).toContainEqual(image);
     expect(values).not.toContainEqual(rows[0]!.context_policy);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());

@@ -16,9 +16,19 @@ before disposal; this operation neither inventories nor collects those directori
 Retention follows current semantic use, not the union of historical references.
 After separately authorized deletion, historical-only attachments/captures may be
 irretrievably unavailable even though canonical card, record, conversation and
-execution histories remain unchanged. Current explicit references still protect
-equally old files. Broad current references or unresolved aliases can retain all
-work; this policy promises neither reclamation nor historical attachment availability.
+execution histories remain unchanged. Current concrete references still protect
+equally old files or directory subtrees. Content mentions of administrative roots
+do not: the work root and its ancestors, work `cards`, valid card roots and their
+reserved `tmp`/`processes` roots, and global work `processes`, `tmp` and `tmp/stash`.
+For example, `.saivage/work/cards/card-n/tmp/` does not preserve its contents,
+but `.saivage/work/cards/card-n/tmp/foo` and `.saivage/work/cards/card-n/foo`
+protect that file or directory subtree. Stash artifacts and process-specific capture
+directories are also concrete. Known resolved aliases follow their target's rule.
+This applies to structured paths/URIs as well as prose: a root in a `path` or `cwd`
+field is not a concrete artifact. Previously blanket-protected old files can become
+eligible despite a human's intended blanket retention. Operational/unfinished-owner
+protections still cover their selected scopes, including roots; unknown recognized
+aliases can still retain all work. No reclamation or historical availability is promised.
 
 ## Preview first, delete separately
 
@@ -44,13 +54,14 @@ always recomputes inventory, fresh references and final identity checks. A refer
 added since preview can protect a formerly eligible file.
 
 Preview first, but neither preview nor an age cutoff proves that selected work is
-unneeded. Explicit/structured paths are protected exactly; filename inference from
+unneeded. Concrete explicit/structured paths are protected exactly; filename inference from
 ambiguous free text is heuristic and can miss genuine references. For example, a
 space-containing native path mentioned only as `open(r'data/with space.txt'r'')`
 may be missed and become eligible when old enough. Later explicit delete can
 irreversibly remove old still-needed work. No error probability is estimated.
-Use unambiguous structured path fields or explicit work URIs when recording new
-references, rather than relying on programming-language quote syntax in prose.
+Use unambiguous structured path fields or explicit work URIs identifying concrete
+files/subtrees when recording new references, rather than administrative roots or
+programming-language quote syntax in prose.
 This advice authorizes neither rewriting retained history nor a migration; adopting
 this isolated fix requires no conversion/reset on matching contracts. Source
 completion does not authorize any live operation.
@@ -107,8 +118,10 @@ certify whole-project startup compatibility or authorize start/Run.
    draft and latest accepted content; current conversation effective summary,
    retained protected instruction contents and semantic source-row payloads; and
    unfinished execution artifact/capture/private-index selections. Existing retained
-   process captures, directory/alias references and operational dependencies also
-   protect work. Historical content, internal observations and producer provenance
+   process captures and operational dependencies also protect their existing scopes.
+   Content file/directory and known alias references follow the concrete-artifact
+   rule above; ignored administrative mentions never skip strict reads.
+   Historical content, internal observations and producer provenance
    alone do not. The free-text limitation above does not relax strict validation.
    Unresolved native source continuations refuse; GC performs no Git inspection,
    checkpoint or return to force settlement. Corrupt/missing required evidence or torn tails refuse without repair.

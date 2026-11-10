@@ -47,12 +47,26 @@ conversion, deployment inventory or target-not-deployed claim is implied.
 Current-only work retention from source parent
 `678b8bff375306a94866409d5672f075deeaec4b` changes collector liveness policy only:
 historical content/producer provenance alone no longer retains work attachments.
-Current semantic references, including references to old files, still protect them;
+Current concrete semantic references, including references to old files, still protect them;
 complete required canonical history validation is unchanged. Evidence owners are
 `persistence/current-generated-graph.ts`, `persistence/work-gc-protection.ts` and the
 pure process-result validation/settlement contracts. Canonical history, selectors,
 compaction meaning and persisted bytes are unchanged. Separately authorized GC may
 irreversibly remove historical-only attachments; no reclaim amount is guaranteed.
+
+The related administrative-content-root correction from actual implementation
+parent `8626d6e16088edd04b4e777b8b2d5d60e13da503` narrows content marking only:
+project/work ancestors, work/card roots and reserved area roots do not blanket-retain
+work, even as structured paths or known aliases. Concrete files/subtrees remain
+protected, including purpose-named card children and process-specific captures.
+Operational inputs, unfinished selections, process-owner protections and unknown
+recognized scope keep their existing authority; complete canonical validation still
+runs. Evidence owners are `workspace/work-garbage-collector.ts`, the canonical
+inspector's content/operational callbacks and collector preview/delete fixtures.
+Previously blanket-protected old work may become eligible despite human intent;
+source rollback cannot restore deleted bytes. This amendment preserves the original
+`678b8bff375306a94866409d5672f075deeaec4b` source boundary above, not an unreleased
+cutover extension or a new durable interpretation.
 
 No durable bump or conversion is required solely for this collector policy. Source
 families remain card-head1/history6, record-head3/accepted6, conversation

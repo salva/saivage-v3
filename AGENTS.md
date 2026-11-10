@@ -188,7 +188,17 @@ segment's owning effective summary, retained protected instruction contents and
 semantic source-row payloads; unfinished execution selections; and existing
 process-owner and operational protections. Historical content, internal observations
 and producer provenance alone do not retain attachments or authorize producer-history
-joins. Current explicit references protect equally old files. Historical-only
+joins. Content-derived explicit/structured and inferred references protect concrete
+files or directory subtrees equally regardless of age, not administrative roots:
+`.saivage/work` and its ancestors (including the project root), work `cards`, a
+valid card's root or reserved `tmp`/`processes` roots, and global `processes`, `tmp`
+or `tmp/stash`.
+A purpose-named card child such as `foo`, reserved-area child such as `tmp/foo`,
+stash artifact or process-specific capture directory is concrete. Known resolved
+aliases follow the same rule. Operational inputs, unfinished execution selections
+and process-owner protections retain their existing root/file/subtree authority;
+unknown recognized scope remains conservative. Ignored content-root mentions can
+make old work eligible despite intended blanket retention. Historical-only
 attachments may irreversibly disappear after separately authorized deletion;
 canonical histories remain unchanged. Mark explicit and recognized inferred
 references from those roots, then recheck each exact candidate before unlink.

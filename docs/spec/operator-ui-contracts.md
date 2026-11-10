@@ -259,7 +259,7 @@ Stopped Start/mutation attempts are still busy; already paused/stopped never aut
 No transcript, execution-evidence or historical-selection semantics change.
 Canonical history remains unchanged, but historical-only work attachments may become
 unavailable irreversibly after explicit GC. A retained URL or producer identity does
-not promise retained bytes; current explicit references still protect old files.
+not promise retained bytes; current concrete explicit references still protect old files.
 
 Outstanding named-agent execution includes overload/backoff, not just wire
 consumption. Provider refresh shows advisory cooling/reason/deadline, not a send

@@ -200,7 +200,9 @@ export async function inventoryWorkGarbage(
   return { projectRoot, candidates, observed_logical_bytes: bytes, opaque_entries: opaque };
 }
 
-/** Explicit references stay exact; free-text filename inference is heuristic. Never reads contents. */
+type ReferenceOrigin = 'content' | 'operational';
+
+/** Content identifies concrete artifacts, not administrative containers. Never reads contents. */
 class WorkReferences {
   readonly paths = new Set<string>();
   retainAll = false;
@@ -221,10 +223,40 @@ class WorkReferences {
     }
   }
 
-  path(path: string): void {
+  private concreteContentPath(path: string): boolean {
+    if (!within(this.root, path)) return false;
+    const parts = relative(this.root, path).split(sep);
+    if (parts[0] === '') return false;
+    if (parts[0] === 'cards') {
+      if (parts.length === 1) return false;
+      if (cardIdSchema.safeParse(parts[1]).success)
+        return (
+          parts.length > 2 &&
+          !(parts.length === 3 && (parts[2] === 'tmp' || parts[2] === 'processes'))
+        );
+    }
+    if (parts[0] === 'processes' && parts.length === 1) return false;
+    if (parts[0] === 'tmp' && (parts.length === 1 || (parts.length === 2 && parts[1] === 'stash')))
+      return false;
+    return true;
+  }
+
+  private mark(path: string, origin: ReferenceOrigin): void {
+    if (origin === 'content') {
+      if (this.concreteContentPath(path)) this.paths.add(path);
+    } else {
+      if (within(path, this.root)) this.retainAll = true;
+      if (within(this.root, path)) this.paths.add(path);
+    }
+  }
+
+  operationalPath(path: string): void {
+    this.path(path, 'operational');
+  }
+
+  private path(path: string, origin: ReferenceOrigin): void {
     path = resolve(path);
-    if (within(path, this.root)) this.retainAll = true;
-    if (within(this.root, path)) this.paths.add(path);
+    this.mark(path, origin);
     // Resolve BEFORE lexical exclusion. Resolve missing suffixes against their existing ancestor,
     // so a missing alias target is still a mark rather than permission to delete its siblings.
     let existing = path;
@@ -257,13 +289,16 @@ class WorkReferences {
         return;
       }
       actual = resolve(actual, ...suffix);
-      if (within(actual, this.root)) this.retainAll = true;
-      if (within(this.root, actual)) this.paths.add(actual);
+      this.mark(actual, origin);
       return;
     }
   }
 
-  async token(token: string, bases: readonly string[]): Promise<void> {
+  private async token(
+    token: string,
+    bases: readonly string[],
+    origin: ReferenceOrigin,
+  ): Promise<void> {
     await this.visit();
     if (!token || token.includes('\0')) return;
     const scheme = /^(project|system|work|tmp):\/\/\/(.*)$/su.exec(token);
@@ -277,7 +312,7 @@ class WorkReferences {
       }
       // Query/fragment syntax is not valid for these owners. Preserve the plausible path too.
       if (/[?#]/u.test(tail)) {
-        await this.token(`${scheme[1]}:///${tail.split(/[?#]/u)[0]}`, bases);
+        await this.token(`${scheme[1]}:///${tail.split(/[?#]/u)[0]}`, bases, origin);
         this.retainAll = true;
         return;
       }
@@ -289,8 +324,8 @@ class WorkReferences {
           this.retainAll = true;
           return;
         }
-        this.path(resolve(this.root, 'cards', card!, 'tmp', ...rest));
-      } else this.path(resolve(base, tail));
+        this.path(resolve(this.root, 'cards', card!, 'tmp', ...rest), origin);
+      } else this.path(resolve(base, tail), origin);
       return;
     }
     if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(token)) {
@@ -309,25 +344,30 @@ class WorkReferences {
         } catch {
           this.retainAll = true;
         }
-        if (path !== undefined) this.path(path);
+        if (path !== undefined) this.path(path, origin);
       } else if (/\.saivage|work:|tmp:/u.test(url.pathname)) this.retainAll = true;
-      for (const value of url.searchParams.values()) await this.text(value, bases);
+      for (const value of url.searchParams.values()) await this.text(value, bases, origin);
       return;
     }
     if (token.includes('${') || token.includes('$(') || /[*?[]/u.test(token)) {
       const prefix = token.split(/\$|\*|\?|\[/u)[0]!;
       if (prefix.includes('/'))
-        await this.token(prefix.endsWith('/') ? prefix : dirname(prefix), bases);
+        await this.token(prefix.endsWith('/') ? prefix : dirname(prefix), bases, origin);
       else this.retainAll = true;
       return;
     }
-    if (isAbsolute(token)) this.path(token);
-    else for (const base of bases) this.path(resolve(base, token));
+    if (isAbsolute(token)) this.path(token, origin);
+    else for (const base of bases) this.path(resolve(base, token), origin);
   }
 
-  async text(text: string, bases: readonly string[], pathValue = false): Promise<void> {
+  private async text(
+    text: string,
+    bases: readonly string[],
+    origin: ReferenceOrigin,
+    pathValue = false,
+  ): Promise<void> {
     await this.visit();
-    if (pathValue) await this.token(text, bases);
+    if (pathValue) await this.token(text, bases, origin);
     // Nested JSON and JSON-escaped strings occur in raw tool arguments and Markdown evidence.
     let parsed: unknown;
     try {
@@ -336,7 +376,7 @@ class WorkReferences {
       /* Ordinary prose need not be JSON. */
     }
     if (parsed !== undefined && (typeof parsed !== 'string' || parsed !== text)) {
-      await this.value(parsed, bases);
+      await this.value(parsed, origin, bases);
       return;
     }
     for (const match of text.matchAll(/"(?:\\.|[^"\\])*"/gu)) {
@@ -347,7 +387,7 @@ class WorkReferences {
       } catch {
         /* Inspect enclosing text below. */
       }
-      if (typeof value === 'string') await this.text(value, bases);
+      if (typeof value === 'string') await this.text(value, bases, origin);
     }
     // Matching delimiters preserve common filenames with spaces. Native single quotes
     // adjacent to words are deliberately not a programming-language literal grammar.
@@ -395,14 +435,23 @@ class WorkReferences {
       tokens.add(match[0]);
     }
     for (const token of tokens) {
-      await this.token(token, bases);
+      await this.token(token, bases, origin);
       const stripped = token.replace(/[),.;:\]}]+$/u, '');
-      if (stripped !== token) await this.token(stripped, bases);
+      if (stripped !== token) await this.token(stripped, bases, origin);
     }
   }
 
-  async value(
+  content(value: unknown, bases: readonly string[]): Promise<void> {
+    return this.value(value, 'content', bases);
+  }
+
+  operational(value: unknown, bases: readonly string[] = [this.projectRoot]): Promise<void> {
+    return this.value(value, 'operational', bases);
+  }
+
+  private async value(
     value: unknown,
+    origin: ReferenceOrigin,
     bases: readonly string[] = [this.projectRoot],
     key = '',
   ): Promise<void> {
@@ -411,10 +460,11 @@ class WorkReferences {
       await this.text(
         value,
         bases,
+        origin,
         /(?:path|url|cwd|directory|root|file|script|argv|dependencies)$/iu.test(key),
       );
     } else if (Array.isArray(value)) {
-      for (const child of value) await this.value(child, bases, key);
+      for (const child of value) await this.value(child, origin, bases, key);
     } else if (value && typeof value === 'object') {
       const object = value as Record<string, unknown>;
       const cwd = typeof object.cwd === 'string' ? resolve(this.projectRoot, object.cwd) : null;
@@ -426,7 +476,7 @@ class WorkReferences {
             : name === 'value' && typeof object.name === 'string'
               ? object.name
               : name;
-        await this.value(child, localBases, meaning);
+        await this.value(child, origin, localBases, meaning);
       }
     }
   }
@@ -446,26 +496,23 @@ async function markCanonical(
   context: WorkGcCollectionContext,
   refs: WorkReferences,
 ): Promise<Set<string>> {
+  const bases = (cardId: string | null): readonly string[] =>
+    cardId === null
+      ? [projectRoot]
+      : [projectRoot, join(refs.root, 'cards', cardId), join(refs.root, 'cards', cardId, 'tmp')];
   const owners = await inspectWorkGcCanonicalState(
     projectRoot,
     context.workflows,
     context.assertCollecting,
-    (value, cardId) =>
-      refs.value(
-        value,
-        cardId === null
-          ? [projectRoot]
-          : [
-              projectRoot,
-              join(refs.root, 'cards', cardId),
-              join(refs.root, 'cards', cardId, 'tmp'),
-            ],
-      ),
+    {
+      content: (value, cardId) => refs.content(value, bases(cardId)),
+      operational: (value, cardId) => refs.operational(value, bases(cardId)),
+    },
   );
   context.assertCollecting();
   await setImmediate();
   context.assertCollecting();
-  await refs.value(context.operationalInputs);
+  await refs.operational(context.operationalInputs);
   return owners;
 }
 
@@ -511,7 +558,7 @@ export async function collectWorkGarbage(
   for (const path of context.protection.capturePaths) {
     await setImmediate();
     check();
-    refs.path(dirname(path));
+    refs.operationalPath(dirname(path));
   }
   const owners = await markCanonical(inventory.projectRoot, context, refs);
   await setImmediate();

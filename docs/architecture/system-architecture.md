@@ -682,7 +682,19 @@ content contribute roots; historical content and observation/provenance wrappers
 not. Complete history and execution validation still runs. Only unfinished execution
 artifact/capture selections contribute execution roots; authored-output provenance
 alone does not retain its producer's captures. Existing process and operational
-owners retain their protections. Current references to older files still protect them.
+owners retain their protections. The canonical inspector supplies distinct content
+and operational callbacks to the collector's shared resolver. At both lexical and
+resolved content mark points, an owner-local normalized-component predicate excludes
+administrative containers: the work root and its ancestors (including project and
+`.saivage`), work `cards`, valid card roots and their reserved `tmp`/`processes` roots, and global
+work `processes`, `tmp` and `tmp/stash`. Arbitrary card children such as `foo`,
+reserved-area children such as `tmp/foo`, stash artifacts and process-specific
+capture directories remain concrete file/subtree marks. This applies equally to
+structured and inferred content paths and known aliases without changing extraction
+or inventory eligibility. Operational callbacks and process-owner capture parents
+keep existing root-valued protection. Resolution still runs for ignored lexical
+roots; unknown scope remains conservative. Current concrete references to older
+files still protect them; administrative content mentions do not.
 The complete pure process-result validator and settlement projection live under
 `contracts/process-result-validation.ts` and `contracts/tool-result-projection.ts`;
 runtime composition keeps its existing semantics and shares that validator. Completed,

@@ -170,7 +170,15 @@ invalid required evidence blocks collection; GC never repairs/truncates it. Unkn
 ownership or surviving writer effects cause retention/refusal, not guessed safety.
 Only eligible regular files under work without recognized protections can be removed;
 directories, publication temporaries and canonical/attic/backup data remain untouched.
-Explicit/structured references remain exact; ambiguous free-text filename inference
+Content references, whether explicit/structured or inferred, protect concrete files
+or directory subtrees, not administrative containers. The work root and its
+ancestors, work `cards`, valid card roots and their reserved `tmp`/`processes` roots, and global
+work `processes`, `tmp` and `tmp/stash` roots add no content protection. A card
+child such as `foo`, `tmp/foo`, a stash artifact or process-specific capture
+directory remains concrete; known resolved aliases follow the same classification.
+Operational inputs, unfinished selections and process-owner protections retain
+their existing authority, including root-valued references. Concrete structured
+references remain exact; ambiguous free-text filename inference
 uses simple heuristics and can miss genuine references. Rare false negatives can
 make old still-needed work eligible for later explicit deletion. No error rate is
 estimated, and an age cutoff does not protect against this risk. Recognized aliases
@@ -191,8 +199,10 @@ Strict extraction consumes each session index and every indexed segment complete
 as well as linked card history, selected record predecessors and complete execution
 evidence, independently of marking. Only the current segment's already-derived
 owning selection supplies conversation roots; GC does not recompute compaction.
-Current references protect old files regardless of age. Separately authorized
-deletion may irreversibly remove historical-only attachments while canonical history
+Current concrete references protect old files regardless of age. Ignoring content
+administrative-root mentions can make old files eligible despite intended blanket
+retention. Separately authorized deletion may irreversibly remove historical-only
+attachments while canonical history
 bytes and selections remain unchanged; historical URLs need not keep resolving.
 Call-local sets test candidate ancestors;
 they confer no later invocation authority. There is no GC elapsed deadline or
