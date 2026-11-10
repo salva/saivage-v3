@@ -28,6 +28,55 @@ function resultOf(request: ChatCompletionRequest): { success: boolean; data?: Re
 }
 
 describe('workspace search scope production composition', () => {
+  it('settles real Analyst work discovery and reads distinct punctuation targets before a subsequent ordinary read', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-work-punctuation-e2e-')); roots.push(root);
+    initializeProject(root);
+    const work = join(root, '.saivage/work/cards');
+    const incident = 'space # percent% unicode-é';
+    mkdirSync(join(work, incident), { recursive: true });
+    writeFileSync(join(work, incident, 'unrelated.txt'), 'unrelated fixture');
+    writeFileSync(join(work, 'formation.asm'), 'formation needle');
+    writeFileSync(join(work, '#.asm'), 'literal hash needle');
+    writeFileSync(join(work, '%23.asm'), 'literal percent needle');
+    writeFileSync(join(root, 'ordinary.txt'), 'subsequent ordinary read');
+    const steps = [
+      { tool: 'glob', args: { directory: 'work:///cards', pattern: 'formation.asm' }, check: (data: Record<string, any>) => expect(data.matches.items).toEqual(['work:///cards/formation.asm']) },
+      { tool: 'grep', args: { path: 'work:///cards', pattern: 'formation', include: '*.asm' }, check: (data: Record<string, any>) => expect(data.matches.items.map((item: { path: string }) => item.path)).toEqual(['work:///cards/formation.asm']) },
+      { tool: 'glob', args: { directory: 'work:///cards', pattern: '*.asm' }, check: (data: Record<string, any>) => { expect(data.matches.total).toBe(3); expect(data.matches.items).toEqual(expect.arrayContaining(['work:///cards/%23.asm', 'work:///cards/%2523.asm'])); } },
+      { tool: 'read', args: { path: 'work:///cards/%23.asm' }, check: (data: Record<string, any>) => expect(data.content.content).toBe('literal hash needle') },
+      { tool: 'read', args: { path: 'work:///cards/%2523.asm' }, check: (data: Record<string, any>) => expect(data.content.content).toBe('literal percent needle') },
+      { tool: 'read', args: { path: 'ordinary.txt' }, check: (data: Record<string, any>) => expect(data.content.content).toBe('subsequent ordinary read') },
+    ];
+    let completed = 0; let fixtureFailure: Error | null = null;
+    const provider = createServer(async (request, response) => {
+      try {
+        const body = await readJsonRequest(request) as ChatCompletionRequest;
+        if (completed > 0) {
+          const result = resultOf(body);
+          expect(result.success).toBe(true);
+          steps[completed - 1]!.check(result.data!);
+        }
+        const step = steps[completed++];
+        if (step) sendToolCall(response, `punctuation-${completed}`, step.tool, step.args);
+        else sendFinalMessage(response, 'Work discovery and subsequent read verified.');
+      } catch (error) { fixtureFailure = error as Error; sendFinalMessage(response, 'Fixture assertion failed.'); }
+    });
+    const port = await listen(provider); let app: App | null = null;
+    try {
+      writeProductionConfig(root, productionTestConfig(port));
+      app = await startProductionApp(root, TOKEN); apps.add(app);
+      const response = await fetch(`${appOrigin(app)}/api/chat`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ content: 'Inspect ordinary work fixtures.' }) });
+      expect(response.status).toBe(200); await response.json();
+      if (fixtureFailure) throw fixtureFailure;
+      expect(completed).toBe(steps.length + 1);
+      const results = readConversation(root, 'agent:analyst:global').physicalRows.filter(row => row.kind === 'tool_result');
+      expect(results).toHaveLength(steps.length);
+    } finally {
+      if (app) { apps.delete(app); await app.stop(); }
+      await closeServer(provider);
+    }
+  }, 60_000);
+
   it('delivers sibling pagination and reusable absolute paths to the scripted Analyst, with private provider and stored results', async () => {
     const parent = mkdtempSync(join(tmpdir(), 'saivage-absolute-read-e2e-')); roots.push(parent);
     const projectRoot = join(parent, 'project'); const sibling = join(parent, 'sibling');

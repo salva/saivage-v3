@@ -84,7 +84,7 @@ describe('scoped path resolvers', () => {
     initProjectTree(projectRoot);
     const workRoot = saivageWorkRoot(projectRoot);
     expect(workUrlFromAbsolutePath(projectRoot, workRoot)).toBe('work:///');
-    for (const [segment, encoded] of [['space name', 'space%20name'], ['100%', '100%25'], ['café', 'caf%C3%A9']] as const) {
+    for (const [segment, encoded] of [['space name', 'space%20name'], ['100%', '100%25'], ['café', 'caf%C3%A9'], ['space # percent% unicode-é', 'space%20%23%20percent%25%20unicode-%C3%A9'], ['#', '%23'], ['?', '%3F'], ['%23', '%2523'], ['%3F', '%253F']] as const) {
       mkdirSync(join(workRoot, segment));
       const url = workUrlFromAbsolutePath(projectRoot, join(workRoot, segment));
       expect(url).toBe(`work:///${encoded}`);
@@ -123,6 +123,25 @@ describe('scoped path resolvers', () => {
       () => scopedPathResolvers.system(context, 'system:///opt/%2E%2E/file'),
     ];
     for (const resolvePath of rejectedPaths) expect(resolvePath).toThrow();
+  });
+
+  it('resolves literal punctuation once across filesystem schemes, rejecting even empty raw components', () => {
+    const context = ctx();
+    const resolvers = [
+      (suffix: string) => scopedPathResolvers.project(context, `project:///a${suffix}`),
+      (suffix: string) => scopedPathResolvers.tmp(context, `tmp:///card-a/a${suffix}`, 'read'),
+      (suffix: string) => scopedPathResolvers.work(context, `work:///a${suffix}`, 'read'),
+      (suffix: string) => scopedPathResolvers.system(context, `system:///a${suffix}`),
+    ];
+    for (const resolvePath of resolvers) {
+      for (const suffix of ['%23', '%3F', '%2523', '%253F']) {
+        const resolved = resolvePath(suffix);
+        if (resolved.kind === 'record') throw new Error('Expected filesystem resolution.');
+        expect(resolved.absolutePath).toContain(`a${decodeURIComponent(suffix)}`);
+      }
+      for (const suffix of ['?', '#', '?query=yes', '#fragment', '%2F', '%5C', '%ZZ']) expect(() => resolvePath(suffix)).toThrow();
+    }
+    for (const path of ['record:///brief%23.md', 'record:///brief%3F.md']) expect(() => resolveRecordReadTarget(context, path)).toThrow();
   });
 
   it('uses the selected card type compiled record definitions', () => {

@@ -536,6 +536,8 @@ describe('process provider', () => {
       [`${sibling}/../sibling`, sibling],
       [buildScopedPathUrl('system', sibling.split('/').filter(Boolean)), sibling],
       [literal, literal],
+      [buildScopedPathUrl('system', literal.split('/').filter(Boolean)), literal],
+      [buildScopedPathUrl('project', ['literal:%?#']), join(root, 'literal:%?#')],
       ['name:part', join(root, 'name:part')],
       ['system:/path', join(root, 'system:/path')],
       ['./name://part', join(root, 'name:/part')],

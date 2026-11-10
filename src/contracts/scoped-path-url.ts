@@ -32,9 +32,7 @@ export function parseScopedPathUrl(raw: string, scheme: string): ParsedScopedPat
       seg === '.' ||
       seg === '..' ||
       seg.includes('/') ||
-      seg.includes('\\') ||
-      seg.includes('?') ||
-      seg.includes('#')
+      seg.includes('\\')
     )
       throw new Error(`Invalid ${scheme} URL '${raw}' (traversal or separator in segment).`);
     segments.push(seg);
@@ -46,7 +44,7 @@ export function parseScopedPathUrl(raw: string, scheme: string): ParsedScopedPat
 export function buildScopedPathUrl(scheme: string, segments: readonly string[]): string {
   const enc: string[] = [];
   for (const s of segments) {
-    if (s === '' || s === '.' || s === '..' || /[/\\?#]/.test(s))
+    if (s === '' || s === '.' || s === '..' || /[/\\]/.test(s))
       throw new Error(`Unrepresentable segment for ${scheme} URL: '${s}'.`);
     enc.push(encodeURIComponent(s));
   }

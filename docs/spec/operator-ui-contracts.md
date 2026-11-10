@@ -31,6 +31,11 @@ to the ordinary Files output view. The renderer validates the scoped URL and map
 it to a same-origin Files route before HTML sanitization; it does not allow custom
 schemes through the sanitizer. Files still owns authentication, path admission,
 redaction and availability. Invalid/noncanonical work links are not navigable.
+Canonical work links in Markdown and tool presentation preserve filename identity
+by decoding scoped segments once into the native `.saivage/work` path, then encoding
+that path in the Files route query. Encoded filename `#`/`?` never become route
+fragments or query delimiters: `work:///cards/%23.txt` targets native `#.txt`,
+while `work:///cards/%2523.txt` targets the distinct native `%23.txt`.
 
 ## Observed collection Request/Result presentation
 

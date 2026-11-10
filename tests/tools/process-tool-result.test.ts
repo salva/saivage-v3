@@ -65,6 +65,9 @@ describe('process tool result semantic acceptance', () => {
     result({ stdout_url: `work:///cards/card-A/processes/${ID}/stdout.log`, stderr_url: `work:///cards/card-A/processes/${ID}/stderr.log` }),
     result({ stdout_url: `work:///processes/${ID}/stdout.log?raw=1` }),
     result({ stderr_url: `work:///processes/${ID}/stderr.log#fragment` }),
+    result({ stdout_url: `work:///processes/${ID}/stdout%23.log` }),
+    result({ stdout_url: `work:///processes/${ID}%3F/stdout.log` }),
+    result({ stdout_url: `work:///cards/card-a%23/processes/${ID}/stdout.log` }),
   ])('rejects invalid or untruthful process identity/reference data', (value) => {
     expect(() => validateProcessToolResult(value)).toThrow();
   });

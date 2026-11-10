@@ -673,6 +673,9 @@ describe('WebProvider', () => {
       'work:///tmp/stash/webfetch-1-0123456789ABCDEF.txt',
       'work:///tmp/stash/webfetch-1-0123456789abcdef.txt?x=1',
       'work:///tmp/stash/%77ebfetch-1-0123456789abcdef.txt',
+      'work:///tmp/stash/webfetch-1-0123456789abcdef%23.txt',
+      'work:///tmp/stash/webfetch-1-0123456789abcdef%3F.txt',
+      'work:///tmp/stash/webfetch-1-0123456789abcdef%2523.txt',
     ]) expect(() => WebfetchTextDataSchema.parse({ ...base, content_url })).toThrow();
   });
 

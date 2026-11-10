@@ -58,6 +58,10 @@ describe('workspace tool settlement', () => {
     writeFileSync(join(sibling, '.env'), 'private-source-sentinel');
     const work = join(root, '.saivage/work/stash'); mkdirSync(work, { recursive: true });
     writeFileSync(join(work, 'projection.txt'), `needle ${sentinel}`);
+    mkdirSync(join(work, 'space # percent% unicode-é'));
+    writeFileSync(join(work, 'space # percent% unicode-é', 'irrelevant.txt'), 'unrelated fixture');
+    writeFileSync(join(work, '#.asm'), 'needle hash');
+    writeFileSync(join(work, '%23.asm'), 'needle percent');
     const store = new CardService(root);
     const providers = [
       { actor: 'executor', provider: bindToolProvider('workspace', workspaceToolBinders, { ...recordBinding(store, 'executor'), projectRoot: root, cardId: 'project', agentName: 'executor', store }) },
@@ -98,6 +102,19 @@ describe('workspace tool settlement', () => {
         expect(JSON.stringify(result)).toContain('[REDACTED]');
       }
       expect((await invoke('read', { path: join(sibling, '.env') })).success).toBe(false);
+      for (const name of ['glob', 'grep']) {
+        const result = await invoke(name, name === 'glob' ? { directory: 'work:///stash', pattern: '*.asm' } : { path: 'work:///stash', pattern: 'needle', include: '*.asm' });
+        expect(result.success).toBe(true);
+        expect(result.data.matches.total).toBe(2);
+        const paths = result.data.matches.items.map((item: string | { path: string }) => typeof item === 'string' ? item : item.path);
+        expect(paths).toEqual(expect.arrayContaining(['work:///stash/%23.asm', 'work:///stash/%2523.asm']));
+        for (const path of paths) {
+          const read = await invoke('read', { path });
+          expect(read.success).toBe(true);
+          expect(read.data.content.content).toBe(path.endsWith('/%23.asm') ? 'needle hash' : 'needle percent');
+        }
+      }
+      expect((await invoke('read', { path: join(sibling, 'b.txt') })).success).toBe(true);
       // Error strings also pass through the settlement boundary.
       expect((await invoke('read', { path: join(sibling, `${sentinel}.missing`) })).success).toBe(false);
     }

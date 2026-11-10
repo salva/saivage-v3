@@ -83,6 +83,31 @@ describe('operator Files filesystem failure normalization', () => {
     }
   });
 
+  it('lists encoded work children and reads the exact filename through scoped and native Files route queries', async () => {
+    const directoryName = 'space # percent% unicode-é';
+    const directory = join(projectRoot, '.saivage/work/cards', directoryName);
+    realFs.mkdirSync(directory, { recursive: true });
+    const names = ['#.txt', '%23.txt', '?.txt', '%3F.txt'];
+    for (const name of names) realFs.writeFileSync(join(directory, name), `exact ${name}`);
+    const scoped = `work:///cards/${encodeURIComponent(directoryName)}`;
+    const listing = await fastify.inject({ method: 'GET', url: `/api/files?path=${encodeURIComponent(scoped)}` });
+    expect(listing.statusCode).toBe(200);
+    const files = listing.json().files as Array<{ name: string; path: string }>;
+    expect(files.map(file => file.name).sort()).toEqual([...names].sort());
+    for (const file of files) {
+      expect(file.path).toBe(`${scoped}/${encodeURIComponent(file.name)}`);
+      for (const path of [file.path, `.saivage/work/cards/${directoryName}/${file.name}`]) {
+        const response = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(path)}` });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({ content: `exact ${file.name}` });
+      }
+    }
+    for (const suffix of ['?', '#', '?x=1', '#fragment']) {
+      const response = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(`${scoped}/%23.txt${suffix}`)}` });
+      expect(response.statusCode).toBe(403);
+    }
+  });
+
   it('keeps exact requested-target ENOENT as the declared list and content 404', async () => {
     statFailures.set(resolve(directory), errno('ENOENT', 'list target disappeared'));
     const list = await fastify.inject({ method: 'GET', url: `/api/files?path=${encodeURIComponent('directory')}` });

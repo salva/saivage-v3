@@ -589,6 +589,14 @@ only tool selection; saves require both its own destination clause and the selec
 write destination clause before network access and freshly at final save. Global
 workspace adapters preserve the bound global grants and existing Analyst audit.
 
+Filesystem scoped paths share one segment encoder/parser: builders encode native
+filename data, and parsers split raw query/fragment syntax before decoding segments
+once. Workspace discovery constructs canonical work and system result URLs through
+that builder, preserving literal `#`/`?` and their distinction from percent-escape
+filenames. Filesystem resolvers retain raw component rejection and existing
+containment/confidentiality admission; native result paths stay native, and logical
+record identities and queries keep their own grammar.
+
 Card record tools carry those exact references through a bound activation-local
 record-mutation port. Supervisor consumes the actual live node ordinal, agent and
 activation anchor before the record effect; the service then consumes fresh linked

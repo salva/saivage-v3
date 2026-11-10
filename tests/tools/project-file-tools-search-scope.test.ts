@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
 
 const realFsPromises = await import('node:fs/promises');
 const readdir = jest.fn(realFsPromises.readdir);
@@ -38,6 +39,48 @@ function project(): string {
 function items<T>(result: unknown): T[] { return (result as Page<T>).matches.items; }
 
 describe('project file search scope', () => {
+  it('keeps complete work discovery, native includes, pagination and returned-path reads for literal punctuation', async () => {
+    const root = project();
+    const work = join(root, '.saivage/work/cards');
+    const incident = 'space # percent% unicode-é';
+    mkdirSync(join(work, incident), { recursive: true });
+    const files = ['formation.asm', `${incident}/unrelated.txt`, '#.asm', '%23.asm', '?.asm', '%3F.asm'];
+    for (const file of files) writeFileSync(join(work, file), `needle ${file}`);
+    const ctx = { authority: testWorkspaceAuthority(), projectRoot: root };
+    const url = (file: string) => buildScopedPathUrl('work', ['cards', ...file.split('/')]);
+    expect(items<string>(await globProject(ctx, { directory: 'work:///cards', pattern: 'formation.asm' }))).toEqual([url('formation.asm')]);
+    expect(items<GrepMatch>(await grepProject(ctx, { path: 'work:///cards', pattern: 'formation', include: '**/*.asm' })).map(match => match.path)).toEqual([url('formation.asm')]);
+    const expected = files.filter(file => file.endsWith('.asm')).map(url).sort();
+    for (const tool of ['glob', 'grep'] as const) {
+      const paths: string[] = [];
+      let position: Page<string>['matches']['next'] = null;
+      do {
+        const result = (tool === 'glob'
+          ? await globProject(ctx, { directory: 'work:///cards', pattern: '**/*.asm', max_results: 1, ...(position ? { position } : {}) })
+          : await grepProject(ctx, { path: 'work:///cards', pattern: 'needle', include: '**/*.asm', max_results: 1, ...(position ? { position } : {}) })) as Page<string | GrepMatch> & { content_truncated?: boolean };
+        expect(result.matches.total).toBe(5);
+        if (tool === 'grep') expect(result.content_truncated).toBe(false);
+        paths.push(...result.matches.items.map(item => typeof item === 'string' ? item : item.path));
+        position = result.matches.next;
+      } while (position);
+      expect(paths.sort()).toEqual(expected);
+    }
+    for (const file of files) {
+      const path = url(file);
+      await expect(readProject(ctx, { path })).resolves.toMatchObject({ content: { content: `needle ${file}` } });
+      expect(items<string>(await globProject(ctx, { directory: path, pattern: '*' }))).toEqual([path]);
+      expect(items<GrepMatch>(await grepProject(ctx, { path, pattern: 'needle' })).map(match => match.path)).toEqual([path]);
+    }
+    await expect(readProject(ctx, { path: url(incident) })).resolves.toMatchObject({ total_entries: 1, entries: { items: [{ name: 'unrelated.txt', type: 'file' }] } });
+    expect(items<GrepMatch>(await grepProject(ctx, { path: 'work:///cards', pattern: 'needle', include: `${incident}/*.txt` })).map(match => match.path)).toEqual([url(`${incident}/unrelated.txt`)]);
+    const systemRoot = join(root, 'system-fixtures');
+    mkdirSync(join(systemRoot, incident), { recursive: true });
+    for (const file of files) writeFileSync(join(systemRoot, file), `needle ${file}`);
+    const system = buildScopedPathUrl('system', systemRoot.split('/').filter(Boolean));
+    const systemPaths = items<string>(await globProject(ctx, { directory: system, pattern: '**/*' }));
+    expect(systemPaths).toHaveLength(files.length);
+    for (const path of systemPaths) await expect(readProject(ctx, { path })).resolves.toMatchObject({ content: { content: expect.stringContaining('needle') } });
+  });
   it('applies project ignore to absolute and aliased project targets, but not external native roots', async () => {
     const root = project();
     writeFileSync(join(root, '.saivage-search-ignore'), 'artifacts/generated\n');

@@ -16,6 +16,7 @@ type CompleteRecordReader = Pick<
 >;
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import {
+  buildScopedPathUrl,
   parseScopedPathUrl,
   ModelRecordTargetWireSchema,
   type ModelRecordTargetWire,
@@ -439,7 +440,7 @@ function displayPathCallback(
   resolved: FsResolved,
 ): ((absolutePath: string, relativePath: string) => string) | undefined {
   if (resolved.kind === 'system')
-    return (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}`;
+    return (abs) => buildScopedPathUrl('system', normalizeRel(abs).replace(/^\/+/, '').split('/'));
   if (resolved.kind === 'work') return (abs) => workUrlFromAbsolutePath(projectRoot, abs);
   if (resolved.kind === 'tmp') return (abs) => normalizeRel(relative(projectRoot, abs));
   if (resolved.native)

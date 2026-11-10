@@ -27,7 +27,7 @@ describe('scoped path URL helper', () => {
   });
 
   it('rejects non-canonical and structurally unsafe paths', () => {
-    for (const raw of ['work://processes/x', 'work:///a//b', 'work:///a/', 'work:///./b', 'work:///../b', 'work:///a%2Fb', 'work:///a%5Cb', 'work:///a%3Fb', 'work:///a%23b', 'work:///%E0%A4%A']) {
+    for (const raw of ['work://processes/x', 'work:///a//b', 'work:///a/', 'work:///./b', 'work:///../b', 'work:///a%2Fb', 'work:///a%5Cb', 'work:///%E0%A4%A']) {
       expect(() => parseScopedPathUrl(raw, 'work')).toThrow();
     }
   });
@@ -41,17 +41,15 @@ describe('scoped path URL helper', () => {
 
   it('validates raw segments before emitting', () => {
     expect(() => buildScopedPathUrl('work', ['processes', 'a/b', 'stdout.log'])).toThrow('Unrepresentable segment');
-    expect(() => buildScopedPathUrl('work', ['a#b'])).toThrow('Unrepresentable segment');
-    expect(() => buildScopedPathUrl('work', ['a?b'])).toThrow('Unrepresentable segment');
   });
 
   it('round-trips supported work descendants without widening the separator contract', () => {
-    for (const [segment, encoded] of [['space name', 'space%20name'], ['100%', '100%25'], ['café', 'caf%C3%A9']] as const) {
-      const raw = buildScopedPathUrl('work', [segment]);
-      expect(raw).toBe(`work:///${encoded}`);
-      expect(parseScopedPathUrl(raw, 'work').segments).toEqual([segment]);
+    for (const scheme of ['project', 'tmp', 'work', 'system']) {
+      for (const segment of ['#', '?', 'space # percent% unicode-é', '%', '%23', '%3F', 'space name', 'café']) {
+        const raw = buildScopedPathUrl(scheme, [segment]);
+        expect(raw).toBe(`${scheme}:///${encodeURIComponent(segment)}`);
+        expect(parseScopedPathUrl(raw, scheme)).toEqual({ segments: [segment], query: null, hadFragment: false });
+      }
     }
-    expect(() => parseScopedPathUrl('work:///a%23b', 'work')).toThrow();
-    expect(() => parseScopedPathUrl('work:///a%3Fb', 'work')).toThrow();
   });
 });

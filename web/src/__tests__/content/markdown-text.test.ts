@@ -8,6 +8,19 @@ function mountMarkdownText(source: string) {
 }
 
 describe('MarkdownText', () => {
+  it('preserves distinct literal punctuation and percent filenames in decoded Files navigation', () => {
+    const names = ['#.txt', '%23.txt', '?.txt', '%3F.txt', 'space # percent% unicode-é'];
+    const wrapper = mountMarkdownText(names.map((name, index) => `[file${index}](work:///cards/${encodeURIComponent(name)})`).join('\n\n'));
+    const paths = wrapper.findAll('a[href]').map(link => {
+      const url = new URL(link.attributes('href')!, 'http://fixture.test');
+      expect(url.pathname).toBe('/files');
+      expect(url.hash).toBe('');
+      expect(url.searchParams.get('root')).toBe('output');
+      return url.searchParams.get('path');
+    });
+    expect(paths).toEqual(names.map(name => `.saivage/work/cards/${name}`));
+    expect(new Set(paths).size).toBe(names.length);
+  });
   it('renders canonical work artifact links through Files without enabling unsafe schemes', () => {
     const wrapper = mountMarkdownText('[findings.json](work:///quality/example/findings.json)\n\n[bad](work:///../private) [query](work:///quality/example/findings.json?x=1) [script](javascript:alert%281%29)\n\n`[code](work:///quality/example/findings.json)`');
     const link = wrapper.get('a[href]');

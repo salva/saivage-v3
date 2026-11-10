@@ -23,6 +23,25 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Filesystem scoped-URL punctuation correction from actual source parent
+`0745bfbcebd34deb210bba1d117320902684cd5c` changes filesystem/API addressability,
+not a durable contract. The shared segment codec admits encoded literal `#`/`?`
+and VFS recursive system results use that encoder; previously valid URLs keep
+their exact meaning and canonical output. No retained bytes, selected layout,
+descriptor/source identity or required field changes; no family/discriminator bump
+or retained-state transformation applies. Audited strict consumers
+`contracts/operator-api-processes.ts` and `contracts/webfetch.ts` still bind
+successful results to generated process/card identities, stream basenames and
+stash filenames, with canonical URL equality; record names/card identities and
+logical queries retain their separate grammar. Resolver, search/read, settled-tool,
+Files route/read-model and frontend navigation tests exercise once-only decoding
+and distinct literal-percent filenames. Existing conversation, card, record,
+provider/app-log, execution, workflow and capabilities discriminators remain
+unchanged. Installed-release applicability is unknown: separately authorized
+matching-release adoption suffices for this correction alone, while unrelated
+intervening format changes still govern migration requirements. This entry
+authorizes no deployment, migration, reset or runtime fallback.
+
 Bounded work-GC failure attribution from actual source parent
 `5cda26a1b6f68af13319e48d1b0eb2a57200c5eb` is API/CLI-only: the strict response
 adds required nullable `failure` with closed original filesystem code/syscall

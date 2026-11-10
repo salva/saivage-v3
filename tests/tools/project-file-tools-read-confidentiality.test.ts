@@ -30,6 +30,25 @@ function fixture() {
 }
 
 describe('agent filesystem confidentiality before content access', () => {
+  it('denies punctuation-named work secret aliases and still redacts admitted punctuation text', async () => {
+    const { projectRoot } = fixture();
+    const work = join(projectRoot, '.saivage/work/cards');
+    fs.mkdirSync(work, { recursive: true });
+    fs.writeFileSync(join(projectRoot, '.env'), 'private fixture');
+    fs.symlinkSync(join(projectRoot, '.env'), join(work, 'alias #?.txt'));
+    fs.writeFileSync(join(work, '#.txt'), 'needle ghp_SYNTHETIC_WORK_PUNCTUATION_SENTINEL');
+    const ctx = { authority: testWorkspaceAuthority(), projectRoot };
+    const alias = buildScopedPathUrl('work', ['cards', 'alias #?.txt']);
+    await expect(readProject(ctx, { path: alias })).rejects.toThrow(/blocked for security/);
+    await expect(globProject(ctx, { directory: alias, pattern: '*' })).rejects.toThrow(/blocked for security/);
+    await expect(grepProject(ctx, { path: alias, pattern: '.' })).rejects.toThrow(/blocked for security/);
+    const read = await readProject(ctx, { path: 'work:///cards/%23.txt' });
+    const grep = await grepProject(ctx, { path: 'work:///cards', pattern: 'needle' });
+    for (const result of [read, grep]) {
+      expect(JSON.stringify(result)).not.toContain('ghp_SYNTHETIC_WORK_PUNCTUATION_SENTINEL');
+      expect(JSON.stringify(result)).toContain('[REDACTED]');
+    }
+  });
   it('refuses lexical and resolved secrets/private namespaces equally for native and system paths', async () => {
     const { projectRoot, sibling } = fixture();
     const cases = ['.env', 'credentials', 'id_ed25519', '.ssh/config', '.git/objects/secret', '.saivage/diagnostics/error.txt', '.saivage/config/mcp-servers.json', '.saivage/locks/runtime', '.saivage/repair-attic/data', '.saivage/cards/project/card-head.prev.json', '.saivage/agents/conversations/index.json'];
