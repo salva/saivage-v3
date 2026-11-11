@@ -184,8 +184,16 @@ export async function inspectWorkGcCanonicalState(
   workflows: CompiledProjectWorkflows,
   check: () => void,
   references: {
-    readonly content: (value: unknown, cardId: string | null, source: WorkGcProtectionSource) => Promise<void>;
-    readonly operational: (value: unknown, cardId: string | null, source: WorkGcProtectionSource) => Promise<void>;
+    readonly content: (
+      value: unknown,
+      cardId: string | null,
+      source: WorkGcProtectionSource,
+    ) => Promise<void>;
+    readonly operational: (
+      value: unknown,
+      cardId: string | null,
+      source: WorkGcProtectionSource,
+    ) => Promise<void>;
   },
   progress?: WorkGcProgressPort,
 ): Promise<Set<string>> {
@@ -311,10 +319,18 @@ export async function inspectWorkGcCanonicalState(
       if (unfinished.has(row.invocation_id)) {
         if (row.kind === 'invocation_started' || row.kind === 'native_started')
           for (const path of row.artifact_paths)
-            await references.operational({ path: resolve(projectRoot, path) }, card.id, 'unfinished_execution');
+            await references.operational(
+              { path: resolve(projectRoot, path) },
+              card.id,
+              'unfinished_execution',
+            );
         else if (row.kind === 'process_started' || row.kind === 'native_process_started')
           for (const file of row.files)
-            await references.operational({ path: resolve(projectRoot, file.path) }, card.id, 'unfinished_execution');
+            await references.operational(
+              { path: resolve(projectRoot, file.path) },
+              card.id,
+              'unfinished_execution',
+            );
       }
       await setImmediate();
     }
@@ -330,10 +346,18 @@ export async function inspectWorkGcCanonicalState(
         );
       else {
         await references.operational(state.execution.inputs, card.id, 'workflow_input');
-        await references.operational({ path: state.execution.selectedAgentPrompt.path }, card.id, 'workflow_input');
+        await references.operational(
+          { path: state.execution.selectedAgentPrompt.path },
+          card.id,
+          'workflow_input',
+        );
       }
       for (const prompt of state.recordPrompts)
-        await references.operational({ path: resolve(projectRoot, prompt.artifact.path) }, card.id, 'workflow_input');
+        await references.operational(
+          { path: resolve(projectRoot, prompt.artifact.path) },
+          card.id,
+          'workflow_input',
+        );
     }
     if (workflow.afterActivationCommit)
       await references.operational(

@@ -72,9 +72,12 @@ import { submitNotificationTool, type QueueNotificationToolInput } from '../tool
 import type { DirectObjectAuthority } from '../tools/tool-api.js';
 
 export interface RuntimeApplication {
-  collectWorkGarbage(request: WorkGcRequest, signal: AbortSignal,
+  collectWorkGarbage(
+    request: WorkGcRequest,
+    signal: AbortSignal,
     progress?: import('../contracts/index.js').WorkGcProgressObserver,
-    onFatal?: () => void): Promise<WorkGcResponse>;
+    onFatal?: () => void,
+  ): Promise<WorkGcResponse>;
   assertWorkGcIngressAllowed(): void;
   cancelWorkGc(reason: Error): void;
   runWorkGc<I, T>(input: {
@@ -527,7 +530,14 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   }
   return {
     collectWorkGarbage(request, signal, progress, onFatal) {
-      return runWorkGcOperation({ ...services, request, signal, progress, onFatal, run: this.runWorkGc.bind(this) });
+      return runWorkGcOperation({
+        ...services,
+        request,
+        signal,
+        progress,
+        onFatal,
+        run: this.runWorkGc.bind(this),
+      });
     },
     assertWorkGcIngressAllowed: () => runtimeSupervisor.assertWorkGcIngressAllowed(),
     cancelWorkGc: (reason) => runtimeSupervisor.cancelWorkGc(reason),

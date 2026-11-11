@@ -28,12 +28,7 @@ export function parseScopedPathUrl(raw: string, scheme: string): ParsedScopedPat
     } catch {
       throw new Error(`Invalid ${scheme} URL '${raw}' (bad encoding).`);
     }
-    if (
-      seg === '.' ||
-      seg === '..' ||
-      seg.includes('/') ||
-      seg.includes('\\')
-    )
+    if (seg === '.' || seg === '..' || seg.includes('/') || seg.includes('\\'))
       throw new Error(`Invalid ${scheme} URL '${raw}' (traversal or separator in segment).`);
     segments.push(seg);
   }

@@ -49,8 +49,11 @@ export class OperatorRuntimeHttpClient {
       }
       if (response.statusCode !== 200) {
         let text: string;
-        try { text = await response.body.text(); }
-        catch (cause) { throw new Error('runtime.gcWork transport or response body read failed.', { cause }); }
+        try {
+          text = await response.body.text();
+        } catch (cause) {
+          throw new Error('runtime.gcWork transport or response body read failed.', { cause });
+        }
         return this.interpret('runtime.gcWork', response.statusCode, text);
       }
       // MIME/schema refusal can precede iterator installation. Own destroy's abort error too.
@@ -59,7 +62,9 @@ export class OperatorRuntimeHttpClient {
         try {
           const contentType = response.headers['content-type'];
           const decoder = new WorkGcStreamDecoder(
-            typeof contentType === 'string' ? contentType : undefined, progress);
+            typeof contentType === 'string' ? contentType : undefined,
+            progress,
+          );
           for await (const chunk of response.body) decoder.push(chunk);
           return decoder.finish();
         } finally {

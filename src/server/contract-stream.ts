@@ -32,8 +32,14 @@ export class ContractFrameStream {
         this.body.removeListener('error', failed);
         signal.removeEventListener('abort', aborted);
       };
-      const drained = () => { cleanup(); resolve(); };
-      const failed = (error: unknown) => { cleanup(); reject(error); };
+      const drained = () => {
+        cleanup();
+        resolve();
+      };
+      const failed = (error: unknown) => {
+        cleanup();
+        reject(error);
+      };
       const closed = () => failed(new Error('Contract stream closed.'));
       const aborted = () => failed(signal.reason);
       this.body.once('drain', drained);

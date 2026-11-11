@@ -31,7 +31,12 @@ export function createWorkGcProgress(
     if (!force && time - last < 1000) return;
     last = time;
     try {
-      observer({ phase, elapsed_ms: Math.floor(time - start), ...counters, first_global_protection: firstGlobalProtection });
+      observer({
+        phase,
+        elapsed_ms: Math.floor(time - start),
+        ...counters,
+        first_global_protection: firstGlobalProtection,
+      });
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
       observer = undefined;
@@ -44,7 +49,13 @@ export function createWorkGcProgress(
       update(values);
       emit(changed);
     },
-    update(values) { update(values); emit(false); },
-    increment(counter) { counters[counter] = (counters[counter] ?? 0) + 1; emit(false); },
+    update(values) {
+      update(values);
+      emit(false);
+    },
+    increment(counter) {
+      counters[counter] = (counters[counter] ?? 0) + 1;
+      emit(false);
+    },
   };
 }

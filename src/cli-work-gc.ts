@@ -26,18 +26,29 @@ import { collectWorkGarbage, inventoryWorkGarbage } from './workspace/index.js';
 
 function stderrProgress(): { observe: WorkGcProgressObserver; close(): void } {
   let enabled = true;
-  const failed = () => { enabled = false; };
+  const failed = () => {
+    enabled = false;
+  };
   process.stderr.on('error', failed);
   return {
     observe(progress) {
       if (!enabled || process.stderr.writableNeedDrain) return;
       const { phase, elapsed_ms, first_global_protection: protection, ...counts } = progress;
       try {
-        process.stderr.write(`GC ${phase} elapsed_ms=${elapsed_ms}${Object.entries(counts)
-          .map(([key, value]) => ` ${key}=${value}`).join('')} first_global_protection=${protection === null ? 'null' : `reason:${protection.reason},source:${protection.source}`}\n`);
-      } catch { enabled = false; }
+        process.stderr.write(
+          `GC ${phase} elapsed_ms=${elapsed_ms}${Object.entries(counts)
+            .map(([key, value]) => ` ${key}=${value}`)
+            .join(
+              '',
+            )} first_global_protection=${protection === null ? 'null' : `reason:${protection.reason},source:${protection.source}`}\n`,
+        );
+      } catch {
+        enabled = false;
+      }
     },
-    close() { process.stderr.removeListener('error', failed); },
+    close() {
+      process.stderr.removeListener('error', failed);
+    },
   };
 }
 
@@ -59,7 +70,11 @@ export async function handleGcWork(
     process.on('SIGTERM', cancel);
     try {
       const response = await new OperatorRuntimeHttpClient().gcWork(
-        status.record.control_endpoint, request, controller.signal, progress.observe);
+        status.record.control_endpoint,
+        request,
+        controller.signal,
+        progress.observe,
+      );
       console.log(JSON.stringify(response));
       if (response.disposition !== 'completed') process.exitCode = 1;
     } finally {

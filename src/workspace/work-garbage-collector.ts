@@ -11,7 +11,13 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { PublicationOutcomeUnknownError, type FirstGlobalProtection, type WorkGcProtectionSource, type WorkGcResult, type WorkGcProgressPort } from '../contracts/index.js';
+import {
+  PublicationOutcomeUnknownError,
+  type FirstGlobalProtection,
+  type WorkGcProtectionSource,
+  type WorkGcResult,
+  type WorkGcProgressPort,
+} from '../contracts/index.js';
 import { cardIdSchema } from '../schemas/index.js';
 import { inspectWorkGcCanonicalState, saivageWorkRoot } from '../persistence/index.js';
 
@@ -123,8 +129,16 @@ export async function inventoryWorkGarbage(
   const candidates: Candidate[] = [];
   let opaque = 0;
   let bytes = 0;
-  const observe = () => progress?.update({ observed_count: candidates.length, observed_logical_bytes: bytes, opaque_entries: opaque });
-  const check = () => { signal.throwIfAborted(); observe(); };
+  const observe = () =>
+    progress?.update({
+      observed_count: candidates.length,
+      observed_logical_bytes: bytes,
+      opaque_entries: opaque,
+    });
+  const check = () => {
+    signal.throwIfAborted();
+    observe();
+  };
   check();
   const parentStat = statOrMissing(dirname(root));
   if (parentStat && (!parentStat.isDirectory() || parentStat.isSymbolicLink()))
@@ -211,7 +225,9 @@ type ReferenceOrigin = 'content' | 'operational';
 class WorkReferences {
   readonly paths = new Set<string>();
   #firstGlobalProtection: FirstGlobalProtection | null = null;
-  get firstGlobalProtection(): FirstGlobalProtection | null { return this.#firstGlobalProtection; }
+  get firstGlobalProtection(): FirstGlobalProtection | null {
+    return this.#firstGlobalProtection;
+  }
   protectAll(reason: FirstGlobalProtection['reason'], source: WorkGcProtectionSource): void {
     if (this.#firstGlobalProtection !== null) return;
     this.#firstGlobalProtection = Object.freeze({ reason, source });
@@ -358,7 +374,8 @@ class WorkReferences {
           this.protectAll('reference_scope_unknown', source);
         }
         if (path !== undefined) this.path(path, origin, source);
-      } else if (/\.saivage|work:|tmp:/u.test(url.pathname)) this.protectAll('reference_scope_unknown', source);
+      } else if (/\.saivage|work:|tmp:/u.test(url.pathname))
+        this.protectAll('reference_scope_unknown', source);
       for (const value of url.searchParams.values()) await this.text(value, bases, origin, source);
       return;
     }
@@ -460,7 +477,11 @@ class WorkReferences {
     return this.value(value, 'content', source, bases);
   }
 
-  operational(value: unknown, source: WorkGcProtectionSource, bases: readonly string[] = [this.projectRoot]): Promise<void> {
+  operational(
+    value: unknown,
+    source: WorkGcProtectionSource,
+    bases: readonly string[] = [this.projectRoot],
+  ): Promise<void> {
     return this.value(value, 'operational', source, bases);
   }
 
@@ -567,7 +588,11 @@ export async function collectWorkGarbage(
   options: WorkGcOptions,
   context: WorkGcCollectionContext,
 ): Promise<WorkGcResult> {
-  context.progress?.phase('validation_marking', { validated_cards: 0, validated_records: 0, validated_segments: 0 });
+  context.progress?.phase('validation_marking', {
+    validated_cards: 0,
+    validated_records: 0,
+    validated_segments: 0,
+  });
   const check = context.assertCollecting;
   check();
   await setImmediate();
@@ -586,15 +611,17 @@ export async function collectWorkGarbage(
   let selectedCount = 0;
   let selectedBytes = 0;
   let processed = 0;
-  const classified = context.progress ? () => {
-    processed++;
-    context.progress?.update({
-      candidates_processed: processed,
-      ...(options.mode === 'dry_run'
-        ? { would_delete_count: selectedCount, would_delete_logical_bytes: selectedBytes }
-        : { deleted_count: selectedCount, deleted_logical_bytes: selectedBytes }),
-    });
-  } : undefined;
+  const classified = context.progress
+    ? () => {
+        processed++;
+        context.progress?.update({
+          candidates_processed: processed,
+          ...(options.mode === 'dry_run'
+            ? { would_delete_count: selectedCount, would_delete_logical_bytes: selectedBytes }
+            : { deleted_count: selectedCount, deleted_logical_bytes: selectedBytes }),
+        });
+      }
+    : undefined;
   context.progress?.phase('selection', {
     candidates_processed: 0,
     ...(options.mode === 'dry_run'

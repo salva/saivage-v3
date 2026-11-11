@@ -159,70 +159,68 @@ export function runWorkGcOperation(input: {
   let failureReason: WorkGcResponse['reason'] = 'inventory_failed';
   // Reserve synchronously. Only the accepted task is converted to a completion response.
   const task = input.run({
-       isFatal: () => fatal,
-       onFatal: markFatal,
-      signal: input.signal,
-      inventory: async (signal) => {
-        const inventory = await inventoryWorkGarbage(input.projectRoot, signal, progress);
-        failureReason = 'maintenance_refused';
-        progress?.phase('settling');
-        return inventory;
-      },
-      collect: async (inventory, signal) => {
-        signal.throwIfAborted();
-        failureReason = 'operational_inputs_invalid';
-        progress?.phase('validation_marking');
-        const fresh = input.configAuthority.loadEffective();
-        const operationalWorkflows = workflowInputs(fresh.workflows);
-        if (
-          !isDeepStrictEqual(fresh.config, input.config) ||
-          !isDeepStrictEqual(operationalWorkflows, workflowInputs(input.workflows))
-        )
-          throw new Error(
-            'Selected operational configuration differs from the running composition.',
-          );
-        failureReason = 'collection_failed';
-        result = await collectWorkGarbage(
-          inventory,
-          {
-            mode: input.request.mode,
-            before:
-              input.request.before === undefined ? undefined : Date.parse(input.request.before),
-            targetBytes: input.request.target_bytes,
-          },
-          {
-            progress,
-            workflows: input.workflows,
-            // Executable dependencies live in the selected configuration/operation definitions.
-            // Expanded role instructions are checked for composition consistency above; their
-            // retained conversation selections are independently marked by the canonical owner.
-            operationalInputs: workGcOperationalInputs(fresh.config, fresh.workflows),
-            protection: input.processRunner.workGcProtection(),
-            assertCollecting: () => signal.throwIfAborted(),
-            fatal: failFatally,
-          },
-        );
-        return result;
-      },
-    });
-  return task.then(completed =>
-    workGcCompletedResponse(input.request, completed.value, completed.restoredRunning),
-  (error: unknown) => {
-    if (fatal) throw error;
-    if (error instanceof PublicationOutcomeUnknownError)
-      failFatally(error);
-    if (error instanceof WorkGcBusyError) throw error;
-    return workGcFailureResponse(
-      input.request,
-      error,
-      failureReason,
-      input.signal.aborted || (error instanceof WorkGcMaintenanceError && error.cancelled),
-      error instanceof WorkGcMaintenanceError
-        ? error.restoredRunning
-          ? 'resumed'
-          : 'not_resumed'
-        : 'not_acquired',
-      result,
-    );
+    isFatal: () => fatal,
+    onFatal: markFatal,
+    signal: input.signal,
+    inventory: async (signal) => {
+      const inventory = await inventoryWorkGarbage(input.projectRoot, signal, progress);
+      failureReason = 'maintenance_refused';
+      progress?.phase('settling');
+      return inventory;
+    },
+    collect: async (inventory, signal) => {
+      signal.throwIfAborted();
+      failureReason = 'operational_inputs_invalid';
+      progress?.phase('validation_marking');
+      const fresh = input.configAuthority.loadEffective();
+      const operationalWorkflows = workflowInputs(fresh.workflows);
+      if (
+        !isDeepStrictEqual(fresh.config, input.config) ||
+        !isDeepStrictEqual(operationalWorkflows, workflowInputs(input.workflows))
+      )
+        throw new Error('Selected operational configuration differs from the running composition.');
+      failureReason = 'collection_failed';
+      result = await collectWorkGarbage(
+        inventory,
+        {
+          mode: input.request.mode,
+          before: input.request.before === undefined ? undefined : Date.parse(input.request.before),
+          targetBytes: input.request.target_bytes,
+        },
+        {
+          progress,
+          workflows: input.workflows,
+          // Executable dependencies live in the selected configuration/operation definitions.
+          // Expanded role instructions are checked for composition consistency above; their
+          // retained conversation selections are independently marked by the canonical owner.
+          operationalInputs: workGcOperationalInputs(fresh.config, fresh.workflows),
+          protection: input.processRunner.workGcProtection(),
+          assertCollecting: () => signal.throwIfAborted(),
+          fatal: failFatally,
+        },
+      );
+      return result;
+    },
   });
+  return task.then(
+    (completed) =>
+      workGcCompletedResponse(input.request, completed.value, completed.restoredRunning),
+    (error: unknown) => {
+      if (fatal) throw error;
+      if (error instanceof PublicationOutcomeUnknownError) failFatally(error);
+      if (error instanceof WorkGcBusyError) throw error;
+      return workGcFailureResponse(
+        input.request,
+        error,
+        failureReason,
+        input.signal.aborted || (error instanceof WorkGcMaintenanceError && error.cancelled),
+        error instanceof WorkGcMaintenanceError
+          ? error.restoredRunning
+            ? 'resumed'
+            : 'not_resumed'
+          : 'not_acquired',
+        result,
+      );
+    },
+  );
 }

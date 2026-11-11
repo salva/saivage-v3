@@ -904,9 +904,15 @@ export class AgentExecutor {
     const card = rows[0]!.card;
     const workflow = this.deps.workflows.cardTypes.get(card.type);
     if (!workflow) throw new Error(`No workflow for reviewed card type '${card.type}'.`);
-    const bootstrap = acceptedRecordVersion(this.deps.store, card.id, workflow.bootstrapRecord.name);
+    const bootstrap = acceptedRecordVersion(
+      this.deps.store,
+      card.id,
+      workflow.bootstrapRecord.name,
+    );
     if (bootstrap.sourceEntryId === null || bootstrap.sourceVersion === null)
-      throw new Error(`Reviewed card '${card.id}' has no accepted bootstrap '${bootstrap.filename}'.`);
+      throw new Error(
+        `Reviewed card '${card.id}' has no accepted bootstrap '${bootstrap.filename}'.`,
+      );
     return {
       reviewedCardBootstrap: {
         cardId: card.id,
@@ -977,7 +983,9 @@ export class AgentExecutor {
     );
     const ordinaryCards = (snapshot: ReviewerSnapshot) =>
       snapshot.cards.map(({ id, ordinary }) => ({ id, ordinary }));
-    if (JSON.stringify(before.reviewedCardBootstrap) !== JSON.stringify(after.reviewedCardBootstrap))
+    if (
+      JSON.stringify(before.reviewedCardBootstrap) !== JSON.stringify(after.reviewedCardBootstrap)
+    )
       return `Review '${node.nodeId}' no longer applies to this card's accepted assignment. Select a configured nonterminal route to replan and obtain fresh review, or a supported current-judgment or BLOCKED route; do not promote the old review.`;
     return JSON.stringify(ordinaryCards(before)) === JSON.stringify(ordinaryCards(after)) &&
       JSON.stringify(before.includedRecordVersions) === JSON.stringify(after.includedRecordVersions)
