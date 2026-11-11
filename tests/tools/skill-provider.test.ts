@@ -1,6 +1,6 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -29,6 +29,54 @@ function writeCatalog(skillsDir: string): void {
 }
 
 describe('SkillProvider', () => {
+  it('loads the manually provisioned recovery procedure while preserving custom entries and role filtering', async () => temporaryProject(async (root, skillsDir) => {
+    const procedure = readFileSync(new URL('../../docs/runbook/analyst-recovery.md', import.meta.url), 'utf8');
+    const custom = '# Project recovery notes\n\nContact the project requirement owner.\n';
+    const existing = [
+      { name: 'project-notes', file: 'project.md', target_agents: ['analyst'] },
+      { name: 'delivery-checks', file: 'delivery.md', target_agents: ['executor'] },
+    ];
+    writeFileSync(join(skillsDir, 'project.md'), custom, 'utf8');
+    writeFileSync(join(skillsDir, 'delivery.md'), '# Delivery checks\n', 'utf8');
+    writeFileSync(join(skillsDir, 'analyst-runtime-recovery.md'), procedure, 'utf8');
+    writeFileSync(join(skillsDir, 'index.json'), JSON.stringify([
+      ...existing,
+      { name: 'analyst-runtime-recovery', file: 'analyst-runtime-recovery.md', target_agents: ['analyst'] },
+    ]), 'utf8');
+    const analyst = buildInvocationSurfaceFixture('analyst', [bindToolProvider('skill', skillToolBinders, { projectRoot: root, agentName: 'analyst' })]);
+    const executor = buildInvocationSurfaceFixture('executor', [bindToolProvider('skill', skillToolBinders, { projectRoot: root, agentName: 'executor' })]);
+
+    expect(await invokeTestTool(analyst, 'skill', {})).toEqual({
+      success: true,
+      data: { skills: [{ name: 'project-notes' }, { name: 'analyst-runtime-recovery' }] },
+    });
+    expect(await invokeTestTool(analyst, 'skill', { name: 'analyst-runtime-recovery' })).toEqual({
+      success: true,
+      data: { skill_name: 'analyst-runtime-recovery', skill_content: procedure },
+    });
+    expect(await invokeTestTool(analyst, 'skill', { name: 'project-notes' })).toEqual({
+      success: true,
+      data: { skill_name: 'project-notes', skill_content: custom },
+    });
+    expect(await invokeTestTool(executor, 'skill', {})).toEqual({
+      success: true,
+      data: { skills: [{ name: 'delivery-checks' }] },
+    });
+    expect(await invokeTestTool(executor, 'skill', { name: 'analyst-runtime-recovery' })).toEqual({
+      success: false,
+      error: "Skill 'analyst-runtime-recovery' is unavailable for agent 'executor'.",
+    });
+  }));
+
+  it('leaves an unprovisioned Analyst catalog empty and recovery unavailable', async () => temporaryProject(async (root) => {
+    const analyst = buildInvocationSurfaceFixture('analyst', [bindToolProvider('skill', skillToolBinders, { projectRoot: root, agentName: 'analyst' })]);
+    expect(await invokeTestTool(analyst, 'skill', {})).toEqual({ success: true, data: { skills: [] } });
+    expect(await invokeTestTool(analyst, 'skill', { name: 'analyst-runtime-recovery' })).toEqual({
+      success: false,
+      error: "Skill 'analyst-runtime-recovery' is unavailable for agent 'analyst'.",
+    });
+  }));
+
   it('returns only ordered role-filtered name projections', async () => temporaryProject(async (root, skillsDir) => {
     writeCatalog(skillsDir);
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('skill', skillToolBinders, { projectRoot: root, agentName: 'executor' })]);

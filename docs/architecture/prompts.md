@@ -2,8 +2,8 @@
 
 Selected `read_agent_session` tool help owns diagnostic-first navigation, exact
 visible-entry inspection, coverage limitations and lossless hex-slice decoding
-for Analyst and Oversight. Existing role-level compacted-context guidance remains
-applicable. This is not a recovery skill or an automatic update of materialized
+for Analyst and Oversight; the redundant Analyst role-level context-paging sentence
+is removed. This is not a recovery skill or an automatic update of materialized
 role files; the selected bound tool definition delivers the guidance with each
 prepared request. Offline compositions establish delivery structure, not model
 understanding or live incident resolution.
@@ -53,6 +53,17 @@ Actions and advisory postcommit hooks have no prompt, model attempt or synthetic
 conversation. `NodeExecution` owns acceptance independently of prompt execution.
 
 ### Context owners and lifetimes
+
+Analyst's always-prepared host owns ordinary authorized action, common Run/Resume
+distinctions, essential uncertainty boundaries and the trigger to list/load the
+optional `analyst-runtime-recovery` skill. Bound session/control help owns exact
+navigation and refusal contracts. The [recovery procedure](../runbook/analyst-recovery.md)
+owns infrequent decision detail; its [manual catalog recipe](../guides/configuration.md#optional-analyst-recovery-skill)
+does not promise default availability. Missing catalogs leave essential role/tool
+direction available. Skill list/read consumes fresh input at use; loaded text is
+ordinary tool-result context, not protected role text, automatic post-compaction
+reload or role hot reload. Custom hosts/includes and skill names/content remain
+operator-owned; source/package composition is not installed adoption.
 
 Shared `queue_notification` help separately names Analyst ordinary admission and
 Oversight active-check/planning-target admission. Selected grants and effect owners

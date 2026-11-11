@@ -232,6 +232,46 @@ to `.saivage/skills/` and cannot escape it. A missing index is legitimate; `[]` 
 empty. Selection makes a skill available for explicit tool use, not automatic
 prompt injection. This runtime catalog is separate from OpenCode development skills.
 
+### Optional Analyst recovery skill
+
+Enabling skills supplies no content. For a new or existing project, an operator
+may explicitly copy the matching-release source document
+`docs/runbook/analyst-recovery.md` to
+`.saivage/skills/analyst-runtime-recovery.md`. From the exact project root, with
+`/path/to/matching-release-source` replaced by that source checkout:
+
+```sh
+mkdir -p .saivage/skills
+# Only when this destination is absent; reconcile any customized file deliberately.
+cp /path/to/matching-release-source/docs/runbook/analyst-recovery.md .saivage/skills/analyst-runtime-recovery.md
+```
+
+Add this entry to the existing `index.json` array, retaining unrelated entries
+and their order (this is an entry, not a replacement catalog):
+
+```json
+{ "name": "analyst-runtime-recovery", "file": "analyst-runtime-recovery.md", "target_agents": ["analyst"] }
+```
+
+Substitute the actual configured skill-enabled agent name for `analyst`; that
+agent must select `skill` in its capabilities and set `skills: true`. An operator may explicitly
+create a missing index array; runtime bootstrap never does. Do not overwrite an
+existing index or customized same-name file. Preserve project instructions and
+custom skill names/content when reconciling updates.
+
+Use `skill({})` to list names and `skill({name:"analyst-runtime-recovery"})` to
+load exact procedure content if listed. Missing catalog means an empty list, not
+default recovery content; use current tool help and essential role direction
+instead. No automatic matching, injection, installation or update occurs.
+
+Installation/version updates alone neither supply this optional catalog nor
+change materialized role overrides. Explicitly adopt the revised selected Analyst
+role while preserving customization through
+[stopped prompt adoption](../architecture/prompts.md#loaded-configuration-and-installed-adoption).
+List/read consumes fresh skill input at use, not hot-reloaded role text. Skill
+output is ordinary tool-result context, not permanently protected or automatically
+reloaded after compaction; a later request can explicitly load needed detail again.
+
 ### Enable explicit image inspection
 
 Select `view_image` only for intended participants, with compatible routes and

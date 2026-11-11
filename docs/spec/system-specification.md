@@ -1232,6 +1232,12 @@ Configured correction text and runtime diagnostics are separate durable rows. Th
 
 ### Explicit skill selection
 
+The optional [Analyst recovery procedure](../runbook/analyst-recovery.md) uses this
+unchanged names-only catalog through [explicit manual provisioning](../guides/configuration.md#optional-analyst-recovery-skill).
+Enabling skills or updating a release supplies neither catalog content nor revised
+materialized role overrides. Skill results have ordinary conversation lifetime,
+not permanent protection or automatic reload after compaction.
+
 The optional on-demand skill catalog is the exact `.saivage/skills/index.json` JSON array.
 Each entry is one strict three-field object:
 

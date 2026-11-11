@@ -1814,6 +1814,8 @@ cannot replace bound tools/generated result authority.
 
 `SkillCatalog` reads the exact optional index and one selected file on explicit use,
 validates complete current input and filters exact configured agent names/order.
+The [optional Analyst recovery recipe](../guides/configuration.md#optional-analyst-recovery-skill)
+uses explicit operator provisioning, not a new installation component.
 Only index ENOENT is empty; invalid selected files fail. `skills:true` plus selected
 skill tool is necessary. No role-name inference, auto-injection or compatibility
 payload: successful list/load retains the complete generic result envelope and

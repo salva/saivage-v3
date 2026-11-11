@@ -7,6 +7,10 @@ owner before choosing. [Deployment](./deployment.md) owns server installation;
 
 ## Choose the control
 
+For ambiguous failed/interrupted work, the optional
+[Analyst recovery procedure](./analyst-recovery.md) connects relevant diagnostics
+to authorized correction or escalation; control/refusal semantics remain here.
+
 | Intent | Operation and expected observation |
 |---|---|
 | Start project work from stopped | Analyst `start_project({})`; a new Run activates project through its configured entry |

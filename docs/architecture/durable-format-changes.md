@@ -23,6 +23,19 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Optional Analyst recovery guidance from actual implementation parent
+`9526a1995a456556a128bea0476c76a92eb21249` changes only role/procedure text,
+documentation and a real-tool manual-catalog fixture. The existing unversioned
+strict `{name,file,target_agents}` input and prompt/tool-result string contracts
+are unchanged. No retained shape/interpretation, selection, provenance, layout,
+history or retention-rule change: card head1/history6/mailbox1, record head3/
+accepted6, conversation index/genesis/envelope13, execution3, shared provider/app
+envelope2, workflow6 and capabilities1 stay unchanged. No bump, new family or
+unreleased-cutover exception applies. This change alone needs no conversion;
+explicit optional catalog provisioning and selected customized-role adoption remain
+operator work, separate from whole-release compatibility. No deployment, reset or
+external migration is authorized.
+
 Transient work-GC progress from actual implementation source parent
 `a865939712b180ec6d1d68cd5fc663027a1de278` changes only call-local observation,
 CLI presentation and HTTP success encoding (strict NDJSON progress/result plus
