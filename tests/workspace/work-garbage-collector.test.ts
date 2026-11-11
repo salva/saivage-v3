@@ -106,6 +106,74 @@ function toolExchange(tool: string, content: string, argumentsText = '{}') {
 }
 
 describe('work GC two-phase selection', () => {
+  it.each(['conversation_content', 'record_content', 'pending_notification', 'operational_input', 'process_owner', 'process_capture'] as const)(
+    'attributes the first sufficient global mark to %s without leaking input or skipping later work', async source => {
+      const root = fixture(), sentinel = 'PRIVATE-attribution-sentinel';
+      const candidate = work(root, `cards/project/tmp/${sentinel}`);
+      const unknown = JSON.stringify({ source_path: `*${sentinel}` });
+      if (source === 'conversation_content') appendConversationBatch({ projectRoot: root }, [message(unknown)]);
+      if (source === 'record_content') baseline(root, unknown);
+      if (source === 'pending_notification') new CardService(root).enqueueNotification('project', {
+        id: randomUUID(), content: unknown, created_at: '2026-10-24T00:00:00.000Z',
+      });
+      const snapshots: unknown[] = [];
+      const { createWorkGcProgress } = await import('../../src/application/work-gc-progress.js');
+      let time = 0;
+      const progress = createWorkGcProgress(value => snapshots.push(value), () => time += 1001);
+      const overrides = {
+        // A later operational root must never overwrite an earlier content/process mark.
+        operationalInputs: { root: root, config: sentinel },
+        protection: { retainAll: source === 'process_owner', capturePaths: source === 'process_capture' ? [join(root, 'capture')] : [] },
+      };
+      const found = await inventory(root);
+      const plain = await collectWorkGarbage(found, { mode: 'dry_run' }, context(overrides));
+      const observed = await collectWorkGarbage(found, { mode: 'dry_run' }, context({ ...overrides, progress }));
+      const brokenObserver = createWorkGcProgress(() => { throw new Error('PRIVATE observer failure'); });
+      expect(await collectWorkGarbage(found, { mode: 'dry_run' }, context({ ...overrides, progress: brokenObserver }))).toEqual(plain);
+      const mark = { reason: source === 'process_owner' ? 'process_owner_uncertain'
+        : source === 'operational_input' || source === 'process_capture' ? 'operational_root' : 'reference_scope_unknown', source };
+      expect(observed).toEqual(plain);
+      expect(observed).toMatchObject({ first_global_protection: mark, retained: { protected: 1 }, would_delete_count: 0 });
+      expect(snapshots).toContainEqual(expect.objectContaining({ first_global_protection: mark, phase: 'selection' }));
+      expect(JSON.stringify({ observed, snapshots })).not.toContain(sentinel);
+      expect(existsSync(candidate)).toBe(true);
+    });
+
+  it('can protect every candidate individually with no global mark', async () => {
+    const root = fixture();
+    work(root, 'cards/project/tmp/selected.txt');
+    appendConversationBatch({ projectRoot: root }, [message('Keep tmp:///project/selected.txt')]);
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
+    expect(result).toMatchObject({ first_global_protection: null, retained: { protected: 1 }, would_delete_count: 0 });
+  });
+
+  it('attributes configured global conversation payloads at their canonical semantic callback', async () => {
+    const root = fixture();
+    work(root, 'cards/project/tmp/control');
+    const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(), 'Keep "*.txt"', { kind: 'unavailable', reason: 'not_recorded' }));
+    expect(await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context())).toMatchObject({
+      first_global_protection: { reason: 'reference_scope_unknown', source: 'conversation_content' },
+      retained: { protected: 1 }, would_delete_count: 0,
+    });
+  });
+
+  it('continues reference extraction after its first global mark and propagates later unexpected metadata failure', async () => {
+    const root = fixture();
+    work(root, 'cards/project/tmp/control');
+    const reference = join(root, 'later-reference');
+    baseline(root, JSON.stringify({ source_path: '*.txt', later: { source_path: reference } }));
+    const realpath = fs.realpathSync, failure = new Error('unexpected later metadata');
+    const marks: unknown[] = [];
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path) === reference) throw failure;
+      return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    const progress = { phase() {}, increment() {}, update(value: unknown) { marks.push(value); } };
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context({ progress }))).rejects.toBe(failure);
+    expect(marks).toEqual([{ first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' } }]);
+  });
+
   it.each(['unreferenced', 'purpose', 'shell', 'card', 'sibling'] as const)(
     'keeps ordinary shell and sibling work semantics for a current %s reference', async reference => {
       const root = fixture();
@@ -470,7 +538,7 @@ describe('work GC two-phase selection', () => {
     const bytes = files.map(path => readFileSync(path));
     const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
     expect(result).toMatchObject({ observed_count: 5, would_delete_count: 1, deleted_count: 0,
-      retained: { protected: 3, recent: 1 } });
+      retained: { protected: 3, recent: 1 }, first_global_protection: null });
     expect(files.map(path => readFileSync(path))).toEqual(bytes);
   });
 
@@ -491,6 +559,7 @@ describe('work GC two-phase selection', () => {
     baseline(root, scope === 'unknown' ? 'Keep "*.txt"' : `Keep "${dirname(selected)}/*.txt"`);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
     expect(result).toMatchObject({ retained: { protected: scope === 'unknown' ? 2 : 1 },
+      first_global_protection: scope === 'unknown' ? { reason: 'reference_scope_unknown', source: 'record_content' } : null,
       would_delete_count: scope === 'unknown' ? 0 : 1, deleted_count: 0 });
     expect([selected, control].every(existsSync)).toBe(true);
   });

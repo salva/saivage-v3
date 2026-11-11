@@ -31,10 +31,10 @@ function stderrProgress(): { observe: WorkGcProgressObserver; close(): void } {
   return {
     observe(progress) {
       if (!enabled || process.stderr.writableNeedDrain) return;
-      const { phase, elapsed_ms, ...counts } = progress;
+      const { phase, elapsed_ms, first_global_protection: protection, ...counts } = progress;
       try {
         process.stderr.write(`GC ${phase} elapsed_ms=${elapsed_ms}${Object.entries(counts)
-          .map(([key, value]) => ` ${key}=${value}`).join('')}\n`);
+          .map(([key, value]) => ` ${key}=${value}`).join('')} first_global_protection=${protection === null ? 'null' : `reason:${protection.reason},source:${protection.source}`}\n`);
       } catch { enabled = false; }
     },
     close() { process.stderr.removeListener('error', failed); },

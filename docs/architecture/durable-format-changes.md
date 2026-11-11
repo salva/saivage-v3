@@ -104,6 +104,24 @@ explicit optional catalog provisioning and selected customized-role adoption rem
 operator work, separate from whole-release compatibility. No deployment, reset or
 external migration is authorized.
 
+First-global work-GC protection attribution from actual implementation source parent
+`25522516e69a8f7efd94ceeb2ff2b326682b0fe8` adds required nullable
+`first_global_protection` to transient progress and non-null results only. The
+enum-only first reason/source is call-local observation, not retained state,
+selection, provenance, layout or changed retention meaning. Evidence owners are
+`contracts/work-gc.ts`, the canonical semantic callbacks and the resolver's single
+first mark. Card head1/history7/mailbox1, record head3/accepted6 and conversation
+index/genesis/envelope13 remain unchanged, as do execution3, shared provider/app
+envelope2, workflow6 and capabilities1. No discriminator bump, new family or
+unreleased-cutover exception applies. Source applicability is the strict current
+API after progress/failure attribution and card7, not a deployment certification.
+Ship matching server, CLI and API clients together: old strict readers reject the
+new fields and new readers require them. This change alone needs no conversion or
+reset on matching durable contracts; other old/mixed state remains a stopped
+blocker. External migration remains separately owner-requested/offline.
+No converter or compatibility fallback is provided. No binary-only incompatible
+rollback is authorized.
+
 Transient work-GC progress from actual implementation source parent
 `a865939712b180ec6d1d68cd5fc663027a1de278` changes only call-local observation,
 CLI presentation and HTTP success encoding (strict NDJSON progress/result plus

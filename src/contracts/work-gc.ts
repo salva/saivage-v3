@@ -20,7 +20,15 @@ export const WorkGcRequestSchema = z
   .strict();
 export type WorkGcRequest = z.infer<typeof WorkGcRequestSchema>;
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+export const FirstGlobalProtectionSchema = z.object({
+  reason: z.enum(['process_owner_uncertain', 'operational_root', 'reference_scope_unknown']),
+  source: z.enum(['process_owner', 'process_capture', 'card_content', 'pending_notification',
+    'record_content', 'conversation_content', 'unfinished_execution', 'workflow_input', 'operational_input']),
+}).strict();
+export type FirstGlobalProtection = z.infer<typeof FirstGlobalProtectionSchema>;
+export type WorkGcProtectionSource = FirstGlobalProtection['source'];
 export const WorkGcProgressSchema = z.object({
+  first_global_protection: FirstGlobalProtectionSchema.nullable(),
   phase: z.enum(['inventory', 'settling', 'validation_marking', 'selection']),
   elapsed_ms: count,
   observed_count: count.optional(),
@@ -37,11 +45,12 @@ export const WorkGcProgressSchema = z.object({
 }).strict();
 export type WorkGcProgress = z.infer<typeof WorkGcProgressSchema>;
 export type WorkGcProgressObserver = (progress: WorkGcProgress) => void;
-export type WorkGcCounters = Omit<WorkGcProgress, 'phase' | 'elapsed_ms'>;
+export type WorkGcCounters = Omit<WorkGcProgress, 'phase' | 'elapsed_ms' | 'first_global_protection'>;
+export type WorkGcProgressUpdate = WorkGcCounters & Partial<Pick<WorkGcProgress, 'first_global_protection'>>;
 /** Transient observations only; never collection or publication authority. */
 export interface WorkGcProgressPort {
-  phase(phase: WorkGcProgress['phase'], counters?: WorkGcCounters): void;
-  update(counters: WorkGcCounters): void;
+  phase(phase: WorkGcProgress['phase'], values?: WorkGcProgressUpdate): void;
+  update(values: WorkGcProgressUpdate): void;
   increment(counter: keyof WorkGcCounters): void;
 }
 const WorkGcResultSchema = z
@@ -51,6 +60,7 @@ const WorkGcResultSchema = z
     observed_logical_bytes: count,
     opaque_entries: count,
     whole_work_size_known: z.literal(false),
+    first_global_protection: FirstGlobalProtectionSchema.nullable(),
     retained: z
       .object({ protected: count, recent: count, stale: count, opaque: count, target: count })
       .strict(),

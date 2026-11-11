@@ -96,13 +96,18 @@ it('bypasses transport reporting and cleanup after an injected throwing fatal po
   const stream = new ContractFrameStream(WorkGcFrameSchema);
   const destroy = jest.spyOn(stream.body, 'destroy');
   const finish = jest.spyOn(stream, 'finish');
-  const collect: RuntimeApplication['collectWorkGarbage'] = (_request, _signal, _progress, onFatal) => {
+  const optional = jest.spyOn(stream, 'optional');
+  const progress = { phase: 'validation_marking', elapsed_ms: 0,
+    first_global_protection: { reason: 'process_owner_uncertain', source: 'process_owner' } } as const;
+  const collect: RuntimeApplication['collectWorkGarbage'] = (_request, _signal, observe, onFatal) => {
+    observe?.(progress);
     onFatal!();
     return Promise.reject(new Error('injected terminal port'));
   };
   const handler = buildWorkGcOperatorContractHandlers({ collectWorkGarbage: collect } as unknown as RuntimeApplication)['runtime.gcWork'];
   handler({ body: { mode: 'dry_run' }, request: { raw }, reply: { raw: reply, createStream: () => stream } } as unknown as Parameters<typeof handler>[0]);
   await new Promise(resolve => setImmediate(resolve));
+  expect(optional).toHaveBeenCalledWith({ type: 'progress', progress });
   expect(destroy).not.toHaveBeenCalled(); expect(finish).not.toHaveBeenCalled();
   expect(raw.listenerCount('aborted')).toBe(1); expect(reply.listenerCount('close')).toBe(1);
   reply.emit('close');

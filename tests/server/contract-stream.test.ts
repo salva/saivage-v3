@@ -17,14 +17,14 @@ function pressured() {
   } });
   stream.body.pipe(sink);
   while (!stream.body.writableNeedDrain)
-    stream.optional({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0 } });
+    stream.optional({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, first_global_protection: null } });
   return { stream, chunks, sink, release() { slow = false; for (const callback of callbacks.splice(0)) callback(); } };
 }
 it('drops under witnessed writable pressure without accumulating snapshots, then sends one terminal', async () => {
   const { stream, chunks, sink, release } = pressured();
   expect(stream.body.writableNeedDrain).toBe(true);
   const length = stream.body.writableLength;
-  for (let i = 0; i < 10000; i++) stream.optional({ type: 'progress', progress: { phase: 'selection', elapsed_ms: i } });
+  for (let i = 0; i < 10000; i++) stream.optional({ type: 'progress', progress: { phase: 'selection', elapsed_ms: i, first_global_protection: null } });
   expect(stream.body.writableLength).toBe(length);
   const finished = once(sink, 'finish');
   let complete = false;

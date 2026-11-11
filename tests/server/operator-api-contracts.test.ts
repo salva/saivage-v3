@@ -112,7 +112,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const contract = operatorApiContracts['runtime.gcWork'];
     const response = { mode: 'dry_run', disposition: 'refused', reason: 'maintenance_refused',
       restoration: 'not_acquired', failure: { code: 'EIO', syscall: 'read' }, result: null };
-    const progress = { type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, observed_count: 0 } };
+    const progress = { type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, observed_count: 0, first_global_protection: null } };
     const terminal = { type: 'result', response };
     expect(contract.success.parse(response)).toEqual(response);
     expect(parseOperatorResponse('runtime.gcWork', 200, progress)).toEqual(progress);

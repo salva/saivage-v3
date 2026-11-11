@@ -11,7 +11,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { PublicationOutcomeUnknownError, type WorkGcResult, type WorkGcProgressPort } from '../contracts/index.js';
+import { PublicationOutcomeUnknownError, type FirstGlobalProtection, type WorkGcProtectionSource, type WorkGcResult, type WorkGcProgressPort } from '../contracts/index.js';
 import { cardIdSchema } from '../schemas/index.js';
 import { inspectWorkGcCanonicalState, saivageWorkRoot } from '../persistence/index.js';
 
@@ -210,12 +210,19 @@ type ReferenceOrigin = 'content' | 'operational';
 /** Content identifies concrete artifacts, not administrative containers. Never reads contents. */
 class WorkReferences {
   readonly paths = new Set<string>();
-  retainAll = false;
+  #firstGlobalProtection: FirstGlobalProtection | null = null;
+  get firstGlobalProtection(): FirstGlobalProtection | null { return this.#firstGlobalProtection; }
+  protectAll(reason: FirstGlobalProtection['reason'], source: WorkGcProtectionSource): void {
+    if (this.#firstGlobalProtection !== null) return;
+    this.#firstGlobalProtection = Object.freeze({ reason, source });
+    this.progress?.update({ first_global_protection: this.#firstGlobalProtection });
+  }
   readonly root: string;
   private visited = 0;
   constructor(
     readonly projectRoot: string,
     readonly check: () => void,
+    readonly progress?: WorkGcProgressPort,
   ) {
     this.root = saivageWorkRoot(projectRoot);
   }
@@ -246,22 +253,22 @@ class WorkReferences {
     return true;
   }
 
-  private mark(path: string, origin: ReferenceOrigin): void {
+  private mark(path: string, origin: ReferenceOrigin, source: WorkGcProtectionSource): void {
     if (origin === 'content') {
       if (this.concreteContentPath(path)) this.paths.add(path);
     } else {
-      if (within(path, this.root)) this.retainAll = true;
+      if (within(path, this.root)) this.protectAll('operational_root', source);
       if (within(this.root, path)) this.paths.add(path);
     }
   }
 
-  operationalPath(path: string): void {
-    this.path(path, 'operational');
+  operationalPath(path: string, source: WorkGcProtectionSource): void {
+    this.path(path, 'operational', source);
   }
 
-  private path(path: string, origin: ReferenceOrigin): void {
+  private path(path: string, origin: ReferenceOrigin, source: WorkGcProtectionSource): void {
     path = resolve(path);
-    this.mark(path, origin);
+    this.mark(path, origin, source);
     // Resolve BEFORE lexical exclusion. Resolve missing suffixes against their existing ancestor,
     // so a missing alias target is still a mark rather than permission to delete its siblings.
     let existing = path;
@@ -275,12 +282,12 @@ class WorkReferences {
           if (!missing(error)) throw error;
           const stat = statOrMissing(existing);
           if (stat?.isSymbolicLink()) {
-            this.retainAll = true;
+            this.protectAll('reference_scope_unknown', source);
             return;
           }
           const parent = dirname(existing);
           if (parent === existing) {
-            this.retainAll = true;
+            this.protectAll('reference_scope_unknown', source);
             return;
           }
           suffix.unshift(relative(parent, existing));
@@ -290,11 +297,11 @@ class WorkReferences {
       } catch (error) {
         if (typeof (error as NodeJS.ErrnoException | null)?.code !== 'string') throw error;
         // Either metadata operation can leave reference scope unknown (including long paths).
-        this.retainAll = true;
+        this.protectAll('reference_scope_unknown', source);
         return;
       }
       actual = resolve(actual, ...suffix);
-      this.mark(actual, origin);
+      this.mark(actual, origin, source);
       return;
     }
   }
@@ -303,6 +310,7 @@ class WorkReferences {
     token: string,
     bases: readonly string[],
     origin: ReferenceOrigin,
+    source: WorkGcProtectionSource,
   ): Promise<void> {
     await this.visit();
     if (!token || token.includes('\0')) return;
@@ -312,13 +320,13 @@ class WorkReferences {
       try {
         tail = decodeURIComponent(scheme[2]!);
       } catch {
-        this.retainAll = true;
+        this.protectAll('reference_scope_unknown', source);
         return;
       }
       // Query/fragment syntax is not valid for these owners. Preserve the plausible path too.
       if (/[?#]/u.test(tail)) {
-        await this.token(`${scheme[1]}:///${tail.split(/[?#]/u)[0]}`, bases, origin);
-        this.retainAll = true;
+        await this.token(`${scheme[1]}:///${tail.split(/[?#]/u)[0]}`, bases, origin, source);
+        this.protectAll('reference_scope_unknown', source);
         return;
       }
       const base =
@@ -326,11 +334,11 @@ class WorkReferences {
       if (scheme[1] === 'tmp') {
         const [card, ...rest] = tail.split('/');
         if (!cardIdSchema.safeParse(card).success) {
-          this.retainAll = true;
+          this.protectAll('reference_scope_unknown', source);
           return;
         }
-        this.path(resolve(this.root, 'cards', card!, 'tmp', ...rest), origin);
-      } else this.path(resolve(base, tail), origin);
+        this.path(resolve(this.root, 'cards', card!, 'tmp', ...rest), origin, source);
+      } else this.path(resolve(base, tail), origin, source);
       return;
     }
     if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(token)) {
@@ -339,7 +347,7 @@ class WorkReferences {
       try {
         url = new URL(token);
       } catch {
-        if (/work|\.saivage|tmp:/u.test(token)) this.retainAll = true;
+        if (/work|\.saivage|tmp:/u.test(token)) this.protectAll('reference_scope_unknown', source);
       }
       if (!url) return;
       if (url.protocol === 'file:') {
@@ -347,32 +355,33 @@ class WorkReferences {
         try {
           path = fileURLToPath(url);
         } catch {
-          this.retainAll = true;
+          this.protectAll('reference_scope_unknown', source);
         }
-        if (path !== undefined) this.path(path, origin);
-      } else if (/\.saivage|work:|tmp:/u.test(url.pathname)) this.retainAll = true;
-      for (const value of url.searchParams.values()) await this.text(value, bases, origin);
+        if (path !== undefined) this.path(path, origin, source);
+      } else if (/\.saivage|work:|tmp:/u.test(url.pathname)) this.protectAll('reference_scope_unknown', source);
+      for (const value of url.searchParams.values()) await this.text(value, bases, origin, source);
       return;
     }
     if (token.includes('${') || token.includes('$(') || /[*?[]/u.test(token)) {
       const prefix = token.split(/\$|\*|\?|\[/u)[0]!;
       if (prefix.includes('/'))
-        await this.token(prefix.endsWith('/') ? prefix : dirname(prefix), bases, origin);
-      else this.retainAll = true;
+        await this.token(prefix.endsWith('/') ? prefix : dirname(prefix), bases, origin, source);
+      else this.protectAll('reference_scope_unknown', source);
       return;
     }
-    if (isAbsolute(token)) this.path(token, origin);
-    else for (const base of bases) this.path(resolve(base, token), origin);
+    if (isAbsolute(token)) this.path(token, origin, source);
+    else for (const base of bases) this.path(resolve(base, token), origin, source);
   }
 
   private async text(
     text: string,
     bases: readonly string[],
     origin: ReferenceOrigin,
+    source: WorkGcProtectionSource,
     pathValue = false,
   ): Promise<void> {
     await this.visit();
-    if (pathValue) await this.token(text, bases, origin);
+    if (pathValue) await this.token(text, bases, origin, source);
     // Nested JSON and JSON-escaped strings occur in raw tool arguments and Markdown evidence.
     let parsed: unknown;
     try {
@@ -381,7 +390,7 @@ class WorkReferences {
       /* Ordinary prose need not be JSON. */
     }
     if (parsed !== undefined && (typeof parsed !== 'string' || parsed !== text)) {
-      await this.value(parsed, origin, bases);
+      await this.value(parsed, origin, source, bases);
       return;
     }
     for (const match of text.matchAll(/"(?:\\.|[^"\\])*"/gu)) {
@@ -392,7 +401,7 @@ class WorkReferences {
       } catch {
         /* Inspect enclosing text below. */
       }
-      if (typeof value === 'string') await this.text(value, bases, origin);
+      if (typeof value === 'string') await this.text(value, bases, origin, source);
     }
     // Matching delimiters preserve common filenames with spaces. Native single quotes
     // adjacent to words are deliberately not a programming-language literal grammar.
@@ -441,23 +450,24 @@ class WorkReferences {
       tokens.add(match[0]);
     }
     for (const token of tokens) {
-      await this.token(token, bases, origin);
+      await this.token(token, bases, origin, source);
       const stripped = token.replace(/[),.;:\]}]+$/u, '');
-      if (stripped !== token) await this.token(stripped, bases, origin);
+      if (stripped !== token) await this.token(stripped, bases, origin, source);
     }
   }
 
-  content(value: unknown, bases: readonly string[]): Promise<void> {
-    return this.value(value, 'content', bases);
+  content(value: unknown, source: WorkGcProtectionSource, bases: readonly string[]): Promise<void> {
+    return this.value(value, 'content', source, bases);
   }
 
-  operational(value: unknown, bases: readonly string[] = [this.projectRoot]): Promise<void> {
-    return this.value(value, 'operational', bases);
+  operational(value: unknown, source: WorkGcProtectionSource, bases: readonly string[] = [this.projectRoot]): Promise<void> {
+    return this.value(value, 'operational', source, bases);
   }
 
   private async value(
     value: unknown,
     origin: ReferenceOrigin,
+    source: WorkGcProtectionSource,
     bases: readonly string[] = [this.projectRoot],
     key = '',
   ): Promise<void> {
@@ -467,10 +477,11 @@ class WorkReferences {
         value,
         bases,
         origin,
+        source,
         /(?:path|url|cwd|directory|root|file|script|argv|dependencies)$/iu.test(key),
       );
     } else if (Array.isArray(value)) {
-      for (const child of value) await this.value(child, origin, bases, key);
+      for (const child of value) await this.value(child, origin, source, bases, key);
     } else if (value && typeof value === 'object') {
       const object = value as Record<string, unknown>;
       const cwd = typeof object.cwd === 'string' ? resolve(this.projectRoot, object.cwd) : null;
@@ -482,13 +493,13 @@ class WorkReferences {
             : name === 'value' && typeof object.name === 'string'
               ? object.name
               : name;
-        await this.value(child, origin, localBases, meaning);
+        await this.value(child, origin, source, localBases, meaning);
       }
     }
   }
 
   protects(path: string): boolean {
-    if (this.retainAll) return true;
+    if (this.#firstGlobalProtection !== null) return true;
     for (;;) {
       if (this.paths.has(path)) return true;
       if (path === this.root) return false;
@@ -511,15 +522,15 @@ async function markCanonical(
     context.workflows,
     context.assertCollecting,
     {
-      content: (value, cardId) => refs.content(value, bases(cardId)),
-      operational: (value, cardId) => refs.operational(value, bases(cardId)),
+      content: (value, cardId, source) => refs.content(value, source, bases(cardId)),
+      operational: (value, cardId, source) => refs.operational(value, source, bases(cardId)),
     },
     context.progress,
   );
   context.assertCollecting();
   await setImmediate();
   context.assertCollecting();
-  await refs.operational(context.operationalInputs);
+  await refs.operational(context.operationalInputs, 'operational_input');
   return owners;
 }
 
@@ -561,12 +572,12 @@ export async function collectWorkGarbage(
   check();
   await setImmediate();
   check();
-  const refs = new WorkReferences(inventory.projectRoot, check);
-  refs.retainAll = context.protection.retainAll;
+  const refs = new WorkReferences(inventory.projectRoot, check, context.progress);
+  if (context.protection.retainAll) refs.protectAll('process_owner_uncertain', 'process_owner');
   for (const path of context.protection.capturePaths) {
     await setImmediate();
     check();
-    refs.operationalPath(dirname(path));
+    refs.operationalPath(dirname(path), 'process_capture');
   }
   const owners = await markCanonical(inventory.projectRoot, context, refs);
   await setImmediate();
@@ -599,6 +610,7 @@ export async function collectWorkGarbage(
       observed_logical_bytes: inventory.observed_logical_bytes,
       opaque_entries: inventory.opaque_entries,
       whole_work_size_known: false,
+      first_global_protection: refs.firstGlobalProtection,
       retained: { ...retained },
       would_delete_count: options.mode === 'dry_run' ? selectedCount : 0,
       would_delete_logical_bytes: options.mode === 'dry_run' ? selectedBytes : 0,

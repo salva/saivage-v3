@@ -93,7 +93,7 @@ it('explicit cancellation disconnects an unsettled response and releases the own
 });
 it('observes real HTTP progress before final and refuses to resolve a terminal frame until EOF', async () => {
   const observed = deferred<void>(), end = deferred<void>(), sent = deferred<void>();
-  const progress = { phase: 'inventory', elapsed_ms: 0, observed_count: 0 };
+  const progress = { phase: 'inventory', elapsed_ms: 0, observed_count: 0, first_global_protection: null };
   const endpoint = await listen(async (_request, reply) => {
     reply.writeHead(200, { 'content-type': 'application/x-ndjson' });
     reply.write(JSON.stringify({ type: 'progress', progress }) + '\n');

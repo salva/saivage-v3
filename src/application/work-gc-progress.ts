@@ -1,6 +1,7 @@
 import {
   throwIfPublicationOutcomeUnknown,
   type WorkGcCounters,
+  type WorkGcProgressUpdate,
   type WorkGcProgress,
   type WorkGcProgressObserver,
   type WorkGcProgressPort,
@@ -16,13 +17,21 @@ export function createWorkGcProgress(
   let last = -Infinity;
   let phase: WorkGcProgress['phase'];
   const counters: WorkGcCounters = {};
+  let firstGlobalProtection: WorkGcProgress['first_global_protection'] = null;
+  function update(values?: WorkGcProgressUpdate): void {
+    if (!values) return;
+    const { first_global_protection, ...counts } = values;
+    Object.assign(counters, counts);
+    if (firstGlobalProtection === null && first_global_protection !== undefined)
+      firstGlobalProtection = first_global_protection;
+  }
   function emit(force: boolean): void {
     if (!observer) return;
     const time = now();
     if (!force && time - last < 1000) return;
     last = time;
     try {
-      observer({ phase, elapsed_ms: Math.floor(time - start), ...counters });
+      observer({ phase, elapsed_ms: Math.floor(time - start), ...counters, first_global_protection: firstGlobalProtection });
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
       observer = undefined;
@@ -32,10 +41,10 @@ export function createWorkGcProgress(
     phase(next, values) {
       const changed = next !== phase;
       phase = next;
-      Object.assign(counters, values);
+      update(values);
       emit(changed);
     },
-    update(values) { Object.assign(counters, values); emit(false); },
+    update(values) { update(values); emit(false); },
     increment(counter) { counters[counter] = (counters[counter] ?? 0) + 1; emit(false); },
   };
 }

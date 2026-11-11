@@ -16,7 +16,7 @@ import { ModelRouter } from '../../src/agents/model-router.js';
 import { bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { NO_FRESHNESS_EFFECTS, WorkGcFrameSchema, type WorkGcResponse } from '../../src/contracts/index.js';
+import { NO_FRESHNESS_EFFECTS, WorkGcFrameSchema, WorkGcResponseSchema, type WorkGcResponse } from '../../src/contracts/index.js';
 import { ContractFrameStream } from '../../src/server/contract-stream.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
@@ -142,7 +142,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
             '--input-type=module', '-e',
             `import { run } from ${JSON.stringify(pathToFileURL(join(cwd, 'src/cli.ts')).href)}; await run(['node','saivage','gc-work','--dry-run']);`],
           { cwd: root, env: { ...process.env, NODE_OPTIONS: '' }, timeout: 20_000, killSignal: 'SIGKILL' });
-        expect(JSON.parse(child.stdout)).toMatchObject({ disposition: 'completed', result: { would_delete_count: 2 } });
+         expect(WorkGcResponseSchema.parse(JSON.parse(child.stdout))).toMatchObject({ disposition: 'completed', result: { would_delete_count: 2, first_global_protection: null } });
         expect(child.stderr).toContain('GC inventory elapsed_ms=');
         expect(child.stderr).toContain('GC selection elapsed_ms=');
         expect(child.stderr).not.toContain('"disposition"');
@@ -159,8 +159,8 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       progress.mockRestore();
       reports.push(JSON.parse(output.mock.calls.at(-1)![0] as string));
       output.mockRestore();
-      expect(reports.at(-1)).toMatchObject({ disposition: 'completed', restoration: 'not_resumed',
-        result: { retained: { protected: 1 } } });
+       expect(reports.at(-1)).toMatchObject({ disposition: 'completed', restoration: 'not_resumed',
+         result: { retained: { protected: 1 }, first_global_protection: null } });
       expect(app.runtimeApi.getStatus().status).toBe('paused');
       expect(readFileSync(retained, 'utf8')).toBe('historical evidence');
       if (flags.includes('--delete')) expect(existsSync(historical)).toBe(false);
@@ -208,7 +208,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         } });
         stream.body.pipe(sink);
         while (!stream.body.writableNeedDrain)
-          stream.optional({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0 } });
+          stream.optional({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, first_global_protection: null } });
         expect(stream.body.writableNeedDrain).toBe(true);
         const terminal = deferred<void>(), transportSettled = deferred<void>();
         const finish = stream.finish.bind(stream);
@@ -375,6 +375,27 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         } finally { release.resolve(); await settled; }
       }
       if (flags.length) {
+        const privateSentinel = 'PRIVATE-online-global-source';
+        author.acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: `*${privateSentinel}` }), { kind: 'agent', agent: 'analyst' });
+        const globalOutput = jest.spyOn(console, 'log').mockImplementation(() => {});
+        const globalProgress = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        try {
+          await run(['node', 'saivage', 'gc-work', '--dry-run']);
+          const result = WorkGcResponseSchema.parse(JSON.parse(globalOutput.mock.calls.at(-1)![0] as string));
+          expect(result).toMatchObject({ disposition: 'completed', result: { first_global_protection: {
+            reason: 'reference_scope_unknown', source: 'record_content' }, observed_count: 3, would_delete_count: 0, retained: { protected: 3 } } });
+          const stderr = globalProgress.mock.calls.map(([text]) => String(text)).join('');
+          expect(stderr).toContain('first_global_protection=reason:reference_scope_unknown,source:record_content');
+          expect(stderr).not.toContain('[object Object]');
+          expect(stderr + JSON.stringify(result)).not.toContain(privateSentinel);
+          expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+          const abortGlobal = new AbortController();
+          const partial = await app.collectWorkGarbage({ mode: 'dry_run' }, abortGlobal.signal, progress => {
+            if (progress.phase === 'selection') abortGlobal.abort();
+          });
+          expect(partial).toMatchObject({ disposition: 'interrupted', reason: 'cancelled', result: {
+            first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' }, would_delete_count: 0 } });
+        } finally { globalProgress.mockRestore(); globalOutput.mockRestore(); }
         const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
         const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
         appendFileSync(path, '{torn');

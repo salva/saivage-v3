@@ -196,6 +196,33 @@ Validated cards count reached active cards, not tombstones; records count comple
 selected-history inspection, not absent lazy records; segments count strict complete
 inspection. Inventory skips reserved temporary entries without counting them.
 
+Every progress snapshot and non-null final/partial result includes
+`first_global_protection`: null or exactly `{reason,source}`. The first sufficient
+global protection is retained for this attempt; it is neither the sole cause nor a
+ranked cause, and encounter ordering need not be stable between attempts:
+
+* `process_owner_uncertain`: process ownership has an unresolved footprint.
+* `operational_root`: an operational input selects work or an ancestor broadly.
+* `reference_scope_unknown`: recognized reference scope/alias metadata cannot be
+  resolved, including an unscoped wildcard.
+
+The source family is one of `process_owner`, `process_capture`, `card_content`,
+`pending_notification`, `record_content` (selected baseline/draft/latest accepted),
+`conversation_content` (including configured globals), `unfinished_execution`,
+`workflow_input`, or `operational_input`. These fixed labels disclose no path,
+card/session/record identity, token, content, object key, config value or exception.
+CLI stderr renders, for example,
+`first_global_protection=reason:reference_scope_unknown,source:conversation_content`;
+final JSON uses `"first_global_protection":{"reason":"reference_scope_unknown","source":"conversation_content"}`.
+Null is `first_global_protection=null` on stderr and JSON null in the response.
+In progress it means no global mark observed yet; only a completed result's null
+means none was established in the collection. Individual protections can still
+cover every candidate with null. A non-null mark does not prove each file is
+individually needed or exclude additional causes. Progress can be throttled/dropped;
+a partial result is not completion, and `result:null` refusals do not fabricate a
+mark even if earlier progress observed one. Attribution changes no retention,
+validation, cancellation or fatal-publication boundary.
+
 HTTP 200 is one `application/x-ndjson` stream with `Cache-Control: no-store` and
 `X-Content-Type-Options: nosniff`: zero or more
 `{type:'progress', progress: ...}` frames, exactly one last

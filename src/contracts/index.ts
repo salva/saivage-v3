@@ -380,7 +380,7 @@ export {
 } from './work-gc.js';
 export type { WorkGcRequest, WorkGcResponse, WorkGcResult } from './work-gc.js';
 export { WorkGcProgressSchema, WorkGcFrameSchema, WORK_GC_FRAME_MAX_BYTES } from './work-gc.js';
-export type { WorkGcProgress, WorkGcProgressObserver, WorkGcProgressPort, WorkGcCounters } from './work-gc.js';
+export type { FirstGlobalProtection, WorkGcProtectionSource, WorkGcProgressUpdate, WorkGcProgress, WorkGcProgressObserver, WorkGcProgressPort, WorkGcCounters } from './work-gc.js';
 export { WorkGcStreamDecoder } from './work-gc-stream.js';
 export { validateProcessToolResult } from './process-result-validation.js';
 export {

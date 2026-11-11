@@ -179,6 +179,22 @@ physical-space claim is made. CLI progress/prompt uses stderr; authoritative fin
 stdout remains one response JSON line, offline only after lock release. Transport
 loss produces no manufactured final response and never authorizes replay.
 
+Every progress snapshot and every non-null GC result requires nullable
+`first_global_protection`. A non-null value is exactly `{reason, source}` with no
+extra fields. `reason` is `process_owner_uncertain`, `operational_root`, or
+`reference_scope_unknown`; `source` is `process_owner`, `process_capture`,
+`card_content`, `pending_notification`, `record_content`, `conversation_content`,
+`unfinished_execution`, `workflow_input`, or `operational_input`. It records only
+the first encountered sufficient global mark, not a ranked/unique cause or stable
+ordering across collections. Progress null means no mark observed yet; completed
+result null means none was established. Individual references can protect all
+candidates with null. Partial results/progress do not certify completion, and
+refusals with `result:null` gain no fabricated attribution. The fixed value contains
+no paths, identities, tokens, excerpts, object keys, config values or error text.
+It is sticky through throttled observations/phase changes and stored even without
+an observer. CLI stderr renders its reason/source explicitly, or
+`first_global_protection=null`; stdout remains one strict final response.
+
 Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
 while execution continues, then holds/parks and freshly consumes canonical sources,
 marking explicit and recognized inferred references before checking each candidate

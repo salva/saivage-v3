@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runWorkGcOperation, workGcFailureResponse } from '../../src/application/work-gc-operation.js';
-import { WorkGcMaintenanceError, WorkGcResponseSchema, WorkGcBusyError, PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
+import { WorkGcMaintenanceError, WorkGcResponseSchema, WorkGcBusyError, PublicationOutcomeUnknownError, type WorkGcProgress } from '../../src/contracts/index.js';
 import { WorkGcInterruptedError } from '../../src/workspace/index.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
@@ -51,6 +51,27 @@ it('refuses changed selected configuration without reconciling or deleting', asy
     disposition: 'refused', reason: 'operational_inputs_invalid', restoration: 'resumed', result: null });
   expect(existsSync(path)).toBe(true);
 });
+it('carries process attribution through real collection, observations and owner settlement before completion', async () => {
+  const { input, path } = fixture();
+  const snapshots: WorkGcProgress[] = [];
+  const mark = { reason: 'process_owner_uncertain', source: 'process_owner' } as const;
+  let settled = false;
+  const response = await runWorkGcOperation({ ...input,
+    processRunner: { workGcProtection: () => ({ retainAll: true, capturePaths: [] }) } as unknown as ProcessRunner,
+    progress: value => snapshots.push(value),
+    run: async args => {
+      const found = await args.inventory(args.signal);
+      const value = await args.collect(found, args.signal);
+      settled = true;
+      return { value, restoredRunning: false };
+    },
+  });
+  expect(settled).toBe(true);
+  expect(WorkGcResponseSchema.parse(response)).toMatchObject({ disposition: 'completed', result: {
+    first_global_protection: mark, retained: { protected: 1 }, would_delete_count: 0 } });
+  expect(snapshots.at(-1)).toMatchObject({ phase: 'selection', first_global_protection: mark });
+  expect(existsSync(path)).toBe(true);
+});
 it('observes private-map workflow changes and does not treat empty enumerable maps as equal', async () => {
   const { input, path, loadEffective } = fixture();
   loadEffective.mockReturnValue({ config: TEST_SAIVAGE_CONFIG,
@@ -68,7 +89,7 @@ it('keeps duplicate rejection distinct and reports owner cancellation/restoratio
 it('preserves known partial deletion and refuses hypothetical effects in delete reports', async () => {
   const { input } = fixture();
   const result = { mode: 'delete' as const, observed_count: 2, observed_logical_bytes: 8,
-    opaque_entries: 0, whole_work_size_known: false as const,
+    opaque_entries: 0, whole_work_size_known: false as const, first_global_protection: null,
     retained: { protected: 0, recent: 0, stale: 0, opaque: 0, target: 0 },
     would_delete_count: 0, would_delete_logical_bytes: 0, deleted_count: 1,
     deleted_logical_bytes: 4, expected_accounted_logical_bytes_remaining: 4,

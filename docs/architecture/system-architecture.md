@@ -1722,6 +1722,20 @@ other ordinary failures require only closed allowlisted original `{code, syscall
 metadata (unrecognized code becomes `unknown`, absent/unrecognized syscall becomes
 null), never private error text or paths. Matching CLI/server contracts must be
 adopted together; no old-response compatibility is provided.
+Each snapshot and non-null result also requires nullable `first_global_protection`:
+one fixed `{reason,source}` enum value, or null. The resolver owns a single call-local
+first mark, not a parallel writable retain-all flag. The exact branch establishing
+global retention records process uncertainty, an operational broad root, or unknown
+reference scope. Canonical callbacks carry semantic source labels for current card,
+pending notification, selected record, current conversation, unfinished execution
+and workflow inputs; process captures/ownership and operational configuration keep
+their own labels. Content versus operational origin still determines retention;
+labels do not. Recursive extraction carries the label without extra reads, provenance
+joins or changed validation order. Later marks cannot replace the first and never
+skip extraction, metadata resolution, strict history validation, yields or cancellation.
+The same mark is retained without an observer and sent through existing throttled
+progress. Null/first-only observations are not completion or per-file necessity
+certificates; no new durable family, registry or diagnostic operation is introduced.
 Ordinary refusal/interruption can be a 200 response: inspect disposition, not HTTP
 status alone. Duplicate/held ingress uses 409
 `{error:'WorkGcBusy',message:'Work garbage collection is busy.'}`; existing validation,

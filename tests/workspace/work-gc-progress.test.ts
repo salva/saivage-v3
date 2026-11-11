@@ -44,10 +44,12 @@ it.each(['dry_run', 'delete'] as const)('observes existing completed inspections
     protection: { retainAll: false, capturePaths: [] }, assertCollecting() {}, fatal(error): never { throw error; },
   });
   expect(result).toMatchObject({ observed_count: 6, observed_logical_bytes: 24,
+    first_global_protection: null,
     retained: { opaque: 1, protected: 1, stale: 1, recent: 1, target: 1 },
     would_delete_count: mode === 'dry_run' ? 1 : 0,
     deleted_count: mode === 'delete' ? 1 : 0 });
   expect(snapshots.at(-1)).toMatchObject({ phase: 'selection', candidates_processed: 6,
+    first_global_protection: null,
     observed_count: 6, observed_logical_bytes: 24, validated_cards: 1,
     ...(mode === 'dry_run' ? { would_delete_count: 1, would_delete_logical_bytes: 4 }
       : { deleted_count: 1, deleted_logical_bytes: 4 }) });

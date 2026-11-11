@@ -13,7 +13,8 @@ it('consumes the declared stream incrementally, reports progress, and waits for 
   const observer = vi.fn();
   let settled = false;
   const call = gcWork({ mode: 'dry_run' }, undefined, observer).then(value => { settled = true; return value; });
-  const progress = { phase: 'inventory', elapsed_ms: 0, observed_count: 0 };
+  const progress = { phase: 'validation_marking', elapsed_ms: 0, observed_count: 0,
+    first_global_protection: { reason: 'reference_scope_unknown', source: 'conversation_content' } };
   source.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'progress', progress }) + '\n'));
   await vi.waitFor(() => expect(observer).toHaveBeenCalledWith(progress));
   const terminal = new TextEncoder().encode(JSON.stringify({ type: 'result', response }) + '\n');
@@ -45,7 +46,7 @@ it('consumes real local HTTP chunks before completion, requiring terminal plus E
   const terminalSent = new Promise<void>(resolve => { sent = resolve; });
   const server = createServer(async (_request, reply) => {
     reply.writeHead(200, { 'content-type': 'application/x-ndjson' });
-    const line = JSON.stringify({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0 } }) + '\n';
+    const line = JSON.stringify({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, first_global_protection: null } }) + '\n';
     for (const byte of new TextEncoder().encode(line)) reply.write(Uint8Array.of(byte));
     await observed;
     reply.write(JSON.stringify({ type: 'result', response }) + '\n'); sent();
@@ -58,7 +59,7 @@ it('consumes real local HTTP chunks before completion, requiring terminal plus E
   vi.stubGlobal('fetch', request);
   let settled = false;
   const call = gcWork({ mode: 'dry_run' }, undefined, value => {
-    expect(value).toEqual({ phase: 'inventory', elapsed_ms: 0 }); observe();
+    expect(value).toEqual({ phase: 'inventory', elapsed_ms: 0, first_global_protection: null }); observe();
   }).then(value => { settled = true; return value; });
   try {
     await Promise.race([terminalSent, call.then(() => { throw new Error('Premature completion'); })]); expect(settled).toBe(false);

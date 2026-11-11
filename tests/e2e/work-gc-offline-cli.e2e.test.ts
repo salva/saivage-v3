@@ -14,6 +14,7 @@ import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversati
 import { appendStartupPendingCall } from '../helpers/startup-session-fixtures.js';
 import { publicNativeCli, nativeOptions, fixtureGit } from '../helpers/public-native-project.js';
 import { nativeGcBefore, seedNativeGcPair, verifyNativeGcAges, nativeGcSnapshot } from '../helpers/native-gc-retention.js';
+import { WorkGcResponseSchema } from '../../src/contracts/work-gc.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -82,6 +83,8 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
   for (const result of [preview, deletion]) {
     expect(result.stdout.trim().split('\n')).toHaveLength(1);
     expect(JSON.parse(result.stdout)).toEqual(result.response);
+    expect(WorkGcResponseSchema.parse(result.response).result!.first_global_protection).toBeNull();
+    expect(result.output).toContain('first_global_protection=null');
     expect(result.output).toContain('GC inventory elapsed_ms=');
     expect(result.output).toContain('GC validation_marking elapsed_ms=');
     expect(result.output).toContain('GC selection elapsed_ms=');
@@ -91,6 +94,22 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
   for (const [path, bytes] of selected) expect(readFileSync(path)).toEqual(bytes);
   expect(readCurrentConversationSegment(root, session)).toEqual(segment);
 }, 45_000);
+
+it('offline strict terminal and stderr attribute a global mark without exposing its private source', async () => {
+  const root = fixture(), sentinel = 'PRIVATE-offline-global-source';
+  const candidate = work(root, `cards/project/tmp/${sentinel}`);
+  new CardService(root).acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: `*${sentinel}` }), { kind: 'agent', agent: 'analyst' });
+  const preview = await cli(root, { separate: true });
+  const response = WorkGcResponseSchema.parse(JSON.parse(preview.stdout));
+  expect(preview.code).toBe(0);
+  expect(response).toMatchObject({ disposition: 'completed', result: { first_global_protection: {
+    reason: 'reference_scope_unknown', source: 'record_content' }, retained: { protected: 1 }, would_delete_count: 0 } });
+  expect(preview.output).toContain('first_global_protection=reason:reference_scope_unknown,source:record_content');
+  expect(preview.output + preview.stdout).not.toContain(sentinel);
+  expect(preview.output).not.toContain('[object Object]');
+  expect(existsSync(candidate)).toBe(true);
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+}, 30_000);
 
 it.each(['SIGINT', 'SIGTERM'] as const)('holds bound exclusion across inventory yields; %s cancellation settles before release', async signal => {
   const root = fixture(); for (let n = 0; n < 4000; n++) work(root, `cards/project/tmp/item-${n}`);

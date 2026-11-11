@@ -1,5 +1,5 @@
 import { opendirSync } from 'node:fs';
-import type { WorkGcProgressPort } from '../contracts/index.js';
+import type { WorkGcProgressPort, WorkGcProtectionSource } from '../contracts/index.js';
 import { resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type { CompiledCardTypeWorkflow, CompiledProjectWorkflows } from '../runtime/runtime-api.js';
@@ -184,8 +184,8 @@ export async function inspectWorkGcCanonicalState(
   workflows: CompiledProjectWorkflows,
   check: () => void,
   references: {
-    readonly content: (value: unknown, cardId: string | null) => Promise<void>;
-    readonly operational: (value: unknown, cardId: string | null) => Promise<void>;
+    readonly content: (value: unknown, cardId: string | null, source: WorkGcProtectionSource) => Promise<void>;
+    readonly operational: (value: unknown, cardId: string | null, source: WorkGcProtectionSource) => Promise<void>;
   },
   progress?: WorkGcProgressPort,
 ): Promise<Set<string>> {
@@ -215,7 +215,7 @@ export async function inspectWorkGcCanonicalState(
       if (entry.version === index.current_version)
         for (const value of conversationWorkReferences(inspected.projection.conversation)) {
           check();
-          await references.content(value, cardId);
+          await references.content(value, cardId, 'conversation_content');
         }
       await setImmediate();
     }
@@ -224,7 +224,7 @@ export async function inspectWorkGcCanonicalState(
     check();
     if (selection.tombstone) continue;
     const card = selection.current;
-    await references.content([card.title, card.status_text], card.id);
+    await references.content([card.title, card.status_text], card.id, 'card_content');
     owners.add(card.id);
     types.set(card.id, card.type);
     const workflow = workflows.cardTypes.get(card.type);
@@ -236,7 +236,7 @@ export async function inspectWorkGcCanonicalState(
         throw new Error('GC reached an invalid parent/type relationship.');
     }
     for (const notification of readPendingCardNotifications(projectRoot, card.id))
-      await references.content(notification.content, card.id);
+      await references.content(notification.content, card.id, 'pending_notification');
     const selectedDefinitions = new Map<string, RecordDefinition>(
       definitions(workflow).map((d) => [d.filename, d]),
     );
@@ -282,6 +282,7 @@ export async function inspectWorkGcCanonicalState(
         await references.content(
           [current.baseline?.content, current.draft?.content, current.accepted?.content],
           card.id,
+          'record_content',
         );
       for (const _version of iterateAuthoredRecordVersions(projectRoot, card, definition)) {
         check();
@@ -310,10 +311,10 @@ export async function inspectWorkGcCanonicalState(
       if (unfinished.has(row.invocation_id)) {
         if (row.kind === 'invocation_started' || row.kind === 'native_started')
           for (const path of row.artifact_paths)
-            await references.operational({ path: resolve(projectRoot, path) }, card.id);
+            await references.operational({ path: resolve(projectRoot, path) }, card.id, 'unfinished_execution');
         else if (row.kind === 'process_started' || row.kind === 'native_process_started')
           for (const file of row.files)
-            await references.operational({ path: resolve(projectRoot, file.path) }, card.id);
+            await references.operational({ path: resolve(projectRoot, file.path) }, card.id, 'unfinished_execution');
       }
       await setImmediate();
     }
@@ -325,13 +326,14 @@ export async function inspectWorkGcCanonicalState(
         await references.operational(
           { config: state.execution.config, inputs: state.execution.inputs },
           card.id,
+          'workflow_input',
         );
       else {
-        await references.operational(state.execution.inputs, card.id);
-        await references.operational({ path: state.execution.selectedAgentPrompt.path }, card.id);
+        await references.operational(state.execution.inputs, card.id, 'workflow_input');
+        await references.operational({ path: state.execution.selectedAgentPrompt.path }, card.id, 'workflow_input');
       }
       for (const prompt of state.recordPrompts)
-        await references.operational({ path: resolve(projectRoot, prompt.artifact.path) }, card.id);
+        await references.operational({ path: resolve(projectRoot, prompt.artifact.path) }, card.id, 'workflow_input');
     }
     if (workflow.afterActivationCommit)
       await references.operational(
@@ -340,18 +342,19 @@ export async function inspectWorkGcCanonicalState(
           inputs: workflow.afterActivationCommit.execution.inputs,
         },
         card.id,
+        'workflow_input',
       );
     for (const prompt of workflow.processPrompts.values())
-      await references.operational({ path: prompt.path }, card.id);
+      await references.operational({ path: prompt.path }, card.id, 'workflow_input');
     progress?.increment('validated_cards');
     await setImmediate();
   }
   if (!owners.has('project')) throw new Error('GC requires the canonical project card.');
   await conversation(globalAgentSessionId(workflows.analyst.name));
   await conversation(globalAgentSessionId(workflows.oversight.name), true);
-  await references.operational({ path: workflows.analystPrompt.path }, null);
-  await references.operational({ path: workflows.oversightPrompt.path }, null);
+  await references.operational({ path: workflows.analystPrompt.path }, null, 'workflow_input');
+  await references.operational({ path: workflows.oversightPrompt.path }, null, 'workflow_input');
   for (const participant of workflows.selectedGlobalParticipants.values())
-    await references.operational({ path: participant.prompt.path }, null);
+    await references.operational({ path: participant.prompt.path }, null, 'workflow_input');
   return owners;
 }
