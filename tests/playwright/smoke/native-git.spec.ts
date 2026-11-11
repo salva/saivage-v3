@@ -4,6 +4,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { startApp, type App } from '../../../src/boot/app.js';
+import { operatorApiContracts, type OperatorApiBody, type OperatorApiSuccess } from '../../../src/contracts/operator-api.js';
+import { WorkGcStreamDecoder } from '../../../src/contracts/work-gc-stream.js';
 import { readCard } from '../../../src/persistence/card-files.js';
 import { readCardExecutions } from '../../../src/persistence/card-execution-log.js';
 import { nativeIdentity, nativeOptions, publicNativeCli, publicNativeProject, fixtureGit } from '../../helpers/public-native-project.js';
@@ -103,6 +105,27 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
         const response = await fetch(origin + path, { method: 'POST', headers: { authorization: 'Bearer synthetic-native-browser', ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60_000) });
         const result = await response.json(); apiEvidence.push({ path, status: response.status, result }); expect(response.status).toBe(200); return result;
       };
+      const gcWork = async (body: OperatorApiBody<'runtime.gcWork'>): Promise<OperatorApiSuccess<'runtime.gcWork'>> => {
+        const contract = operatorApiContracts['runtime.gcWork'];
+        const response = await fetch(origin + contract.path, { method: contract.method, headers: { authorization: 'Bearer synthetic-native-browser', 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) });
+        expect(response.status).toBe(200);
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('Operator API returned no stream body.');
+        try {
+          const decoder = new WorkGcStreamDecoder(response.headers.get('content-type'));
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            decoder.push(chunk.value);
+          }
+          const result = decoder.finish();
+          apiEvidence.push({ path: contract.path, status: response.status, result });
+          return result;
+        } catch (error) {
+          await reader.cancel().catch(() => undefined);
+          throw error;
+        } finally { reader.releaseLock(); }
+      };
       await seedTokenBeforeNavigation(page, 'synthetic-native-browser');
       await page.goto(`${origin}/cards/project`);
       await expect(page.getByTestId('overview-source')).toContainText('Native Git');
@@ -177,13 +200,13 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
         const unlinkedBytes = readFileSync(join(unlinked, 'executions.jsonl'));
         const originalRef = readCard(root, 'card-a')!.git!.correction!.retained_original_ref;
         const originalOid = fixtureGit(root, 'rev-parse', originalRef);
-        const preview = await post('/api/runtime/gc-work', { mode: 'dry_run', before: nativeGcBefore });
+        const preview = await gcWork({ mode: 'dry_run', before: nativeGcBefore });
         expect(preview).toMatchObject({ disposition: 'completed', result: { would_delete_count: 2, would_delete_logical_bytes: logicalBytes, deleted_count: 0 } });
         expect(nativeGcSnapshot(root, pair)).toEqual(before);
         for (const [path, bytes] of collectible) expect(readFileSync(path)).toEqual(bytes);
         expect(readFileSync(join(unlinked, 'executions.jsonl'))).toEqual(unlinkedBytes);
         expect(await runtimeStatus()).toBe('paused');
-        const gc = await post('/api/runtime/gc-work', { mode: 'delete', before: nativeGcBefore });
+        const gc = await gcWork({ mode: 'delete', before: nativeGcBefore });
         expect(gc).toMatchObject({ disposition: 'completed', result: { deleted_count: 2, deleted_logical_bytes: logicalBytes } });
         for (const [path] of collectible) expect(existsSync(path)).toBe(false);
         expect(nativeGcSnapshot(root, pair)).toEqual(before);
