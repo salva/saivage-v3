@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
@@ -17,7 +18,7 @@ const status = 'record:///status.md?card=project';
 
 describe('real classic own-assignment review applicability', () => {
   it.each(['A', 'B', 'C'] as const)('%s: refuses old promotion before effects and completes after fresh review', async (scenario) => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/assignment-review-baseline-');
+    const root = mkdtempSync(join(tmpdir(), 'assignment-review-baseline-'));
     let app: App | null = null;
     let failure: unknown;
     let analyst = 0;
@@ -168,7 +169,7 @@ describe('real classic own-assignment review applicability', () => {
   }, 60_000);
 
   it('reprepares the same current review when paused Analyst acceptance changes its own assignment', async () => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/assignment-current-review-');
+    const root = mkdtempSync(join(tmpdir(), 'assignment-current-review-'));
     let app: App | null = null;
     let failure: unknown;
     let analyst = 0;
