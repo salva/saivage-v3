@@ -11,7 +11,7 @@ const serverAvailability = {
     mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-08-14T00:00:00.000Z' },
   },
 };
-const oversight={agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped' as const,state:'unavailable' as const,next_nominal_due:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-08-14T00:00:00.000Z'};
+const oversight={agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped' as const,state:'unavailable' as const,remaining_wait_ms:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-08-14T00:00:00.000Z'};
 const stoppedStatus = { runtime: 'stopped' as const, currentCardId: null, started_at: '2026-08-14T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'idle' as const, cards: [] },oversight, serverAvailability };
 
 function deferred<T>() {
@@ -146,7 +146,7 @@ describe('runtime store S06 read-only projection', () => {
 
   it('replaces the Oversight diagnostic only with a successful newer service epoch', async () => {
     const store=useRuntimeStore();await store.fetchState();
-    const next={...stoppedStatus,oversight:{...oversight,service_epoch:'2026-09-14T00:00:00.000Z',eligible:true,eligibility_reason:null,state:'waiting' as const,next_nominal_due:'2026-09-14T02:00:00.000Z'}};
+    const next={...stoppedStatus,oversight:{...oversight,service_epoch:'2026-09-14T00:00:00.000Z',eligible:true,eligibility_reason:null,state:'waiting' as const,remaining_wait_ms:7_200_000}};
     vi.mocked(getRuntimeStatus).mockResolvedValueOnce(next);
     await store.fetchState();
     expect(store.oversight).toEqual(next.oversight);

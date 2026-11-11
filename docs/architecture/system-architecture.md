@@ -1023,6 +1023,8 @@ use bounded chained timeouts, not interval/catch-up ticks. Pause/Stop/close disa
 and cancels current check; retained timestamps describe only this service epoch.
 Enabled or disabled configuration still compiles its selected global policy.
 
+The owner keeps no duplicate nominal wall-time prediction. Status reads project the existing deadline as `remaining_wait_ms = max(0, deadline - monotonicNow())` only while a timer is armed; an armed timer without its deadline throws at that use. No armed wait yields null, including during a check. Zero does not imply callback entry. These transient HTTP samples have no scheduling or invalidation effects. The web UI labels them as last observations without browser ticking or wall-date extrapolation. Host sleep can pause the platform monotonic clock; no wall-clock deadline or catch-up is promised. Wall time remains for actual attempt settlement and service-epoch facts, not schedule prediction.
+
 Each check creates a fresh global-purpose ConversationLLMActor over the retained
 configured session, renders generated vocabulary and appends ordinary marker/ingress.
 No-action may succeed. Known returned tools settle truthfully on cancellation before

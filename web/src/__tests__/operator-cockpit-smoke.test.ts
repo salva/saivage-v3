@@ -100,7 +100,7 @@ const oversightFixture = {
   eligible: false,
   eligibility_reason: 'stopped',
   state: 'unavailable',
-  next_nominal_due: null,
+  remaining_wait_ms: null,
   last_attempt: null,
   last_successful_at: null,
   service_epoch: '2026-07-18T00:00:00.000Z',

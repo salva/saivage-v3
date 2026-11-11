@@ -148,7 +148,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
     if (path === '/api/runtime/status') return json(route, parseOperatorResponse('runtime.status', 200, {
       runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242,
       actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:node-01', kind: 'node', nodeId: 'node-01', executionOrdinal: 37 } }] },
-      oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: true, eligibility_reason: null, state: 'waiting', next_nominal_due: null, last_attempt: null, last_successful_at: null, service_epoch: now }, restart_server_available: false, serverAvailability: smokeServerAvailability,
+      oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: true, eligibility_reason: null, state: 'waiting', remaining_wait_ms: 7_200_000, last_attempt: null, last_successful_at: null, service_epoch: now }, restart_server_available: false, serverAvailability: smokeServerAvailability,
     }));
     if (path === '/api/cards/project/children') return json(route, parseOperatorResponse('cards.children', 200, {
       parent: { id: 'project', type: 'project', title: 'Synthetic Project', status: 'running', permitted_child_types: ['goal', 'code'] },

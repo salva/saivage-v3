@@ -40,7 +40,9 @@
           <div class="debug-grid-item"><span class="dg-key">Enabled:</span><span class="dg-value">{{ oversight.enabled ? 'yes' : 'no' }}</span></div>
           <div class="debug-grid-item"><span class="dg-key">Eligibility:</span><span class="dg-value">{{ oversight.eligible ? 'eligible' : oversight.eligibility_reason }}</span></div>
           <div class="debug-grid-item"><span class="dg-key">Service epoch:</span><span class="dg-value">{{ fmtDate(oversight.service_epoch) }}</span></div>
-          <div class="debug-grid-item"><span class="dg-key">Next due:</span><span class="dg-value">{{ oversight.next_nominal_due ? fmtDate(oversight.next_nominal_due) : 'none' }}</span></div>
+          <div class="debug-grid-item oversight-wait"><span class="dg-key">Remaining timer wait at last observation:</span><span class="dg-value">{{ formatOversightWait(oversight.remaining_wait_ms) }}</span>
+            <p data-testid="oversight-wait-explanation">Sampled server monotonic time, not a live countdown. Host sleep can pause this wait; no wall-clock check deadline or catch-up is promised.</p>
+          </div>
           <div class="debug-grid-item"><span class="dg-key">Last attempt:</span><span class="dg-value">{{ oversight.last_attempt ? `${oversight.last_attempt.outcome} · ${fmtDate(oversight.last_attempt.settled_at)}` : 'none' }}</span></div>
           <div class="debug-grid-item"><span class="dg-key">Last success:</span><span class="dg-value">{{ oversight.last_successful_at ? fmtDate(oversight.last_successful_at) : 'none' }}</span></div>
         </div>
@@ -55,6 +57,7 @@ import ExactValue from '../ui/ExactValue.vue';
 import type { RuntimeState } from '../../api/types';
 import type { OperatorApiSuccess } from '../../api/contracts';
 import { formatRecentTimestamp } from '../../utils/timestamp';
+import { formatOversightWait } from '../../utils/oversight';
 import { useCardStore } from '../../stores/cards';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
@@ -79,6 +82,18 @@ function fmtDate(timestamp: string): string {
 </script>
 
 <style scoped>
+.oversight-wait {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 8px;
+  background: var(--surface-1);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.oversight-wait p { flex-basis: 100%; margin: 0; white-space: normal; }
 .dg-value.mono,
 .mono {
   font-family: 'SF Mono', monospace;

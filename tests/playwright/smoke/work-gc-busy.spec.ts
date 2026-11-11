@@ -47,7 +47,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
         return route.fulfill({ json: parseOperatorResponse('runtime.status', 200, {
           runtime: stopped ? 'stopped' : 'paused', currentCardId: stopped ? null : smokeCardId, started_at: now, pid: 4242,
           actorRuntime: { pauseMode: stopped ? 'running' : 'paused', cards: [] },
-          oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: false, eligibility_reason: stopped ? 'stopped' : 'paused', state: 'unavailable', next_nominal_due: null, last_attempt: null, last_successful_at: null, service_epoch: now },
+          oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: false, eligibility_reason: stopped ? 'stopped' : 'paused', state: 'unavailable', remaining_wait_ms: null, last_attempt: null, last_successful_at: null, service_epoch: now },
           restart_server_available: false, serverAvailability: smokeServerAvailability,
         }) });
       }

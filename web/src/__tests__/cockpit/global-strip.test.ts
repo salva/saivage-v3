@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import GlobalStrip from '../../components/layout/GlobalStrip.vue';
 import { useRuntimeStore } from '../../stores/runtime';
-import { cardDetail, noCurrentRuntimeStatus, runtimeStatusSnapshot, serverAvailability } from './fixtures';
+import { cardDetail, noCurrentRuntimeStatus, oversightSnapshot, runtimeStatusSnapshot, serverAvailability } from './fixtures';
 
 const api = vi.hoisted(() => ({
   getRuntimeState: vi.fn(),
@@ -54,8 +54,37 @@ describe('global strip runtime controls', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     document.body.innerHTML = '';
     vi.clearAllMocks();
+  });
+
+  it.each([
+    [541_000.5, 'About 9m 2s'],
+    [0, 'Timer wait elapsed; check not yet observed'],
+  ])('presents sampled wait %s without a wall deadline, retaining it on failed refresh', async (sample, label) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-24T13:51:00Z'));
+    api.getRuntimeStatus.mockResolvedValue(runtimeStatusSnapshot({ oversight: oversightSnapshot({ remaining_wait_ms: sample }) }));
+    const wrapper = await renderStrip();
+    const chip = wrapper.get('[data-testid="strip-oversight"]');
+    expect(chip.text()).toBe('Oversight waiting');
+    expect(chip.attributes('title')).toContain(`Remaining timer wait at last observation: ${label}`);
+    expect(chip.attributes('title')).toContain('No wall-clock check deadline');
+    vi.setSystemTime(new Date('2026-09-24T17:00:00Z'));
+    api.getRuntimeStatus.mockRejectedValueOnce(new Error('offline'));
+    await expect(useRuntimeStore().fetchState()).rejects.toThrow('offline'); await flushPromises();
+    expect(chip.attributes('title')).toContain(label);
+    expect(wrapper.get('[data-testid="strip-rest"]').text()).toContain('Refresh failed');
+    api.getRuntimeStatus.mockResolvedValue(runtimeStatusSnapshot({ oversight: oversightSnapshot({ remaining_wait_ms: 60_001 }) }));
+    await useRuntimeStore().fetchState(); await flushPromises();
+    expect(chip.attributes('title')).toContain('About 1m 1s');
+    for (const state of ['checking', 'unavailable'] as const) {
+      api.getRuntimeStatus.mockResolvedValue(runtimeStatusSnapshot({ oversight: oversightSnapshot({ state, eligible: false, eligibility_reason: state === 'checking' ? 'check_in_flight' : 'application_closing', remaining_wait_ms: null }) }));
+      await useRuntimeStore().fetchState(); await flushPromises();
+      expect(chip.text()).toBe(`Oversight ${state}`);
+      expect(chip.attributes('title')).toContain('No armed wait');
+    }
+    wrapper.unmount();
   });
 
   it.each([

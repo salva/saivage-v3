@@ -1073,6 +1073,16 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
 
 ## System surface
 
+### Oversight timing observations
+
+The Global Strip keeps the compact `Oversight waiting/checking/unavailable` state chip. Its diagnostic title includes **Remaining timer wait at last observation**, the shared approximate duration, and the qualification that this is sampled server monotonic time, not a live countdown; host sleep can pause the wait and no wall-clock check deadline or catch-up is promised. The state is authoritative, never inferred from a duration.
+
+System > State (Debug State) labels the timing row **Remaining timer wait at last observation**. Positive `remaining_wait_ms` samples round upward to a whole second and render a duration such as `About 9m 2s`, not a date. Zero renders `Timer wait elapsed; check not yet observed`; null renders `No armed wait`. Immediately with the row, visibly rather than only on hover, show:
+
+> Sampled server monotonic time, not a live countdown. Host sleep can pause this wait; no wall-clock check deadline or catch-up is promised.
+
+Attempt/success and service-epoch dates retain their actual-history meaning. Neither surface ticks, subtracts browser wall time, extrapolates a due date or infers overdue/failure from the sample. A retained response after sleep or refresh failure stays explicitly a last observation; ordinary existing refresh can replace it. Existing REST freshness/error presentation remains unchanged. No polling, extra invalidation stream or manual check trigger is implied.
+
 - Configuration, provider exchange metadata and technical graph/error JSON use
   the [shared JSON data-display contract](#shared-json-data-display), after their
   existing safe projection and formatting. Instruction bodies remain prose;

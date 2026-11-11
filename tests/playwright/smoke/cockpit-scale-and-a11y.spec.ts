@@ -87,7 +87,7 @@ async function installScaleFixture(page: Page): Promise<{ childrenReads: string[
     started_at: now,
     pid: 4242,
     actorRuntime: { pauseMode: 'running', cards: [{ cardId: deepLeafId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] },
-    oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: true, eligibility_reason: null, state: 'waiting', next_nominal_due: '2026-09-24T14:00:00.000Z', last_attempt: null, last_successful_at: null, service_epoch: now },
+    oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: true, eligibility_reason: null, state: 'waiting', remaining_wait_ms: 7_200_000, last_attempt: null, last_successful_at: null, service_epoch: now },
     restart_server_available: false,
     serverAvailability: smokeServerAvailability,
   })));

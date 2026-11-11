@@ -30,7 +30,7 @@ export function oversightSnapshot(overrides: Partial<RuntimeStatusResponse['over
     eligible: true,
     eligibility_reason: null,
     state: 'waiting',
-    next_nominal_due: '2026-09-24T14:00:00.000Z',
+    remaining_wait_ms: 7_200_000,
     last_attempt: null,
     last_successful_at: null,
     service_epoch: fixtureTimestamp,
@@ -71,7 +71,7 @@ export function noCurrentRuntimeStatus(overrides: Partial<RuntimeStatusResponse>
     runtime: 'stopped',
     currentCardId: null,
     actorRuntime: { pauseMode: 'idle', cards: [] },
-    oversight: oversightSnapshot({ enabled: true, eligible: false, eligibility_reason: 'stopped', state: 'unavailable', next_nominal_due: null }),
+    oversight: oversightSnapshot({ enabled: true, eligible: false, eligibility_reason: 'stopped', state: 'unavailable', remaining_wait_ms: null }),
     ...overrides,
   });
 }

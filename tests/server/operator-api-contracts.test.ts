@@ -40,7 +40,7 @@ const canonicalCard = {
   depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
   git: null, status_text: null, status_text_updated_at: null, pending_notifications: [],
 } as const;
-const oversight={agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:true,eligibility_reason:null,state:'waiting',next_nominal_due:'2026-01-01T02:00:00.000Z',last_attempt:null,last_successful_at:null,service_epoch:'2026-01-01T00:00:00.000Z'} as const;
+const oversight={agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:true,eligibility_reason:null,state:'waiting',remaining_wait_ms:7_200_000,last_attempt:null,last_successful_at:null,service_epoch:'2026-01-01T00:00:00.000Z'} as const;
 const { pending_notifications: _pendingNotifications, ...outboundCanonicalCard } = canonicalCard;
 const canonicalCardDetail = { source:{mode:'off',facts:null},head_id:'11111111-1111-4111-8111-111111111111',id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
 const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog',permitted_child_types:['goal','code'] } as const;
@@ -55,6 +55,22 @@ const missingAfter: IndexCardDiffRow = { field: 'title', before: null };
 const validIndexRow: IndexCardDiffRow = validOperatorApiRow;
 
 describe('operator API runtime contract without runtime ledgers', () => {
+  it('accepts only the current finite nonnegative sampled Oversight wait contract', () => {
+    const body = (diagnostic: unknown) => ({
+      runtime: 'running', currentCardId: null, started_at: timestamp, pid: 123,
+      restart_server_available: false, actorRuntime: { pauseMode: 'running', cards: [] },
+      oversight: diagnostic, serverAvailability,
+    });
+    for (const sample of [null, 0, 0.25, 542_000.5]) {
+      expect(parseOperatorResponse('runtime.status', 200, body({ ...oversight, remaining_wait_ms: sample })).oversight.remaining_wait_ms).toBe(sample);
+    }
+    for (const sample of [-1, NaN, Infinity, -Infinity]) {
+      expect(() => parseOperatorResponse('runtime.status', 200, body({ ...oversight, remaining_wait_ms: sample }))).toThrow();
+    }
+    const { remaining_wait_ms: _sample, ...withoutSample } = oversight;
+    expect(() => parseOperatorResponse('runtime.status', 200, body({ ...withoutSample, next_nominal_due: timestamp }))).toThrow();
+    expect(() => parseOperatorResponse('runtime.status', 200, body({ ...oversight, next_nominal_due: timestamp }))).toThrow();
+  });
   it('reserves public contracts for the exact health probes and authenticates every operator API route', () => {
     const contracts = Object.values(operatorApiContracts);
     const publicContracts = contracts.filter((contract) => contract.auth === 'public');
@@ -496,7 +512,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
 
   it('requires concrete availability while preserving degraded, null, and stopped domain values', () => {
     const state = { projectId: 'test', runtime: null, serverAvailability };
-    const status = { runtime: 'stopped', currentCardId: null, started_at: timestamp, restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'idle', cards: [] },oversight:{...oversight,eligible:false,eligibility_reason:'stopped' as const,state:'unavailable' as const,next_nominal_due:null}, serverAvailability };
+    const status = { runtime: 'stopped', currentCardId: null, started_at: timestamp, restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'idle', cards: [] },oversight:{...oversight,eligible:false,eligibility_reason:'stopped' as const,state:'unavailable' as const,remaining_wait_ms:null}, serverAvailability };
     expect(parseOperatorResponse('health.readiness', 200, { status: 'ready', serverAvailability })).toEqual({ status: 'ready', serverAvailability });
     expect(parseOperatorResponse('runtime.getState', 200, state)).toEqual(state);
     expect(parseOperatorResponse('runtime.status', 200, status)).toEqual(status);

@@ -378,6 +378,8 @@ or catch-up schedule; it does not Run. Debug State unavailable during ineligibil
 is not failed service health. Read bounded session messages and page the separate
 context when needed, not an assumed stable complete snapshot.
 
+Debug State shows **Remaining timer wait at last observation**, a server monotonic sample, not a live countdown. Host sleep can pause the wait: waiting across sleep or a long wall-time gap is not proof of a lost timer. Refresh through the existing observation path for a new sample and inspect actual attempt/session evidence. Null means no armed wait; zero means elapsed wait with check entry not yet observed. Neither an old sample nor an old last-success date alone authorizes force-checks, restarts or a catch-up claim; there is no wall-clock check deadline.
+
 Expected provider/refusal/admission failure is an ordinary failed attempt, not
 authority for immediate force-check/retry. Fixed `[oversight] owner failure;
 application terminating`, bounded shutdown warnings and exit1 instead indicate

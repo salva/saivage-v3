@@ -23,6 +23,23 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Oversight sampled-wait presentation from actual implementation source parent
+`24807b9068f6d2a59cb32aa212d5008ac5dfc8ac` replaces transient HTTP
+`next_nominal_due` with finite nonnegative nullable `remaining_wait_ms` and removes
+the process-local wall prediction. Status/pause/resume responses, strict clients
+and both web presentations adopt the singular sampled monotonic-wait contract
+together; mismatched old clients are unsupported. Evidence: owner-derived response
+schema regression, independent wall/monotonic clock tests and rendered/browser
+sample-refresh regressions. Agent `get_status` history and control-event persistence
+do not contain this HTTP diagnostic. No retained shape, interpretation, provenance,
+selection, layout, history or retention changes: card head1/history6/mailbox1,
+record head3/accepted6, conversation index/genesis/envelope13, execution3, shared
+provider/app envelope2, workflow6, capabilities1 and initializer1 stay unchanged.
+No discriminator bump, new family or unreleased-cutover exception applies. This
+change alone needs no retained-state conversion; installed applicability is unknown
+and whole-release adoption depends on all intervening contracts. No deployment,
+reset or external migration is authorized.
+
 Card command shell-area guidance from actual implementation source parent
 `ffda83d1a0c8a400ba6d07f79f404b85b7cc8c7c` adds the pure `cardShellWorkRoot`
 accessor and card-only `run_command` lazy creation/environment locator for the

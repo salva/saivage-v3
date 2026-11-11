@@ -29,7 +29,7 @@ function statusSnapshot(overrides: Partial<RuntimeStatusResponse> = {}): Runtime
       eligible: false,
       eligibility_reason: 'stopped',
       state: 'unavailable',
-      next_nominal_due: null,
+      remaining_wait_ms: null,
       last_attempt: null,
       last_successful_at: null,
       service_epoch: '2025-01-01T00:00:00Z',

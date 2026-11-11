@@ -576,7 +576,7 @@ direct editor, prompt-body viewer, hot reload, or compatibility interpretation.
 **F35 — Should — On-demand checks.** Request read-only doctor-style diagnostics and
 inspect current-epoch Oversight eligibility/outcome diagnostics on demand. Check never-run,
 waiting, checking, unavailable, failed, and unknown cases where provided: waiting is not
-busy; a nominal due time is not a guaranteed check. No manual Oversight trigger is implied.
+busy. Inspect the remaining timer wait at last observation, not an absolute due date or live countdown. Host sleep can pause that monotonic wait and a retained sample ages without predicting a wall-clock check deadline or catch-up. Zero does not prove check entry; null means no armed wait. No manual Oversight trigger is implied.
 
 ### H. Regain orientation over time
 

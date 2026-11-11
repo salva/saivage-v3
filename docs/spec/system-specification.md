@@ -3889,10 +3889,13 @@ Existing projects adopt or disable it only through deliberate complete configura
 
 A check is eligible only while Oversight is enabled and authoritative project runtime status is exactly `running`; a live server or any other status is insufficient.
 The first check waits one full continuous eligible interval, and losing eligibility discards that wait. Each later check waits another full interval after the previous check, including continuations, compaction, and settlement, safely settles.
+Intervals use server monotonic time. Host sleep can pause this wait, depending on the platform clock; there is no wall-clock check deadline or wake-triggered catch-up.
 At most one check is in flight. There is no persistent timer, backlog, catch-up, burst, scheduling SLA, or server-triggered Run.
 A check may run alongside normal card work and Analyst activity, but ordinary provider limits may delay it.
 Leaving `running`, including pausing, completion, shutdown, or effective disablement, disarms the wait and requests cancellation.
 Resume or a new Run begins a fresh full interval only after prior ownership settles, with no missed or pending check accumulated.
+
+Transient HTTP runtime status (also returned by pause/resume) exposes `remaining_wait_ms`: a finite nonnegative, possibly fractional sample of the armed monotonic deadline minus the observation time, clamped to zero. Without an armed wait it is null, including checking, disabled, ineligible and failed-owner admission. Zero means timer wait elapsed, not observed check entry or success. Status reads neither rearm nor start checks. This is a last observation, not a live countdown or execution-date prediction; attempt/success and service-epoch dates remain actual epoch-local facts. This HTTP diagnostic does not change agent `get_status` results or retained history.
 
 ### Cancellation and truthful settlement
 

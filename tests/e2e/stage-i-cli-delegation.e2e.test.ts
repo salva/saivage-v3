@@ -24,7 +24,7 @@ function runtimeStatus(status: 'running' | 'paused') {
       agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true,
       eligible: status === 'running', eligibility_reason: status === 'paused' ? 'paused' : null,
       state: status === 'running' ? 'waiting' : 'unavailable',
-      next_nominal_due: status === 'running' ? '2026-07-18T02:00:00.000Z' : null,
+      remaining_wait_ms: status === 'running' ? 7_200_000 : null,
       last_attempt: null, last_successful_at: null, service_epoch: checkedAt,
     },
     serverAvailability: {

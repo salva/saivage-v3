@@ -27,7 +27,7 @@ export type OversightStatus = Readonly<{
     | 'check_in_flight'
     | null;
   state: 'waiting' | 'checking' | 'unavailable';
-  next_nominal_due: string | null;
+  remaining_wait_ms: number | null;
   last_attempt: Readonly<{ outcome: OversightCheckOutcome; settled_at: string }> | null;
   last_successful_at: string | null;
   service_epoch: string;
@@ -50,7 +50,6 @@ export class ProjectOversight {
   #closing = false;
   #timer: unknown | null = null;
   #deadline: number | null = null;
-  #dueWall: string | null = null;
   #check: OversightSession | null = null;
   #checkTask: Promise<void> | null = null;
   #lastAttempt: OversightStatus['last_attempt'] = null;
@@ -120,6 +119,11 @@ export class ProjectOversight {
   }
 
   status(): OversightStatus {
+    let remainingWaitMs: number | null = null;
+    if (this.#timer !== null) {
+      if (this.#deadline === null) throw new Error('Oversight timer has no deadline.');
+      remainingWaitMs = Math.max(0, this.#deadline - this.#clock.monotonicNow());
+    }
     const eligible =
       this.#enabled && !this.#closing && this.#runtimeStatus === 'running' && !this.#check;
     const reason: OversightStatus['eligibility_reason'] = !this.#enabled
@@ -142,7 +146,7 @@ export class ProjectOversight {
         : eligible && this.#timer !== null
           ? 'waiting'
           : 'unavailable',
-      next_nominal_due: this.#timer !== null ? this.#dueWall : null,
+      remaining_wait_ms: remainingWaitMs,
       last_attempt: this.#lastAttempt,
       last_successful_at: this.#lastSuccess,
       service_epoch: this.#serviceEpoch,
@@ -159,7 +163,6 @@ export class ProjectOversight {
     )
       return;
     this.#deadline = this.#clock.monotonicNow() + this.#intervalMs;
-    this.#dueWall = new Date(Date.parse(this.#clock.wallNow()) + this.#intervalMs).toISOString();
     this.#armRemaining();
   }
 
@@ -175,7 +178,6 @@ export class ProjectOversight {
         return;
       }
       this.#deadline = null;
-      this.#dueWall = null;
       if (this.#enabled && !this.#closing && this.#runtimeStatus === 'running') this.#startCheck();
       else this.#changed();
     }, wait);
@@ -186,7 +188,6 @@ export class ProjectOversight {
     if (this.#timer !== null) this.#clock.clearTimeout(this.#timer);
     this.#timer = null;
     this.#deadline = null;
-    this.#dueWall = null;
   }
 
   #startCheck(): void {

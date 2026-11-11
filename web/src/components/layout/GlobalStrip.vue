@@ -58,6 +58,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { formatOversightWait } from '../../utils/oversight';
 import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useRuntimeStore } from '../../stores/runtime';
@@ -139,7 +140,7 @@ const oversightView = computed(() => oversight.value ?? {
   eligible: false,
   eligibility_reason: null,
   state: 'unavailable',
-  next_nominal_due: null,
+  remaining_wait_ms: null,
   last_attempt: null,
   last_successful_at: null,
   service_epoch: '',
@@ -147,7 +148,7 @@ const oversightView = computed(() => oversight.value ?? {
 const oversightTitle = computed(() => {
   if (!loaded.value) return 'Oversight diagnostics have not been observed yet.';
   const base = `Oversight is ${oversightView.value.state} (epoch diagnostics, not session liveness).`;
-  return oversightView.value.next_nominal_due ? `${base} Next nominal due ${oversightView.value.next_nominal_due}.` : base;
+  return `${base} Remaining timer wait at last observation: ${formatOversightWait(oversightView.value.remaining_wait_ms)}. Sampled server monotonic time, not a live countdown; host sleep can pause this wait. No wall-clock check deadline or catch-up is promised.`;
 });
 
 const problemNotices = computed<string[]>(() => {

@@ -48,7 +48,7 @@ async function fixture(page: Page) {
     if (path === '/api/runtime/status') return json(route, { status: 200, body: parseOperatorResponse('runtime.status', 200, {
       runtime: current ? 'running' : 'stopped', currentCardId: current, started_at: now, pid: 4242,
       actorRuntime: { pauseMode: current ? 'running' : 'idle', cards: current ? [{ cardId: current, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 1 } }] : [] },
-      oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: false, eligible: false, eligibility_reason: 'disabled', state: 'unavailable', next_nominal_due: null, last_attempt: null, last_successful_at: null, service_epoch: now },
+      oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: false, eligible: false, eligibility_reason: 'disabled', state: 'unavailable', remaining_wait_ms: null, last_attempt: null, last_successful_at: null, service_epoch: now },
       restart_server_available: false, serverAvailability: smokeServerAvailability,
     }) });
     if (path === '/api/cards/card-a' || path === '/api/cards/card-b') {

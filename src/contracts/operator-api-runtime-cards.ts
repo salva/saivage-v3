@@ -519,7 +519,7 @@ const RuntimeStatusResponseSchema = z
           ])
           .nullable(),
         state: z.enum(['waiting', 'checking', 'unavailable']),
-        next_nominal_due: z.string().datetime().nullable(),
+        remaining_wait_ms: z.number().finite().nonnegative().nullable(),
         last_attempt: z
           .object({
             outcome: z.enum(['succeeded', 'failed', 'cancelled']),

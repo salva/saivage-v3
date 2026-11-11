@@ -242,7 +242,7 @@ have cleared; that is not proof of continued execution. See
 [startup and Run recovery](../runbook/runtime-control.md#startup-and-run-recovery).
 
 Oversight's optional default two-hour check starts after one full continuous
-eligible interval; it does not run immediately on Run. It can send an evidenced
+eligible server-monotonic interval; it does not run immediately on Run. Host sleep can pause this wait. The displayed remaining timer wait is only the last observation, not a live countdown, wall-clock check deadline or catch-up promise. It can send an evidenced
 notification, not implement repairs itself. A lack of new children or messages
 alone does not establish a stuck project. Its bounded assessment can consider a
 recurring delivery gap despite local progress; advice is not acceptance or a
