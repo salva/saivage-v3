@@ -470,7 +470,6 @@ describe('disposable production-composition smoke', () => {
       roots.push(root);
       const appPort = await unusedPort();
       let app: App | null = null;
-      let analystCalls = 0;
       let plannerCalls = 0;
       let executorCalls = 0;
       let rootInput = '';
@@ -508,6 +507,30 @@ describe('disposable production-composition smoke', () => {
         },
         { name: 'start_project', args: {} },
       ];
+      // Ingress owns the action/final phases; compaction may remove the wire tool tail.
+      let activeTurn: {
+        action: (typeof analystTools)[number];
+        id: number;
+        phase: 'action' | 'final' | 'complete';
+      } | null = null;
+      let summaryHandled = false;
+      let postSummaryFinalWithoutToolTail = false;
+      const analystChat = async (app: App, content: string, actionIndex: number) => {
+        expect(activeTurn).toBeNull();
+        const turn = {
+          action: analystTools[actionIndex]!,
+          id: actionIndex + 1,
+          phase: 'action' as 'action' | 'final' | 'complete',
+        };
+        activeTurn = turn;
+        const result = await chat(app, content);
+        expect(result.toolInvocations).toHaveLength(1);
+        expect(result.toolInvocations[0].tool).toBe(turn.action.name);
+        expect(result.toolInvocations[0].params).toEqual(turn.action.args);
+        expect(turn.phase).toBe('complete');
+        activeTurn = null;
+        return result;
+      };
       const provider = createServer(async (request, response) => {
         if (request.url !== '/v1/chat/completions') {
           response.statusCode = 404;
@@ -515,14 +538,26 @@ describe('disposable production-composition smoke', () => {
           return;
         }
         const body = await requestBody(request);
-        if (toolNames(body).includes('show_config')) {
-          if (body.messages.at(-1)?.role === 'tool') {
+        if (body.model === 'analyst-model' && toolNames(body).length === 0) {
+          // Transport scaffolding only, not a claim of historical fidelity.
+          summaryHandled = true;
+          finalMessage(response, 'Synthetic fixture summary.');
+          return;
+        }
+        if (body.model === 'analyst-model' && toolNames(body).includes('show_config')) {
+          if (!activeTurn || activeTurn.phase === 'complete')
+            throw new Error('Unexpected Analyst call.');
+          if (activeTurn.phase === 'final') {
+            postSummaryFinalWithoutToolTail ||=
+              summaryHandled &&
+              body.messages.at(-1)?.role !== 'tool' &&
+              body.messages.some((message) => message.content.includes('Synthetic fixture summary.'));
+            activeTurn.phase = 'complete';
             finalMessage(response);
             return;
           }
-          const action = analystTools[analystCalls++];
-          if (!action) throw new Error('Unexpected Analyst call.');
-          toolCall(response, analystCalls, action.name, action.args);
+          activeTurn.phase = 'final';
+          toolCall(response, activeTurn.id, activeTurn.action.name, activeTurn.action.args);
         } else if (body.model === 'planner-model') {
           plannerCalls++;
           if (plannerCalls === 1) {
@@ -563,13 +598,13 @@ describe('disposable production-composition smoke', () => {
         );
         writeCustomPrompts(root);
         app = await start(root);
-        expect((await chat(app, 'Create the goal.')).toolInvocations[0].result).toMatchObject({
+        expect((await analystChat(app, 'Create the goal.', 0)).toolInvocations[0].result).toMatchObject({
           success: true,
         });
-        expect((await chat(app, 'Create its leaf.')).toolInvocations[0].result).toMatchObject({
+        expect((await analystChat(app, 'Create its leaf.', 1)).toolInvocations[0].result).toMatchObject({
           success: true,
         });
-        const queued = await chat(app, 'Urgently notify the inactive leaf.');
+        const queued = await analystChat(app, 'Urgently notify the inactive leaf.', 2);
         expect(queued.toolInvocations[0].result).toMatchObject({
           success: true,
           data: { queued: true, interruption: { status: 'not_applicable' } },
@@ -577,7 +612,7 @@ describe('disposable production-composition smoke', () => {
         expect(plannerCalls).toBe(0);
         expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
         expect(
-          (await chat(app, 'Start the queued project.')).toolInvocations[0].result,
+          (await analystChat(app, 'Start the queued project.', 3)).toolInvocations[0].result,
         ).toMatchObject({ success: true });
         await waitUntil(
           () =>
@@ -625,6 +660,7 @@ describe('disposable production-composition smoke', () => {
             app.server.runtimeApplication.cardStore.read('card-a-a')?.pending_notifications,
           ).toHaveLength(1);
         }
+        expect(postSummaryFinalWithoutToolTail).toBe(true);
         expect((await api(app, '/api/runtime/stop-project', { method: 'POST' })).status).toBe(200);
       } finally {
         if (app) await stop(app);
@@ -639,7 +675,6 @@ describe('disposable production-composition smoke', () => {
     roots.push(root);
     const appPort = await unusedPort();
     let app: App | null = null;
-    let analystCalls = 0;
     let plannerCalls = 0;
     let executorCalls = 0;
     let parentInput = '';
@@ -666,6 +701,30 @@ describe('disposable production-composition smoke', () => {
         },
       },
     ];
+    // Ingress owns the action/final phases; compaction may remove the wire tool tail.
+    let activeTurn: {
+      action: (typeof analystTools)[number];
+      id: number;
+      phase: 'action' | 'final' | 'complete';
+    } | null = null;
+    let summaryHandled = false;
+    let postSummaryFinalWithoutToolTail = false;
+    const analystChat = async (app: App, content: string, actionIndex: number) => {
+      expect(activeTurn).toBeNull();
+      const turn = {
+        action: analystTools[actionIndex]!,
+        id: actionIndex + 1,
+        phase: 'action' as 'action' | 'final' | 'complete',
+      };
+      activeTurn = turn;
+      const result = await chat(app, content);
+      expect(result.toolInvocations).toHaveLength(1);
+      expect(result.toolInvocations[0].tool).toBe(turn.action.name);
+      expect(result.toolInvocations[0].params).toEqual(turn.action.args);
+      expect(turn.phase).toBe('complete');
+      activeTurn = null;
+      return result;
+    };
     const provider = createServer(async (request, response) => {
       if (request.url !== '/v1/chat/completions') {
         response.statusCode = 404;
@@ -673,14 +732,26 @@ describe('disposable production-composition smoke', () => {
         return;
       }
       const body = await requestBody(request);
-      if (toolNames(body).includes('show_config')) {
-        if (body.messages.at(-1)?.role === 'tool') {
+      if (body.model === 'analyst-model' && toolNames(body).length === 0) {
+        // Transport scaffolding only, not a claim of historical fidelity.
+        summaryHandled = true;
+        finalMessage(response, 'Synthetic fixture summary.');
+        return;
+      }
+      if (body.model === 'analyst-model' && toolNames(body).includes('show_config')) {
+        if (!activeTurn || activeTurn.phase === 'complete')
+          throw new Error('Unexpected Analyst call.');
+        if (activeTurn.phase === 'final') {
+          postSummaryFinalWithoutToolTail ||=
+            summaryHandled &&
+            body.messages.at(-1)?.role !== 'tool' &&
+            body.messages.some((message) => message.content.includes('Synthetic fixture summary.'));
+          activeTurn.phase = 'complete';
           finalMessage(response);
           return;
         }
-        const action = analystTools[analystCalls++];
-        if (!action) throw new Error('Unexpected Analyst call.');
-        toolCall(response, analystCalls, action.name, action.args);
+        activeTurn.phase = 'final';
+        toolCall(response, activeTurn.id, activeTurn.action.name, activeTurn.action.args);
       } else if (body.model === 'planner-model') {
         plannerCalls++;
         if (plannerCalls === 2) parentInput = JSON.stringify(body.messages);
@@ -703,14 +774,14 @@ describe('disposable production-composition smoke', () => {
       );
       writeCustomPrompts(root);
       app = await start(root);
-      expect((await chat(app, 'Create the code child.')).toolInvocations[0].result).toMatchObject({
+      expect((await analystChat(app, 'Create the code child.', 0)).toolInvocations[0].result).toMatchObject({
         success: true,
       });
-      expect((await chat(app, 'Start project work.')).toolInvocations[0].result).toMatchObject({
+      expect((await analystChat(app, 'Start project work.', 1)).toolInvocations[0].result).toMatchObject({
         success: true,
       });
       await waitUntil(() => executorCalls === 1, 'active child provider request');
-      const urgent = await chat(app, 'Urgently notify the child.');
+      const urgent = await analystChat(app, 'Urgently notify the child.', 2);
       expect(urgent.toolInvocations[0].result).toMatchObject({
         success: true,
         data: {
@@ -734,6 +805,7 @@ describe('disposable production-composition smoke', () => {
       expect(app.server.runtimeApplication.cardStore.read('card-a')?.lifecycle.status).toBe(
         'running',
       );
+      expect(postSummaryFinalWithoutToolTail).toBe(true);
       expect((await api(app, '/api/runtime/stop-project', { method: 'POST' })).status).toBe(200);
     } finally {
       if (app) await stop(app);
@@ -746,9 +818,53 @@ describe('disposable production-composition smoke', () => {
     roots.push(root);
     const appPort = await unusedPort();
     let app: App | null = null;
-    let analystCalls = 0;
     let plannerCalls = 0;
     let replacementInput = '';
+    const analystTools = [
+      { name: 'start_project', args: {} },
+      {
+        name: 'queue_notification',
+        args: {
+          card_id: 'project',
+          kind: 'correction',
+          body: 'normal steering',
+          urgency: 'normal',
+        },
+      },
+      {
+        name: 'queue_notification',
+        args: {
+          card_id: 'project',
+          kind: 'correction',
+          body: 'urgent root steering',
+          urgency: 'urgent',
+        },
+      },
+    ];
+    // Ingress owns the action/final phases; compaction may remove the wire tool tail.
+    let activeTurn: {
+      action: (typeof analystTools)[number];
+      id: number;
+      phase: 'action' | 'final' | 'complete';
+    } | null = null;
+    let summaryHandled = false;
+    let postSummaryFinalWithoutToolTail = false;
+    const analystChat = async (app: App, content: string, actionIndex: number) => {
+      expect(activeTurn).toBeNull();
+      const turn = {
+        action: analystTools[actionIndex]!,
+        id: actionIndex + 1,
+        phase: 'action' as 'action' | 'final' | 'complete',
+      };
+      activeTurn = turn;
+      const result = await chat(app, content);
+      expect(result.toolInvocations).toHaveLength(1);
+      expect(result.toolInvocations[0].tool).toBe(turn.action.name);
+      expect(result.toolInvocations[0].params).toEqual(turn.action.args);
+      expect(turn.phase).toBe('complete');
+      activeTurn = null;
+      return result;
+    };
     const provider = createServer(async (request, response) => {
       if (request.url !== '/v1/chat/completions') {
         response.statusCode = 404;
@@ -756,25 +872,33 @@ describe('disposable production-composition smoke', () => {
         return;
       }
       const body = await requestBody(request);
-      if (toolNames(body).includes('show_config')) {
-        if (body.messages.at(-1)?.role === 'tool') {
+      if (body.model === 'analyst-model' && toolNames(body).length === 0) {
+        // Transport scaffolding only, not a claim of historical fidelity.
+        summaryHandled = true;
+        finalMessage(response, 'Synthetic fixture summary.');
+        return;
+      }
+      if (body.model === 'analyst-model' && toolNames(body).includes('show_config')) {
+        if (!activeTurn || activeTurn.phase === 'complete')
+          throw new Error('Unexpected Analyst call.');
+        if (activeTurn.phase === 'final') {
+          postSummaryFinalWithoutToolTail ||=
+            summaryHandled &&
+            body.messages.at(-1)?.role !== 'tool' &&
+            body.messages.some((message) => message.content.includes('Synthetic fixture summary.'));
+          activeTurn.phase = 'complete';
           finalMessage(response);
           return;
         }
-        analystCalls++;
-        if (analystCalls === 1) toolCall(response, analystCalls, 'start_project', {});
-        else
-          toolCall(response, analystCalls, 'queue_notification', {
-            card_id: 'project',
-            kind: 'correction',
-            body: analystCalls === 2 ? 'normal steering' : 'urgent root steering',
-            urgency: analystCalls === 2 ? 'normal' : 'urgent',
-          });
+        activeTurn.phase = 'final';
+        toolCall(response, activeTurn.id, activeTurn.action.name, activeTurn.action.args);
         return;
       }
-      plannerCalls++;
-      if (plannerCalls === 2) {
-        replacementInput = JSON.stringify(body.messages);
+      if (body.model === 'planner-model') {
+        plannerCalls++;
+        if (plannerCalls === 2) {
+          replacementInput = JSON.stringify(body.messages);
+        }
       }
     });
     const providerPort = await listen(provider);
@@ -786,15 +910,15 @@ describe('disposable production-composition smoke', () => {
       );
       writeCustomPrompts(root);
       app = await start(root);
-      expect((await chat(app, 'Start project work.')).toolInvocations[0].result.success).toBe(true);
+      expect((await analystChat(app, 'Start project work.', 0)).toolInvocations[0].result.success).toBe(true);
       await waitUntil(() => plannerCalls === 1, 'initial live root provider request');
-      const normal = await chat(app, 'Queue ordinary root context while running.');
+      const normal = await analystChat(app, 'Queue ordinary root context while running.', 1);
       expect(normal.toolInvocations[0].result).toMatchObject({
         success: true,
         data: { queued: true, interruption: { status: 'not_requested' } },
       });
       expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('running');
-      const urgent = await chat(app, 'Urgently interrupt the current root work.');
+      const urgent = await analystChat(app, 'Urgently interrupt the current root work.', 2);
       expect(urgent.toolInvocations[0].result).toMatchObject({
         success: true,
         data: {
@@ -816,6 +940,7 @@ describe('disposable production-composition smoke', () => {
           (reason) => reason === 'recovery stopped lifecycle' || reason === 'STOPPED activation',
         ),
       ).toEqual(['recovery stopped lifecycle', 'STOPPED activation']);
+      expect(postSummaryFinalWithoutToolTail).toBe(true);
       expect((await api(app, '/api/runtime/stop-project', { method: 'POST' })).status).toBe(200);
     } finally {
       if (app) await stop(app);
