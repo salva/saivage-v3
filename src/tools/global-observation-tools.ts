@@ -320,7 +320,7 @@ export const globalObservationToolBinders: readonly ToolBinder<
   defineToolBinder({
     name: 'queue_notification',
     description:
-      'Queue evidenced context to an eligible planning card under this check’s admission. Urgent may interrupt exact active card work; enqueue alone does not prove delivery or action.',
+      'Queue context to an eligible card’s designated recipient. Analyst uses ordinary notification admission, including non-planning cards; normal enqueue needs no Pause or Run. Oversight may notify only eligible planning targets during its admitted running-runtime check. Urgent may interrupt exact active card work; enqueue alone does not prove delivery or action.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: () => queueNotificationInputSchema,
     executor: (ctx, args, signal) => ctx.queueNotification(args, signal, ctx.authority),

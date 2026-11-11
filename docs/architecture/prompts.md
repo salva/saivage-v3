@@ -54,6 +54,10 @@ conversation. `NodeExecution` owns acceptance independently of prompt execution.
 
 ### Context owners and lifetimes
 
+Shared `queue_notification` help separately names Analyst ordinary admission and
+Oversight active-check/planning-target admission. Selected grants and effect owners
+remain authoritative; enqueue is not delivery.
+
 Tool definitions render concise selected clauses beside their descriptions, from
 the same compiled capabilities used at the effect owners: for example records
 self/status.md and children/brief.md are separate alternatives, not a cross-product.
