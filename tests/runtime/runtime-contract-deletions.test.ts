@@ -7,22 +7,39 @@ import { readConversation } from '../../src/persistence/session-api.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { CanonicalLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { toolSucceeded } from '../../src/contracts/tool-result.js';
+import type { RuntimeApi, StartProjectResult, StopProjectResult } from '../../src/runtime/runtime-api.js';
+import type { RuntimeState, RuntimeStatus } from '../../src/schemas/index.js';
+
+// Compile-time result/ledger-exclusion protection; validated by typecheck, not Jest.
+type Exact<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type StartSuccess = Extract<StartProjectResult, { started: true }>;
+type StartRefusal = Extract<StartProjectResult, { started: false }>;
+type CommonState = { runtime: RuntimeState | null; status: RuntimeStatus; stopped: boolean };
+type RuntimeResultContractAssertions = [
+  Assert<Exact<Awaited<ReturnType<RuntimeApi['startProject']>>, StartProjectResult>>,
+  Assert<Exact<Awaited<ReturnType<RuntimeApi['stopProject']>>, StopProjectResult>>,
+  Assert<Exact<keyof StartSuccess, 'runtime' | 'status' | 'stopped' | 'started'>>,
+  Assert<Exact<Pick<StartSuccess, keyof CommonState>, CommonState>>,
+  Assert<Exact<StartSuccess['started'], true>>,
+  Assert<Exact<keyof StartRefusal, 'runtime' | 'status' | 'stopped' | 'started' | 'error' | 'refusal'>>,
+  Assert<Exact<Pick<StartRefusal, keyof CommonState>, CommonState>>,
+  Assert<Exact<Pick<StartRefusal, 'started' | 'error'>, { started: false; error: string }>>,
+  Assert<Exact<StartRefusal['refusal'],
+    | { reason: 'application_closing' }
+    | { reason: 'runtime_not_stopped' }
+    | { reason: 'root_not_startable'; card_id: 'project'; card_status: 'done' | 'failed' | 'cancelled' }
+    | { reason: 'entry_refused' }
+  >>,
+  Assert<Exact<Pick<StartRefusal, 'refusal'>, { refusal: StartRefusal['refusal'] }>>,
+  Assert<Exact<StopProjectResult, { readonly status: 'stopped'; readonly contained: boolean }>>,
+];
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('runtime ledger contract deletions', () => {
-  it('keeps start/stop runtime results current-state-only', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-api.ts'), 'utf8');
-    expect(source).toContain('runtime: RuntimeState | null');
-    expect(source).toContain('started: boolean');
-    expect(source).toContain('stopped: boolean');
-    expect(source).not.toContain('RuntimeCommandRecord');
-    expect(source).not.toContain('RuntimeRunRecord');
-    expect(source).not.toContain('command:');
-    expect(source).not.toContain('run:');
-  });
-
   it('removes public runtime ledger contract exports', async () => {
     const contracts = await import('../../src/contracts/index.js');
     expect('RuntimeCommandRecordSchema' in contracts).toBe(false);
