@@ -36,7 +36,10 @@ retain distinct provenance, not automatic acceptance of the work.
 
 All six profiles (`classic`, `classic-typed`, `paad-typed`, `classic-git`, `newloop`, `newloop2`)
 use [configured direct-object grants](docs/reference/configuration.md#direct-object-capabilities).
-Defaults give Planner self status and immediate-child briefs; children propose
+Defaults give Planner self status and immediate-child briefs. Parents maintain
+readable current assignments with task-appropriate structure, preserving full
+scope and acceptance; activation direction supplies the immediate work delta,
+not replacement requirements. Children propose
 requirement changes through BLOCKED, parents amend the same inactive child without
 weakening upstream obligations, and root decisions reach Analyst/operator. Custom
 scopes may deliberately differ, including self bootstrap drafts. Graph choices and

@@ -277,6 +277,18 @@ node's continuations. Each newly armed initial, tool or corrective operation fir
 checks its captured invocation lease in the deferred raw callback, then reads
 current conversation knowledge and invokes the synchronous node-bound supplier.
 
+The selected shared Planner host owns reusable child-brief authorship guidance:
+useful outcomes, scope and acceptance first, with human-readable current briefs
+maintained at creation, material amendment and relevant reuse preparation.
+Presentation is flexible, not a heading schema or an every-activation audit.
+Consolidation preserves applicable obligations, evidence and uncertainty while
+separating dated snapshots/history. Bound `create_card`, `edit_card` and
+`activate_card` help identifies the operation split: supplied complete bootstrap,
+title-only metadata, and immediate task direction under accepted requirements.
+Permitted record tools accept brief amendments; parent direction cannot do so.
+Source-built help and deliberately reconciled selected hosts form the adoption
+unit: packaging does not update materialized/custom hosts or authorize live edits.
+
 ### Same-read record supplier
 
 `bootstrap-context.ts` reads each distinct record in the union of bootstrap and

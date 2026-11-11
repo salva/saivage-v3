@@ -1181,7 +1181,17 @@ Bundled Planner/Executor/Reviewer methods favor the simplest coherent design mee
 
 Shared Analyst/Planner authoring guidance leads briefs, activation directions and
 advisory notices with useful outcomes, necessary scope, evidence and meaningful
-acceptance or next action. Prohibitions need an actual requirement, authority
+acceptance or next action. Parents maintain the enduring human-readable child
+brief at creation, material amendment and preparation to reuse it. Headings,
+short paragraphs or bullets should suit the task; concise assignments need no
+fixed form. Consolidate superseded current wording, distinguish dated snapshots
+and history, and preserve applicable obligations, evidence, failures/refusals and
+uncertainty. Correct relevant stale or confusing assignments, not every brief on
+every activation or completed work for cosmetics. Enduring requirements belong
+in the accepted brief through permitted record acceptance; activation direction
+supplies the current execution/correction delta without reciting a suitable brief.
+Readability supports delivery, not a new format or admission gate.
+Prohibitions need an actual requirement, authority
 boundary or evidenced proportionate risk, with clear reason and scope; ordinary
 implementation choices stay open. Historical failures/refusals remain facts, not
 permanent bans on related work or permission to evade provider safeguards. Fresh

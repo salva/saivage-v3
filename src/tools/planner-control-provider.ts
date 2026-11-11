@@ -63,7 +63,7 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
     defineToolBinder({
       name: 'create_card',
       description:
-        'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.',
+        'Create a direct child with the complete assignment supplied in bootstrap_content. The parent is inferred from the planner session and cannot be supplied.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => plannerCreateCardInputSchema,
       executor: (ctx, args) => executeToolAction('none', async () => createCard(ctx, args)),
@@ -71,7 +71,7 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
     defineToolBinder({
       name: 'edit_card',
       description:
-        'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.',
+        'Change only an immediate child’s title. Use permitted record write/edit tools to amend its accepted brief; this tool changes no requirements or lifecycle.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => plannerEditCardInputSchema,
       executor: (ctx, args) => executeToolAction('none', async () => editCard(ctx, args)),
@@ -86,7 +86,7 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
     }),
     defineToolBinder({
       name: 'activate_card',
-      description: 'Activate one immediate child card and return its result.',
+      description: 'Activate one immediate child and return its result. Supply current-task direction under its accepted brief, not replacement requirements.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => activateCardArgumentsSchema,
       executor: (ctx, args, _signal, invocation) =>
