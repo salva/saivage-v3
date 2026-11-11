@@ -775,7 +775,8 @@ describe('loss-tolerant maintenance through production invocation and persistenc
             transportProtocol: 'openai-chat-completions',
             toolsMode: 'native',
             exclusiveToolChoiceSupport: 'native',
-            contextWindowTokens: 200_000,
+            // Primary I=199800: trigger 19980−16821=3159 > 0; hard ceiling 182979.
+            contextWindowTokens: 250_000,
             maxOutputTokens: 10_000,
           },
         },
@@ -814,6 +815,7 @@ describe('loss-tolerant maintenance through production invocation and persistenc
         ...row(
           session,
           'protected-operator-requirement',
+          // Protected literal: 28*800=22400 bytes (~5600 tokens) > 3159, forcing maintenance on both submissions.
           'EXACT PROTECTED REQUIREMENT '.repeat(800),
         ),
         context_policy: { ...TEXT_ROW_POLICY, compactable: false },

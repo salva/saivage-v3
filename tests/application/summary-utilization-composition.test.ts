@@ -116,7 +116,9 @@ describe('configured summary utilization through production composition', () => 
     const projectRoot = mkdtempSync(join(tmpdir(), 'summary-utilization-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const window = 30_000;
+    // At U=.60: primary trigger 21420−16821=4599 > 0; hard ceiling 6979.
+    // Unchanged 210000-byte source (~52500 tokens) exceeds every summary ceiling (max 38000), forcing splits.
+    const window = 40_000;
     const ceiling = Math.floor(u * window) - 2000;
     const config = effectiveSaivageConfigSchema.parse({
       ...structuredClone(TEST_SAIVAGE_CONFIG),
