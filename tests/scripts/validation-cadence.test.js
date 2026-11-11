@@ -423,11 +423,17 @@ describe('validation cadence guard', () => {
       const steps = workflow.jobs[name].steps;
       const root = steps.findIndex((step) => step.run === 'npm ci');
       const web = steps.findIndex((step) => step.run === 'cd web && npm ci');
+      expect(root).toBeGreaterThanOrEqual(0);
+      expect(web).toBeGreaterThanOrEqual(0);
+      expect(root).not.toBe(web);
       [steps[root], steps[web]] = [steps[web], steps[root]];
     }
     const browser = workflow.jobs['browser-smoke'].steps;
-    const chromium = browser.findIndex((step) => step.run === 'npm run web:test:e2e:install');
-    const deps = browser.findIndex((step) => step.run === 'npx playwright install-deps chromium');
+    const chromium = browser.findIndex((step) => step.name === 'Install Chromium browser');
+    const deps = browser.findIndex((step) => step.name === 'Install Chromium host dependencies');
+    expect(chromium).toBeGreaterThanOrEqual(0);
+    expect(deps).toBeGreaterThanOrEqual(0);
+    expect(chromium).not.toBe(deps);
     [browser[chromium], browser[deps]] = [browser[deps], browser[chromium]];
     browser.splice(browser.length - 1, 0, { name: 'Harmless note', run: 'echo complete' });
     browser.at(-1).with.path = 'tmp/playwright-results\ntmp/playwright-report\n';
@@ -451,16 +457,20 @@ describe('validation cadence guard', () => {
   });
 
   it.each([
-    ['routine-docs', 'npm ci', 'npm run validate:routine'],
-    ['backend-e2e', 'npm ci', 'npm run test:e2e'],
-    ['backend-jest-build', 'npm ci', 'npm test'],
-    ['browser-smoke', 'npm run web:test:e2e:install', 'npm run web:test:e2e:smoke'],
-    ['browser-smoke', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'],
-  ])('rejects %s running %s after %s', (job, prerequisite, consumer) => {
+    ['routine-docs', 'npm ci', 'npm run validate:routine', null],
+    ['backend-e2e', 'npm ci', 'npm run test:e2e', null],
+    ['backend-jest-build', 'npm ci', 'npm test', null],
+    ['browser-smoke', 'npm run web:test:e2e:install', 'npm run web:test:e2e:smoke', null],
+    ['browser-smoke', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke', 'Install Chromium host dependencies'],
+  ])('rejects %s running %s after %s', (job, prerequisite, consumer, prerequisiteStepName) => {
     const workflow = parse(VALID_WORKFLOW);
     const steps = workflow.jobs[job].steps;
-    const first = steps.findIndex((step) => step.run === prerequisite);
+    const first = steps.findIndex((step) => prerequisiteStepName === null
+      ? step.run === prerequisite : step.name === prerequisiteStepName);
     const second = steps.findIndex((step) => step.run === consumer);
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(second).toBeGreaterThanOrEqual(0);
+    expect(first).not.toBe(second);
     [steps[first], steps[second]] = [steps[second], steps[first]];
     expectWorkflowFailure(stringify(workflow), `${job} must run ${prerequisite} before ${consumer}`);
   });
