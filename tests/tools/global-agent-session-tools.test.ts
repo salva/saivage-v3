@@ -173,7 +173,7 @@ describe('global agent-session observation tools', () => {
   it('navigates stale parent/worker evidence in two bounded reads, then distinguishes a fresh worker activation', async () => {
     const root = setup();
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'worker', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'worker', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const worker = `agent:executor:${child.id}` as const;
     const oldTime = '2026-10-29T10:00:00.000Z';
     const newTime = '2026-11-10T10:00:00.000Z';
@@ -591,8 +591,6 @@ describe('global agent-session observation tools', () => {
       parent: 'project',
       title: 'child',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });

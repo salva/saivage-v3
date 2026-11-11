@@ -57,7 +57,6 @@ function detailProjection(id: string, title: string) {
     type: id === 'project' ? 'project' : 'code',
     title,
     lifecycle: { status: id === deepLeafId ? 'running' : 'backlog', result: null, error: null, completed_at: null },
-    urgency: 'normal',
     created_at: now,
     updated_at: now,
     allowedActions: [] as string[],

@@ -35,7 +35,7 @@ describe('WebProvider', () => {
   it('freshly denies the actual record write when its card is deleted during a deferred fetch', async () => {
     const root = mkdtempSync(join(tmpdir(), 'web-record-final-admission-')); initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ parent: 'project', type: 'goal', title: 'fetch target', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const card = cards.create({ parent: 'project', type: 'goal', title: 'fetch target', bootstrap_content: 'Brief', created_by: 'analyst', depends_on: [] });
     let release!: (response: Response) => void;
     const fetched = new Promise<Response>((resolve) => { release = resolve; });
     let enterFetch!: () => void;

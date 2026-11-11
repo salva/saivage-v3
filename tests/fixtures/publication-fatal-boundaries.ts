@@ -154,7 +154,7 @@ if (mode === 'native-source-head' || mode === 'native-parent-delivery-head' || m
       forbid('provider');
       if (input.sessionId === 'agent:planner:project') {
         parentTurns++;
-        if (parentTurns === 1) return call('create', 'create_card', { type: 'code', title: 'Fatal native boundary', bootstrap_content: 'Bounded source change', priority: 0, urgency: 'normal', depends_on: [] });
+        if (parentTurns === 1) return call('create', 'create_card', { type: 'code', title: 'Fatal native boundary', bootstrap_content: 'Bounded source change', depends_on: [] });
         if (parentTurns === 2) return call('activate', 'activate_card', { card_id: 'card-a', instructions: 'Bounded change.' });
         mark('FORBIDDEN:parent-resumed'); throw new Error('Unexpected parent continuation');
       }

@@ -54,7 +54,7 @@ function settleExecution(surface: InvocationSurface, name: string, settlement: A
 }
 
 function childInput(title: string, depends_on: string[] = []) {
-  return { type: 'code' as const, parent: 'project', title, bootstrap_content: 'Brief', priority: 0, urgency: 'normal' as const, created_by: 'planner' as const, depends_on };
+  return { type: 'code' as const, parent: 'project', title, bootstrap_content: 'Brief', created_by: 'planner' as const, depends_on };
 }
 
 describe('card version provider', () => {

@@ -58,8 +58,6 @@ function setup() {
     parent: 'project',
     title: 'card',
     bootstrap_content: 'brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
     depends_on: [],
   });
@@ -501,9 +499,12 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(current(cards, card.id, 'status.md')).toEqual(closed);
     const stored = JSON.parse(readFileSync(cardAcceptedRecordFile(root, card.id, closed.accepted!.source_entry_id), 'utf8'));
     expect(stored).toMatchObject({
+      format_version: 6,
       accepted: expected,
       predecessor: { entry_id: prior.accepted!.source_entry_id, version: prior.revision },
     });
+    const cardArtifact = cards.readCardVersion(card.id, ordinary.version);
+    expect(cardArtifact).toMatchObject({ kind: 'found', value: { format_version: 7, entry_id: ordinary.entry_id, version: ordinary.version } });
     expect(readFileSync(brokenPath, 'utf8')).toBe('{broken');
   });
   it.each(['accept', 'close'] as const)('freshly admits later %s after queue and ordinary card changes', (mutation) => {

@@ -92,7 +92,7 @@ test('real public Run enters root source and provider failure returns source bef
 test('parent checkpoint precedes child admission and failed child returns actual parent before its lease resumes', async () => {
   const f = fixture();
   const child = f.store.create({ type: 'code', parent: 'project', title: 'Native child', bootstrap_content: 'Scoped work',
-    priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    created_by: 'analyst', depends_on: [] });
   let stopped!: () => void;
   const settled = new Promise<void>(resolve => { stopped = resolve; });
   let rootCalls = 0, childCalls = 0;
@@ -174,7 +174,7 @@ test('Stop takes over the saved real native command settlement before root provi
 test.each(['cancel', 'urgent-root', 'urgent-held'] as const)('%s joins native source leaf-to-root before continuation', async mode => {
   const f = fixture();
   const child = f.store.create({ type: 'code', parent: 'project', title: 'Interrupted native child', bootstrap_content: 'Scoped work',
-    priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    created_by: 'analyst', depends_on: [] });
   let entered!: () => void, resumed!: () => void;
   const active = new Promise<void>(resolve => { entered = resolve; });
   const continuation = new Promise<void>(resolve => { resumed = resolve; });

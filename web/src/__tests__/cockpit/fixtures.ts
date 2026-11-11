@@ -109,7 +109,6 @@ export function cardDetail(id: string, overrides: Partial<CardDetail> = {}): Car
     title: id,
     lifecycle: { status: 'running', result: null, error: null, completed_at: null },
     version_seq: 3,
-    urgency: 'normal',
     created_at: fixtureTimestamp,
     updated_at: fixtureTimestamp,
     allowedActions: [],

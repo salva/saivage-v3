@@ -47,7 +47,7 @@ const card = {
     error: 'Synthetic blocked source: upstream evidence could not be refreshed.',
     completed_at: now,
   },
-  source: { mode: 'off', facts: null }, urgency: 'normal', created_at: now, updated_at: now, allowedActions: [], version_seq: 9,
+  source: { mode: 'off', facts: null }, created_at: now, updated_at: now, allowedActions: [], version_seq: 9,
 };
 
 const railSessions = [

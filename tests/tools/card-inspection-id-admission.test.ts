@@ -51,8 +51,8 @@ describe('current card-inspection ID admission', () => {
 
   it.each(cases)('$name admits root and hierarchical IDs, with executed not-found for absent cards', async ({ name, field, method, args }) => {
     const { cards, invoke } = fixture();
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Parent brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', bootstrap_content: 'Child brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Parent brief', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', bootstrap_content: 'Child brief', created_by: 'analyst', depends_on: [] });
     expect(child.id).toBe('card-a-a');
     const read = jest.spyOn(cards, method);
     for (const id of ['project', child.id, 'card-a-b']) {

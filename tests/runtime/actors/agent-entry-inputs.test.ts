@@ -120,7 +120,7 @@ function fixture(values: OperationValues = raw, route: 'entry' | 'agent' | 'acti
   cards.acceptRecord('project', 'brief.md', 'FULL CURRENT ACCEPTED BRIEF: implement the bounded request.', { kind: 'agent', agent: 'analyst' });
   cards.acceptRecord('project', 'status.md', 'Immutable factual predecessor evidence.', { kind: 'agent', agent: 'analyst' });
   const childId = parent ? cards.create({ type: 'goal', parent: 'project', title: 'Bounded child',
-    bootstrap_content: 'FULL CURRENT ACCEPTED BRIEF: implement the bounded child request.', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }).id : null;
+    bootstrap_content: 'FULL CURRENT ACCEPTED BRIEF: implement the bounded child request.', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }).id : null;
   const processes = createTestProcessRunner(root);
   const requests: PreparedLlmInvocationInput[] = [];
   const provider = jest.fn(async (input: PreparedLlmInvocationInput, _signal: AbortSignal) => {
@@ -284,7 +284,7 @@ it('publishes literal correction policy from a compiled declaration after an act
 
 it('uses actual urgent routing and retains queued context and recovery ahead of fresh selected data', async () => {
   const f = fixture();
-  const child = f.cards.create({ type: 'goal', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Finite child request', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
+  const child = f.cards.create({ type: 'goal', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Finite child request', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   let entered!: () => void;
   const first = new Promise<void>(resolve => { entered = resolve; });
   f.provider.mockImplementationOnce(async (_input, signal?: AbortSignal) => {

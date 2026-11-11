@@ -192,8 +192,6 @@ describe('Analyst project context', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'brief',
-      priority: 1,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
@@ -202,8 +200,6 @@ describe('Analyst project context', () => {
       parent: 'project',
       title: 'Retained tombstone',
       bootstrap_content: 'brief',
-      priority: 1,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
@@ -212,8 +208,6 @@ describe('Analyst project context', () => {
       parent: 'project',
       title: 'Second',
       bootstrap_content: 'brief',
-      priority: 1,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
@@ -284,8 +278,6 @@ describe('Analyst project context', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'brief',
-      priority: 1,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });

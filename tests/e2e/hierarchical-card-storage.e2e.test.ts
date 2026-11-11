@@ -15,7 +15,7 @@ import { toCardView } from '../../src/application/read-models/card-view.js';
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'e2e' };
-function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: string[] = []) { return { type, parent, title: type, bootstrap_content: `${type} brief`, priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on }; }
+function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: string[] = []) { return { type, parent, title: type, bootstrap_content: `${type} brief`, created_by: 'analyst' as const, depends_on }; }
 function row(session_id: ConversationSessionId, id: string) { return { id, session_id, role: 'user' as const, kind: 'text' as const, content: id, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } as const, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' }; }
 
 describe('reset-only hierarchical card storage', () => {
@@ -62,7 +62,7 @@ describe('reset-only hierarchical card storage', () => {
     const catalog = readCommittedCardArtifactCatalog(root, goal.id);
     if (catalog.kind !== 'found') throw new Error('Expected goal history.');
     const parentRows = catalog.value.rows.filter((row) => row.kind === 'card-version');
-    expect(parentRows.every((artifact) => artifact.format_version === 6)).toBe(true);
+    expect(parentRows.every((artifact) => artifact.format_version === 7)).toBe(true);
     const linkRows = parentRows.filter((artifact) => artifact.change?.kind === 'child_link');
     expect(linkRows.map((artifact) => artifact.card.child_membership)).toEqual([
       [dependency.id], [dependency.id, dependent.id], [dependency.id, dependent.id, retainedTombstone.id],

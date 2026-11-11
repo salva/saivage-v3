@@ -13,6 +13,19 @@ async function mounted(row: TimelineRow, expanded = true) {
 }
 afterEach(() => { vi.restoreAllMocks(); Reflect.deleteProperty(navigator, 'clipboard'); });
 describe('semantic ToolChip', () => {
+  it('keeps opaque old card ranking fields only in exact safe-original disclosures', async () => {
+    const old = { title: 'Recorded old card', type: 'code', priority: 42, urgency: 'high' };
+    const c = call('create_card', old);
+    const r = result('create_card', { card: { id: 'card-a', ...old } });
+    const wrapper = await mounted({ entry: c, mate: r });
+    expect(wrapper.findAll('.semantic-section').map(section => section.text()).join(' ')).not.toMatch(/priority|urgency/);
+    for (const [half, entry] of [['request', c], ['result', r]] as const) {
+      const raw = wrapper.get(`.tool-${half} .safe-original`);
+      (raw.element as HTMLDetailsElement).open = true;
+      expect(raw.get('code').element.textContent).toBe(entry.content);
+      expect(raw.text()).toContain('priority'); expect(raw.text()).toContain('urgency');
+    }
+  });
   it('keeps native disclosure, exact name, opaque anchor, timestamp and independently focusable links', async () => {
     const c = call('read', { path: 'record:///brief.md?card=card-a' }, ' opaque "[] # % call ');
     const wrapper = await mounted({ entry: c, mate: result('read', {}) }, false);

@@ -154,8 +154,6 @@ describe('Supervisor restart full-chain recovery', () => {
         parent: 'project',
         title: 'Current linked child',
         bootstrap_content: 'brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -219,8 +217,6 @@ describe('Supervisor restart full-chain recovery', () => {
           parent,
           title: `Depth ${depth}`,
           bootstrap_content: 'Recovery fixture.',
-          priority: 0,
-          urgency: 'normal',
           created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
           depends_on: [],
         });
@@ -373,8 +369,6 @@ describe('Supervisor restart full-chain recovery', () => {
           parent: 'project',
           title: 'Graceful child',
           bootstrap_content: 'Hold the child.',
-          priority: 0,
-          urgency: 'normal',
           created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
           depends_on: [],
         }).id,
@@ -642,8 +636,6 @@ describe('Supervisor restart full-chain recovery', () => {
         parent: 'project',
         title: 'Held child',
         bootstrap_content: 'Wait in the provider request.',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
         depends_on: [],
       });
@@ -653,8 +645,6 @@ describe('Supervisor restart full-chain recovery', () => {
         parent: 'project',
         title: 'Formerly used stopped child',
         bootstrap_content: 'Preserve this session.',
-        priority: 1,
-        urgency: 'normal',
         created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
         depends_on: [],
       });

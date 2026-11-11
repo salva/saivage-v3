@@ -278,7 +278,7 @@ describe('workflow5 correction participant structural closure', () => {
     const repaired = publishDiscardedCard(root, 'card-z', workflows.cardTypes.get('code')!);
     expect(repaired.git).toBeNull();
     expect(readConversationCatalog(root, cardAgentSessionId('executor', repaired.id))).toBeDefined();
-    const leaf = publishInitialChildCard(root, { parent: 'project', type: 'code', title: 'leaf', bootstrap_content: 'Work', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }, workflows.cardTypes.get('code')!);
+    const leaf = publishInitialChildCard(root, { parent: 'project', type: 'code', title: 'leaf', bootstrap_content: 'Work', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }, workflows.cardTypes.get('code')!);
     expect(readConversationCatalog(root, cardAgentSessionId('executor', leaf.id))).toBeDefined();
     // This isolated child is not linked into the project; admission follows canonical root only.
     unlinkSync(cardConversationVersionIndexFile(root, 'project', 'executor'));

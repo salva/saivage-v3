@@ -66,7 +66,7 @@ it.each(['natural','cancel'] as const)('public commissioned first Run and %s che
         res.end(JSON.stringify({choices:[{message:{content:'Started.'},finish_reason:'stop'}]}));return;
       }
       if(role==='planner') {
-        if(n===1) return call('create_card',{type:'code',title:'Checkpoint fixture',bootstrap_content:'Change source.txt and privately checkpoint the candidate.',priority:0,urgency:'normal',depends_on:[]});
+        if(n===1) return call('create_card',{type:'code',title:'Checkpoint fixture',bootstrap_content:'Change source.txt and privately checkpoint the candidate.',depends_on:[]});
         if(n===2) return call('activate_card',{card_id:'card-a',instructions:'Complete the bounded checkpoint fixture.'});
         if(n===3) return call('write',{path:'record:///status.md?card=project',content:'Bounded checkpoint qualification complete. No further project work requested.'});
         if(n>4) throw new Error('Unexpected planner continuation after blocked result');

@@ -222,7 +222,7 @@ describe('Analyst non-record editor audit', () => {
 });
 
 function create(cards: InstanceType<typeof CardService>, parent = 'project') {
-  return cards.create({ parent, type: 'goal', title: 'fixture', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  return cards.create({ parent, type: 'goal', title: 'fixture', bootstrap_content: 'Brief', created_by: 'analyst', depends_on: [] });
 }
 
 function completeProject(cards: InstanceType<typeof CardService>) {

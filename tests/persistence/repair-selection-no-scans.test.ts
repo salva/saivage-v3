@@ -19,7 +19,7 @@ afterEach(() => {
 it('repair primitives use only supplied selectors and exact selected paths, without enumeration or inspection write descriptors', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'repair-no-scans-')); roots.push(root); initProjectTree(root);
   const cards = new CardService(root);
-  const card = cards.create({type:'code', parent:'project', title:'first', bootstrap_content:'brief', priority:0, urgency:'normal', created_by:'analyst', depends_on:[]});
+  const card = cards.create({type:'code', parent:'project', title:'first', bootstrap_content:'brief', created_by:'analyst', depends_on:[]});
   cards.editCard(card.id, {title:'second'});
   cards.acceptRecord(card.id, 'status.md', 'accepted', { kind: 'agent', agent: 'analyst' }); cards.openRecord(card.id, 'status.md');
   const definition = {filename:'status.md', format:'markdown' as const, schema:'work-status.v1', bootstrap:false, declared:true};

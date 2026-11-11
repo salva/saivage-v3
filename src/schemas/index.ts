@@ -99,7 +99,7 @@ export {
   loggedEventSchema,
 } from './event-catalog.js';
 export { actionableErrorEnvelopeSchema } from './actionable-error.js';
-export { CARD_RECORD_FIELDS, cardStatusValues, cardActionValues, urgencyValues } from './types.js';
+export { CARD_RECORD_FIELDS, cardStatusValues, cardActionValues } from './types.js';
 export type {
   BlockedResult,
   CompactionSummaryBlockedResult,
@@ -120,7 +120,6 @@ export {
 export type {
   CardStatus,
   CardAction,
-  Urgency,
   CreatedBy,
   CardNotification,
   CardRecord,
@@ -147,7 +146,6 @@ export {
   cardStatusSchema,
   cardActionSchema,
   positiveSafeIntegerSchema,
-  urgencySchema,
   cardRecordSchema,
   ordinaryCardPayloadSchema,
   outboundCardRecordSchema,

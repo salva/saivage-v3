@@ -17,7 +17,7 @@ import { cardHeadFile } from '../../src/persistence/layout.js';
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'sync effects' };
 
 function input(parent = 'project') {
-  return { type: 'code' as const, parent, title: 'card', bootstrap_content: 'brief', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, bootstrap_author: { kind: 'agent' as const, agent: 'analyst' }, depends_on: [] };
+  return { type: 'code' as const, parent, title: 'card', bootstrap_content: 'brief', created_by: 'analyst' as const, bootstrap_author: { kind: 'agent' as const, agent: 'analyst' }, depends_on: [] };
 }
 
 function versionFrames(cardId: string, parentId: string | null): LiveSyncInvalidateFrame[] {

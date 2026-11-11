@@ -192,7 +192,7 @@ describe('bound runtime record acceptance',()=>{
         if(signal.aborted)reject(signal.reason);else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
       });
     }));
-    const child=h.cards.create({type:'goal',parent:'project',title:'Same child',bootstrap_content:'Original requirements',bootstrap_author:{kind:'agent',agent:'analyst'},priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});childId=child.id;
+    const child=h.cards.create({type:'goal',parent:'project',title:'Same child',bootstrap_content:'Original requirements',bootstrap_author:{kind:'agent',agent:'analyst'},created_by:'analyst',depends_on:[]});childId=child.id;
     h.cards.setStatus(childId,'running');h.cards.commitActivationOutcome(childId,{status:'blocked',summary:'requirements proposal',result:workflowResult('BLOCKED','requirements proposal')},new Date().toISOString());
     try {
       await h.supervisor.startProject();await settled.promise;
@@ -210,7 +210,7 @@ describe('bound runtime record acceptance',()=>{
     const h=await recordMutationHarness();
     try {
       for(const status of ['backlog','blocked','changed','stopped'] as const){
-        const child=h.cards.create({type:'goal',parent:'project',title:status,bootstrap_content:'requirements',bootstrap_author:{kind:'card-agent',agent:'planner',card_id:'project'},priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+        const child=h.cards.create({type:'goal',parent:'project',title:status,bootstrap_content:'requirements',bootstrap_author:{kind:'card-agent',agent:'planner',card_id:'project'},created_by:'planner',depends_on:[]});
         if(status!=='backlog'){
           h.cards.setStatus(child.id,'running');
           if(status==='stopped')h.cards.stopRunning(child.id);
@@ -230,7 +230,7 @@ describe('bound runtime record acceptance',()=>{
   it.each([undefined,'newloop2'] as const)('checks actual caller/ordinal, target owner, pause, GC and native work before publication (%s)',async(profile)=>{
     const h=await recordMutationHarness(profile);
     const internals=h.supervisor as unknown as {status:string;workGcHold:unknown;activationOwners:Map<string,CardActivationOwner>;applicationAdmissionOpen:boolean};
-    const child=h.cards.create({type:'goal',parent:'project',title:'inactive',bootstrap_content:'requirements',bootstrap_author:{kind:'agent',agent:'analyst'},priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+    const child=h.cards.create({type:'goal',parent:'project',title:'inactive',bootstrap_content:'requirements',bootstrap_author:{kind:'agent',agent:'analyst'},created_by:'analyst',depends_on:[]});
     const request={...h.request,path:`record:///brief.md?card=${child.id}`,content:'must refuse'};
     const before=h.cards.readRecordCurrent(child.id,'brief.md');
     const publish=jest.spyOn(h.cards,'acceptRecord');
@@ -255,7 +255,7 @@ describe('bound runtime record acceptance',()=>{
   it('reports known accepted/lifecycle partial effects and performs no follow-up after uncertainty',async()=>{
     const h=await recordMutationHarness();
     try {
-      const child=h.cards.create({type:'goal',parent:'project',title:'blocked',bootstrap_content:'old',bootstrap_author:{kind:'agent',agent:'analyst'},priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+      const child=h.cards.create({type:'goal',parent:'project',title:'blocked',bootstrap_content:'old',bootstrap_author:{kind:'agent',agent:'analyst'},created_by:'analyst',depends_on:[]});
       h.cards.setStatus(child.id,'running');h.cards.commitActivationOutcome(child.id,{status:'blocked',summary:'blocked',result:workflowResult('BLOCKED','blocked')},new Date().toISOString());
       const request={...h.request,path:`record:///brief.md?card=${child.id}`,content:'accepted'};
       const setStatus=jest.spyOn(h.cards,'setStatus').mockImplementation(()=>{throw new Error('known lifecycle refusal');});
@@ -360,8 +360,8 @@ describe('Supervisor notification admission at terminal ownership', () => {
         projectProviderExchanges: (...args) => service.projectProviderExchanges(...args),
       };
     });
-    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
-    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
+    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
+    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
     const session = `agent:executor:${leafId}` as const;
     // Seed real retained source, not a compactor replacement or a faux attempt.
     appendActivationMarker({ projectRoot: h.projectRoot }, session, { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'executor', card_id: leafId, input_id: '11111111-1111-4111-8111-111111111111' });
@@ -469,7 +469,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
   it('freshly rejects a stored cancel target changed after the Analyst subtree observation', async () => {
     const provider = scriptedAdmissionProvider(async () => { throw new Error('Unexpected provider call.'); });
     const h = harness(provider);
-    const target = h.cards.create({ type: 'code', parent: 'project', title: 'stored', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
+    const target = h.cards.create({ type: 'code', parent: 'project', title: 'stored', bootstrap_content: 'Brief', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] });
     const notifyCard = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
     let beforeOwner: Buffer | undefined;
     const mutations = createAnalystMutationServices({
@@ -674,8 +674,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Directed child',
       bootstrap_content: 'Complete the bounded task.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -684,8 +682,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: childId,
       title: 'Advisory target',
       bootstrap_content: 'A separately scoped optional task.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -868,8 +864,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Held summary',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -1067,8 +1061,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Architecture',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -1175,8 +1167,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
                     type: 'code',
                     title: 'Backlog child',
                     bootstrap_content: 'Brief',
-                    priority: 0,
-                    urgency: 'normal',
                     depends_on: [],
                   }),
                 }
@@ -1213,8 +1203,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Failed workstream',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -1223,8 +1211,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Competing work',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -1338,8 +1324,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Goal',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -1348,8 +1332,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: goalId,
       title: 'Leaf',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -1428,8 +1410,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Leaf',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -1663,8 +1643,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -1759,8 +1737,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Blocked target',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -1822,8 +1798,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Inactive goal',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -1832,8 +1806,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: parent.id,
       title: 'Inactive leaf',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -1959,8 +1931,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Active goal',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -1969,8 +1939,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: goalId,
       title: 'Inactive target',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -1979,8 +1947,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: goalId,
       title: 'Competing child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -2064,8 +2030,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Backlog',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -2176,8 +2140,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Blocked',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -2186,8 +2148,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: blockedId,
         title: 'Backlog',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -2196,8 +2156,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Competitor',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -2263,8 +2221,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Resting parent',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -2273,8 +2229,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: parent.id,
         title: 'Backlog',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -2362,8 +2316,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Failed parent',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -2372,8 +2324,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: parent.id,
       title: 'Backlog',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -2509,8 +2459,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Failed goal',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -2519,8 +2467,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: goalId,
         title: 'Backlog',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -2529,8 +2475,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Competitor',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -2600,8 +2544,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Inactive',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -2673,8 +2615,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Inactive',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -2743,8 +2683,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Inactive',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -2856,8 +2794,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Inactive',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -2940,8 +2876,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Inactive',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -3031,8 +2965,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Inactive planning target',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -3182,8 +3114,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
         parent: 'project',
         title: 'Child',
         bootstrap_content: 'Brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       }).id;
@@ -3259,8 +3189,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3328,8 +3256,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3432,8 +3358,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Goal',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3442,8 +3366,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: goalId,
       title: 'Leaf',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3565,8 +3487,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3624,8 +3544,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3707,8 +3625,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3790,8 +3706,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3884,8 +3798,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Process child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -3966,8 +3878,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
       parent: 'project',
       title: 'Child',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     }).id;
@@ -4362,7 +4272,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `${agent}-${call}`, type: 'function' as const, function: definition }] }, provider_exchanges: [] };
     });
     h = harness(provider);
-    childId = h.cards.create({ parent: 'project', type: 'goal', title: 'Reviewed child', bootstrap_content: 'Original brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
+    childId = h.cards.create({ parent: 'project', type: 'goal', title: 'Reviewed child', bootstrap_content: 'Original brief', created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'}, depends_on: [] }).id;
     h.cards.setStatus(childId, 'running');
     h.cards.commitActivationOutcome(childId, { status: 'done', summary: 'Delivered', result: workflowResult('DONE', 'Delivered') }, new Date().toISOString());
     const started = await h.supervisor.startProject();

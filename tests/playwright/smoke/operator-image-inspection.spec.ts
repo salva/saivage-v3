@@ -108,7 +108,7 @@ test.beforeAll(async () => {
   initializeProject(root);
   workflows = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: {} }).loadEffective().workflows;
   cards = new CardService(root, workflows);
-  const child = cards.create({ type: 'code', parent: 'project', title: 'Synthetic image inspection', bootstrap_content: 'Non-secret synthetic screenshots', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
+  const child = cards.create({ type: 'code', parent: 'project', title: 'Synthetic image inspection', bootstrap_content: 'Non-secret synthetic screenshots', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   sessions = [`agent:executor:${child.id}` as ConversationSessionId, 'agent:analyst:global'];
   // Distinct halves/checkers survive normalization and support exact pixel samples.
   const tile = await sharp({ create: { width: 2400, height: 3600, channels: 3, background: '#ff0000' } }).composite([{ input: await sharp({ create: { width: 1200, height: 3600, channels: 3, background: '#0000ff' } }).png().toBuffer(), left: 1200, top: 0 }]).png().toBuffer();

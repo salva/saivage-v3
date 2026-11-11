@@ -61,12 +61,12 @@ function retitle(cards: CardService, title: string): CardRecord {
 
 describe('CanonicalCardFilesReadModel virtual card documents', () => {
   it('exposes only terminal card.json for a directly addressed retained tombstone',()=>{
-    const cards=fixture();const child=cards.create({type:'code',parent:'project',title:'deleted',bootstrap_content:'brief',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});cards.deleteSubtrees([child.id],()=>true,'analyst');const model=new CanonicalCardFilesReadModel(()=>cards);const namespace=`${NAMESPACE}/children/a`;
-    expect(model.list(namespace)).toMatchObject({body:{files:[{name:'card.json'}]}});const current=model.content(`${namespace}/card.json`);expect(current).toMatchObject({body:{version:2}});if('statusCode'in current)throw new Error('expected tombstone head');expect(JSON.parse(current.body.content)).toMatchObject({format_version:6,kind:'card-tombstone',card_id:child.id,change:{summary:'card deleted',changed_fields:['deleted'],actor:'analyst'}});expect(model.content(`${namespace}/card.json?v=1`)).toMatchObject({body:{version:1}});expect(model.list(`${namespace}/children`)).toMatchObject({statusCode:404});expect(model.content(`${namespace}/brief.md`)).toMatchObject({statusCode:404});
+    const cards=fixture();const child=cards.create({type:'code',parent:'project',title:'deleted',bootstrap_content:'brief',created_by:'analyst',depends_on:[]});cards.deleteSubtrees([child.id],()=>true,'analyst');const model=new CanonicalCardFilesReadModel(()=>cards);const namespace=`${NAMESPACE}/children/a`;
+    expect(model.list(namespace)).toMatchObject({body:{files:[{name:'card.json'}]}});const current=model.content(`${namespace}/card.json`);expect(current).toMatchObject({body:{version:2}});if('statusCode'in current)throw new Error('expected tombstone head');expect(JSON.parse(current.body.content)).toMatchObject({format_version:7,kind:'card-tombstone',card_id:child.id,change:{summary:'card deleted',changed_fields:['deleted'],actor:'analyst'}});expect(model.content(`${namespace}/card.json?v=1`)).toMatchObject({body:{version:1}});expect(model.list(`${namespace}/children`)).toMatchObject({statusCode:404});expect(model.content(`${namespace}/brief.md`)).toMatchObject({statusCode:404});
   });
 
   it('projects child-link, reorder, and deletion through the closed ordinary field vocabulary', () => {
-    const cards=fixture();const first=cards.create({type:'code',parent:'project',title:'first',bootstrap_content:'brief',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});const second=cards.create({type:'code',parent:'project',title:'second',bootstrap_content:'brief',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+    const cards=fixture();const first=cards.create({type:'code',parent:'project',title:'first',bootstrap_content:'brief',created_by:'analyst',depends_on:[]});const second=cards.create({type:'code',parent:'project',title:'second',bootstrap_content:'brief',created_by:'analyst',depends_on:[]});
     cards.reorderChildren('project',[second.id,first.id]);
     const model=new CanonicalCardFilesReadModel(()=>cards);const reordered=model.content(`${NAMESPACE}/card.json?v=4`);if('statusCode'in reordered)throw new Error('expected reorder document');expect(JSON.parse(reordered.body.content).change).toEqual({summary:'children reordered',changed_fields:['active_child_order'],actor:null});
     cards.deleteSubtrees([first.id],()=>true,'reviewer');const deleted=model.content(`${NAMESPACE}/children/a/card.json`);if('statusCode'in deleted)throw new Error('expected deletion document');expect(JSON.parse(deleted.body.content).change).toEqual({summary:'card deleted',changed_fields:['deleted'],actor:'reviewer'});
@@ -74,7 +74,7 @@ describe('CanonicalCardFilesReadModel virtual card documents', () => {
 
   it('serves distinct current and immutable historical documents with both relationship arrays', () => {
     const cards = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const model = new CanonicalCardFilesReadModel(() => readerFor(cards));
 
     const current = model.content(`${NAMESPACE}/card.json`);
@@ -83,7 +83,7 @@ describe('CanonicalCardFilesReadModel virtual card documents', () => {
     const currentDocument = JSON.parse(current.body.content) as { format_version: number; card: Record<string, unknown>; change: unknown };
     const historicalDocument = JSON.parse(historical.body.content) as { format_version: number; card: Record<string, unknown>; change: unknown };
     expect(currentDocument).toMatchObject({ kind: 'card-current', version_seq: 2, history_version: 2, card: { child_membership: [child.id], active_child_order: [child.id] } });
-    expect(historicalDocument).toMatchObject({ format_version: 6, card: { child_membership: [], active_child_order: [] } });
+    expect(historicalDocument).toMatchObject({ format_version: 7, card: { child_membership: [], active_child_order: [] } });
     expect(currentDocument.card).not.toHaveProperty('children');
     expect(historicalDocument.card).not.toHaveProperty('children');
     expect(currentDocument.card).not.toHaveProperty('pending_notifications');

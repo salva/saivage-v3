@@ -22,14 +22,13 @@ export const smokeOperatorCard = {
   type: 'code',
   title: 'Synthetic dashboard smoke card',
   lifecycle: { status: 'done', result: { kind: 'workflow-result', terminal: 'DONE', executor: { kind: 'agent', agent: 'executor' }, node_id: 'execute', outcome: 'done', summary: 'synthetic result', records: [{ name: 'status.md', url: `record:///status.md?card=${smokeCardId}&v=1`, version: 1 }] }, error: null, completed_at: now },
-  urgency: 'normal',
   created_at: now,
   updated_at: now,
   allowedActions: [],
   version_seq: 3,
 };
 const card = smokeOperatorCard;
-const outboundCard = { git:null,id:smokeCardId,type:'code',child_membership:[],active_child_order:[],title:card.title,lifecycle:card.lifecycle,priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,depends_on:[],status_text:'synthetic result',status_text_updated_at:now };
+const outboundCard = { git:null,id:smokeCardId,type:'code',child_membership:[],active_child_order:[],title:card.title,lifecycle:card.lifecycle,created_by:'analyst',created_at:now,updated_at:now,version_seq:3,depends_on:[],status_text:'synthetic result',status_text_updated_at:now };
 const priorCard = {
   ...outboundCard,
   lifecycle: { status: 'running' as const, result: null, error: null, completed_at: null },

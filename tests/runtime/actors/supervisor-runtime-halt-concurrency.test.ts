@@ -69,8 +69,6 @@ function card(
     child_membership: [],
     active_child_order: [],
     title: id,
-    priority: 0,
-    urgency: 'normal',
     created_by: 'planner',
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
@@ -609,8 +607,6 @@ describe('Supervisor singular runtime halt concurrency', () => {
         parent: 'project',
         title: 'child',
         bootstrap_content: 'brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'planner',
         depends_on: [],
       });

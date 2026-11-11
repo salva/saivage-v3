@@ -37,7 +37,7 @@ const call = (name: string, args: object): Call => ({ name, args });
 const write = (card: string, record: string, content: string) => call('write', { path: `record:///${record}?card=${card}`, content });
 const emit = (outcome: string) => call('emit_result', { outcome, summary: `Bounded fixture ${outcome}` });
 const activate = () => call('activate_card', { card_id: 'card-a', instructions: 'Use the current accepted assignment and retain actual evidence.' });
-const create = () => call('create_card', { type: 'code', title: 'Same child', bootstrap_content: 'Original bounded requirement', priority: 0, urgency: 'normal', depends_on: [] });
+const create = () => call('create_card', { type: 'code', title: 'Same child', bootstrap_content: 'Original bounded requirement', depends_on: [] });
 
 // Commission the actual selected bundle and dispatch every model call through its
 // admitted tool/actor surface. No handcrafted accepted result or native-source port.
@@ -299,7 +299,7 @@ async function boundary(detail: string) {
         expect(fresh.value[0]!.ordinary).toEqual(old.value[0]!.ordinary);
         expect(fresh.value[0]!.headId).not.toBe(old.value[0]!.headId);
       } else if (detail === 'verify-order') expect(cards.reorderChildren('project', ['card-b', 'card-a'])).toMatchObject({ ok: true });
-      else if (detail === 'verify-membership') addedChild = cards.create({ parent: 'project', type: 'code', title: 'New reached child', priority: 0, urgency: 'normal', depends_on: [], bootstrap_content: 'New bounded assignment', created_by: 'planner', bootstrap_author: { kind: 'card-agent', agent: 'planner', card_id: 'project' } }).id;
+      else if (detail === 'verify-membership') addedChild = cards.create({ parent: 'project', type: 'code', title: 'New reached child', depends_on: [], bootstrap_content: 'New bounded assignment', created_by: 'planner', bootstrap_author: { kind: 'card-agent', agent: 'planner', card_id: 'project' } }).id;
       else if (detail === 'verify-same-text') {
         const before = accepted(cards, 'card-a', 'evidence.md');
         cards.acceptRecord('card-a', 'evidence.md', 'Intervening evidence', { kind: 'agent', agent: 'analyst' });

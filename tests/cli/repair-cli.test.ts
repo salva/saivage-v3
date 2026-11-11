@@ -73,8 +73,6 @@ function fixture() {
     parent: 'project',
     title: 'first',
     bootstrap_content: 'brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
@@ -550,8 +548,6 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
     parent: 'project',
     title: 'lost goal',
     bootstrap_content: 'lost requirements',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
@@ -560,8 +556,6 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
     parent: goal.id,
     title: 'unlinked child',
     bootstrap_content: 'child brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
@@ -653,9 +647,11 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
   const synthetic = f.cards.read(goal.id)!;
   expect(synthetic).not.toHaveProperty('subtype');
   expect(synthetic).not.toHaveProperty('metadata');
+  expect(synthetic).not.toHaveProperty('priority');
+  expect(synthetic).not.toHaveProperty('urgency');
   const syntheticHead = JSON.parse(fs.readFileSync(cardHeadFile(f.root, goal.id), 'utf8'));
   expect(syntheticHead.format_version).toBe(1);
-  expect(JSON.parse(fs.readFileSync(cardHistoryFile(f.root, goal.id, syntheticHead.ordinary.entry_id), 'utf8'))).toMatchObject({ format_version: 6, kind: 'card-version', card: { created_by: 'runtime:repair', git: null } });
+  expect(JSON.parse(fs.readFileSync(cardHistoryFile(f.root, goal.id, syntheticHead.ordinary.entry_id), 'utf8'))).toMatchObject({ format_version: 7, kind: 'card-version', card: { created_by: 'runtime:repair', git: null } });
   expect(() =>
     validateInitialCard({ ...synthetic, title: 'invented original title' }, 'repair test'),
   ).toThrow(/synthetic/);
@@ -668,7 +664,7 @@ it('discards only six exact own roots with no inventory, preserves children/sibl
       'repair test',
     ),
   ).toThrow(/synthetic/);
-  expect(() => validateInitialCard({ ...synthetic, priority: 1 }, 'repair test')).toThrow(
+  expect(() => validateInitialCard({ ...synthetic, depends_on: ['card-z'] }, 'repair test')).toThrow(
     /synthetic/,
   );
   expect(f.cards.read(descendant.id)).toBeNull();
@@ -773,8 +769,6 @@ it('refuses a supplied non-leaf type at depth twelve before any discard effect',
       parent,
       title: `level ${depth}`,
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     }).id;
@@ -783,8 +777,6 @@ it('refuses a supplied non-leaf type at depth twelve before any discard effect',
     parent,
     title: 'level 12',
     bootstrap_content: 'brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
@@ -805,8 +797,6 @@ it('leaves unrelated dangling dependencies byte-identical and lets strict graph 
     parent: 'project',
     title: 'goal',
     bootstrap_content: 'brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
@@ -815,8 +805,6 @@ it('leaves unrelated dangling dependencies byte-identical and lets strict graph 
     parent: goal.id,
     title: 'dependency',
     bootstrap_content: 'brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [],
   });
@@ -825,8 +813,6 @@ it('leaves unrelated dangling dependencies byte-identical and lets strict graph 
     parent: 'project',
     title: 'dependent',
     bootstrap_content: 'brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
     depends_on: [leaf.id],
   });

@@ -6,8 +6,6 @@ import { externalActorSchema } from './operation-author.js';
 const ordinaryCardChangeFieldSchema = z.enum([
   'git',
   'title',
-  'priority',
-  'urgency',
   'lifecycle',
   'status_text',
   'status_text_updated_at',

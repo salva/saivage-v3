@@ -21,8 +21,6 @@ export const cardActionValues = [
   'card.reorder_child',
 ] as const;
 export type CardAction = (typeof cardActionValues)[number];
-export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
-export type Urgency = (typeof urgencyValues)[number];
 export type CreatedBy =
   | import('./agent-name.js').AgentName
   | `external:${string}`
@@ -48,8 +46,6 @@ export interface CardRecord {
   title: string;
   child_membership: string[];
   active_child_order: string[];
-  priority: number;
-  urgency: Urgency;
   created_by: CreatedBy;
   created_at: string;
   updated_at: string;
@@ -69,8 +65,6 @@ export const CARD_RECORD_FIELDS = [
   'child_membership',
   'active_child_order',
   'title',
-  'priority',
-  'urgency',
   'created_by',
   'created_at',
   'updated_at',

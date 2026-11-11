@@ -108,8 +108,7 @@ describe('reviewer rework completion E2E', () => {
       initProjectTree(projectRoot);
       const cards = new CardService(projectRoot);
       const create = (parent: string, type: 'goal' | 'code', title: string) => cards.create({
-        parent, type, title, bootstrap_content: `Deliver ${title}.`, priority: 0,
-        urgency: 'normal', created_by: 'planner', depends_on: [],
+        parent, type, title, bootstrap_content: `Deliver ${title}.`, created_by: 'planner', depends_on: [],
       });
       const descendants: Array<{ id: string; type: string; title: string }> = [];
       if (change !== 'empty') {
@@ -287,8 +286,6 @@ describe('reviewer rework completion E2E', () => {
       parent: 'project',
       title: 'Completed child',
       bootstrap_content: 'Complete the child.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -307,8 +304,6 @@ describe('reviewer rework completion E2E', () => {
       parent: 'project',
       title: 'Unselected child',
       bootstrap_content: 'Remain unselected.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -636,8 +631,6 @@ describe('reviewer rework completion E2E', () => {
       parent: 'project',
       title: 'Reviewed goal',
       bootstrap_content: 'Deliver the implementation and correct review findings.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -646,8 +639,6 @@ describe('reviewer rework completion E2E', () => {
       parent: goal.id,
       title: 'Implementation',
       bootstrap_content: 'Implement the reviewed behavior.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });

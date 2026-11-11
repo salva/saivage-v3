@@ -91,7 +91,7 @@ describe('card-agent record mutation', () => {
       {kind:'record',scopes:['children'],patterns:['brief.md','design-*.md']},
     ]);
     const cards = new ConfiguredCardService(root,compileProjectWorkflows(config));
-    const child = cards.create({type:'goal',parent:'project',title:'Assignment',bootstrap_content:'original',bootstrap_author:{kind:'card-agent',agent:'planner',card_id:'project'},priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+    const child = cards.create({type:'goal',parent:'project',title:'Assignment',bootstrap_content:'original',bootstrap_author:{kind:'card-agent',agent:'planner',card_id:'project'},created_by:'planner',depends_on:[]});
     const authority = cardAuthority(cards,'planner');
     const written = jest.fn();
     const request = {surface:'card_agent' as const,agentName:'planner',authority,requiredTools:['write'] as const,operation:'write' as const,onRecordWritten:written};
@@ -114,7 +114,7 @@ describe('card-agent record mutation', () => {
 
   it.each(['running','done','failed','cancelled'] as const)('refuses nonself %s before any accepted publication', status => {
     const {cards}=setup();
-    const child=cards.create({type:'goal',parent:'project',title:'Target',bootstrap_content:'original',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+    const child=cards.create({type:'goal',parent:'project',title:'Target',bootstrap_content:'original',created_by:'analyst',depends_on:[]});
     if(status==='cancelled') cards.setStatus(child.id,'cancelled');
     else {
       cards.setStatus(child.id,'running');
@@ -129,7 +129,7 @@ describe('card-agent record mutation', () => {
 
   it('refuses another card draft without adopting/discarding it and keeps known partial propagation honest', () => {
     const {cards}=setup();
-    const child=cards.create({type:'goal',parent:'project',title:'Target',bootstrap_content:'original',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
+    const child=cards.create({type:'goal',parent:'project',title:'Target',bootstrap_content:'original',created_by:'analyst',depends_on:[]});
     const request={surface:'card_agent' as const,agentName:'planner',authority:cardAuthority(cards,'planner'),requiredTools:['write'] as const,operation:'write' as const,path:`record:///brief.md?card=${child.id}`,content:'replacement'};
     cards.openRecord(child.id,'brief.md');cards.editRecord(child.id,'brief.md','other draft');
     expect(mutateRecord(cards,request)).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});

@@ -591,8 +591,6 @@ describe('real CardProcess actor-main fatal containment', () => {
       parent: 'project',
       title: 'Fatal child',
       bootstrap_content: 'Fail in actor callback',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     }).id;

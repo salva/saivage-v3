@@ -86,10 +86,10 @@ describe('CLI reset generated-root boundary', () => {
     expect(catalog.value.rows).toHaveLength(1);
     const rootArtifact = catalog.value.head;
     if (rootArtifact.kind !== 'card-version') throw new Error('Expected initial snapshot.');
-    expect(rootArtifact).toMatchObject({ kind: 'card-version', format_version: 6, card_id: 'project', version: 1, change: null, predecessor: null });
+    expect(rootArtifact).toMatchObject({ kind: 'card-version', format_version: 7, card_id: 'project', version: 1, change: null, predecessor: null });
     expect(Object.keys(rootArtifact.card)).toEqual([
       'git',
-      'id', 'type', 'child_membership', 'active_child_order', 'title', 'lifecycle', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at',
+      'id', 'type', 'child_membership', 'active_child_order', 'title', 'lifecycle', 'created_by', 'created_at', 'updated_at',
       'version_seq', 'depends_on', 'status_text', 'status_text_updated_at', 'pending_notifications',
     ]);
     expect(rootArtifact.card.lifecycle).toEqual({ status: 'backlog', result: null, error: null, completed_at: null });

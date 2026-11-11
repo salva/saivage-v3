@@ -234,7 +234,7 @@ describe('analyst runtime tools', () => {
       initProjectTree(projectRoot);
       const processRunner = createTestProcessRunner(projectRoot).processRunner;
       const cards = new CardService(projectRoot);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', bootstrap_content: 'Brief', created_by: 'analyst', depends_on: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunning(card.id);
       const runtime = { status: 'stopped' as const, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' };

@@ -12,11 +12,29 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixture.js';
+import { foldHistoricalConversationRows } from '../../src/application/read-models/agent-conversation-read-model.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('versioned conversation persistence', () => {
+  it('consumes conversation13 opaque old card arguments/results without current-schema re-admission', () => {
+    const projectRoot = root();
+    const oldArguments = { type: 'code', title: 'Recorded old card', bootstrap_content: 'old brief', priority: 42, urgency: 'high' };
+    const content = JSON.stringify({ success: true, data: { card: { id: 'card-a', title: 'Recorded old card', priority: 42, urgency: 'high' } } });
+    const bundle = responsesBundle(SESSION, '00000000-0000-4000-8000-000000000001', RESPONSES_A, content);
+    const { provider_projection: _projection, ...base } = bundle[1]!;
+    const call = agentMessageSchema.parse({ ...base, tool: 'create_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: 'create_card', arguments: JSON.stringify(oldArguments) } }] }) });
+    const result = agentMessageSchema.parse({ ...bundle[2]!, tool: 'create_card' });
+    appendConversationBatch({ projectRoot }, [call, result]);
+    const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
+    expect(segment.index.format_version).toBe(13);
+    expect(readConversation(projectRoot, SESSION).physicalRows).toEqual([call, result]);
+    const projected = foldHistoricalConversationRows(segment.rows);
+    expect(JSON.parse(JSON.parse(projected[0]!.content).tool_calls[0].function.arguments)).toEqual(oldArguments);
+    expect(JSON.parse(projected[1]!.content)).toEqual(JSON.parse(content));
+    expect(readHistoricalConversationSegment(projectRoot, SESSION, 1)!.rows).toEqual([call, result]);
+  });
   it.each(['result-envelope', 'result-hash', 'template-commitment', 'private-content', 'empty-envelope', 'unknown-envelope', 'later-row'] as const)('rejects complete %s before a valid later row and torn suffix without changing canonical bytes', fault => {
     const projectRoot = root();
     const bundle = responsesBundle(SESSION, '00000000-0000-4000-8000-000000000001', RESPONSES_A, '{"success":true,"data":"settled"}').map(row => agentMessageSchema.parse(row));

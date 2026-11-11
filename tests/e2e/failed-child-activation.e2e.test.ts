@@ -190,8 +190,6 @@ describe('failed child activation lifecycle E2E', () => {
       parent: 'project',
       title: 'Refusal child',
       bootstrap_content: 'Perform scoped work',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -315,8 +313,6 @@ describe('failed child activation lifecycle E2E', () => {
       parent: 'project',
       title: 'Parent',
       bootstrap_content: 'Plan children',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -325,8 +321,6 @@ describe('failed child activation lifecycle E2E', () => {
       parent: parent.id,
       title: 'A',
       bootstrap_content: 'Fail once',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -335,8 +329,6 @@ describe('failed child activation lifecycle E2E', () => {
       parent: parent.id,
       title: 'B',
       bootstrap_content: 'Run second',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -556,8 +548,6 @@ describe('failed child activation lifecycle E2E', () => {
       parent: 'project',
       title: 'Retry child',
       bootstrap_content: 'Fail, change, and retry',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -689,8 +679,6 @@ describe('failed child activation lifecycle E2E', () => {
       parent: 'project',
       title: 'Cleanup',
       bootstrap_content: 'Fail cleanup',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });

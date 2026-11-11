@@ -192,7 +192,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     const entered = deferred<void>(), release = deferred<void>();
     const f = fixture(profile, [{ node: 'plan', tool: 'activate_card', args: { card_id: 'card-a', instructions: 'Implement the bounded existing brief.' },
       before: async () => { entered.resolve(); await release.promise; } }]);
-    f.cards.create({ type: 'code', parent: 'project', title: 'Existing child', bootstrap_content: 'Bounded implementation.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    f.cards.create({ type: 'code', parent: 'project', title: 'Existing child', bootstrap_content: 'Bounded implementation.', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await entered.promise;
     const identity = (f.supervisor as unknown as { runIdentity: object }).runIdentity;
     let marked = false;
@@ -240,7 +240,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
       entered.resolve(); await new Promise<void>(resolve => signal.addEventListener('abort', () => { aborted.resolve(); resolve(); }, { once: true }));
       await release.promise; throw signal.reason;
     } }]);
-    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await entered.promise;
     const urgent = f.supervisor.submitNotification(testNotificationAuthority(), child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent correction', created_at: new Date().toISOString() }, 'urgent');
     await aborted.promise;
@@ -290,7 +290,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
        } }, result('assess-completion', 'replan'),
       { node: 'plan', tool: 'activate_card', args: { card_id: 'card-a', instructions: 'Continue the existing authorized beta/accessibility scope under its accepted brief; retain open root R1 and distinguish inventory evidence from product acceptance.' } }];
     const f = fixture(profile, steps);
-    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Existing beta/accessibility implementation', bootstrap_content: 'Implement the remaining authorized scope.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Existing beta/accessibility implementation', bootstrap_content: 'Implement the remaining authorized scope.', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     expect(child.id).toBe('card-a');
     const owner = await f.launch(); await f.atEnd;
     expect(f.supervisor.getActorRuntimeReadModel().cards.find(card => card.cardId === 'project')!.processState).toMatchObject({ kind: 'node', nodeId: 'plan' });
@@ -383,7 +383,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     const f = fixture(profile, [write('plan', 'Candidate direct closure.'), result('plan', 'assess_completion'),
       write('assess-completion', 'No delivery for existing child; closure attempt must be rejected.'), result('assess-completion', 'complete_direct'),
       result('assess-completion', 'replan')]);
-    f.cards.create({ type: 'code', parent: 'project', title: 'Unfinished child', bootstrap_content: 'Required implementation.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    f.cards.create({ type: 'code', parent: 'project', title: 'Unfinished child', bootstrap_content: 'Required implementation.', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await f.atEnd;
     expect(nodeOf(f.requests.at(-1)!)).toBe('plan');
     expect(f.cards.read('project')!.lifecycle.status).toBe('running');
@@ -400,7 +400,7 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
       enter(); await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     } }, write('recover', 'Urgent descendant correction received; investigate existing scope.'), result('recover', 'assess_completion'),
       write('assess-completion', 'Urgent correction requires existing child work; return to plan.'), result('assess-completion', 'replan')]);
-    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const child = f.cards.create({ type: 'code', parent: 'project', title: 'Urgent recipient', bootstrap_content: 'Existing work.', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const owner = await f.launch(); await entered;
     await f.supervisor.submitNotification(testNotificationAuthority(), child.id, { id: '22222222-2222-4222-8222-222222222222', content: 'Urgent beta evidence correction.', created_at: new Date().toISOString() }, 'urgent');
     await f.atEnd;

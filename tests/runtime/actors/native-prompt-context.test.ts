@@ -33,8 +33,8 @@ test.each(['native-direct','native-reviewed','native-replan','off-direct','off-r
   const compiled=compileProjectWorkflows(config,{projectRoot:root}), registry=new ProviderRegistry(config);
   const workflows=bindRuntimeWorkflows(compiled,new ModelRouter(registry),registry,config.compaction.context_utilization_fraction,{internalAnalystEnabled:true});
   const cards=new CardService(root,compiled,NO_FRESHNESS_EFFECTS);
-  const goal=cards.create({parent:'project',type:'goal',title:'Bounded aggregate',bootstrap_content:'Preserve the documented oracle.',priority:0,urgency:'normal',created_by:'analyst',bootstrap_author:{kind:'agent',agent:'analyst'},depends_on:[]});
-  const leaf=cards.create({parent:goal.id,type:'code',title:'Bounded leaf',bootstrap_content:'Complete a no-source-change qualification.',priority:0,urgency:'normal',created_by:'planner',bootstrap_author:{kind:'agent',agent:'planner'},depends_on:[]});
+  const goal=cards.create({parent:'project',type:'goal',title:'Bounded aggregate',bootstrap_content:'Preserve the documented oracle.',created_by:'analyst',bootstrap_author:{kind:'agent',agent:'analyst'},depends_on:[]});
+  const leaf=cards.create({parent:goal.id,type:'code',title:'Bounded leaf',bootstrap_content:'Complete a no-source-change qualification.',created_by:'planner',bootstrap_author:{kind:'agent',agent:'planner'},depends_on:[]});
   const processes=createTestProcessRunner(root), counts=new Map<string,number>();
   const renders:unknown[]=[];
   let rootCandidate: unknown;

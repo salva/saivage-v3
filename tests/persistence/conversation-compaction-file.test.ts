@@ -83,8 +83,6 @@ describe('conversation compaction file persistence', () => {
           parent: 'project',
           title: 'Directed goal',
           bootstrap_content: 'Current accepted goal.',
-          priority: 0,
-          urgency: 'normal',
           created_by: 'analyst',
           depends_on: [],
         });

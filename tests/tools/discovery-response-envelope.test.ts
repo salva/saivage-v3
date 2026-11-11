@@ -55,7 +55,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     const cards = new CardService(projectRoot);
     const wide = 80;
     for (let index = 0; index < wide; index += 1) {
-      const child = cards.create({ type: 'goal', parent: 'project', title: `${UNICODE}title-${index}-${'ß'.repeat(40)}`, bootstrap_content: 'brief', priority: index, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      const child = cards.create({ type: 'goal', parent: 'project', title: `${UNICODE}title-${index}-${'ß'.repeat(40)}`, bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
       if (index % 5 === 0) cards.enqueueNotification(child.id, { id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, content: `${UNICODE}notification ${'ñ'.repeat(200)}`, created_at: '2026-08-18T00:00:00.000Z' });
       if (index % 7 === 0) cards.editCard(child.id, { title: `${UNICODE}edited-${index}-${'ü'.repeat(60)}` }, 'analyst');
     }
@@ -107,7 +107,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'goal', parent: 'project', title: 'Record host', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Record host', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     cards.openRecord(child.id, 'status.md');
     const content = Array.from({ length: 3000 }, (_, index) => `${UNICODE} line ${index}`).join('\n');
     cards.editRecord(child.id, 'status.md', content);
@@ -140,8 +140,8 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     const longName = `quoted-"-${'\n'.repeat(200)}.txt`;
     writeFileSync(join(projectRoot, longName), 'content', 'utf8');
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'goal', parent: 'project', title: 'Slice host', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    cards.create({ type: 'code', parent: child.id, title: `ask-secret-tail ${'🚀'.repeat(300)}`, bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Slice host', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
+    cards.create({ type: 'code', parent: child.id, title: `ask-secret-tail ${'🚀'.repeat(300)}`, bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const surface = analystSurface(cards, projectRoot);
 
     const directory = await invokeTestTool(surface, 'read', { path: '.', response_bytes: 512 });
@@ -261,7 +261,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    for (let index = 0; index < 20; index += 1) cards.create({ type: 'goal', parent: 'project', title: `Card ${index}`, bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    for (let index = 0; index < 20; index += 1) cards.create({ type: 'goal', parent: 'project', title: `Card ${index}`, bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const surface = analystSurface(cards, projectRoot);
 
     const first = await invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MAX_BYTES });
@@ -269,7 +269,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     const firstNext = (first.data as { cards: { next: unknown } }).cards.next;
     expect(firstNext).toBeNull();
 
-    cards.create({ type: 'goal', parent: 'project', title: 'Late card', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    cards.create({ type: 'goal', parent: 'project', title: 'Late card', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const second = await invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MAX_BYTES });
     const secondData = second.data as { observation_sha256: string; cards: { total: number; position: { item_index: number; item_byte_offset: number } } };
     expect(secondData.cards.total).toBe(22);
@@ -283,7 +283,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'goal', parent: 'project', title: 'Card', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Card', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const surface = analystSurface(cards, projectRoot);
 
     for (const [name, args] of [

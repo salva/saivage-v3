@@ -29,7 +29,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const root = mkdtempSync(join(tmpdir(), 'review-pair-projection-'));
     roots.push(root); initProjectTree(root);
     const store = new CardService(root);
-    store.create({ type: 'code', parent: 'project', title: 'Displayed child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    store.create({ type: 'code', parent: 'project', title: 'Displayed child', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const inspection = jest.spyOn(store, 'readCardInspectionTree');
     const childListing = jest.spyOn(store, 'listChildren');
     const runner = new AgentExecutor({ cardId: 'project', store, workflows: TEST_RUNTIME_WORKFLOWS } as never, {} as never) as unknown as {
@@ -52,7 +52,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
   it.each(['card', 'record'] as const)('rejects a fresh %s selection identity even with identical revision and payload', (target) => {
     const root = mkdtempSync(join(tmpdir(), 'review-head-identity-')); roots.push(root); initProjectTree(root);
     const store = new CardService(root);
-    const child = store.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = store.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const runner = new AgentExecutor({ cardId: 'project', store, workflows: TEST_RUNTIME_WORKFLOWS } as never, {} as never) as unknown as {
       captureReviewerSnapshot(id: string, records: readonly string[]): unknown;
       reviewerStaleReason(id: string, before: unknown, records: readonly string[]): string | null;
@@ -70,7 +70,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-review-queue-freshness-'));
     roots.push(root); initProjectTree(root);
     const store = new CardService(root);
-    const child = store.create({ type: 'code', parent: 'project', title: 'reviewed child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = store.create({ type: 'code', parent: 'project', title: 'reviewed child', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const runner = new AgentExecutor({ cardId: 'project', store, workflows: TEST_RUNTIME_WORKFLOWS } as never, {} as never) as unknown as {
       captureReviewerSnapshot(id: string, records: readonly string[]): unknown;
       reviewerStaleReason(id: string, before: unknown, records: readonly string[]): string | null;

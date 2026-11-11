@@ -189,8 +189,6 @@ function create(cards: CardService, type = 'code', parent = 'project', depends_o
     parent,
     title: 'Original card',
     bootstrap_content: 'Original requirements',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
     depends_on,
   });

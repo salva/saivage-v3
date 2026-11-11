@@ -71,8 +71,6 @@ describe('current generated state startup admission', () => {
         parent: 'project',
         title: 'child',
         bootstrap_content: 'brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       });
@@ -174,8 +172,6 @@ describe('current generated state startup admission', () => {
         parent: 'project',
         title: 'custom wire',
         bootstrap_content: 'brief',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
         depends_on: [],
       },
@@ -290,8 +286,6 @@ describe('current generated state startup admission', () => {
       parent: 'project',
       title: 'child',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });
@@ -431,8 +425,6 @@ describe('current generated state startup admission', () => {
           parent: 'project',
           title: 'child',
           bootstrap_content: 'brief',
-          priority: 0,
-          urgency: 'normal',
           created_by: 'analyst',
           depends_on: [],
         });
@@ -454,8 +446,6 @@ describe('current generated state startup admission', () => {
       parent: 'project',
       title: 'child',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });
@@ -500,8 +490,6 @@ describe('current generated state startup admission', () => {
       parent: 'project',
       title: 'child',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });
@@ -524,8 +512,6 @@ describe('current generated state startup admission', () => {
       parent: 'project',
       title: 'child',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });

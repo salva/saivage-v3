@@ -27,8 +27,6 @@ function child(cards: CardService, parent: string, type = 'goal') {
     type,
     title: 'Fixture',
     bootstrap_content: 'Brief',
-    priority: 0,
-    urgency: 'normal',
     created_by: 'analyst',
     depends_on: [],
   }).id;

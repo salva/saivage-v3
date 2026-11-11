@@ -19,7 +19,7 @@ afterEach(() => { jest.restoreAllMocks(); for (const root of roots.splice(0)) rm
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'workspace-authority-')); roots.push(root);
   initProjectTree(root); const cards = new CardService(root);
-  const child = cards.create({ parent: 'project', type: 'goal', title: 'child', bootstrap_content: 'child needle', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  const child = cards.create({ parent: 'project', type: 'goal', title: 'child', bootstrap_content: 'child needle', created_by: 'analyst', depends_on: [] });
   return { root, cards, child };
 }
 function recordAuthority(): DirectObjectAuthority {

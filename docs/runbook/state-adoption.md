@@ -1,5 +1,27 @@
 # State adoption, repair and reset
 
+**Card priority/urgency removal**
+
+The source change from parent `887ecd07a69e5f5fc84d9bb86296e8c6aac9a813`
+advances ordinary/tombstone card history **6→7**, removing card `priority` and
+`urgency` and their update grammar. Initial project/child and synthetic repair
+cards use the same reduced shape. Card head/mailbox1, record-head3/accepted6,
+conversation13, execution3, shared provider/app envelope2, workflow6, capabilities1
+and initializer1 remain unchanged. See the [format reference](../architecture/durable-format-changes.md#current-source-baseline)
+for source evidence and limits; deployed applicability is unknown.
+
+Old/mixed card history is rejected at consumption, with no automatic conversion,
+normalization or reset. Retained-state adoption needs an explicitly requested
+external offline migration under the complete gates below, or a separately
+consented destructive reset, paired with the matching release. Historical
+priority-only edits require a migration-specific fidelity decision, not silent
+deletion or relabeling. Opaque historical tool arguments/results remain facts and
+need no rewrite for this change alone. Binary-only rollback over format7 writes is
+unsupported. Deliberately reconcile selected materialized Planner hosts to the
+title-only edit contract; source changes do not replace installed custom prompts.
+Provider priority, notification urgency, sibling order and activation are unchanged.
+Source completion authorizes no deployment, migration, reset, start or Run.
+
 The card command shell-area convention needs no retained-state conversion: `shell`
 was and remains ordinary concrete card work, existing references/GC meaning and
 sibling work stay unchanged, and directory absence is legitimate lazy absence.

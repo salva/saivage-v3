@@ -87,16 +87,17 @@ describe('planner control provider ownership delegation', () => {
     },
   );
 
-  it('projects urgency enums and a semantic non-whitespace title pattern into provider schemas', () => {
+  it('projects title-only edits and a semantic non-whitespace title pattern into provider schemas', () => {
     const test = harness();
     for (const name of ['create_card', 'edit_card']) {
       const schema = surfaceToolDefinitions(test.surface).find(
         (tool) => tool.function.name === name,
       )!.function.parameters as {
-        properties: { title: { pattern: string }; urgency: { enum: string[] } };
+        properties: { title: { pattern: string } };
         required: string[];
       };
-      expect(schema.properties.urgency.enum).toEqual(['low', 'normal', 'high', 'critical']);
+      expect(schema.properties).not.toHaveProperty('priority');
+      expect(schema.properties).not.toHaveProperty('urgency');
       const pattern = new RegExp(schema.properties.title.pattern);
       for (const invalid of ['', ' ', '\t\n']) expect(pattern.test(invalid)).toBe(false);
       for (const valid of ['meaningful', '  meaningful title  '])
@@ -476,8 +477,6 @@ describe('planner control provider ownership delegation', () => {
       parent: 'project',
       title: 'Original',
       bootstrap_content: 'Brief',
-      priority: 1,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });
@@ -557,11 +556,10 @@ describe('planner control provider ownership delegation', () => {
     );
   }
 
-  it.each([undefined, 'low', 'normal', 'high', 'critical'] as const)(
-    'accepts meaningful title bytes and urgency/default %s in create/edit',
-    async (urgency) => {
+  it(
+    'accepts meaningful title bytes without ranking metadata in create/edit',
+    async () => {
       const test = editHarness('backlog');
-      const suppliedUrgency = urgency === undefined ? {} : { urgency };
       const created = await settleToolForLlm(
         test.surface,
         'create_card',
@@ -569,7 +567,6 @@ describe('planner control provider ownership delegation', () => {
           type: 'code',
           title: '  meaningful created title  ',
           bootstrap_content: '  Brief  ',
-          ...suppliedUrgency,
         },
         testLlmToolInvocationContext({
           sessionId: 'agent:planner:project',
@@ -578,26 +575,23 @@ describe('planner control provider ownership delegation', () => {
       );
       expect(created).toMatchObject({
         success: true,
-        data: { card: { title: '  meaningful created title  ', urgency: urgency ?? 'normal' } },
+        data: { card: { title: '  meaningful created title  ' } },
       });
       const childId = (created.data as { card: { id: string } }).card.id;
       expect(test.store.read(childId)).toMatchObject({
         title: '  meaningful created title  ',
-        urgency: urgency ?? 'normal',
       });
       await expect(
         invokeEdit(test.surface, {
           card_id: test.child.id,
           title: '  meaningful edited title  ',
-          ...suppliedUrgency,
         }),
       ).resolves.toMatchObject({
         success: true,
-        data: { card: { title: '  meaningful edited title  ', urgency: urgency ?? 'normal' } },
+        data: { card: { title: '  meaningful edited title  ' } },
       });
       expect(test.store.read(test.child.id)).toMatchObject({
         title: '  meaningful edited title  ',
-        urgency: urgency ?? 'normal',
       });
     },
   );
@@ -640,9 +634,9 @@ describe('planner control provider ownership delegation', () => {
     async (status) => {
       const test = editHarness(status);
       await expect(
-        invokeEdit(test.surface, { card_id: test.child.id, priority: 9 }),
-      ).resolves.toMatchObject({ success: true, data: { card: { status, priority: 9 } } });
-      expect(test.store.read(test.child.id)).toMatchObject({ priority: 9, lifecycle: { status } });
+        invokeEdit(test.surface, { card_id: test.child.id, title: 'Retitled' }),
+      ).resolves.toMatchObject({ success: true, data: { card: { status, title: 'Retitled' } } });
+      expect(test.store.read(test.child.id)).toMatchObject({ title: 'Retitled', lifecycle: { status } });
     },
   );
 

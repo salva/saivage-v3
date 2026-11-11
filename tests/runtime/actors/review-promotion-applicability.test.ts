@@ -20,7 +20,7 @@ function fixture() {
   roots.push(root);
   initProjectTree(root);
   const store = new CardService(root);
-  const child = store.create({ parent: 'project', type: 'goal', title: 'Reviewed work', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], bootstrap_content: 'Original assignment' });
+  const child = store.create({ parent: 'project', type: 'goal', title: 'Reviewed work', created_by: 'analyst', depends_on: [], bootstrap_content: 'Original assignment' });
   store.setStatus(child.id, 'running');
   store.commitActivationOutcome(child.id, { status: 'done', summary: 'Reviewed delivery', result: workflowResult('DONE', 'Reviewed delivery') }, new Date().toISOString());
   const process = TEST_RUNTIME_WORKFLOWS.cardTypes.get('project')!;
@@ -66,11 +66,11 @@ describe('review applicability uses selected ordinary cards and exact record obs
 
   it.each(['root', 'descendant', 'membership', 'order'] as const)('rejects a real %s ordinary publication', (change) => {
     const h = fixture();
-    if (change === 'order') h.store.create({ parent: 'project', type: 'goal', title: 'Other', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], bootstrap_content: 'Other assignment' });
+    if (change === 'order') h.store.create({ parent: 'project', type: 'goal', title: 'Other', created_by: 'analyst', depends_on: [], bootstrap_content: 'Other assignment' });
     const before = h.capture();
     if (change === 'root') h.store.editCard('project', { title: 'Revised title' });
     else if (change === 'descendant') h.store.setStatus(h.child.id, 'changed');
-    else if (change === 'membership') h.store.create({ parent: 'project', type: 'goal', title: 'Added', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], bootstrap_content: 'Added assignment' });
+    else if (change === 'membership') h.store.create({ parent: 'project', type: 'goal', title: 'Added', created_by: 'analyst', depends_on: [], bootstrap_content: 'Added assignment' });
     else h.store.reorderChildren('project', [...h.store.listChildren('project')].reverse());
     expect(h.executor.reviewPromotionViolation('project', h.review, before)).toContain('admit_review');
   });

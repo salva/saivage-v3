@@ -45,8 +45,6 @@ export function projectCardRecordForOutbound(card: CardRecord): OutboundCardReco
     active_child_order: [...parsed.active_child_order],
     title: redactTextForOutbound(parsed.title),
     lifecycle: projectLifecycle(parsed.lifecycle),
-    priority: parsed.priority,
-    urgency: parsed.urgency,
     created_by: parsed.created_by,
     created_at: parsed.created_at,
     updated_at: parsed.updated_at,
@@ -167,8 +165,6 @@ function projectDiffValue(field: string, value: unknown): unknown {
     case 'type':
     case 'child_membership':
     case 'active_child_order':
-    case 'priority':
-    case 'urgency':
     case 'created_by':
     case 'created_at':
     case 'updated_at':

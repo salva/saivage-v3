@@ -42,7 +42,7 @@ describe('startup session publication fatal boundary', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-session-fatal-')); roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
     const sessionId = `agent:executor:${child.id}` as const;
     const input = '11111111-1111-4111-8111-111111111111';

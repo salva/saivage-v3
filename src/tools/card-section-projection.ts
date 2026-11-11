@@ -26,8 +26,6 @@ export function projectBoundedCardSummary(input: {
         redactTextForOutbound(input.card.title),
         DISCOVERY_TEXT_PREVIEW_MAX_BYTES,
       ),
-      priority: projected.priority,
-      urgency: projected.urgency,
       parent: cardParentId(projected.id),
       created_at: projected.created_at,
       updated_at: projected.updated_at,

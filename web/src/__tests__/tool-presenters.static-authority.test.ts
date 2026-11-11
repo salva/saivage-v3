@@ -10,6 +10,15 @@ const compact = { id: 'card-a', type: 'code', parent: 'project', status: 'stoppe
 const draft = { card_id: 'card-a', name: 'brief.md', state: 'open', surface: 'card_agent', revision: 7, head_id: '11111111-1111-4111-8111-111111111111', current_url: 'record:///brief.md?card=card-a', accepted_version_url: 'record:///brief.md?card=card-a&v=4', bytes: 10, written: true };
 
 describe('current family semantic authority', () => {
+  it('omits removed card fields from curated inspection while preserving opaque historical raw disclosure', () => {
+    const args = { title: 'Recorded old card', type: 'code', priority: 42, urgency: 'high' };
+    const call = presentToolCall(callEnvelope('create_card', args));
+    const result = present('create_card', { card: { ...compact, priority: 42, urgency: 'high' } });
+    for (const view of [call, result]) {
+      const labels = view.sections.flatMap(section => section.fields?.map(field => field.label) ?? []);
+      expect(labels).not.toContain('priority'); expect(labels).not.toContain('urgency');
+    }
+  });
   it.each([
     ['read', undefined, 'Failed'],
     ['read', { code: 'file_not_found', path: 'missing.txt' }, 'Failed'],

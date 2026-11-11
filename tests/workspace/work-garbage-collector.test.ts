@@ -292,7 +292,7 @@ describe('work GC two-phase selection', () => {
     const root = fixture(), cards = new CardService(root);
     const linked = [cards.read('project')!];
     for (let i = 1; i < cardCount!; i++) linked.push(cards.create({ type: 'code', parent: 'project',
-      title: `bounded ${i}`, bootstrap_content: 'bounded brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }));
+      title: `bounded ${i}`, bootstrap_content: 'bounded brief', created_by: 'analyst', depends_on: [] }));
     const segmentPaths = new Set<string>();
     let sessions = 0;
     for (const card of linked) {
@@ -917,7 +917,7 @@ describe('work GC two-phase selection', () => {
     const root = fixture();
     const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'bounded', bootstrap_content: 'brief',
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      created_by: 'analyst', depends_on: [] });
     const selected = work(root, `cards/${child.id}/tmp/retained`);
     const unknown = work(root, 'cards/card-z/tmp/unlinked');
     const garbage = work(root, 'cards/project/tmp/garbage');

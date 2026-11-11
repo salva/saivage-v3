@@ -98,8 +98,6 @@ describe('dependency-completion activation admission E2E', () => {
       parent: 'project',
       title: 'Parent',
       bootstrap_content: 'Run dependency order',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -108,8 +106,6 @@ describe('dependency-completion activation admission E2E', () => {
       parent: parent.id,
       title: 'A',
       bootstrap_content: 'Complete first',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
     });
@@ -118,8 +114,6 @@ describe('dependency-completion activation admission E2E', () => {
       parent: parent.id,
       title: 'B',
       bootstrap_content: 'Complete second',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner',
       depends_on: [dependency.id],
     });

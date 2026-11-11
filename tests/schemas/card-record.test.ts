@@ -13,6 +13,8 @@ describe('card record hierarchy shape', () => {
   it('accepts the minimal current shape and rejects the complete old null-bearing shape without stripping keys', () => {
     const project = fixture().cards.read('project')!;
     expect(cardRecordSchema.parse(project)).toEqual(project);
+    expect(project).not.toHaveProperty('priority');
+    expect(project).not.toHaveProperty('urgency');
     const obsolete = { subtype: null, assigned_to: null, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
     for (const key of Object.keys(obsolete)) expect(project).not.toHaveProperty(key);
     const parsed = cardRecordSchema.safeParse({ ...project, ...obsolete });
@@ -31,7 +33,7 @@ describe('card record hierarchy shape', () => {
 
   it.each(['child_membership', 'active_child_order'] as const)('rejects non-direct ids in %s at schema parsing', (field) => {
     const { cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     const parsed = cardRecordSchema.safeParse({ ...child, child_membership: ['card-a-a-a'], active_child_order: ['card-a-a-a'], [field]: ['project'] });
     expect(parsed.success).toBe(false);
     if (!parsed.success) expect(parsed.error.issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: [field], message: `Card ${field} must contain only direct child ids.` })]));
@@ -56,7 +58,7 @@ describe('card record hierarchy shape', () => {
     expect(() => cardRecordSchema.parse(missingOrder)).toThrow();
   });
 
-  it.each(['tags', 'related'] as const)('strictly rejects removed %s on durable and outbound records', (field) => {
+  it.each(['tags', 'related', 'priority', 'urgency'] as const)('strictly rejects removed %s on durable and outbound records', (field) => {
     const project = fixture().cards.read('project')!;
     const { pending_notifications: _pending, ...outbound } = project;
     expect(cardRecordSchema.safeParse({ ...project, [field]: [] }).success).toBe(false);

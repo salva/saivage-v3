@@ -7,7 +7,6 @@ import {
   type CardStatus,
   type CardTypeName,
   type CreatedBy,
-  type Urgency,
 } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { acceptsCardNotifications } from './card-status.js';
@@ -18,19 +17,15 @@ export interface NewChildCardInput {
   title: string;
   bootstrap_content: string;
   bootstrap_author: import('../schemas/index.js').RecordAuthor;
-  priority: number;
-  urgency: Urgency;
   created_by: CreatedBy;
   depends_on: string[];
 }
 
-export type CardEditPatch = Partial<Pick<CardRecord, 'title' | 'priority' | 'urgency'>>;
+export type CardEditPatch = Partial<Pick<CardRecord, 'title'>>;
 export type SetStatusTarget = 'running' | 'changed' | 'cancelled';
 type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
 
-const EDIT_FIELDS = ['title', 'priority', 'urgency'] as const satisfies ReadonlyArray<
-  keyof CardEditPatch
->;
+const EDIT_FIELDS = ['title'] as const satisfies ReadonlyArray<keyof CardEditPatch>;
 const SET_STATUS_SOURCES: Record<SetStatusTarget, readonly CardStatus[]> = {
   running: ['backlog', 'blocked', 'changed'],
   changed: ['blocked', 'done', 'failed'],

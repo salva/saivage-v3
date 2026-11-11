@@ -13,7 +13,7 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 describe('Oversight notification authority',()=>{
   it('requires the active check signal and admits only capability-derived planning targets',async()=>{
     const root=mkdtempSync(join(tmpdir(),'oversight-notification-port-'));roots.push(root);initProjectTree(root);
-    const cards=new CardService(root);const leaf=cards.create({type:'code',parent:'project',title:'leaf',bootstrap_content:'work',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+    const cards=new CardService(root);const leaf=cards.create({type:'code',parent:'project',title:'leaf',bootstrap_content:'work',created_by:'planner',depends_on:[]});
     const signal=new AbortController().signal;const assertEffectAdmission=jest.fn((candidate:AbortSignal)=>{if(candidate!==signal)throw new Error('foreign signal');});
     const submitNotification=jest.fn(async(_authority:unknown,cardId:string,notice:Parameters<CardService['enqueueNotification']>[1])=>({queued:true as const,cardId,notificationId:notice.id,interruption:{status:'not_requested' as const}}));
     const port=createOversightNotificationPort({oversight:{assertEffectAdmission},cards,workflows:TEST_WORKFLOWS,submitNotification:submitNotification as never});

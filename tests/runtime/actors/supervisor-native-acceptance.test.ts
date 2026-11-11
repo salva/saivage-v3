@@ -57,8 +57,8 @@ function call(id: string, name: string, args: object) {
 
 test.each(['direct', 'reviewed', 'handler', 'no-change'] as const)('%s delivers real leaf/aggregate/root source before DONE with correct promotion', async mode => {
   const f = fixture();
-  const goal = f.store.create({ type: 'goal', parent: 'project', title: 'Aggregate', bootstrap_content: 'Scoped aggregate', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-  const leaf = f.store.create({ type: 'code', parent: goal.id, title: 'Leaf', bootstrap_content: 'Scoped leaf', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+  const goal = f.store.create({ type: 'goal', parent: 'project', title: 'Aggregate', bootstrap_content: 'Scoped aggregate', created_by: 'analyst', depends_on: [] });
+  const leaf = f.store.create({ type: 'code', parent: goal.id, title: 'Leaf', bootstrap_content: 'Scoped leaf', created_by: 'planner', depends_on: [] });
   const counts = new Map<string, number>();
   const reviewed = mode === 'reviewed' || mode === 'handler';
   let finish!: () => void, running = false, queued = false, staleApprovalRejected = false;
@@ -170,7 +170,7 @@ test.each(['record', 'notification', 'descendant', 'interruption', 'dirty-review
         injected = true;
         if (mode === 'record') f.store.editRecord('project', 'status.md', 'Changed while native preparation was awaited');
         if (mode === 'notification') expect(supervisor.notifyCard('project', { id: randomUUID(), content: 'Fresh await notification', source: 'fixture', created_at: new Date().toISOString() }).ok).toBe(true);
-        if (mode === 'descendant') f.store.create({ type: 'goal', parent: 'project', title: 'Incomplete descendant', bootstrap_content: 'Still required', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+        if (mode === 'descendant') f.store.create({ type: 'goal', parent: 'project', title: 'Incomplete descendant', bootstrap_content: 'Still required', created_by: 'planner', depends_on: [] });
         if (mode === 'interruption') halt = supervisor.stopProject().catch(error => { expect(String(error)).toMatch(/stopped/); });
       }
       return result;

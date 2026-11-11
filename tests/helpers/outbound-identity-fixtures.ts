@@ -25,8 +25,6 @@ export function credentialShapedCard(overrides: Partial<CardRecord> = {}): CardR
       error: OUTBOUND_TEXT_MARKER,
       completed_at: null,
     },
-    priority: 3,
-    urgency: 'critical',
     created_by: 'planner',
     created_at: OUTBOUND_TIMESTAMP,
     updated_at: OUTBOUND_TIMESTAMP,

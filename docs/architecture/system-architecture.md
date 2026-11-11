@@ -1074,11 +1074,25 @@ consumed and ignored. Tombstones retain membership/order and terminate traversal
 | `config-file.ts`, `auth-profile-file.ts`, `project-identity.ts` | Exact configuration/credentials/identity files under their owning contracts. |
 | `runtime/lock.ts` | Exceptional process exclusion, not durable application state coordination. |
 
-Current family labels are card ordinary/tombstone 6, head/mailbox 1, accepted 5,
-record-head 3, conversation 12 and shared app/provider rows 2. Versions are change
+Current family labels are card ordinary/tombstone 7, head/mailbox 1, accepted 6,
+record-head 3, conversation 13 and shared app/provider rows 2. Versions are change
 labels, not revisions, segment ordinals, currentness or whole-project compatibility.
 The [format reference](./durable-format-changes.md#current-source-baseline) owns
 complete baseline/history; equal-number historical incompatibilities stay historical.
+
+The strict card payload has no `priority` or `urgency`, including initial project,
+child, synthetic repair and tombstone `final_card` bodies. Creation arguments reject
+both keys; `edit_card` retains title-only metadata editing and its existing no-op
+and lifecycle admission. Provider routing priority and notification urgency are
+independent; committed `active_child_order` and explicit activation are unchanged.
+The card owner advances ordinary/tombstone format6→7 for this removal and reduced
+update grammar; head/mailbox identities, record provenance and opaque conversation
+observations do not change. Files historical wrappers follow card format7, not a
+separate durable family. Old/mixed card history fails when consumed; retained-state
+adoption requires separately authorized external offline migration or destructive
+reset, never a dual reader or automatic conversion. Selected materialized Planner
+hosts must be deliberately reconciled with the title-only contract; source changes
+do not hot-update installed custom prompts. See [state adoption](../runbook/state-adoption.md).
 
 Current projections pair exact fresh head UUID with mutable revision. Historical
 accepted selections have null current identity/revision, not fabricated old heads.

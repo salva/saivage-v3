@@ -79,7 +79,6 @@ function detail(card: CardRecord, headId: string, native: boolean) {
     lifecycle: projectLifecycle(card.lifecycle),
     version_seq: card.version_seq,
     head_id: headId,
-    urgency: card.urgency,
     created_at: card.created_at,
     updated_at: card.updated_at,
     allowedActions: allowedOperatorCardActions(card.lifecycle.status),

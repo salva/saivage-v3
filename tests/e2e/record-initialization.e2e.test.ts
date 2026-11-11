@@ -90,7 +90,7 @@ describe('configured node-entry record initialization through production composi
       initializeProject(root); app = await startProductionApp(root, TOKEN);
       const cards = app.server.runtimeApplication.cardStore;
       cards.acceptRecord('project', 'brief.md', 'Assess current delivery; required external evidence is unavailable. Record the current assessment and this remaining input.', { kind: 'agent', agent: 'analyst' });
-      const child = cards.create({ type: 'code', parent: 'project', title: 'Pre-entry author', bootstrap_content: 'Supplied child requirements.', created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' }, priority: 0, urgency: 'normal', depends_on: [] });
+      const child = cards.create({ type: 'code', parent: 'project', title: 'Pre-entry author', bootstrap_content: 'Supplied child requirements.', created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' }, depends_on: [] });
       expect(cards.readRecordCurrent(child.id, 'status.md')).toMatchObject({ value: { projection: null } });
       cards.acceptRecord(child.id, 'status.md', 'Analyst assessment before entry.', { kind: 'agent', agent: 'analyst' });
       expect(cards.readRecordCurrent(child.id, 'brief.md')).toMatchObject({ value: { projection: { accepted: { content: 'Supplied child requirements.', author: { kind: 'agent', agent: 'analyst' } } } } });

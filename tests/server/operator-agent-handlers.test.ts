@@ -399,7 +399,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const root = projectRoot();
     initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Retained child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Retained child', bootstrap_content: 'Brief', created_by: 'analyst', depends_on: [] });
     const session = `agent:executor:${child.id}` as const;
     appendConversationBatch({ projectRoot: root }, [{ ...entry(session), context_policy: TEXT_ROW_POLICY } as never]);
     cards.deleteSubtrees([child.id], () => true);

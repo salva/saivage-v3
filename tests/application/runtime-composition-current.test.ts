@@ -463,8 +463,6 @@ describe('current runtime composition', () => {
       parent: 'project',
       title: 'deep planning scope',
       bootstrap_content: 'plan',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
@@ -473,8 +471,6 @@ describe('current runtime composition', () => {
       parent: goal.id,
       title: 'deep active child',
       bootstrap_content: 'execute',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });

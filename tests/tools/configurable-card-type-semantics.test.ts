@@ -33,8 +33,6 @@ describe('capability-based configurable card-type semantics', () => {
       parent: 'project',
       title: 'Plan',
       bootstrap_content: 'plan',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });
@@ -43,8 +41,6 @@ describe('capability-based configurable card-type semantics', () => {
       parent: plan.id,
       title: 'Work',
       bootstrap_content: 'work',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: {kind:'agent',agent:'analyst'},
       depends_on: [],
     });

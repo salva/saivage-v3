@@ -428,8 +428,6 @@ describe('exact authenticated execution evidence APIs', () => {
       parent: 'project',
       title: 'Disposable execution',
       bootstrap_content: 'Finite fixture',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });

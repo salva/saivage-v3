@@ -59,7 +59,7 @@ describe('Stage-I versioned compaction', () => {
     try {
       const store = new CardService(root);
       const child = store.create({ parent: 'project', type: 'code', title: 'Externally commissioned work', bootstrap_content: 'Externally authored requirements retained as evidence.',
-        priority: 50, urgency: 'normal', created_by: 'external:operator-one', depends_on: [] });
+        created_by: 'external:operator-one', depends_on: [] });
       expect(store.readRecordCurrent(child.id, 'brief.md')).toMatchObject({kind:'found',value:{projection:{accepted:{author:{kind:'external-agent',principal:'operator-one'}}}}});
       const surface = buildInvocationSurfaceFixture('planner', [
         bindToolProvider('cards', cardInspectionToolBinders, {store, authority:broadInspectionAuthority(), cardTypeVocabulary:store.workflows.cardTypeVocabulary}),

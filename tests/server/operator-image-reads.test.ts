@@ -444,8 +444,6 @@ it('pins a historical selection across real compaction and current advancement, 
       parent: 'project',
       title: 'Retained image reader',
       bootstrap_content: 'Brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
     });

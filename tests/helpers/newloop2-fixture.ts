@@ -225,8 +225,6 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
         parent,
         title: `Useful ${type}`,
         bootstrap_content: brief,
-        priority: 0,
-        urgency: 'normal',
         created_by: 'planner',
         bootstrap_author: { kind: 'agent', agent: 'planner' },
         depends_on: [],

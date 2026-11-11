@@ -106,10 +106,10 @@ describe('Supervisor initialization lifecycle', () => {
     const registry = new ProviderRegistry(config);
     const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const cards = new (await import('../../../src/cards/card-service.js')).CardService(root, compiled);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
-    const middle = cards.create({ type: 'goal', parent: parent.id, title: 'Middle', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
-    const leaf = cards.create({ type: 'code', parent: middle.id, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
-    const sibling = cards.create({ type: 'code', parent: 'project', title: 'Untouched', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Brief', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const middle = cards.create({ type: 'goal', parent: parent.id, title: 'Middle', bootstrap_content: 'Brief', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const leaf = cards.create({ type: 'code', parent: middle.id, title: 'Leaf', bootstrap_content: 'Brief', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
+    const sibling = cards.create({ type: 'code', parent: 'project', title: 'Untouched', bootstrap_content: 'Brief', created_by: 'planner', bootstrap_author:{kind:'agent',agent:'planner'}, depends_on: [] });
     const chain = ['project', parent.id, middle.id, leaf.id];
     chain.forEach((id) => cards.setStatus(id, 'running'));
     seedInterruptedSession(root, `agent:planner:${middle.id}`, 'pending_call');
@@ -153,7 +153,7 @@ describe('Supervisor initialization lifecycle', () => {
 
   it.each(['pending_call', 'pending_provider'] as const)('rejects a malformed complete %s session before its card or any ancestor is stopped', async (state) => {
     const { cards, runtime, runtimeStatusChanged } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
     const sessionId = `agent:executor:${child.id}` as const;
     seedInterruptedSession(roots.at(-1)!, sessionId, state);
@@ -170,7 +170,7 @@ describe('Supervisor initialization lifecycle', () => {
 
   it('rejects a wrong-card activation association without correcting that card or its ancestor', async () => {
     const { cards, runtime, runtimeStatusChanged } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
     const root = roots.at(-1)!;
     const session = `agent:executor:${child.id}` as const;
@@ -186,7 +186,7 @@ describe('Supervisor initialization lifecycle', () => {
 
   it('a separate Supervisor consumes a committed stopped suffix after an ordinary later failure without duplicating its notice', async () => {
     const { cards, runtime } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
     seedInterruptedSession(roots.at(-1)!, `agent:executor:${child.id}`, 'pending_provider');
     const originalStop = cards.stopRunning.bind(cards);
@@ -217,8 +217,8 @@ describe('Supervisor initialization lifecycle', () => {
 
   it('settles a linked running chain leaf-to-root before publishing stopped and leaves no owner', async () => {
     const { cards, runtime, runtimeStatusChanged } = fixture();
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
+    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Leaf', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
     for (const id of ['project', goal.id, leaf.id]) cards.setStatus(id, 'running');
     const operations: string[] = [];
     const originalStop = cards.stopRunning.bind(cards);
@@ -250,8 +250,8 @@ describe('Supervisor initialization lifecycle', () => {
 
   it('rejects a broken linked topology before any correction and keeps status unavailable', async () => {
     const { cards, runtime, runtimeStatusChanged } = fixture();
-    const left = cards.create({ type: 'goal', parent: 'project', title: 'Left', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const right = cards.create({ type: 'goal', parent: 'project', title: 'Right', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const left = cards.create({ type: 'goal', parent: 'project', title: 'Left', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
+    const right = cards.create({ type: 'goal', parent: 'project', title: 'Right', bootstrap_content: 'Brief', created_by: 'planner', depends_on: [] });
     for (const id of ['project', left.id, right.id]) cards.setStatus(id, 'running');
     const stop = jest.spyOn(cards, 'stopRunning');
     await expect(runtime.start()).rejects.toThrow('Startup interrupted-card settlement: linked-chain selection failed.');

@@ -4,7 +4,7 @@ import { externalActorSchema } from './operation-author.js';
 import { uuidV4Schema } from './uuid.js';
 
 import { sha256Hex } from './sha256.js';
-import { cardActionValues, cardStatusValues, urgencyValues } from './types.js';
+import { cardActionValues, cardStatusValues } from './types.js';
 import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
 import {
@@ -29,7 +29,6 @@ export const cardTypeSchema = cardTypeNameSchema;
 export const cardStatusSchema = z.enum(cardStatusValues);
 export const cardActionSchema = z.enum(cardActionValues);
 export const positiveSafeIntegerSchema = z.number().int().safe().positive();
-export const urgencySchema = z.enum(urgencyValues);
 const createdBySchema = z.union([
   externalActorSchema,
   agentNameSchema,
@@ -59,8 +58,6 @@ const cardRecordShape = {
   active_child_order: z.array(cardIdSchema),
   title: z.string().min(1),
   lifecycle: cardLifecycleStateSchema,
-  priority: z.number().int(),
-  urgency: urgencySchema,
   created_by: createdBySchema,
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),

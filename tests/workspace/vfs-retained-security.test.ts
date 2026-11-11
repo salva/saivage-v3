@@ -70,7 +70,7 @@ describe('workspace VFS and project-file security', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'goal', parent: 'project', title: 'Record order', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Record order', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
     cards.openRecord(child.id, 'status.md');
     cards.editRecord(child.id, 'status.md', 'status');
     cards.openRecord(child.id, 'review.md');

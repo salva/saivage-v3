@@ -19,7 +19,7 @@ import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fix
 import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
 
 const DEFAULT_TYPES=['project','goal','architecture','code','test','doc','data','research','ops'] as const;
-function card(id:string,type:string,children:string[]=[]):CardRecord{return {git:null,id,type,title:id,child_membership:children,active_child_order:children,priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,depends_on:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},status_text:null,status_text_updated_at:null,pending_notifications:[]};}
+function card(id:string,type:string,children:string[]=[]):CardRecord{return {git:null,id,type,title:id,child_membership:children,active_child_order:children,created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,depends_on:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},status_text:null,status_text_updated_at:null,pending_notifications:[]};}
 const unusedParentControl: PlannerChildControlPort = {
   activateChild() { throw new Error('unused parent control'); },
   cancelChild() { throw new Error('unused parent control'); },
@@ -76,17 +76,21 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'analyst-card-type-admission-'));
     try{
       const create=jest.fn(()=>({kind:'denied' as const,reason:'Root project card already exists'}));
-      const context={projectRoot,actor:'analyst',surface:'web-chat',cardTypeVocabulary:['project','custom-leaf'],store:{} as never,interventionReadiness:{assertInterventionReady(){}},analystMutations:{cards:{create}}} as unknown as ToolContext;
+      const assertInterventionReady=jest.fn();
+      const context={projectRoot,actor:'analyst',surface:'web-chat',cardTypeVocabulary:['project','custom-leaf'],store:{} as never,interventionReadiness:{assertInterventionReady},analystMutations:{cards:{create}}} as unknown as ToolContext;
       const surface=buildInvocationSurfaceFixture('analyst',[bindToolProvider('analyst',[getAnalystControlToolBinders().find((candidate)=>candidate.name==='create_card')!],context)]);
       const base={title:'root',bootstrap_content:'root'};
       for(const input of [
         {...base,type:'custom-leaf'},
         {...base,type:'custom-leaf',parent:null},
         {...base,type:'custom-leaf',parent:'not-a-card-id'},
+        {...base,type:'custom-leaf',parent:'project',priority:0},
+        {...base,type:'custom-leaf',parent:'project',urgency:'normal'},
       ]){
         await expect(invokeTestTool(surface,'create_card',input)).resolves.toMatchObject({success:false});
       }
       expect(create).not.toHaveBeenCalled();
+      expect(assertInterventionReady).not.toHaveBeenCalled();
       await expect(invokeTestTool(surface,'create_card',{...base,type:'project',parent:'project'})).resolves.toMatchObject({success:false,error:expect.stringContaining('Root project card already exists')});
       expect(create).toHaveBeenCalledTimes(1);
       create.mockClear();
@@ -97,7 +101,7 @@ describe('configuration-bound card-type tool vocabulary',()=>{
 
   it('keeps Planner wire schema open while enforcing compiled membership, root denial, and node child admission in order',async()=>{
     const created=card('card-a','custom-leaf');
-    const store={read:jest.fn((id:string)=>id==='project'?card('project','project'):null),create:jest.fn(()=>created)};
+    const store={read:jest.fn((id:string)=>id==='project'?card('project','project'):id==='card-a'?created:null),create:jest.fn(()=>created),editCard:jest.fn((_id:string,_patch:unknown,_actor:string)=>created)};
     const provider=bindToolProvider('planner-control',plannerControlToolBinders,{authority:testPlannerAuthority(),agentName:'planner',projectRoot:'/',parentCardId:'project',sessionId:'agent:planner:project',store,parentControl:unusedParentControl,childCreationTypes:new Set(['custom-leaf']),childActivationTypes:new Set<string>(),cardTypeVocabulary:['project','custom-leaf','other']});
     const surface=buildInvocationSurfaceFixture('planner',[provider]);
     const schema=surface.tools.get('create_card')!.inputSchema;
@@ -107,6 +111,17 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     const editSchema=surface.tools.get('edit_card')!.inputSchema;
     expect(editSchema.safeParse({card_id:'card-a',tags:[]}).success).toBe(false);
     expect(editSchema.safeParse({card_id:'card-a',related:[]}).success).toBe(false);
+    for (const removed of [{priority:0},{urgency:'normal'}]) {
+      await expect(invokeTestTool(surface,'create_card',{type:'custom-leaf',title:'x',bootstrap_content:'x',...removed})).resolves.toMatchObject({success:false});
+      await expect(invokeTestTool(surface,'edit_card',{card_id:'card-a',title:'new',...removed})).resolves.toMatchObject({success:false});
+    }
+    expect(store.read).not.toHaveBeenCalled();
+    expect(store.create).not.toHaveBeenCalled();
+    expect(store.editCard).not.toHaveBeenCalled();
+    await expect(invokeTestTool(surface,'edit_card',{card_id:'card-a'})).resolves.toEqual({success:false,error:'edit_card requires at least one editable field.'});
+    expect(store.editCard).not.toHaveBeenCalled();
+    await expect(invokeTestTool(surface,'edit_card',{card_id:'card-a',title:'new'})).resolves.toMatchObject({success:true,data:{card:{title:'card-a'}}});
+    expect(store.editCard).toHaveBeenCalledWith('card-a',{title:'new'},'planner');
     await expect(invokeTestTool(surface,'create_card',{type:'wire-unknown',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card.type must be one of: custom-leaf, other.'});
     await expect(invokeTestTool(surface,'create_card',{type:'project',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card cannot create project cards.'});
     await expect(invokeTestTool(surface,'create_card',{type:'other',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:"Child type 'other' is not permitted for this node."});

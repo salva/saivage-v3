@@ -27,8 +27,6 @@ async function create_card(
     parent: params.parent,
     title: params.title,
     bootstrap_content: params.bootstrap_content,
-    priority: params.priority,
-    urgency: params.urgency,
     depends_on: params.depends_on,
   };
   return runAuditedAnalystTool(

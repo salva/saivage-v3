@@ -203,7 +203,7 @@ const quotedRecordBody = 'Notes\napi_key: body-egress-canary\nSafe "quote" \\ pa
 
 async function seedRecordEvidence() {
   const store = new CardService(root, workflows);
-  const card = store.create({ type: 'code', parent: 'project', title: 'Record observation fixture', bootstrap_content: 'Accepted A', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
+  const card = store.create({ type: 'code', parent: 'project', title: 'Record observation fixture', bootstrap_content: 'Accepted A', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   const session = `agent:executor:${card.id}` as ConversationSessionId;
   const workflow = workflows.cardTypes.get('code')!;
   const node = workflow.states.get('node:execute')!;
@@ -500,7 +500,7 @@ test.beforeAll(async () => {
   }
   initializeProject(root);
   workflows = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: {} }).loadEffective().workflows;
-  const child = new CardService(root, workflows).create({ type: 'code', parent: 'project', title: 'Synthetic reader child', bootstrap_content: 'Synthetic brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
+  const child = new CardService(root, workflows).create({ type: 'code', parent: 'project', title: 'Synthetic reader child', bootstrap_content: 'Synthetic brief', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] });
   executor = `agent:executor:${child.id}` as ConversationSessionId;
   await seedRecordEvidence();
   await seed(executor); await seed(analyst);

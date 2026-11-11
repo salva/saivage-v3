@@ -233,8 +233,6 @@ describe('application startup generated-state admission', () => {
       parent: 'project',
       title: 'Running child',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
@@ -287,8 +285,6 @@ describe('application startup generated-state admission', () => {
       parent: 'project',
       title: 'Stopped child',
       bootstrap_content: 'brief',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
@@ -412,8 +408,6 @@ describe('application startup generated-state admission', () => {
       parent: 'project',
       title: 'Left',
       bootstrap_content: 'Left brief.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
@@ -422,8 +416,6 @@ describe('application startup generated-state admission', () => {
       parent: 'project',
       title: 'Right',
       bootstrap_content: 'Right brief.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });
@@ -680,8 +672,6 @@ describe('application startup generated-state admission', () => {
         parent: 'project',
         title: 'Retained child',
         bootstrap_content: 'Retained brief.',
-        priority: 0,
-        urgency: 'normal',
         created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
         depends_on: [],
       });
@@ -843,8 +833,6 @@ describe('application startup generated-state admission', () => {
       parent: 'project',
       title: 'Fixture-family child',
       bootstrap_content: 'Fixture-family authority.',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' },
       depends_on: [],
     });

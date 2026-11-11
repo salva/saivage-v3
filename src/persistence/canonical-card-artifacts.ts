@@ -63,7 +63,7 @@ export function ordinaryCardPayload(card: CardRecord): z.infer<typeof ordinaryCa
 
 export const cardVersionArtifactSchema = z
   .object({
-    format_version: z.literal(6),
+    format_version: z.literal(7),
     kind: z.literal('card-version'),
     entry_id: uuidV4Schema,
     card_id: cardIdSchema,
@@ -124,7 +124,7 @@ export const cardVersionArtifactSchema = z
 
 export const cardTombstoneArtifactSchema = z
   .object({
-    format_version: z.literal(6),
+    format_version: z.literal(7),
     kind: z.literal('card-tombstone'),
     entry_id: uuidV4Schema,
     card_id: nonRootCardIdSchema,
@@ -263,8 +263,6 @@ export function validateInitialCard(card: CardRecord, path: string): void {
   if (card.created_by === 'runtime:repair') {
     if (
       card.title !== `Recovered card ${card.id} — data discarded` ||
-      card.priority !== 0 ||
-      card.urgency !== 'normal' ||
       card.depends_on.length !== 0 ||
       card.lifecycle.status !== 'failed' ||
       card.lifecycle.result.kind !== 'runtime-failure' ||
@@ -282,8 +280,6 @@ export function validateInitialCard(card: CardRecord, path: string): void {
     if (
       card.type !== 'project' ||
       card.created_by !== 'runtime:bootstrap' ||
-      card.priority !== 0 ||
-      card.urgency !== 'normal' ||
       card.depends_on.length !== 0
     )
       fail(path, 'has an invalid initial project card');
@@ -400,10 +396,7 @@ export function validateCardTransition(
       if (!['backlog', 'changed', 'stopped'].includes(prior.lifecycle.status))
         fail(path, 'edits a disallowed lifecycle state');
       const fields = actualDelta(prior, next);
-      if (
-        fields.length === 0 ||
-        fields.some((field) => !['title', 'priority', 'urgency'].includes(field))
-      )
+      if (fields.length === 0 || fields.some((field) => field !== 'title'))
         fail(path, 'has an invalid update delta');
       requireChange(path, change, fields, 'agent edit_card');
       break;

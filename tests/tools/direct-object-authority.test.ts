@@ -18,7 +18,7 @@ function fixture() {
   initProjectTree(projectRoot);
   const store = new CardService(projectRoot);
   const create = (parent: string, type: string) => store.create({ parent, type, title: 'Target', bootstrap_content: 'Requirements',
-    priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    created_by: 'analyst', depends_on: [] });
   const parent = create('project', 'goal');
   const child = create(parent.id, 'goal');
   const grandchild = create(child.id, 'code');

@@ -38,8 +38,6 @@ export interface CreateAnalystCardInput {
   parent: CardId;
   title: string;
   bootstrap_content: string;
-  priority?: number;
-  urgency?: 'low' | 'normal' | 'high' | 'critical';
   depends_on?: string[];
 }
 
@@ -189,8 +187,6 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       parent,
       title: input.title,
       bootstrap_content: input.bootstrap_content,
-      priority: input.priority ?? 0,
-      urgency: input.urgency ?? 'normal',
       created_by: operationActor(this.author),
       bootstrap_author: this.author,
       depends_on: input.depends_on ?? [],

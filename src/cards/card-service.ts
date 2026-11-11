@@ -890,8 +890,7 @@ export class CardService {
   create(input: NewChildCardInput): CardRecord {
     if (input.bootstrap_content.trim().length === 0)
       throw new Error('Child bootstrap_content must contain non-whitespace Markdown.');
-    if (input.title.length === 0 || !Number.isInteger(input.priority))
-      throw new Error('Child title and priority are invalid.');
+    if (input.title.length === 0) throw new Error('Child title is invalid.');
     const parent = this.read(input.parent);
     if (!parent) throw new Error(`Parent card '${input.parent}' does not exist.`);
     const depth = cardDepth(parent.id) + 1;

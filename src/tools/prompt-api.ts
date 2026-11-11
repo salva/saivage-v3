@@ -1,4 +1,4 @@
-import { CARD_STATUS_VALUES, URGENCY_VALUES } from './tool-definition.js';
+import { CARD_STATUS_VALUES } from './tool-definition.js';
 import type { CardTypeName } from '../schemas/index.js';
 
 export function formatVocabularySnippet(cardTypeVocabulary: readonly CardTypeName[]): string {
@@ -6,6 +6,5 @@ export function formatVocabularySnippet(cardTypeVocabulary: readonly CardTypeNam
     `Card status: ${CARD_STATUS_VALUES.join(' | ')}`,
     'Reopenable card status: blocked | done | failed. Reopen target status: changed',
     `Card type: ${cardTypeVocabulary.join(' | ')}`,
-    `Urgency: ${URGENCY_VALUES.join(' | ')}`,
   ].join('. ');
 }

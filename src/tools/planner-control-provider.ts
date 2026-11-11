@@ -12,7 +12,7 @@ import {
   type ActivateCardArguments,
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
-import type { CardRecord, CardTypeName, Urgency } from '../schemas/index.js';
+import type { CardRecord, CardTypeName } from '../schemas/index.js';
 import {
   defineToolBinder,
   executeToolAction,
@@ -130,8 +130,6 @@ function createCard(
     parent: ctx.parentCardId,
     title: record.title,
     bootstrap_content: record.bootstrap_content,
-    priority: record.priority ?? 0,
-    urgency: record.urgency ?? 'normal',
     created_by: ctx.agentName,
     bootstrap_author: { kind: 'card-agent', agent: ctx.agentName, card_id: ctx.parentCardId },
     depends_on: dependsOn,
@@ -302,8 +300,6 @@ function plannerCreatedType(
 function plannerEditablePatch(record: z.infer<typeof plannerEditCardInputSchema>): CardEditPatch {
   const patch: CardEditPatch = {};
   if (record.title !== undefined) patch.title = record.title;
-  if (record.priority !== undefined) patch.priority = record.priority;
-  if (record.urgency !== undefined) patch.urgency = record.urgency;
   return patch;
 }
 
@@ -314,8 +310,6 @@ function compactPlannerToolCard(card: CardRecord): {
   status: CardRecord['lifecycle']['status'];
   title: string;
   depends_on: string[];
-  priority: number;
-  urgency: Urgency;
 } {
   return {
     id: card.id,
@@ -324,8 +318,6 @@ function compactPlannerToolCard(card: CardRecord): {
     status: card.lifecycle.status,
     title: card.title,
     depends_on: card.depends_on,
-    priority: card.priority,
-    urgency: card.urgency,
   };
 }
 

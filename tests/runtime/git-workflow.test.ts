@@ -398,7 +398,7 @@ test('N3 partial c1 capture and separate restore preserve original c2 and P with
   initProjectTree(root);
   const cards = new CardService(root);
   const card = cards.create({ type: 'code', parent: 'project', title: 'native source', bootstrap_content: 'source',
-    priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    created_by: 'analyst', depends_on: [] });
   const owner = { namespace: 'refs/saivage/partial', card_id: card.id };
   const invocation_id = randomUUID();
   const names = nativeGitRefs(owner, invocation_id);

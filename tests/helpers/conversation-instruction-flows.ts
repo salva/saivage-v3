@@ -122,8 +122,6 @@ export async function createInstructionFlow(scene: InstructionScene) {
       parent: 'project',
       title: `${scene} instruction flow`,
       bootstrap_content: `Synthetic ${scene} acceptance.`,
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner', bootstrap_author: {kind:'agent',agent:'planner'},
       depends_on: [],
     });

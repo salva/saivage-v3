@@ -75,8 +75,6 @@ describe('custom card type execution admission', () => {
       parent: 'project',
       title: 'Initiative',
       bootstrap_content: 'plan',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
@@ -85,19 +83,24 @@ describe('custom card type execution admission', () => {
       parent: initiativeCard.id,
       title: 'Task',
       bootstrap_content: 'execute',
-      priority: 0,
-      urgency: 'normal',
       created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' },
       depends_on: [],
     });
+    const sibling = cards.create({
+      type: 'task', parent: initiativeCard.id, title: 'Unselected sibling', bootstrap_content: 'remain inactive',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' }, depends_on: [],
+    });
     expect([initiativeCard.type, taskCard.type]).toEqual(['initiative', 'task']);
     const admitted = deferred<LlmInvocationInput>();
+    let initiativeTurns = 0;
     const provider = scriptedAdmissionProvider(
       jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
         if (input.sessionId === 'agent:planner:project')
           return tool('activate-initiative', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: initiativeCard.id });
-        if (input.sessionId === `agent:planner:${initiativeCard.id}`)
+        if (input.sessionId === `agent:planner:${initiativeCard.id}`) {
+          if (++initiativeTurns === 1) return tool('reorder-tasks', 'reorder_child', { orderedChildIds: [sibling.id, taskCard.id] });
           return tool('activate-task', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: taskCard.id });
+        }
         if (input.sessionId === `agent:executor:${taskCard.id}`) {
           admitted.resolve(input);
           return new Promise<never>((_resolve, reject) =>
@@ -132,6 +135,12 @@ describe('custom card type execution admission', () => {
     expect(started.started).toBe(true);
     const input = await admitted.promise;
     expect(input.sessionId).toBe(`agent:executor:${taskCard.id}`);
+    expect(cards.listChildren(initiativeCard.id)).toEqual([sibling.id, taskCard.id]);
+    expect(cards.read(taskCard.id)!.lifecycle.status).toBe('running');
+    expect(cards.read(sibling.id)!.lifecycle.status).toBe('backlog');
+    for (const value of [cards.read(taskCard.id)!, cards.read(sibling.id)!]) {
+      expect(value).not.toHaveProperty('priority'); expect(value).not.toHaveProperty('urgency');
+    }
     expect(input.tools.map((definition) => definition.function.name)).toContain('emit_result');
     await supervisor.stopProject();
     expect(supervisor.getStatus().status).toBe('stopped');

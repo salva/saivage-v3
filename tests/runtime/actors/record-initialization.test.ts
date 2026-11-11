@@ -34,7 +34,7 @@ function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' | 'newloop'
   const root = mkdtempSync(join(tmpdir(), 'record-baseline-')); roots.push(root); publishInitialProjectRuntime(root, workflows);
   const store = new CardService(root, workflows);
   const cardId = options.cardType === 'architecture'
-    ? store.create({ type: 'architecture', parent: 'project', title: 'Architecture {{nodeId}}', bootstrap_content: 'Accepted architecture scope', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }).id
+    ? store.create({ type: 'architecture', parent: 'project', title: 'Architecture {{nodeId}}', bootstrap_content: 'Accepted architecture scope', created_by: 'analyst', bootstrap_author:{kind:'agent',agent:'analyst'}, depends_on: [] }).id
     : 'project';
   const runner = new AgentNodeExecution({ cardId, store } as never, {} as never) as unknown as Methods;
   const node = workflows.cardTypes.get(options.cardType ?? 'project')!.states.get(options.cardType === 'architecture' ? 'node:draft' : `node:${options.nodeId ?? 'plan'}`)!;

@@ -740,8 +740,6 @@ export function publishInitialChildCard(
     child_membership: [],
     active_child_order: [],
     title: input.title,
-    priority: input.priority,
-    urgency: input.urgency,
     created_by: input.created_by,
     created_at: stamp,
     updated_at: stamp,
@@ -809,8 +807,6 @@ export function publishInitialProjectCard(
     child_membership: [],
     active_child_order: [],
     title: input.title,
-    priority: 0,
-    urgency: 'normal',
     created_by: 'runtime:bootstrap',
     created_at: stamp,
     updated_at: stamp,
@@ -857,8 +853,6 @@ export function publishDiscardedCard(
     child_membership: [],
     active_child_order: [],
     title: `Recovered card ${cardId} — data discarded`,
-    priority: 0,
-    urgency: 'normal',
     created_by: 'runtime:repair',
     created_at: stamp,
     updated_at: stamp,
@@ -929,7 +923,7 @@ export function publishCardVersion(
     card = cardRecordSchema.parse(card);
     validateInitialCard(card, path);
     const artifact = cardVersionArtifactSchema.parse({
-      format_version: 6,
+      format_version: 7,
       kind: 'card-version',
       entry_id: initialEntryId ?? randomUUID(),
       card_id: card.id,
@@ -1007,7 +1001,7 @@ export function publishCardVersion(
     return null;
   }
   const artifact = cardVersionArtifactSchema.parse({
-    format_version: 6,
+    format_version: 7,
     kind: 'card-version',
     entry_id: change.entry_id,
     card_id: card.id,
@@ -1057,7 +1051,7 @@ export function publishCardTombstone(
   if (!valuesEqual(fold.current.card, finalCard))
     throw new Error(`Card '${cardId}' tombstone final card must equal current.`);
   const artifact = cardTombstoneArtifactSchema.parse({
-    format_version: 6,
+    format_version: 7,
     kind: 'card-tombstone',
     entry_id: change.entry_id,
     card_id: cardId,

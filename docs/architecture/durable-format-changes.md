@@ -23,6 +23,39 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+**Card priority/urgency removal — 2026-11-11**
+
+Actual implementation source parent `887ecd07a69e5f5fc84d9bb86296e8c6aac9a813`
+owns ordinary `card-version` and `card-tombstone` **format_version 6→7** in
+`persistence/canonical-card-artifacts.ts`. Both embed the strict card payload
+(`card` / `final_card`): required `priority` and `urgency` are removed, as are their
+legal metadata-update fields. `card-files.ts` synchronizes initial project/child,
+synthetic repair, ordinary and tombstone publications. Strict current/history
+consumers reject format6 and format7 bodies or changes containing the removed
+fields. Evidence is the parent/current owner schemas, publishers, title-only
+lifecycle grammar and matching Files historical wrapper projections (6→7).
+Current `card-current` remains versionless; Files wrappers are not a durable family.
+
+Card head/mailbox remain **1**, including previous head slots. Record head remains
+**3**, accepted-record **6**: `card_history:{entry_id,version}` provenance retains
+its identity and meaning, without embedded card bodies. Conversation index/genesis
+and segment envelopes remain **13**; opaque historical tool arguments/results are
+not re-admitted under current card/input schemas or rewritten. Execution **3**,
+shared provider/app envelope **2**, workflow **6**, capabilities **1** and
+initializer **1** are unchanged. No new family or unrelated discriminator bump.
+
+Deployed applicability of source6 is unknown: this is a fresh affected-family bump,
+not an assumed undeployed cutover. Retained installations need a matching release
+and separately authorized adoption: explicitly requested external offline migration
+under the full gates, or separately consented destructive reset. Historical
+priority-only updates may require a migration-specific fidelity decision; this
+change neither drops/relabels them nor supplies conversion/normalization. Old/mixed
+state stays a stopped blocker and binary-only rollback over format7 writes is
+unsupported. Reconcile selected materialized Planner hosts with title-only edits;
+source completion updates no installed custom host. Provider priority, notification
+urgency, sibling ordering and explicit activation remain unchanged. No deployment,
+migration, reset or installed-history fidelity is claimed or authorized here.
+
 Oversight sampled-wait presentation from actual implementation source parent
 `24807b9068f6d2a59cb32aa212d5008ac5dfc8ac` replaces transient HTTP
 `next_nominal_due` with finite nonnegative nullable `remaining_wait_ms` and removes
@@ -366,7 +399,7 @@ source-era values; they must not be read as today's accepted-version list.
 | --- | --- | --- |
 | Native Git policy input | Optional YAML `git_workflow`; `schemas/saivage-config.ts`, workflow compiler | Initial `format_version:1`; strict OFF or explicit source/delivery/preservation/correction/review declarations. The opt-in classic-git bundle supports fresh lifecycle-owned commissioning; no retained-state adoption is available. |
 | Card current head / previous slot | Card namespace `card-head.json`, `card-head.prev.json`; `persistence/canonical-card-artifacts.ts`, `card-files.ts` | `format_version:1`, `kind:card-head`; fresh head UUID, ordinary selection and ordered current-only mailbox UUIDs. Previous slot shares this selector contract, not separate numbering. |
-| Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:6`, `card-version` / `card-tombstone`; required nullable native source facts, runtime source publications and Git-blocked result; qualified action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
+| Immutable card history | `card-history/<UUID>.json`; same owners | `format_version:7`, `card-version` / `card-tombstone`; no card priority/urgency, title-only metadata updates; required nullable native source facts, runtime source publications and Git-blocked result; qualified action executor and external attribution, predecessor-linked sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected by current head, not a queue log. |
 | Record head / previous slot | `records/record-<stem>.json` and injective `.prev.json` sibling; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; fresh UUID/mutation revision, current-only baseline0, explicit draft version/target and latest accepted reference. Baseline/draft0/empty is ineligible. |
 | Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:6`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated card-agent (actual author card), historical agent, external/runtime/action-output author with body-bound output descriptor and target ordinary card provenance. Historical projection has null current head/revision. |

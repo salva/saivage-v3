@@ -7,7 +7,6 @@ import {
   eventKindValues,
   positiveSafeIntegerSchema,
   recordNameSchema,
-  urgencyValues,
   type CardStatus,
   type CardTypeName,
 } from '../schemas/index.js';
@@ -82,8 +81,6 @@ export const createAnalystCreateCardInputSchema = (cardTypeVocabulary: readonly 
         .trim()
         .min(1)
         .describe('Non-empty Markdown content for the child type configured bootstrap record.'),
-      priority: z.number().int().optional().describe('Optional priority value (0-100).'),
-      urgency: z.enum(urgencyValues).optional().describe('Optional urgency level.'),
       depends_on: z
         .array(z.string().describe('A card ID'))
         .optional()
@@ -359,8 +356,6 @@ export const plannerCreateCardInputSchema = z
     type: z.string(),
     title: z.string().regex(/\S/),
     bootstrap_content: z.string().trim().min(1),
-    priority: z.number().int().optional(),
-    urgency: z.enum(urgencyValues).optional(),
     depends_on: z.array(z.string()).optional(),
   })
   .strict();
@@ -368,8 +363,6 @@ export const plannerEditCardInputSchema = z
   .object({
     card_id: cardIdSchema,
     title: z.string().regex(/\S/).optional(),
-    priority: z.number().int().optional(),
-    urgency: z.enum(urgencyValues).optional(),
   })
   .strict();
 export const plannerCancelCardInputSchema = z

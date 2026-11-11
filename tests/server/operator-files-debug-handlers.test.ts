@@ -33,7 +33,7 @@ describe('operator files and debug contract handlers', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-files-routes-'));
     initProjectTree(projectRoot);
     cards = new CardService(projectRoot);
-    cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', created_by: 'analyst', depends_on: [] });
     cardServiceProvider = jest.fn(() => cards);
     fastify = Fastify({ logger: false });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(
@@ -444,7 +444,7 @@ describe('operator files and debug contract handlers', () => {
     for (const [response,version] of [[current,2],[historical,1]] as const) {
       expect(response.statusCode).toBe(200); const body=response.json(); const document=JSON.parse(body.content);
       expect(body).toMatchObject({contentType:'application/json',redacted:true,sensitivity:'sensitive-redacted',version});
-      expect(document).toMatchObject(version === 2 ? {kind:'card-current',card_id:'project',version_seq:2,history_version:2} : {format_version:6,kind:'card-version',card_id:'project',version:1});
+      expect(document).toMatchObject(version === 2 ? {kind:'card-current',card_id:'project',version_seq:2,history_version:2} : {format_version:7,kind:'card-version',card_id:'project',version:1});
       expect(document.card).toMatchObject({ child_membership: expect.any(Array), active_child_order: expect.any(Array) });
       expect(document.card).not.toHaveProperty('children');
       expect(body.content.endsWith('\n')).toBe(true); expect(body.content).not.toContain('filename');

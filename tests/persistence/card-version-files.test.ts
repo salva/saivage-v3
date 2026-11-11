@@ -21,7 +21,7 @@ afterEach(() => { jest.useRealTimers(); while (roots.length) rmSync(roots.pop()!
 function fixture(io?: ReplacementFileIo) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-card-head-')); roots.push(root); initProjectTree(root);
   const cards = new CardService(root, undefined, io);
-  const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
   return { root, cards, child };
 }
 function head(root: string, id: string) { return cardHeadSchema.parse(JSON.parse(readFileSync(cardHeadFile(root, id), 'utf8'))); }
@@ -54,7 +54,7 @@ describe('card immutable history and pending-only mailbox', () => {
     cards.deleteSubtrees([child.id], () => true, 'analyst');
     const selected = head(root, child.id);
     const tombstone = JSON.parse(readFileSync(cardHistoryFile(root, child.id, selected.ordinary.entry_id), 'utf8'));
-    expect(tombstone).toMatchObject({ format_version: 6, final_card: { git: facts } });
+    expect(tombstone).toMatchObject({ format_version: 7, final_card: { git: facts } });
     const { git: _git, ...missing } = tombstone.final_card;
     writeFileSync(cardHistoryFile(root, child.id, selected.ordinary.entry_id), JSON.stringify({ ...tombstone, final_card: missing }));
     expect(() => cards.readCardVersion(child.id, selected.ordinary.version)).toThrow();
@@ -70,7 +70,7 @@ describe('card immutable history and pending-only mailbox', () => {
     expect(projectCardRecordForOutbound(published.card).lifecycle.result).toEqual(result);
     expect(cards.readCardVersion(child.id, published.card.version_seq)).toMatchObject({ kind: 'found', value: { change: { terminal_summary: { result_kind: 'git-workflow-blocked', content_policy: null } } } });
   });
-  it.each(['card-version', 'card-tombstone'] as const)('publishes strict format6 %s bodies while selectors/messages remain format1', kind => {
+  it.each(['card-version', 'card-tombstone'] as const)('publishes strict format7 %s bodies while selectors/messages remain format1', kind => {
     const { root, cards, child } = fixture();
     const message = notice(); cards.enqueueNotification(child.id, message);
     expect(JSON.parse(readFileSync(cardMailboxFile(root, child.id, message.id), 'utf8')).format_version).toBe(1);
@@ -79,21 +79,50 @@ describe('card immutable history and pending-only mailbox', () => {
     const selected = head(root, child.id); expect(selected.format_version).toBe(1);
     const path = cardHistoryFile(root, child.id, selected.ordinary.entry_id);
     const artifact = JSON.parse(readFileSync(path, 'utf8'));
-    expect(artifact).toMatchObject({ format_version: 6, kind });
+    expect(artifact).toMatchObject({ format_version: 7, kind });
     const body = kind === 'card-version' ? artifact.card : artifact.final_card;
     expect(body).not.toHaveProperty('subtype'); expect(body).not.toHaveProperty('metadata');
+    expect(body).not.toHaveProperty('priority'); expect(body).not.toHaveProperty('urgency');
     expect(cards.readCardVersion(child.id, artifact.version).kind).toBe('found');
     const files = new CanonicalCardFilesReadModel(() => cards).content(`.saivage/cards/project/children/a/card.json?v=${artifact.version}`);
     if (!('content' in files.body)) throw new Error('Expected historical Files body');
-    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 6, kind });
-     for (const format_version of [1, 2, 5]) {
+    expect(JSON.parse(files.body.content)).toMatchObject({ format_version: 7, kind });
+     for (const format_version of [1, 2, 5, 6]) {
        writeFileSync(path, JSON.stringify({ ...artifact, format_version }));
        expect(() => cards.read(child.id)).toThrow();
        expect(() => cards.readCardVersion(child.id, artifact.version)).toThrow();
      }
-    writeFileSync(path, JSON.stringify({ ...artifact, [kind === 'card-version' ? 'card' : 'final_card']: { ...body, subtype: null } }));
-    expect(() => cards.read(child.id)).toThrow();
-    expect(() => inspectCardSelection(root, child.id, readFileSync(cardHeadFile(root, child.id)))).toThrow();
+    for (const removed of [{ subtype: null }, { priority: 0 }, { urgency: 'normal' }]) {
+      writeFileSync(path, JSON.stringify({ ...artifact, [kind === 'card-version' ? 'card' : 'final_card']: { ...body, ...removed } }));
+      expect(() => cards.read(child.id)).toThrow();
+      expect(() => cards.readCardVersion(child.id, artifact.version)).toThrow();
+      expect(() => inspectCardSelection(root, child.id, readFileSync(cardHeadFile(root, child.id)))).toThrow();
+    }
+  });
+
+  it.each(['blocked', 'failed'] as const)('keeps title no-op and real-edit lifecycle semantics for %s cards', status => {
+    const { root, cards, child } = fixture();
+    cards.setStatus(child.id, 'running');
+    cards.commitActivationOutcome(child.id, { status, summary: 'prior result', result: workflowResult(status === 'blocked' ? 'BLOCKED' : 'FAILED', 'prior result') }, new Date().toISOString());
+    const before = readFileSync(cardHeadFile(root, child.id));
+    const version = cards.read(child.id)!.version_seq;
+    cards.editCard(child.id, { title: child.title });
+    cards.editCard(child.id, {});
+    expect(readFileSync(cardHeadFile(root, child.id))).toEqual(before);
+    const edited = cards.editCard(child.id, { title: 'new title' });
+    expect(edited).toMatchObject({ title: 'new title', version_seq: version + 2, lifecycle: { status: 'changed', result: null, error: null, completed_at: null } });
+    expect(cards.readCardVersion(child.id, version + 1)).toMatchObject({ kind: 'found', value: { change: { kind: 'status', changed_fields: ['lifecycle'] } } });
+    expect(cards.readCardVersion(child.id, edited.version_seq)).toMatchObject({ kind: 'found', value: { change: { kind: 'update', changed_fields: ['title'] } } });
+  });
+
+  it.each(['priority', 'urgency'])('rejects removed %s in consumed update grammar', field => {
+    const { root, cards, child } = fixture();
+    cards.editCard(child.id, { title: 'new title' });
+    const path = cardHistoryFile(root, child.id, head(root, child.id).ordinary.entry_id);
+    const artifact = JSON.parse(readFileSync(path, 'utf8'));
+    artifact.change.changed_fields = [field];
+    writeFileSync(path, JSON.stringify(artifact));
+    expect(() => cards.listCardVersions(child.id)).toThrow();
   });
 
   it('rejects an old reached predecessor and previous selection without proactively reading history', () => {
@@ -101,7 +130,7 @@ describe('card immutable history and pending-only mailbox', () => {
     const first = head(root, child.id); const path = cardHistoryFile(root, child.id, first.ordinary.entry_id);
     const artifact = JSON.parse(readFileSync(path, 'utf8'));
     cards.editCard(child.id, { title: 'current' });
-    writeFileSync(path, JSON.stringify({ ...artifact, format_version: 2 }));
+    writeFileSync(path, JSON.stringify({ ...artifact, format_version: 6 }));
     expect(cards.read(child.id)?.title).toBe('current');
     expect(() => cards.readCardVersion(child.id, 1)).toThrow();
     expect(() => inspectCardSelection(root, child.id, readFileSync(cardPreviousHeadFile(root, child.id)))).toThrow();

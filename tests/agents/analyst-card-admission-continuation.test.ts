@@ -23,7 +23,7 @@ const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function create(cards: CardService, parent = 'project', type = 'goal') {
-  return cards.create({ parent, type, title: 'fixture', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' }, depends_on: [] });
+  return cards.create({ parent, type, title: 'fixture', bootstrap_content: 'Brief', created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' }, depends_on: [] });
 }
 
 function chain(cards: CardService, depth: number, finalType = 'goal'): string {

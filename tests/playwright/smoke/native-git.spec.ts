@@ -52,10 +52,10 @@ for (const mode of ['delivery', 'correction', 'terminated'] as const) {
             if (turn === 1) return call('write', { path: 'record:///status.md?card=project', content: 'Finite browser delivery fixture fulfilled; source verified by test oracle.' });
             return call('emit_result', { outcome: 'complete_direct', summary: 'Finite synthetic delivery.' });
           }
-          if (turn === 1) return call('create_card', { type: 'code', title: 'Original contribution', bootstrap_content: 'Change source.txt within this synthetic fixture.', priority: 0, urgency: 'normal', depends_on: [] });
+          if (turn === 1) return call('create_card', { type: 'code', title: 'Original contribution', bootstrap_content: 'Change source.txt within this synthetic fixture.', depends_on: [] });
           if (turn === 2) return call('activate_card', { card_id: 'card-a', instructions: 'Perform the bounded synthetic source change.' });
           if (mode === 'correction') {
-            if (turn === 3) return call('create_card', { type: 'code', title: 'Parent advancement', bootstrap_content: 'Deliver a different source.txt value.', priority: 0, urgency: 'normal', depends_on: [] });
+            if (turn === 3) return call('create_card', { type: 'code', title: 'Parent advancement', bootstrap_content: 'Deliver a different source.txt value.', depends_on: [] });
             if (turn === 4) return call('activate_card', { card_id: 'card-b', instructions: 'Deliver the parent advancement.' });
             if (turn === 5) return call('activate_card', { card_id: 'card-a', instructions: 'New parent input permits correction of the original contribution.' });
             if (turn === 6) { parentWaiting = true; await parentGate; return call('write', { path: 'record:///status.md?card=project', content: 'Correction remains incomplete; queued context does not approve source.' }); }
