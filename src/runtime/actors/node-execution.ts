@@ -552,6 +552,28 @@ export class NodeExecution {
     if (stale) return { stale };
     const applicability = promotionViolation();
     if (applicability) return { violations: [applicability], message: applicability };
+    if (target.kind === 'terminal' && promotion?.kind === 'latest-node') {
+      const reviewedNode = process.states.get(`node:${promotion.nodeId}`)!;
+      if (
+        reviewedNode.kind === 'node' &&
+        reviewedNode.descendantContext?.requireUnchangedUntilAccept &&
+        node.execution.kind === 'agent'
+      ) {
+        const bootstrap = process.bootstrapRecord.name;
+        // Mirror the required-candidate and written non-required close paths below.
+        // Only this settlement's actual acceptance intent matters, not unrelated drafts.
+        const required = records.candidates.get(bootstrap);
+        const written =
+          !required && writtenRecords.has(bootstrap)
+            ? this.deps.store.readRecordCurrent(input.card.id, bootstrap)
+            : null;
+        const closing = required ?? (written?.kind === 'found' ? written.value.projection : null);
+        if (closing?.state === 'open') {
+          const violation = `Review '${promotion.nodeId}' cannot be promoted while this result accepts a new assignment in '${bootstrap}'. Select a configured nonterminal route to accept the draft and obtain fresh review, or a supported current-judgment or BLOCKED route.`;
+          return { violations: [violation], message: violation };
+        }
+      }
+    }
     if (target.kind === 'terminal' && target.terminal === 'DONE') {
       const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
       if (blocker) {

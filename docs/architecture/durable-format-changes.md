@@ -23,6 +23,35 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+**Own-assignment review applicability — 2026-11-11**
+
+Actual implementation source parent `678c0536487d65a9adda1a4e78a335cbbbb9a995`
+owns workflow **format_version 6→7** in `schemas/saivage-config.ts` and all six
+bundled profile producers (derived profiles share the owning declarations).
+The semantic cutover adds the reviewed card's configured accepted bootstrap
+card/name/immutable UUID/version to the existing activation-local review snapshot.
+Current review and later latest-node freshness-review promotion compare that tuple;
+terminal promotion also refuses a bootstrap draft that the settlement would accept
+through required or written non-required records. No new durable payload or family,
+grant restriction, graph edge, history rewrite or global invalidation is introduced.
+Direct/current outcomes and legitimate self authorship remain supported.
+
+Evidence: owner comparisons in `runtime/actors/agent-executor.ts`, at-use close-intent
+guard in `node-execution.ts`, strict schema/profile tests, and real compiled classic
+paused-Analyst/nonterminal-self/same-settlement-self regression fixtures. Pre-fix
+all three promoted review A after accepting B; current fixtures refuse before effects
+and complete only after ordinary nonterminal acceptance and fresh review B.
+
+Installed applicability is unknown; use a fresh bump, not an assumed unreleased
+cutover. Workflow6 is a stopped input blocker; matching release/input adoption needs
+separate authorization, with no core or packaged converter, probing, compatibility
+reader or implicit reset. Historical results remain factual past outcomes; source
+completion authorizes no migration, reset or deployment. Binary-only rollback over
+incompatible inputs is unsupported. Card7/head1, accepted-record6/head3,
+conversation index/genesis/envelope13, mailbox1, execution3, shared evidence2,
+capabilities1, initializer1 and native policy1 remain unchanged. Earlier entries
+below retain their source-era workflow6 references as historical evidence.
+
 **Card priority/urgency removal — 2026-11-11**
 
 Actual implementation source parent `887ecd07a69e5f5fc84d9bb86296e8c6aac9a813`
@@ -422,7 +451,7 @@ source-era values; they must not be read as today's accepted-version list.
 | Record head / previous slot | `records/record-<stem>.json` and injective `.prev.json` sibling; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; fresh UUID/mutation revision, current-only baseline0, explicit draft version/target and latest accepted reference. Baseline/draft0/empty is ineligible. |
 | Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:6`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated card-agent (actual author card), historical agent, external/runtime/action-output author with body-bound output descriptor and target ordinary card provenance. Historical projection has null current head/revision. |
 | Record initialization input | Card-type YAML; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; no old content/trigger input reader. |
-| Workflow input | Card-type YAML `workflow`; same owners | `format_version:6`; compiled direct-object authority and reviewed-input applicability (ordinary card selections and exact record observations, including bootstrap), with native correction and typed action/result contracts retained. |
+| Workflow input | Card-type YAML `workflow`; same owners | `format_version:7`; compiled direct-object authority and reviewed-input applicability, including the reviewed card's accepted configured-bootstrap UUID/version and refusal of same-settlement bootstrap acceptance under an older freshness review, with native correction and typed action/result contracts retained. |
 | Agent authority input | Agent YAML `capabilities`; `schemas/agent-capabilities.ts`, workflow compiler | Initial `format_version:1`; singular ordered grants with scoped card/record and workspace clauses; old unversioned authority fields rejected. |
 | Operation selection | Explicit compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; retained in action results/execution observations, not package/shared-envelope version. |
 | Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, action owner and `runtime/git-workflow.ts` | `version:3`, `type:card-execution`; strict action and native start/process/finish associations. Native step/binding, known effects/selections and exact captures/private-index artifacts; unchanged action meanings. Incomplete is valid, not resumable state; artifacts select mutable source. |

@@ -14,6 +14,18 @@ function projectOnly() {
 }
 
 describe('configuration-owned card types',()=>{
+  it('requires workflow7 in every bundled producer and rejects the prior workflow6 contract',()=>{
+    for (const name of ['classic', 'classic-typed', 'paad-typed', 'newloop', 'newloop2'] as const) {
+      const config = resolveSystemTemplate(name).config;
+      for (const type of Object.values(config.card_types!)) expect(type.workflow.format_version).toBe(7);
+      expect(saivageConfigSchema.safeParse(config).success).toBe(true);
+    }
+    const old = structuredClone(projectOnly()) as unknown as { card_types: { project: { workflow: { format_version: number } } } };
+    old.card_types.project.workflow.format_version = 6;
+    expect(saivageConfigSchema.safeParse(old).success).toBe(false);
+    expect(effectiveSaivageConfigSchema.safeParse(old).success).toBe(false);
+    expect(outboundEffectiveSaivageConfigSchema.safeParse(old).success).toBe(false);
+  });
   it('rejects the deleted card_type_set selector while effective contracts require a complete map',()=>{
     const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;
     delete globals.card_types;

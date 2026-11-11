@@ -21,7 +21,7 @@ entry refusal may have the truthful runtime-owned `git-workflow-blocked` result,
 without pretending to be an agent/action outcome. Native ON execution requires
 explicit provisioning, successful commissioning and eligible compiled configuration.
 
-Workflow6 structurally compiles ON correction as the configured card Executor in
+Workflow7 structurally compiles ON correction as the configured card Executor in
 the same state table, with `git-correction` purpose and source_ready/blocked/failed
 results. Only native ownership may enter it and return to the saved ordinary entry
 after verification. It has no product DONE route, mandatory diagnostic output or
@@ -1302,11 +1302,20 @@ Later terminal promotion of an accepted descendant-freshness review compares its
 original configured descendant records and required bootstrap observations,
 including exact record head and accepted-entry identities. Ordered root/descendant
 card IDs and selected immutable ordinary entry UUID/version must match; mailbox-only
-card head UUID/revision changes do not invalidate promotion. Current-review checks
-remain exact-head based. Changed reviewed inputs refuse the old promotion through
+card head UUID/revision changes do not invalidate promotion. Both current-review
+and later promotion also compare the reviewed card's configured accepted bootstrap
+by card ID, record name and immutable accepted UUID/version, not its record head.
+Equal-text reacceptance is a new assignment selection; own status/review output
+and draft-only bootstrap edits do not change that accepted input. Changed reviewed inputs refuse the old promotion through
 the current node's ordinary violation continuation: obtain a fresh review (or
 replan first when work remains). Native source verification does not replace this
 input check; it runs after writer settlement and again before terminal effects.
+Before terminal claim or record close, a latest-node freshness-review promotion
+also refuses when this settlement would accept an open own-bootstrap draft through
+its validated required candidates or written non-required records. Correction
+retains that draft: a configured nonterminal route may accept it and obtain fresh
+review. Custom self-bootstrap grants and current/direct judgments remain legal;
+this is not a blanket draft ban or an all-operation freshness certificate.
 A later semantic change may reject again; unchanged refreshed context may succeed.
 
 ## Conversations and instruction evidence
@@ -3674,7 +3683,7 @@ All classic-typed, paad-typed and newloop non-planning entries begin at the firs
 
 Fresh opt-in `newloop2` owns a standalone deeply frozen nine-type declaration and
 complete physical prompt closure, using unchanged shared capabilities, native-Git
-OFF policy and workflow6 compiler/runtime. Existing profiles remain unchanged.
+OFF policy and workflow7 compiler/runtime. Existing profiles remain unchanged.
 Extra goal handoffs provide explicit review opportunities, not measured model
 insight/compliance or improved delivery quality. Original local wording draws
 conceptual input from [PAAD v2.1.0](https://curtispoe.org/paad/) (read November 10,

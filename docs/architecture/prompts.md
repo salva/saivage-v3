@@ -250,7 +250,7 @@ agents:
 card_types:
   code:
     workflow:
-      format_version: 6
+      format_version: 7
       entries:
         STOPPED:
           node: red

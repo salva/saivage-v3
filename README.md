@@ -40,7 +40,10 @@ Defaults give Planner self status and immediate-child briefs; children propose
 requirement changes through BLOCKED, parents amend the same inactive child without
 weakening upstream obligations, and root decisions reach Analyst/operator. Custom
 scopes may deliberately differ, including self bootstrap drafts. Graph choices and
-native/evidence gates remain intact. The incompatible capabilities1/workflow6,
+native/evidence gates remain intact. Workflow7 additionally ties freshness-review
+promotion to the reviewed card's accepted bootstrap and refuses simultaneous
+bootstrap acceptance under an older review; legitimate self authorship remains
+available through ordinary nonterminal acceptance and fresh review. The incompatible capabilities1/workflow7,
 accepted-record6/conversation13 cutover needs separate [input/state adoption](docs/runbook/state-adoption.md);
 record-head3 is unchanged and installed applicability is unknown.
 Explicit [JS/typed-TS/Python quality actions](docs/reference/configuration.md#quality-actions)

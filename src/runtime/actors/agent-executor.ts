@@ -90,6 +90,12 @@ export class NodeCorrectiveBudgetExceededError extends Error {
 
 type NodeResult = { outcome: string; summary: string };
 export type ReviewerSnapshot = {
+  reviewedCardBootstrap: {
+    cardId: string;
+    filename: string;
+    sourceVersion: number;
+    sourceEntryId: string;
+  };
   cards: Array<{
     id: string;
     versionSeq: number;
@@ -895,7 +901,19 @@ export class AgentExecutor {
     return this.reviewerSnapshot(this.readReviewerTree(cardId), records);
   }
   private reviewerSnapshot(rows: ReviewerTreeRows, records: readonly string[]): ReviewerSnapshot {
+    const card = rows[0]!.card;
+    const workflow = this.deps.workflows.cardTypes.get(card.type);
+    if (!workflow) throw new Error(`No workflow for reviewed card type '${card.type}'.`);
+    const bootstrap = acceptedRecordVersion(this.deps.store, card.id, workflow.bootstrapRecord.name);
+    if (bootstrap.sourceEntryId === null || bootstrap.sourceVersion === null)
+      throw new Error(`Reviewed card '${card.id}' has no accepted bootstrap '${bootstrap.filename}'.`);
     return {
+      reviewedCardBootstrap: {
+        cardId: card.id,
+        filename: bootstrap.filename,
+        sourceVersion: bootstrap.sourceVersion,
+        sourceEntryId: bootstrap.sourceEntryId,
+      },
       cards: rows.map(({ card, headId, ordinary }) => ({
         id: card.id,
         versionSeq: card.version_seq,
@@ -959,10 +977,12 @@ export class AgentExecutor {
     );
     const ordinaryCards = (snapshot: ReviewerSnapshot) =>
       snapshot.cards.map(({ id, ordinary }) => ({ id, ordinary }));
+    if (JSON.stringify(before.reviewedCardBootstrap) !== JSON.stringify(after.reviewedCardBootstrap))
+      return `Review '${node.nodeId}' no longer applies to this card's accepted assignment. Select a configured nonterminal route to replan and obtain fresh review, or a supported current-judgment or BLOCKED route; do not promote the old review.`;
     return JSON.stringify(ordinaryCards(before)) === JSON.stringify(ordinaryCards(after)) &&
       JSON.stringify(before.includedRecordVersions) === JSON.stringify(after.includedRecordVersions)
       ? null
-      : `Review '${node.nodeId}' no longer applies to the reviewed subtree or records; admit_review for a fresh review, or replan first if work remains.`;
+      : `Review '${node.nodeId}' no longer applies to the reviewed subtree or records. Use a configured route to obtain fresh review or replan first if work remains; do not promote the old review.`;
   }
 }
 

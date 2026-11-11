@@ -53,7 +53,7 @@ and [prompt handling](../../../../docs/architecture/prompts.md).
 All five registered profiles now share the singular capabilities1 grammar:
 Planner self/status and children/brief, Reviewer self/review\*, Executor self/status,
 global Analyst all/brief, broad explicit reads. Custom scopes may grant self
-bootstrap drafts. Workflow6/accepted-record6/conversation13 require separately
+bootstrap drafts. Workflow7/accepted-record6/conversation13 require separately
 authorized input/prompt and retained-state adoption; record-head3 stays unchanged.
 This cutover does not redesign the profile's graph or prove installed compatibility.
 

@@ -52,7 +52,7 @@ source refs/OIDs and redact ref text; no source bytes, approval or helper phase 
 stored there. Supervisor owns runtime source sequencing and activation frontiers;
 held or mismatched source blocks further execution.
 
-Workflow6 retains the correction participant in the existing compiled state table,
+Workflow7 retains the correction participant in the existing compiled state table,
 not another engine. Structural declaration compilation selects actual task/feedback
 prompts and named agent sessions; runtime compilation and binding enforce ON eligibility.
 Generated native transitions distinguish entry, verified saved-entry return and
@@ -456,9 +456,15 @@ Reviewer context/snapshot uses one call-local root-inclusive subtree projection,
 preserving each card's selected ordinary entry UUID/version and current head
 UUID/revision, plus configured descendant record observations and deduplicated
 required bootstraps (accepted entry/version and current record head UUID/revision).
+Its separate reviewed-card bootstrap tuple contains the actual card ID, configured
+bootstrap name and accepted immutable UUID/version only. It is captured before
+review work and retained unchanged with the accepted result; self output/head churn
+and unaccepted self drafts are not new accepted assignments.
 Current review acceptance independently rereads and compares exact observations.
 A later terminal `latest_node` promotion uses the original review node's inputs:
 ordered card IDs/ordinary references and all exact record tuples must still match.
+The reviewed-card accepted bootstrap tuple must match too, including equal-text
+reacceptances with new immutable identities.
 Mailbox-only card selector publications do not invalidate that accepted review;
 ordinary card or record changes do. Native promotion checks after awaited writer
 settlement before source selection/verification, then again before final effects.
@@ -470,6 +476,11 @@ remembered admission. The one joint 16-rearm budget covers malformed/plaintext
 results, pending notifications, stale context, record and other corrective causes.
 
 Acceptance checks records/descendants/freshness/promotion before terminal claim,
+including a synchronous check of the actual required/written bootstrap close intent
+when promoting a prior freshness review. A pending own-assignment acceptance refuses
+before effects and preserves its draft for a configured nonterminal acceptance and
+fresh review. Other drafts, grants and current/direct outcomes are unchanged. This
+does not stamp all operation inputs or add a mutation registry. Acceptance
 then closes required records in declaration order and other activation-written
 records by sorted name. Only returned immutable close projections supply URLs,
 transition evidence and exports. Nonaccepted graceful finalization discards owned

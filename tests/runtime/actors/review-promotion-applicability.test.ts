@@ -72,7 +72,7 @@ describe('review applicability uses selected ordinary cards and exact record obs
     else if (change === 'descendant') h.store.setStatus(h.child.id, 'changed');
     else if (change === 'membership') h.store.create({ parent: 'project', type: 'goal', title: 'Added', created_by: 'analyst', depends_on: [], bootstrap_content: 'Added assignment' });
     else h.store.reorderChildren('project', [...h.store.listChildren('project')].reverse());
-    expect(h.executor.reviewPromotionViolation('project', h.review, before)).toContain('admit_review');
+    expect(h.executor.reviewPromotionViolation('project', h.review, before)).not.toBeNull();
   });
 
   it.each(['status.md', 'brief.md'] as const)('rejects newly accepted %s even with the same content and unchanged ordinary cards', (name) => {
@@ -105,14 +105,82 @@ describe('review applicability uses selected ordinary cards and exact record obs
     const record = structuredClone(before);
     record.includedRecordVersions.find(({ filename }) => filename === 'brief.md')!.headId = randomUUID();
     expect(h.executor.reviewPromotionViolation('project', h.review, record)).not.toBeNull();
+    const ownAssignment = structuredClone(before);
+    ownAssignment.reviewedCardBootstrap.sourceEntryId = randomUUID();
+    expect(h.executor.reviewPromotionViolation('project', h.review, ownAssignment)).not.toBeNull();
+  });
+
+  it('tracks accepted own assignment during current review, including equal-text reacceptance', () => {
+    const h = fixture();
+    const before = h.capture();
+    expect(before.reviewedCardBootstrap).toMatchObject({ cardId: 'project', filename: 'brief.md', sourceEntryId: expect.any(String), sourceVersion: expect.any(Number) });
+    h.store.acceptRecord('project', 'brief.md', 'Changed assignment', { kind: 'agent', agent: 'analyst' });
+    expect(h.stale(before)).not.toBeNull();
+    expect(h.executor.reviewPromotionViolation('project', h.review, before)).not.toBeNull();
+    const changed = h.capture();
+    h.store.acceptRecord('project', 'brief.md', 'Intervening assignment', { kind: 'agent', agent: 'analyst' });
+    h.store.acceptRecord('project', 'brief.md', 'Changed assignment', { kind: 'agent', agent: 'analyst' });
+    expect(h.stale(changed)).not.toBeNull();
+    expect(h.executor.reviewPromotionViolation('project', h.review, changed)).not.toBeNull();
+    expect(h.capture().cards).toEqual(before.cards);
+  });
+
+  it('does not treat own status/review output or an unselected bootstrap draft as a new accepted assignment', () => {
+    const h = fixture();
+    const before = h.capture();
+    h.store.acceptRecord('project', 'status.md', 'Updated status', { kind: 'agent', agent: 'analyst' });
+    h.store.acceptRecord('project', 'review.md', 'Updated review output', { kind: 'agent', agent: 'analyst' });
+    h.store.openRecord('project', 'brief.md');
+    expect(h.stale(before)).toBeNull();
+    expect(h.executor.reviewPromotionViolation('project', h.review, before)).toBeNull();
   });
 });
 
 describe('terminal promotion acceptance boundaries', () => {
+  it.each(['required', 'written', 'unselected', 'direct'] as const)('checks only actual bootstrap close intent: %s', async (intent) => {
+    const h = fixture();
+    const snapshot = h.capture();
+    const assessment = h.process.states.get('node:assess-completion')! as CompiledNodeContract;
+    const node = intent === 'required'
+      ? { ...assessment, requirements: [{ definition: h.process.bootstrapRecord, mode: 'continue' as const, gate: 'updated' as const }] }
+      : assessment;
+    h.store.openRecord('project', 'brief.md');
+    const draft = h.store.editRecord('project', 'brief.md', 'Legitimate new assignment');
+    const effects: string[] = [];
+    const execution = new NodeExecution(h.deps, {
+      promotedResult: () => ({ reviewerSnapshot: snapshot }),
+      assertCurrentActivation: () => {}, assertCurrentNode: () => {}, assertPromotionAvailable: () => {},
+      claimResultHandoff: () => { effects.push('claim'); },
+    } as unknown as NodeExecutionHost);
+    const internals = execution as unknown as {
+      validateRecords(): unknown;
+      closeAcceptedRecords(): [];
+      acceptCandidate(...args: unknown[]): Promise<{ violations?: string[]; accepted?: AcceptedNodeResult }>;
+    };
+    internals.validateRecords = () => ({ candidates: intent === 'required' ? new Map([['brief.md', draft]]) : new Map() });
+    internals.closeAcceptedRecords = () => { effects.push('close'); return []; };
+    const result = await internals.acceptCandidate(
+      { node, process: h.process, input: { card: h.store.read('project'), nativeSource: null, notificationDelivery: { hasPendingNotifications: () => false } }, signal: new AbortController().signal, nodeOrdinal: 4 },
+      { outcome: intent === 'direct' ? 'complete_direct' : 'complete_reviewed', summary: 'Current judgment' },
+      new Map(), () => null, () => { effects.push('before-claim'); }, () => {}, intent === 'written' || intent === 'direct' ? new Set(['brief.md']) : new Set(),
+    );
+    if (intent === 'required' || intent === 'written') {
+      expect(result.violations).toHaveLength(1);
+      expect(effects).toEqual([]);
+      expect(h.store.readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { state: 'open', draft: { content: 'Legitimate new assignment' } } } });
+    } else {
+      expect(result.accepted).toBeDefined();
+      expect(effects).toEqual(['before-claim', 'claim', 'close']);
+    }
+  });
+
   it.each([
     ['off', 'record', false],
     ['writers', 'record', false],
     ['verify', 'record', false],
+    ['off', 'own-assignment', false],
+    ['writers', 'own-assignment', false],
+    ['verify', 'own-assignment', false],
     ['writers', 'queue', true],
     ['verify', 'queue', true],
   ] as const)('checks %s after awaited settlement: %s change, accepted=%s', async (phase, change, succeeds) => {
@@ -126,6 +194,7 @@ describe('terminal promotion acceptance boundaries', () => {
     const mutate = () => {
       events.push('change');
       if (change === 'record') h.store.acceptRecord(h.child.id, 'status.md', 'New evidence', { kind: 'agent', agent: 'analyst' });
+      else if (change === 'own-assignment') h.store.acceptRecord('project', 'brief.md', 'New own assignment', { kind: 'agent', agent: 'analyst' });
       else {
         const notificationId = h.queue('project');
         h.store.removeNotifications('project', [notificationId]);

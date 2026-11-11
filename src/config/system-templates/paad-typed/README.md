@@ -18,7 +18,7 @@ children/brief, Reviewer self/review\*, Executor self/status, global Analyst all
 and explicit broad reads. A child proposes requirement changes through BLOCKED;
 its parent may amend that same inactive child without weakening upstream obligations.
 Root decisions reach Analyst/operator. Deliberate custom grants may allow other
-scopes, including self bootstrap drafts. Workflow6/accepted-record6/conversation13
+scopes, including self bootstrap drafts. Workflow7/accepted-record6/conversation13
 require separately authorized input/prompt and retained-state adoption; record-head3
 is unchanged and installation applicability remains unknown. No graph redesign is
 part of that authority cutover.

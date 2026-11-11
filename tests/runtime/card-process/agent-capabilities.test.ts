@@ -28,7 +28,7 @@ describe('compiled direct-object capabilities', () => {
       expect('recordWrites' in planner).toBe(false);
       expect('canCreateChildren' in planner).toBe(false);
       expect([...compiled.cardTypes.values()].every((type) => type.states.size > 0)).toBe(true);
-      expect(Object.values(config.card_types).every((type) => type.workflow.format_version === 6)).toBe(true);
+      expect(Object.values(config.card_types).every((type) => type.workflow.format_version === 7)).toBe(true);
     },
   );
 

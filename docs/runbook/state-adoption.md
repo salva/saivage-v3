@@ -1,5 +1,25 @@
 # State adoption, repair and reset
 
+**Own-assignment review applicability — workflow7**
+
+From source parent `678c0536487d65a9adda1a4e78a335cbbbb9a995`, workflow input
+advances **6→7**: an accepted freshness review includes the reviewed card's own
+configured accepted-bootstrap UUID/version. A later terminal promotion must still
+match that assignment and cannot simultaneously accept a new bootstrap draft.
+Custom self grants and ordinary nonterminal acceptance/direct outcomes remain
+supported. No graph edge is added or required by this cutover.
+
+Installed applicability is unknown. Workflow6 input is rejected, never silently
+relabeled or normalized. Adopt matching release/configuration only through a
+separately authorized input/state adoption; explicitly requested external offline
+migration follows all gates below, while destructive reset requires separate consent.
+This change supplies no converter or automatic reset and authorizes no deployment,
+service action or Run. Historical results remain past facts, not retrospective
+certificates of current assignment acceptance. Binary-only rollback with incompatible
+inputs is unsupported. Card7/head1, accepted-record6/head3, conversation13,
+execution3, shared evidence2, capabilities1, mailbox1, initializer1 and native policy1
+remain unchanged. See the [format reference](../architecture/durable-format-changes.md#current-source-baseline).
+
 **Card priority/urgency removal**
 
 The source change from parent `887ecd07a69e5f5fc84d9bb86296e8c6aac9a813`

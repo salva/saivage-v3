@@ -297,7 +297,7 @@ there is no image garbage-collection promise.
 
 ## Configure workflows and records
 
-A card type declares permitted children, records and `workflow.format_version: 6`.
+A card type declares permitted children, records and `workflow.format_version: 7`.
 For retained explicit workflow2 inputs, follow the
 [literal-key adoption boundary](../runbook/state-adoption.md#workflow3-literal-protection-keys),
 not an automatic version rewrite.

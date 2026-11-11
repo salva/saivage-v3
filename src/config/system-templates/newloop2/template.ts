@@ -81,7 +81,7 @@ function planningCardType(project = false): CardTypeSource {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
-      format_version: 6,
+      format_version: 7,
       notification_recipient: 'planner',
       entries: executionEntries('frame-plan'),
       nodes: {
@@ -137,7 +137,7 @@ function codeCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 6,
+      format_version: 7,
       entries: executionEntries('red'),
       nodes: {
         'resume-assess': assessmentNode(['red', 'green', 'refactor']),
@@ -170,7 +170,7 @@ function testCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 6,
+      format_version: 7,
       entries: executionEntries('diagnose', 'diagnose'),
       nodes: {
         diagnose: executorNode('test-diagnose', {
@@ -210,7 +210,7 @@ function researchCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 6,
+      format_version: 7,
       entries: executionEntries('explore'),
       nodes: {
         'resume-assess': assessmentNode(['explore', 'assess', 'report']),
@@ -244,7 +244,7 @@ function dataCardType(): CardTypeSource {
     records: leafRecords(),
     workflow: {
       notification_recipient: 'executor',
-      format_version: 6,
+      format_version: 7,
       entries: executionEntries('schema'),
       nodes: {
         'resume-assess': assessmentNode(['schema', 'validate', 'implement']),
@@ -282,7 +282,7 @@ function architectureCardType(): CardTypeSource {
     workflow: {
       notification_recipient: 'executor',
       entries: executionEntries('draft'),
-      format_version: 6,
+      format_version: 7,
       nodes: {
         'resume-assess': assessmentNode(['draft', 'component-review', 'system-review']),
         draft: executorNode('architecture-draft', {
@@ -341,7 +341,7 @@ function simpleExecutionCardType(type: 'doc' | 'ops'): CardTypeSource {
     workflow: {
       notification_recipient: 'executor',
       entries: executionEntries('execute', 'execute'),
-      format_version: 6,
+      format_version: 7,
       nodes: {
         execute: executorNode(`${type}-execute`, {
           done: terminal('DONE', 'status.md'),

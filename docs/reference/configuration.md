@@ -536,8 +536,13 @@ authentication/native/GC/lifecycle bypass. Automatic bootstrap, record prompts,
 descendant contexts and broad global evidence are configured workflow feeds, not
 scoped read calls: this is not an information-flow or shell sandbox.
 
-Capabilities1 establishes the authority input discriminator; workflow6 records
-the changed authorship/delegation and reviewed-input semantics. Existing inputs and
+Capabilities1 establishes the authority input discriminator; workflow7 extends
+workflow6's authorship/delegation and reviewed-input semantics with the reviewed
+card's own accepted configured-bootstrap UUID/version. Terminal promotion of a
+freshness review refuses changed accepted assignments and a bootstrap draft that
+the same settlement would accept, including written non-required records. Custom
+self grants and direct outcomes remain legal; use configured nonterminal acceptance
+and fresh review rather than attributing a new assignment to an old verdict. Existing inputs and
 retained state do not auto-convert; see [adoption](../runbook/state-adoption.md).
 
 ### Prompt declarations
@@ -547,7 +552,7 @@ retained state do not auto-convert; see [adoption](../runbook/state-adoption.md)
 | Static: agent role, agent-node task | `reference`, `compactable` | Reference required; compactable defaults true |
 | Durable: correction, entry, edge, pending-notification or record prompt | `reference`, `compactable`, optional `compaction_key` | compactable true; a nonempty key is allowed only with compactable false |
 
-Under workflow6, a key remains the exact parsed YAML string, not quote delimiters or
+Under workflow7, a key remains the exact parsed YAML string, not quote delimiters or
 escape spelling. `${POLICY_KEY}`, embedded substitutions, whitespace, case and
 Unicode remain literal whether variables exist or not; no key-only missing-variable
 warning is emitted. Empty is invalid; whitespace-only is nonempty and is not
@@ -610,7 +615,7 @@ Path `card_types.<type>`; `project` required in a supplied map:
 | --- | --- |
 | `permitted_child_types` | Required array; configured unique types, never `project`; empty means leaf |
 | `records` | Required name→record declaration map; exactly one bootstrap record |
-| `workflow` | Required workflow6 object below |
+| `workflow` | Required workflow7 object below |
 
 At resulting card depth12 creation requires a compiled leaf type. Child permission
 and card identity are runtime requirements, not configurable allocation scans.
