@@ -335,7 +335,65 @@ jobs:
         run: npm run web:test:e2e:install
 
       - name: Install Chromium host dependencies
-        run: npx playwright install-deps chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runner image owns this mirrorlist indirection. Prefer official HTTPS
+          # by priority; APT retains the original Azure HTTP per-file fallback.
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import sys
+
+          def unsupported():
+              sys.exit("Unsupported Ubuntu APT source layout; expected two runner noble stanzas")
+
+          source = Path("/etc/apt/sources.list.d/ubuntu.sources")
+          lines = source.read_bytes().splitlines(keepends=True)
+          stanzas = []
+          fields = {}
+          for index, line in enumerate(lines):
+              if not line.strip():
+                  if fields:
+                      stanzas.append(fields)
+                      fields = {}
+                  continue
+              if line.lstrip().startswith(b"#"):
+                  continue
+              name, separator, value = line.partition(b":")
+              name = name.lower()
+              if not separator or name in fields or name.strip() != name:
+                  unsupported()
+              fields[name] = (value.strip(), index)
+          if fields:
+              stanzas.append(fields)
+
+          expected = {(b"noble", b"noble-updates", b"noble-backports"), (b"noble-security",)}
+          security_line = None
+          if len(stanzas) != 2:
+              unsupported()
+          for fields in stanzas:
+              if not {b"types", b"uris", b"suites"} <= fields.keys():
+                  unsupported()
+              if fields[b"types"][0] != b"deb" or fields.get(b"enabled", (b"yes",))[0] != b"yes":
+                  unsupported()
+              if fields[b"uris"][0] != b"mirror+file:/etc/apt/apt-mirrors.txt":
+                  unsupported()
+              suites = tuple(fields[b"suites"][0].split())
+              if suites not in expected:
+                  unsupported()
+              expected.remove(suites)
+              if suites == (b"noble-security",):
+                  security_line = fields[b"uris"][1]
+
+          lines[security_line] = lines[security_line].replace(
+              b"mirror+file:/etc/apt/apt-mirrors.txt", b"mirror+file:/etc/apt/apt-security-mirrors.txt")
+          Path("/etc/apt/apt-mirrors.txt").write_bytes(
+              b"https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n")
+          Path("/etc/apt/apt-security-mirrors.txt").write_bytes(
+              b"https://security.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n")
+          source.write_bytes(b"".join(lines))
+          PY
+          npx playwright install-deps chromium
 
       - name: Set up qualified native-test Node.js
         uses: actions/setup-node@v4
