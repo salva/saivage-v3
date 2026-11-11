@@ -279,6 +279,7 @@ export type {
   AnalystCreateCardInput,
   NavigateWorkspaceInput,
   ListCardsInput,
+  ReadAgentSessionInput,
 } from './builtin-tool-inputs.js';
 export { parseOperatorResponse } from './operator-api.js';
 export {

@@ -29,13 +29,13 @@ import {
   readRuntimeEventsInputSchema,
   toolFailed,
   toolSucceeded,
+  type ReadAgentSessionInput,
   type ToolActionOutcome,
 } from '../contracts/index.js';
 import { toolFailureFromError } from './analyst-tool-helpers.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES, packCollectionData } from './response-packer.js';
 import type { QueueNotificationToolInput } from './notification-tool.js';
 import type { ToolExecutionResult } from './invocation.js';
-import type { ReadAgentSessionInput } from '../contracts/builtin-tool-inputs.js';
 
 const DEFAULT_LIMIT = 50;
 
