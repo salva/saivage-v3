@@ -158,7 +158,43 @@ neither excludes other global-protection causes nor certifies candidates unneede
 
 ## Results, cancellation and restoration
 
-The CLI prints the bounded response: `mode`, `disposition` (`completed`,
+Progress goes to **stderr**, as concise newline-delimited text; final **stdout**
+is exactly one JSON response line after successful settlement (offline: after
+lock release). Offline disclosure and the exact confirmation prompt also use stderr.
+For example, redirect stdout to a result file outside work while watching stderr.
+Observations are transient, lossy and throttled: phase changes emit immediately,
+count updates at most once per second in existing work loops. There are no timers,
+heartbeats, percentages, ETA or known total-work denominators. Slow/broken stderr
+can drop observations without cancelling collection or suppressing final output.
+
+The phases are `inventory`, online-only `settling`, `validation_marking`, and
+`selection`. Inventory is not a settled hold; settling describes an attempt to
+park/join owners, not completed exclusion. Offline initial configuration loading
+still precedes inventory. Elapsed milliseconds use an operation-local monotonic
+clock. Optional cumulative counts/logical bytes describe work already observed:
+inventory's accounted files/opaque entries; completed card, record-history and
+segment inspections; classified candidates; hypothetical preview removals or
+known-success deletions. Omitted means not yet observed/applicable; zero means
+observed zero. They contain no paths, identities or content, and do not change
+selection or certify completion. An indivisible synchronous read can be silent;
+the last phase can include later settlement/release silence.
+Validated cards count reached active cards, not tombstones; records count completed
+selected-history inspection, not absent lazy records; segments count strict complete
+inspection. Inventory skips reserved temporary entries without counting them.
+
+HTTP 200 is one `application/x-ndjson` stream with `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`: zero or more
+`{type:'progress', progress: ...}` frames, exactly one last
+`{type:'result', response: ...}` frame, newline terminated, then EOF. Each encoded
+frame is bounded to 16 KiB including newline. Clients require strict schemas,
+ordering, MIME and complete terminal-plus-EOF; no JSON-200 fallback exists.
+Authentication/input/busy errors before stream admission remain JSON 401/400/409;
+ordinary pre-stream internal failure is safe JSON 500. A post-header failure can
+leave an incomplete stream instead. Ship matching server and clients together.
+Slow clients drop optional progress; terminal drainage happens only after GC and
+its hold release, never holding maintenance open for delivery.
+
+The terminal response carries `mode`, `disposition` (`completed`,
 `interrupted`, `refused`), `reason`, `restoration`, nullable `failure` and nullable `result`.
 `completed` does not mean every file was eligible or the target was reached.
 
@@ -202,13 +238,15 @@ Pause withdraws auto-resume intent; Stop/server close/restart or natural Run
 settlement defeats it. Public Start/Resume cannot release the hold. `not_resumed`
 and `not_acquired` are not instructions to start a new Run: inspect current state.
 
-Requester disconnect or Stop cancels online GC; SIGINT/SIGTERM cancels offline GC.
+Requester disconnect or Stop cancels online GC; CLI SIGINT/SIGTERM forwards
+cancellation online and cancels cooperatively offline.
 Cancellation stops waiting for accepted Analyst work, not that work itself; collection
 must actually settle before release. First failure ends the attempt, without retry,
 compensation or repeat unlink. Publication/deletion-durability uncertainty is fatal
 **before** readback, logging/report updates, cleanup, hold/lock release or resume.
 Lifecycle release uncertainty is also fatal before output or further cleanup. A lost
-response is not proof that nothing was deleted; never replay it as a saved request
+response, malformed stream or missing terminal/EOF is not proof that nothing was
+deleted. Transport failure prints no manufactured final stdout response; never replay it as a saved request
 or infer lossless recovery. Follow [uncertainty handling](./state-adoption.md#stop-on-uncertainty).
 
 The [operator API reference](../architecture/system-architecture.md#operator-routes)

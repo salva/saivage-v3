@@ -9,6 +9,8 @@ import {
   type OperatorRouteContract,
 } from '../contracts/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
+import { ContractFrameStream } from './contract-stream.js';
+import { Readable } from 'node:stream';
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported contract authentication class: ${String(value)}`);
@@ -40,8 +42,12 @@ export interface ContractRequestContext<
 }
 
 export interface ContractPreSendReply {
-  readonly raw: { once(event: string, listener: (...args: unknown[]) => void): unknown };
+  readonly raw: {
+    once(event: string, listener: (...args: unknown[]) => void): unknown;
+    removeListener(event: string, listener: (...args: unknown[]) => void): unknown;
+  };
   header(name: string, value: string | number | string[] | undefined): void;
+  createStream(): ContractFrameStream;
 }
 
 type ContractHandler<TContract extends OperatorRouteContract = OperatorRouteContract> = (
@@ -51,6 +57,7 @@ type ContractHandler<TContract extends OperatorRouteContract = OperatorRouteCont
 interface ContractHandlerResult {
   statusCode?: number;
   body?: unknown;
+  stream?: unknown;
 }
 
 interface ContractRuntimeOptions {
@@ -125,6 +132,7 @@ export class ContractRuntime {
         let failureCode: FailureCode = 'auth_evaluation_failed';
         let safeIdentity: SafeFailureIdentity = {};
         let final: ResponseDescriptor;
+        let activeStream: ContractFrameStream | undefined;
 
         try {
           let candidate: ResponseDescriptor | undefined;
@@ -155,6 +163,12 @@ export class ContractRuntime {
             safeIdentity = this.projectFailureIdentity(contract, parsed);
             const replyCapability: ContractPreSendReply = {
               raw: reply.raw,
+              createStream: () => {
+                if (contract.responseEncoding !== 'ndjson')
+                  throw new Error('Route does not declare a frame stream.');
+                activeStream = new ContractFrameStream(contract.response[200]!);
+                return activeStream;
+              },
               header: (name, value) => {
                 reply.header(name, value);
               },
@@ -167,6 +181,19 @@ export class ContractRuntime {
               query: parsed.query,
               body: parsed.body,
             });
+            if (result.stream !== undefined) {
+              if (contract.responseEncoding !== 'ndjson' || !(result.stream instanceof Readable))
+                throw new Error('Route returned an undeclared stream.');
+              reply.header('Content-Type', 'application/x-ndjson');
+              reply.header('Cache-Control', 'no-store');
+              reply.header('X-Content-Type-Options', 'nosniff');
+              // Admission completed synchronously, without waiting for inventory or maintenance.
+              reply.send(result.stream);
+              reply.raw.flushHeaders();
+              return reply;
+            }
+            if (contract.responseEncoding === 'ndjson' && (result.statusCode ?? 200) === 200)
+              throw new Error('Streamed success requires its declared stream.');
             candidate = { statusCode: result.statusCode ?? 200, body: result.body };
           }
 
@@ -205,6 +232,7 @@ export class ContractRuntime {
                 : parsedResponse.data,
           };
         } catch (error) {
+          if (activeStream?.fatal) throw error;
           if (error instanceof PublicationOutcomeUnknownError)
             this.fatalPort.publicationOutcomeUnknown(error);
           throwIfPublicationOutcomeUnknown(error);

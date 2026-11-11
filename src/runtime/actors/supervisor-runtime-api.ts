@@ -234,6 +234,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
 
   async withWorkGcMaintenance<T>(input: {
     signal: AbortSignal;
+    isFatal?(): boolean;
+    onFatal?(): void;
     assertEntryIdle(): void;
     settleAcceptedWork(): Promise<void>;
     assertReady(): void;
@@ -296,8 +298,10 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       const settling = Promise.all([hold.parked.promise, input.settleAcceptedWork()]);
       // Keep fatal observation even when cancellation stops waiting for accepted work.
       void settling.catch((error) => {
-        if (error instanceof PublicationOutcomeUnknownError)
+        if (error instanceof PublicationOutcomeUnknownError) {
+          input.onFatal?.();
           this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        }
       });
       await Promise.race([settling, cancelled.promise]);
       signal.throwIfAborted();
@@ -327,8 +331,11 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       signal.throwIfAborted();
       return { value, restoredRunning: finish() };
     } catch (error) {
-      if (error instanceof PublicationOutcomeUnknownError)
+      if (input.isFatal?.()) throw error;
+      if (error instanceof PublicationOutcomeUnknownError) {
+        input.onFatal?.();
         this.behavior.fatalPort.publicationOutcomeUnknown(error);
+      }
       throw new WorkGcMaintenanceError(finish(), error, signal.aborted);
     }
   }

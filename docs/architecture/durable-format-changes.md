@@ -23,6 +23,21 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Transient work-GC progress from actual implementation source parent
+`a865939712b180ec6d1d68cd5fc663027a1de278` changes only call-local observation,
+CLI presentation and HTTP success encoding (strict NDJSON progress/result plus
+EOF). Ship matching server, Node CLI and web API clients together; there is no
+JSON-200 compatibility path. No retained shape, interpretation, selection, links,
+provenance, layout or retention-root change: card head1/history6/mailbox1, record
+head3/accepted6, conversation index/genesis/envelope13, execution3, shared provider/
+app envelope2, workflow6 and capabilities1 remain unchanged. Evidence: the owning
+progress/frame contracts, collector/inspector loop instrumentation and streamed
+route/client changes introduce no durable producer or conversation/provider input.
+No discriminator bump/new family or unreleased-cutover exception applies. This
+isolated transport change needs no retained-state conversion/reset; whole-release
+compatibility and installed applicability remain separate. No deployment, live GC
+or external migration is authorized by source completion.
+
 Truthful Analyst Start refusal from actual implementation parent
 `e0209bfb5412de834e8d56525ce44fc018e96d88` changes expected Supervisor admission and future opaque control-tool
 result data only. No family/discriminator changes: conversation index/genesis/

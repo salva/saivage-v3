@@ -155,7 +155,9 @@ type ParsedOperatorApiResponse<K extends OperatorApiOperationId, S extends numbe
     ? OperatorApiResponse<K, S>
     : OperatorApiResponse<K, OperatorApiResponseStatus<K>>;
 export type OperatorApiHandlerResult<K extends OperatorApiOperationId> =
-  | { statusCode?: 200; body: OperatorApiSuccess<K> }
+  | (OperatorApiContract<K> extends { responseEncoding: 'ndjson' }
+      ? { statusCode?: 200; stream: AsyncIterable<Uint8Array> }
+      : { statusCode?: 200; body: OperatorApiSuccess<K> })
   | {
       [S in Exclude<OperatorApiResponseStatus<K>, 200>]: {
         statusCode: S;
@@ -179,3 +181,5 @@ export function parseOperatorResponse<K extends OperatorApiOperationId, S extend
   }
   return schema.parse(payload) as ParsedOperatorApiResponse<K, S>;
 }
+export { WorkGcStreamDecoder } from './work-gc-stream.js';
+export type { WorkGcProgressObserver } from './work-gc.js';

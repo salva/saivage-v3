@@ -1,11 +1,7 @@
 import { writeSync } from 'node:fs';
 
-export class PublicationOutcomeUnknownError extends Error {
-  constructor(cause?: unknown) {
-    super('Saivage durable publication outcome is unknown.', { cause });
-    this.name = 'PublicationOutcomeUnknownError';
-  }
-}
+import { PublicationOutcomeUnknownError } from './publication-outcome-error.js';
+export { PublicationOutcomeUnknownError } from './publication-outcome-error.js';
 
 export interface ApplicationFatalPort {
   publicationOutcomeUnknown(error: PublicationOutcomeUnknownError): never;

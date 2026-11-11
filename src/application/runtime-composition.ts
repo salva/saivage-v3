@@ -72,11 +72,15 @@ import { submitNotificationTool, type QueueNotificationToolInput } from '../tool
 import type { DirectObjectAuthority } from '../tools/tool-api.js';
 
 export interface RuntimeApplication {
-  collectWorkGarbage(request: WorkGcRequest, signal: AbortSignal): Promise<WorkGcResponse>;
+  collectWorkGarbage(request: WorkGcRequest, signal: AbortSignal,
+    progress?: import('../contracts/index.js').WorkGcProgressObserver,
+    onFatal?: () => void): Promise<WorkGcResponse>;
   assertWorkGcIngressAllowed(): void;
   cancelWorkGc(reason: Error): void;
   runWorkGc<I, T>(input: {
     signal: AbortSignal;
+    isFatal?(): boolean;
+    onFatal?(): void;
     inventory(signal: AbortSignal): Promise<I>;
     collect(inventory: I, signal: AbortSignal): Promise<T>;
   }): Promise<{ value: T; restoredRunning: boolean }>;
@@ -522,13 +526,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     });
   }
   return {
-    collectWorkGarbage(request, signal) {
-      return runWorkGcOperation({ ...services, request, signal, run: this.runWorkGc.bind(this) });
+    collectWorkGarbage(request, signal, progress, onFatal) {
+      return runWorkGcOperation({ ...services, request, signal, progress, onFatal, run: this.runWorkGc.bind(this) });
     },
     assertWorkGcIngressAllowed: () => runtimeSupervisor.assertWorkGcIngressAllowed(),
     cancelWorkGc: (reason) => runtimeSupervisor.cancelWorkGc(reason),
     runWorkGc(input) {
-      if (workGcTask) return Promise.reject(new WorkGcBusyError());
+      if (workGcTask) throw new WorkGcBusyError();
       const abort = new AbortController();
       workGcAbort = abort;
       const signal = AbortSignal.any([input.signal, abort.signal]);
@@ -538,6 +542,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         signal.throwIfAborted();
         return runtimeSupervisor.withWorkGcMaintenance({
           signal,
+          isFatal: input.isFatal,
+          onFatal: input.onFatal,
           assertEntryIdle: services.assertWorkGcEntryIdle,
           settleAcceptedWork: async () => {
             await Promise.all([
@@ -557,8 +563,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           workGcAbort = null;
         },
         (error) => {
-          if (error instanceof PublicationOutcomeUnknownError)
+          if (input.isFatal?.()) return;
+          if (error instanceof PublicationOutcomeUnknownError) {
+            input.onFatal?.();
             services.fatalPort.publicationOutcomeUnknown(error);
+          }
           workGcTask = null;
           workGcAbort = null;
         },

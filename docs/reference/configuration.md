@@ -302,6 +302,16 @@ bearer mode. Dead/unverifiable owners or live null endpoints refuse without
 fallback. Only a missing lock permits the interactive bound-lock offline procedure;
 it uses current resolved workflows/prompt closure without init or source commissioning.
 GC response waits have no elapsed deadline; connection establishment remains finite.
+HTTP 200 uses only `application/x-ndjson`: optional strict progress frames
+`{type:'progress',progress:...}`, then one final `{type:'result',response:...}`
+and EOF, each newline-terminated frame at most 16 KiB. The stream is no-store and
+nosniff. Complete terminal-plus-EOF is required; pre-admission 400/401/409 and
+ordinary pre-stream 500 remain JSON. Matching clients/server must ship together.
+CLI progress and offline disclosures/prompt use stderr; final stdout is one
+response JSON line after settlement and offline lock release. SIGINT/SIGTERM
+cancels the single online request or offline collection cooperatively. Dropped
+progress does not suppress final output; incomplete transport produces no final
+response and cannot certify deletion effects. Phases/count limits are in the runbook.
 Follow the
 [preview-first procedure](../runbook/work-gc.md); each delete computes a new selection.
 Protection follows current semantic roots, not historical provenance, without a new

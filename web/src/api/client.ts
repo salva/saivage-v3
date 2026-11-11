@@ -35,6 +35,8 @@ import { type ConversationSessionId } from './contracts';
 import { getAuthToken } from './auth';
 import {
   operatorApiContracts,
+  WorkGcStreamDecoder,
+  type WorkGcProgressObserver,
   parseOperatorResponse,
   type OperatorApiOperationId,
   type OperatorApiParams,
@@ -143,6 +145,22 @@ async function operatorRequest<K extends OperatorApiOperationId>(
   }
 
   let responseBody: unknown;
+  if (response.status === 200 && 'responseEncoding' in contract && contract.responseEncoding === 'ndjson') {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Operator API returned no stream body.');
+    try {
+      const decoder = new WorkGcStreamDecoder(response.headers.get('content-type'), options.progress);
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        decoder.push(chunk.value);
+      }
+      return decoder.finish() as K extends 'agents.conversationImage' | 'files.image' | 'cards.executions.download' ? Blob : OperatorApiSuccess<K>;
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    } finally { reader.releaseLock(); }
+  }
   if (response.status === 200 && 'responseEncoding' in contract && contract.responseEncoding === 'binary') {
     const blob = await response.blob();
     if (operationId === 'cards.executions.download') {
@@ -179,6 +197,7 @@ type OperatorRequestOptions<K extends OperatorApiOperationId> = {
   query?: Record<string, string | undefined>;
   body?: OperatorApiBody<K>;
   signal?: AbortSignal;
+  progress?: WorkGcProgressObserver;
 };
 
 function buildOperatorPath<K extends OperatorApiOperationId>(
@@ -294,6 +313,9 @@ export function getRuntimeStatus(
   signal?: AbortSignal,
 ): Promise<OperatorApiSuccess<'runtime.status'>> {
   return operatorRequest('runtime.status', { signal });
+}
+export function gcWork(body: OperatorApiBody<'runtime.gcWork'>, signal?: AbortSignal, progress?: WorkGcProgressObserver) {
+  return operatorRequest('runtime.gcWork', { body, signal, progress });
 }
 export function restartServer(): Promise<OperatorApiSuccess<'restart_server'>> {
   return operatorRequest('restart_server', { body: { confirmation: 'RESTART SERVER' } });

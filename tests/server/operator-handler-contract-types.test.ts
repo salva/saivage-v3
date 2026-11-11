@@ -6,6 +6,7 @@ import type {
   OperatorApiHandlerResult,
   OperatorApiParams,
   OperatorApiQuery,
+  OperatorApiSuccess,
 } from '../../src/contracts/index.js';
 import {
   defineOperatorContractHandlers,
@@ -115,6 +116,11 @@ const explicitSuccess: OperatorApiHandlerResult<'health.liveness'> = {
   statusCode: 200,
   body: { status: 'ok', version: SAIVAGE_VERSION, project: 'saivage-v3' },
 };
+const gcFinal: OperatorApiSuccess<'runtime.gcWork'> = { mode: 'dry_run', disposition: 'refused',
+  reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EIO', syscall: 'read' }, result: null };
+const gcStream: OperatorApiHandlerResult<'runtime.gcWork'> = { stream: (async function* () { yield new Uint8Array(); })() };
+// @ts-expect-error Streamed success cannot return the logical final response as JSON 200.
+const gcJsonSuccess: OperatorApiHandlerResult<'runtime.gcWork'> = { body: gcFinal };
 const readinessReady: OperatorApiHandlerResult<'health.readiness'> = { body: { status: 'ready', serverAvailability } };
 const nullRuntimeState: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectId: 'project', runtime: null, serverAvailability } };
 const stoppedRuntimeStatus: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime, serverAvailability,oversight:{agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped',state:'unavailable',next_nominal_due:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-01-01T00:00:00.000Z'} } };
@@ -147,6 +153,7 @@ describe('operator handler contract type fixtures', () => {
       invalidNoQuery,
       invalidNoBody,
       implicitSuccess.statusCode,
+      gcStream, gcJsonSuccess,
       explicitSuccess.statusCode,
       readinessReady.statusCode,
       nullRuntimeState,

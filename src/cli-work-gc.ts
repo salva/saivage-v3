@@ -13,14 +13,33 @@ import {
   type ApplicationFatalPort,
   type WorkGcRequest,
   type WorkGcResponse,
+  type WorkGcProgressObserver,
 } from './contracts/index.js';
 import {
   OperatorRuntimeHttpClient,
+  createWorkGcProgress,
   workGcCompletedResponse,
   workGcFailureResponse,
   workGcOperationalInputs,
 } from './application/index.js';
 import { collectWorkGarbage, inventoryWorkGarbage } from './workspace/index.js';
+
+function stderrProgress(): { observe: WorkGcProgressObserver; close(): void } {
+  let enabled = true;
+  const failed = () => { enabled = false; };
+  process.stderr.on('error', failed);
+  return {
+    observe(progress) {
+      if (!enabled || process.stderr.writableNeedDrain) return;
+      const { phase, elapsed_ms, ...counts } = progress;
+      try {
+        process.stderr.write(`GC ${phase} elapsed_ms=${elapsed_ms}${Object.entries(counts)
+          .map(([key, value]) => ` ${key}=${value}`).join('')}\n`);
+      } catch { enabled = false; }
+    },
+    close() { process.stderr.removeListener('error', failed); },
+  };
+}
 
 export async function handleGcWork(
   request: WorkGcRequest,
@@ -33,12 +52,21 @@ export async function handleGcWork(
   if (status.kind === 'live') {
     if (status.record.control_endpoint === null)
       throw new Error('active lifecycle owner; runtime control unavailable');
-    const response = await new OperatorRuntimeHttpClient().gcWork(
-      status.record.control_endpoint,
-      request,
-    );
-    console.log(JSON.stringify(response));
-    if (response.disposition !== 'completed') process.exitCode = 1;
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new Error('Online GC interrupted.'));
+    const progress = stderrProgress();
+    process.on('SIGINT', cancel);
+    process.on('SIGTERM', cancel);
+    try {
+      const response = await new OperatorRuntimeHttpClient().gcWork(
+        status.record.control_endpoint, request, controller.signal, progress.observe);
+      console.log(JSON.stringify(response));
+      if (response.disposition !== 'completed') process.exitCode = 1;
+    } finally {
+      progress.close();
+      process.removeListener('SIGINT', cancel);
+      process.removeListener('SIGTERM', cancel);
+    }
     return;
   }
   if (status.kind === 'dead')
@@ -60,12 +88,13 @@ export async function handleGcWork(
   };
   process.once('SIGINT', cancel);
   process.once('SIGTERM', cancel);
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  const progressSink = stderrProgress();
+  const prompt = createInterface({ input: process.stdin, output: process.stderr });
   const promptClosed = () =>
     controller.abort(new Error('Offline GC acknowledgement input closed.'));
   prompt.once('close', promptClosed);
   try {
-    console.log(
+    console.error(
       'Offline GC requires the exact service stopped, restarts excluded, and no surviving managed or unrelated writers throughout this command. Unknown writer state must refuse. Delete is irreversible; mistaken exclusion can destroy needed data. Preview also publishes a lifecycle lock.',
     );
     const phrase = `GC OFFLINE QUIESCENT ${projectRoot}`;
@@ -84,6 +113,7 @@ export async function handleGcWork(
       throw error;
     }
     let response: WorkGcResponse;
+    const progress = createWorkGcProgress(progressSink.observe);
     let reason: WorkGcResponse['reason'] = 'operational_inputs_invalid';
     try {
       const effective = createResolvedConfigAuthority({
@@ -93,7 +123,7 @@ export async function handleGcWork(
       }).loadEffective();
       controller.signal.throwIfAborted();
       reason = 'inventory_failed';
-      const inventory = await inventoryWorkGarbage(projectRoot, controller.signal);
+      const inventory = await inventoryWorkGarbage(projectRoot, controller.signal, progress);
       controller.signal.throwIfAborted();
       reason = 'collection_failed';
       const result = await collectWorkGarbage(
@@ -104,6 +134,7 @@ export async function handleGcWork(
           targetBytes: request.target_bytes,
         },
         {
+          progress,
           workflows: effective.workflows,
           operationalInputs: workGcOperationalInputs(effective.config, effective.workflows),
           protection: { retainAll: false, capturePaths: [] },
@@ -136,6 +167,7 @@ export async function handleGcWork(
     if (response.disposition !== 'completed') process.exitCode = 1;
   } finally {
     if (!fatal) {
+      progressSink.close();
       prompt.removeListener('close', promptClosed);
       prompt.close();
       process.removeListener('SIGINT', cancel);

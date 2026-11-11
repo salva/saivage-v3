@@ -26,9 +26,10 @@ function fixture() {
 function work(root: string, path: string) {
   const full = join(root, '.saivage/work', path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, 'fixture'); return full;
 }
-async function cli(root: string, options: { delete?: boolean; before?: string; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
+async function cli(root: string, options: { separate?: boolean; delete?: boolean; before?: string; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
   const entry = resolve(options.fault ? 'tests/fixtures/offline-gc-child.ts' : 'src/cli.ts');
-  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : []), ...(options.before ? ['--before', options.before] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ');
+  const stdoutPath = join(root, 'gc-stdout.txt');
+  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : []), ...(options.before ? ['--before', options.before] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ') + (options.separate ? ` > '${stdoutPath}'` : '');
   const child = spawn('script', ['-qefc', command, '/dev/null'], { cwd: root, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', sent = false, lockObserved = false, lockPresentAtResponse: boolean | null = null;
   const watchdog = setTimeout(() => child.kill('SIGKILL'), 20_000);
@@ -49,8 +50,9 @@ async function cli(root: string, options: { delete?: boolean; before?: string; p
   child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
   try {
     const code = await new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done); });
-    const row = output.split(/\r?\n/).find(line => line.startsWith('{"mode":'));
-    return { code, output, response: row ? JSON.parse(row) : null, lockObserved, lockPresentAtResponse };
+    const stdout = options.separate ? readFileSync(stdoutPath, 'utf8') : output;
+    const row = stdout.split(/\r?\n/).find(line => line.startsWith('{"mode":'));
+    return { code, output, stdout, response: row ? JSON.parse(row) : null, lockObserved, lockPresentAtResponse };
   } finally { clearInterval(observe); clearTimeout(watchdog); }
 }
 
@@ -71,23 +73,33 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
   ]);
   const garbage = work(root, 'cards/project/tmp/unselected');
   const selected = [index, ...captures, cardExecutionFile(root, 'project'), join(root, '.saivage/cards/project/card-head.json'), globalAgentConversationVersionIndexFile(root, 'analyst')].map(path => [path, readFileSync(path)] as const);
-  const preview = await cli(root);
+  const preview = await cli(root, { separate: true });
   expect(preview).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed' } });
   expect(existsSync(runtimeProcessLockFile(root))).toBe(false); expect(existsSync(garbage)).toBe(true);
-  const deletion = await cli(root, { delete: true });
+  const deletion = await cli(root, { delete: true, separate: true });
   expect(deletion).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed' } });
   expect(deletion.response.result.deleted_count).toBe(1); expect(existsSync(garbage)).toBe(false);
+  for (const result of [preview, deletion]) {
+    expect(result.stdout.trim().split('\n')).toHaveLength(1);
+    expect(JSON.parse(result.stdout)).toEqual(result.response);
+    expect(result.output).toContain('GC inventory elapsed_ms=');
+    expect(result.output).toContain('GC validation_marking elapsed_ms=');
+    expect(result.output).toContain('GC selection elapsed_ms=');
+    expect(result.output).not.toContain('"disposition"');
+    expect(result.output).toContain('Delete is irreversible');
+  }
   for (const [path, bytes] of selected) expect(readFileSync(path)).toEqual(bytes);
   expect(readCurrentConversationSegment(root, session)).toEqual(segment);
 }, 45_000);
 
-it('holds bound exclusion across inventory yields; a second owner refuses and cancellation settles before release', async () => {
+it.each(['SIGINT', 'SIGTERM'] as const)('holds bound exclusion across inventory yields; %s cancellation settles before release', async signal => {
   const root = fixture(); for (let n = 0; n < 4000; n++) work(root, `cards/project/tmp/item-${n}`);
   const result = await cli(root, { onLock(pid) {
     expect(() => acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' })).toThrow('live PID');
-    process.kill(pid, 'SIGINT');
+    process.kill(pid, signal);
   } });
   expect(result.lockObserved).toBe(true);
+  expect(result.lockPresentAtResponse).toBe(false);
   expect(result).toMatchObject({ code: 1, response: { reason: 'cancelled', restoration: 'not_resumed' } });
   expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   expect(existsSync(join(root, '.saivage/work/cards/project/tmp/item-3999'))).toBe(true);

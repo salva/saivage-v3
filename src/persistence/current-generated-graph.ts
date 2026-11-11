@@ -1,4 +1,5 @@
 import { opendirSync } from 'node:fs';
+import type { WorkGcProgressPort } from '../contracts/index.js';
 import { resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type { CompiledCardTypeWorkflow, CompiledProjectWorkflows } from '../runtime/runtime-api.js';
@@ -186,6 +187,7 @@ export async function inspectWorkGcCanonicalState(
     readonly content: (value: unknown, cardId: string | null) => Promise<void>;
     readonly operational: (value: unknown, cardId: string | null) => Promise<void>;
   },
+  progress?: WorkGcProgressPort,
 ): Promise<Set<string>> {
   const owners = new Set<string>();
   const types = new Map<string, string>();
@@ -209,6 +211,7 @@ export async function inspectWorkGcCanonicalState(
         throw new Error(
           'GC requires complete selected conversation segments; no tail repair is performed.',
         );
+      progress?.increment('validated_segments');
       if (entry.version === index.current_version)
         for (const value of conversationWorkReferences(inspected.projection.conversation)) {
           check();
@@ -284,6 +287,7 @@ export async function inspectWorkGcCanonicalState(
         check();
         await setImmediate();
       }
+      if (current) progress?.increment('validated_records');
       await setImmediate();
     }
     const executions = inspectCardExecutions(projectRoot, card.id);
@@ -339,6 +343,7 @@ export async function inspectWorkGcCanonicalState(
       );
     for (const prompt of workflow.processPrompts.values())
       await references.operational({ path: prompt.path }, card.id);
+    progress?.increment('validated_cards');
     await setImmediate();
   }
   if (!owners.has('project')) throw new Error('GC requires the canonical project card.');

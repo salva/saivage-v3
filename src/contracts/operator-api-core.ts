@@ -61,7 +61,7 @@ export type OperatorRouteContract<
   query?: TQuery;
   body?: TBody;
   success: TSuccess;
-  responseEncoding?: 'binary';
+  responseEncoding?: 'binary' | 'ndjson';
   response: Record<number, z.ZodTypeAny>;
   auth: ContractAuthClass;
   failureIdentity?: ContractFailureIdentity;

@@ -3,6 +3,8 @@ import {
   parseOperatorResponse,
   type OperatorApiSuccess,
   type WorkGcRequest,
+  WorkGcStreamDecoder,
+  type WorkGcProgressObserver,
 } from '../contracts/index.js';
 import type { RuntimeControlEndpoint } from '../runtime/runtime-api.js';
 import { Agent, request as undiciRequest } from 'undici';
@@ -22,15 +24,16 @@ export class OperatorRuntimeHttpClient {
     endpoint: RuntimeControlEndpoint,
     body: WorkGcRequest,
     signal?: AbortSignal,
+    progress?: WorkGcProgressObserver,
   ): Promise<OperatorApiSuccess<'runtime.gcWork'>> {
     const contract = operatorApiContracts['runtime.gcWork'];
     const headers = this.headers(endpoint, body);
+    headers.accept = 'application/x-ndjson';
     // This transport belongs to this call only. Other operator requests keep their
     // ordinary fetch policy; GC has no elapsed response/maintenance deadline.
     const dispatcher = new Agent({ connect: { timeout: 10_000 } });
     try {
       let response;
-      let text: string;
       try {
         response = await undiciRequest(`${endpoint.origin}${contract.path}`, {
           dispatcher,
@@ -41,11 +44,30 @@ export class OperatorRuntimeHttpClient {
           headersTimeout: 0,
           bodyTimeout: 0,
         });
-        text = await response.body.text();
       } catch (cause) {
         throw new Error('runtime.gcWork transport or response body read failed.', { cause });
       }
-      return this.interpret('runtime.gcWork', response.statusCode, text);
+      if (response.statusCode !== 200) {
+        let text: string;
+        try { text = await response.body.text(); }
+        catch (cause) { throw new Error('runtime.gcWork transport or response body read failed.', { cause }); }
+        return this.interpret('runtime.gcWork', response.statusCode, text);
+      }
+      // MIME/schema refusal can precede iterator installation. Own destroy's abort error too.
+      response.body.once('error', () => undefined);
+      try {
+        try {
+          const contentType = response.headers['content-type'];
+          const decoder = new WorkGcStreamDecoder(
+            typeof contentType === 'string' ? contentType : undefined, progress);
+          for await (const chunk of response.body) decoder.push(chunk);
+          return decoder.finish();
+        } finally {
+          response.body.destroy();
+        }
+      } catch (cause) {
+        throw new Error('runtime.gcWork transport or response body read failed.', { cause });
+      }
     } finally {
       await dispatcher.destroy();
     }

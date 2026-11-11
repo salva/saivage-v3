@@ -1,4 +1,4 @@
-import { WorkGcRequestSchema, WorkGcResponseSchema, WorkGcBusyErrorSchema } from './work-gc.js';
+import { WorkGcRequestSchema, WorkGcResponseSchema, WorkGcBusyErrorSchema, WorkGcFrameSchema } from './work-gc.js';
 import {
   operatorSessionContract,
   ValidationErrorSchema,
@@ -13,8 +13,9 @@ export const workGcOperatorApiContracts = {
     path: '/api/runtime/gc-work',
     body: WorkGcRequestSchema,
     success: WorkGcResponseSchema,
+    responseEncoding: 'ndjson',
     response: {
-      200: WorkGcResponseSchema,
+      200: WorkGcFrameSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
       409: WorkGcBusyErrorSchema,

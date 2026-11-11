@@ -7,6 +7,8 @@ import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
+import { Writable } from 'node:stream';
+import { EventEmitter } from 'node:events';
 import { run } from '../../src/cli.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
@@ -14,7 +16,8 @@ import { ModelRouter } from '../../src/agents/model-router.js';
 import { bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { NO_FRESHNESS_EFFECTS, type WorkGcResponse } from '../../src/contracts/index.js';
+import { NO_FRESHNESS_EFFECTS, WorkGcFrameSchema, type WorkGcResponse } from '../../src/contracts/index.js';
+import { ContractFrameStream } from '../../src/server/contract-stream.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createEventLog } from '../../src/observability/index.js';
@@ -140,10 +143,20 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
             `import { run } from ${JSON.stringify(pathToFileURL(join(cwd, 'src/cli.ts')).href)}; await run(['node','saivage','gc-work','--dry-run']);`],
           { cwd: root, env: { ...process.env, NODE_OPTIONS: '' }, timeout: 20_000, killSignal: 'SIGKILL' });
         expect(JSON.parse(child.stdout)).toMatchObject({ disposition: 'completed', result: { would_delete_count: 2 } });
-        expect(child.stderr).toBe('');
+        expect(child.stderr).toContain('GC inventory elapsed_ms=');
+        expect(child.stderr).toContain('GC selection elapsed_ms=');
+        expect(child.stderr).not.toContain('"disposition"');
         expect(snapshot(join(root, '.saivage'))).toEqual(before);
       }
+      const progress = jest.spyOn(process.stderr, 'write').mockImplementation(text => {
+        expect(output.mock.calls).toHaveLength(0);
+        expect(String(text)).toMatch(/^GC (inventory|settling|validation_marking|selection) elapsed_ms=\d+/u);
+        return true;
+      });
       await run(['node', 'saivage', 'gc-work', ...flags]);
+      expect([...new Set(progress.mock.calls.map(([text]) => String(text).split(' ')[1]))])
+        .toEqual(['inventory', 'settling', 'validation_marking', 'selection']);
+      progress.mockRestore();
       reports.push(JSON.parse(output.mock.calls.at(-1)![0] as string));
       output.mockRestore();
       expect(reports.at(-1)).toMatchObject({ disposition: 'completed', restoration: 'not_resumed',
@@ -185,8 +198,113 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       for (const name of ['filter-old-a', 'filter-old-b', 'filter-equal', 'filter-new', 'filter-stale'])
         rmSync(join(filterRoot, name), { force: true });
       if (!flags.length) {
+        // Actual collection/hold settlement must precede a blocked final write.
+        // Use real writable pressure, not Fastify inject's buffered response.
+        const stream = new ContractFrameStream(WorkGcFrameSchema);
+        let slow = true;
+        const callbacks: Array<() => void> = [];
+        const sink = new Writable({ highWaterMark: 1, write(_chunk, _encoding, callback) {
+          if (slow) callbacks.push(callback); else callback();
+        } });
+        stream.body.pipe(sink);
+        while (!stream.body.writableNeedDrain)
+          stream.optional({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0 } });
+        expect(stream.body.writableNeedDrain).toBe(true);
+        const terminal = deferred<void>(), transportSettled = deferred<void>();
+        const finish = stream.finish.bind(stream);
+        jest.spyOn(stream, 'finish').mockImplementation(async (frame, signal) => {
+          terminal.resolve();
+          try { await finish(frame, signal); } finally { transportSettled.resolve(); }
+        });
+        const raw = new EventEmitter(), reply = new EventEmitter();
+        const handler = buildWorkGcOperatorContractHandlers(app)['runtime.gcWork'];
+        try {
+          handler({ body: { mode: 'dry_run' }, request: { raw }, reply: { raw: reply,
+            createStream: () => stream } } as unknown as Parameters<typeof handler>[0]);
+          await terminal.promise;
+          expect(stream.body.writableNeedDrain).toBe(true);
+          expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+          expect(app.runtimeApi.getStatus().status).toBe('paused');
+          // A fresh invocation is admitted while the preceding transport is stuck.
+          await expect(app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal))
+            .resolves.toMatchObject({ disposition: 'completed', restoration: 'not_resumed' });
+          reply.emit('close'); await transportSettled.promise;
+          await new Promise<void>(resolve => setImmediate(resolve));
+          expect(raw.listenerCount('aborted')).toBe(0); expect(reply.listenerCount('close')).toBe(0);
+          expect(stream.body.destroyed).toBe(true);
+        } finally { slow = false; for (const callback of callbacks.splice(0)) callback(); stream.body.destroy(); sink.destroy(); }
+
+        for (const mode of ['dry_run', 'delete'] as const) {
+          const abortSelection = new AbortController();
+          const cancelled = await app.collectWorkGarbage({ mode }, abortSelection.signal, progress => {
+            if (progress.phase === 'selection') abortSelection.abort(new Error('Synthetic selection cancellation'));
+          });
+          expect(cancelled).toMatchObject({ disposition: 'interrupted', reason: 'cancelled',
+            restoration: 'not_resumed', failure: null, result: { deleted_count: 0, would_delete_count: 0 } });
+          expect(existsSync(garbage)).toBe(true);
+          expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+        }
+
+        // Cancellation during the held collection callback cannot release admission
+        // until that callback has actually settled, even after abort is observed.
+        const selecting = deferred<void>(), cancelObserved = deferred<void>(), releaseCollector = deferred<void>();
+        const runHeld = app.runWorkGc.bind(app);
+        const selection = jest.spyOn(app, 'runWorkGc').mockImplementation(input => runHeld({ ...input,
+          collect: async (inventory, signal) => {
+            const result = await input.collect(inventory, signal);
+            selecting.resolve();
+            await new Promise<void>(resolve => signal.addEventListener('abort', () => { cancelObserved.resolve(); resolve(); }, { once: true }));
+            await releaseCollector.promise; signal.throwIfAborted(); return result;
+          },
+        }));
+        const selectionAbort = new AbortController();
+        const selectingTask = app.collectWorkGarbage({ mode: 'dry_run' }, selectionAbort.signal);
+        try {
+          await selecting.promise; selectionAbort.abort(); await cancelObserved.promise;
+          expect(() => app.assertWorkGcIngressAllowed()).toThrow('busy');
+          releaseCollector.resolve();
+          await expect(selectingTask).resolves.toMatchObject({ disposition: 'interrupted', reason: 'cancelled', restoration: 'not_resumed' });
+          expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+        } finally { selectionAbort.abort(); releaseCollector.resolve(); await selectingTask; selection.mockRestore(); }
+
+        // Reservation is visible synchronously while inventory has no maintenance
+        // authority. Abort joins the inventory callback before releasing reservation.
+        const inventoried = deferred<void>(), releaseInventory = deferred<void>(), inventorySettled = deferred<void>();
+        const original = app.runWorkGc.bind(app);
+        const suspended = jest.spyOn(app, 'runWorkGc').mockImplementation(input => original({ ...input,
+          inventory: async signal => {
+            inventoried.resolve();
+            await releaseInventory.promise;
+            try { signal.throwIfAborted(); return await input.inventory(signal); }
+            finally { inventorySettled.resolve(); }
+          },
+        }));
+        const abort = new AbortController();
+        const pending = realFetch(`${origin}/api/runtime/gc-work`, { method: 'POST',
+          headers: { authorization: 'Bearer synthetic-gc-token', 'content-type': 'application/json' },
+          body: '{"mode":"dry_run"}', signal: abort.signal });
+        try {
+          await inventoried.promise;
+          const admitted = await pending;
+          expect(admitted.status).toBe(200);
+          expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+          const duplicate = await realFetch(`${origin}/api/runtime/gc-work`, { method: 'POST',
+            headers: { authorization: 'Bearer synthetic-gc-token', 'content-type': 'application/json' },
+            body: '{"mode":"dry_run"}' });
+          expect(duplicate.status).toBe(409);
+          expect(duplicate.headers.get('content-type')).toContain('application/json');
+          expect(await duplicate.json()).toMatchObject({ error: 'WorkGcBusy' });
+          abort.abort();
+          await expect(admitted.text()).rejects.toThrow();
+          expect(() => app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal)).toThrow('busy');
+          releaseInventory.resolve(); await inventorySettled.promise; await app.cleanupWorkGc();
+          expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+          expect(app.runtimeApi.getStatus().status).toBe('paused');
+          expect(snapshot(join(root, '.saivage'))).toEqual(before);
+        } finally { abort.abort(); releaseInventory.resolve(); await app.cleanupWorkGc(); suspended.mockRestore(); }
         // Real socket cancellation crosses Fastify's close hook and joins the actual
         // application GC task without cancelling the independently owned wait.
+        for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         const settling = deferred<void>(), releaseSettlement = deferred<void>();
         const naturalWait = jest.spyOn(app.analystRuntime, 'awaitNaturalTurnCompletion').mockImplementation(() => {
           settling.resolve(); return releaseSettlement.promise;
@@ -201,8 +319,8 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         child.stdout.on('data', chunk => { interruptedOutput += String(chunk); });
         try {
           await settling.promise;
-          child.kill('SIGTERM');
-          expect(await exited).toEqual([null, 'SIGTERM']);
+          child.kill(signal);
+          expect(await exited).toEqual([1, null]);
           expect(interruptedOutput).toBe('');
           for (let i = 0; i < 1000; i++) {
             try { app.assertWorkGcIngressAllowed(); break; }
@@ -214,6 +332,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
           expect(app.runtimeApi.getStatus().status).toBe('paused');
           expect(snapshot(join(root, '.saivage'))).toEqual(before);
         } finally { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); releaseSettlement.resolve(); naturalWait.mockRestore(); }
+        }
         // A preview is not saved deletion authority. Publish a new canonical reference
         // and invoke an independent real CLI delete against a fresh mark.
         author.acceptRecord('project', 'review-new-reference.md', 'tmp:///project/garbage.txt', { kind: 'agent', agent: 'analyst' });

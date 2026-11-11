@@ -251,8 +251,11 @@ retain their existing meaning. The operator surface remains light, independent
 of OS dark preference; no brand/theme selector is introduced. The favicon is the
 original SVG, not a theme-dependent variant.
 
-Explicit [work GC](../runbook/work-gc.md) has no UI button or dashboard. Its private
-hold uses existing `pausing`/`paused` observations or leaves stopped execution
+Explicit [work GC](../runbook/work-gc.md) has no UI button or dashboard. The
+API client consumes the declared strict NDJSON success stream incrementally,
+resolving only after one terminal result plus EOF; JSON-200 is not supported.
+Transient progress is not conversation content or a new UI widget requirement.
+Its private hold uses existing `pausing`/`paused` observations or leaves stopped execution
 `stopped`, not a new public runtime status or elapsed-time countdown.
 New Analyst submissions, mutations and independent MCP lifecycle actions can fail
 with temporary GC-busy; present the existing action error without claiming a queued

@@ -20,6 +20,7 @@ async function listen(handler: RequestListener) {
   return { origin: `http://127.0.0.1:${address.port}`, auth: 'disabled' as const };
 }
 const response = { mode: 'dry_run', disposition: 'refused', reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EACCES', syscall: 'open' }, result: null };
+const resultLine = JSON.stringify({ type: 'result', response }) + '\n';
 
 it('uses the selected Undici request with zero header/body deadlines, waits for delayed headers and split body, and closes its socket', async () => {
   const entered = deferred<void>(), headers = deferred<void>(), body = deferred<void>(), closed = deferred<void>();
@@ -31,9 +32,9 @@ it('uses the selected Undici request with zero header/body deadlines, waits for 
     expect(request.headers.authorization).toBe('Bearer synthetic-token');
     request.socket.once('close', () => closed.resolve());
     entered.resolve(); await headers.promise;
-    reply.writeHead(200, { 'content-type': 'application/json' });
-    reply.write(JSON.stringify(response).slice(0, 20));
-    await body.promise; reply.end(JSON.stringify(response).slice(20));
+    reply.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    reply.write(resultLine.slice(0, 20));
+    await body.promise; reply.end(resultLine.slice(20));
   });
   const observed: Array<{ headersTimeout: number; bodyTimeout: number }> = [];
   const creation = channel('undici:request:create');
@@ -60,11 +61,12 @@ it.each([
   ['auth', 401, '{"message":"unauthorized"}', /unauthorized/],
   ['busy', 409, '{"message":"Work garbage collection is busy."}', /busy/],
   ['redirect', 302, '{}', /HTTP 302/],
-  ['non-JSON', 200, 'private-not-json', /malformed JSON/],
-  ['invalid contract', 200, '{}', /did not match/],
+  ['non-JSON', 200, 'private-not-json', /transport or response body read failed/],
+  ['invalid contract', 200, '{}', /transport or response body read failed/],
 ] as const)('fails %s once without redirect, retry or fetch fallback', async (_name, status, text, error) => {
   let count = 0;
-  const endpoint = await listen((_request, reply) => { count++; reply.writeHead(status, { location: '/redirect-target' }); reply.end(text); });
+  const endpoint = await listen((_request, reply) => { count++; reply.writeHead(status, { location: '/redirect-target',
+    'content-type': status === 200 ? 'application/x-ndjson' : 'application/json' }); reply.end(text); });
   await expect(new OperatorRuntimeHttpClient(() => { throw new Error('fetch must not run'); }).gcWork(endpoint, { mode: 'dry_run' })).rejects.toThrow(error);
   expect(count).toBe(1);
 });
@@ -74,7 +76,7 @@ it.each(['before headers', 'truncated body'] as const)('distinguishes %s transpo
   const endpoint = await listen((_request, reply) => {
     count++;
     if (mode === 'before headers') reply.destroy();
-    else { reply.writeHead(200, { 'content-length': '1000' }); reply.write('{'); setImmediate(() => reply.destroy()); }
+    else { reply.writeHead(200, { 'content-length': '1000', 'content-type': 'application/x-ndjson' }); reply.write('{'); setImmediate(() => reply.destroy()); }
   });
   await expect(new OperatorRuntimeHttpClient().gcWork(endpoint, { mode: 'dry_run' })).rejects.toThrow('transport or response body read failed');
   expect(count).toBe(1);
@@ -89,3 +91,40 @@ it('explicit cancellation disconnects an unsettled response and releases the own
   await expect(call).rejects.toThrow('transport or response body read failed');
   await closed.promise;
 });
+it('observes real HTTP progress before final and refuses to resolve a terminal frame until EOF', async () => {
+  const observed = deferred<void>(), end = deferred<void>(), sent = deferred<void>();
+  const progress = { phase: 'inventory', elapsed_ms: 0, observed_count: 0 };
+  const endpoint = await listen(async (_request, reply) => {
+    reply.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    reply.write(JSON.stringify({ type: 'progress', progress }) + '\n');
+    await observed.promise;
+    reply.write(resultLine); sent.resolve();
+    await end.promise; reply.end();
+  });
+  let settled = false;
+  const call = new OperatorRuntimeHttpClient().gcWork(endpoint, { mode: 'dry_run' }, undefined, value => {
+    expect(value).toEqual(progress); observed.resolve();
+  }).then(value => { settled = true; return value; });
+  try {
+    await sent.promise; expect(settled).toBe(false);
+    end.resolve(); await expect(call).resolves.toEqual(response);
+  } finally { observed.resolve(); end.resolve(); await call; }
+});
+
+it.each(['wrong MIME', 'invalid frame', 'duplicate terminal', 'oversized line'] as const)(
+  'closes the actual socket after %s parser failure, without retry or observer effects', async fault => {
+    const closed = deferred<void>();
+    let requests = 0;
+    const endpoint = await listen((request, reply) => {
+      requests++;
+      request.socket.once('close', () => closed.resolve());
+      reply.writeHead(200, { 'content-type': fault === 'wrong MIME' ? 'application/json' : 'application/x-ndjson' });
+      reply.write(fault === 'invalid frame' ? '{}\n' : fault === 'oversized line' ? 'x'.repeat(16384)
+        : fault === 'duplicate terminal' ? resultLine + resultLine : resultLine);
+      // Keep the source open. Parser failure, not server EOF, must cancel it.
+    });
+    await expect(new OperatorRuntimeHttpClient().gcWork(endpoint, { mode: 'dry_run' }))
+      .rejects.toThrow('transport or response body read failed');
+    await closed.promise;
+    expect(requests).toBe(1);
+  });

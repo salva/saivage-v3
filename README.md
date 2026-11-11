@@ -157,6 +157,9 @@ cleanup or canonical-state repair.
 Collection uses paused/stopped server maintenance or confirmed offline lifecycle
 exclusion. It has no elapsed deadline; cancellation is cooperative. Root package
 dependencies pin the Node-24-compatible direct Undici transport used only for GC.
+CLI progress and offline prompts use stderr; final stdout is one JSON response
+after settlement/release. The paired API/client success contract is NDJSON progress
+then one terminal result plus EOF; transport loss does not certify deletion effects.
 
 | Owner | Exact responsibility |
 | --- | --- |

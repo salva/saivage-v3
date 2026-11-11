@@ -102,7 +102,8 @@ describe('controlActions.list projection', () => {
         query: { card_id: 'card-a', since: '2026-01-03T00:00:00.000Z' },
         body: undefined,
         request: {} as never,
-        reply: { raw: { once: () => undefined }, header: () => undefined },
+        reply: { raw: { once: () => undefined, removeListener: () => undefined }, header: () => undefined,
+          createStream: () => { throw new Error('JSON route has no stream'); } },
       });
       if (response instanceof Promise) throw new Error('controlActions.list unexpectedly returned a Promise');
       expect(response.body).toEqual({ control_actions: [expect.objectContaining({ id: 'analyst-match' })], total: 1 });

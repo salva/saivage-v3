@@ -21,7 +21,7 @@ const candidate = join(root, '.saivage/work/cards/project/tmp/disposable');
 fs.mkdirSync(dirname(candidate), { recursive: true }); fs.writeFileSync(candidate, 'scratch');
 const fatal = createApplicationFatalPort();
 const server = Fastify({ logger: false });
-server.addHook('onSend', async () => { mark('response'); });
+server.addHook('onSend', async () => { mark('headers'); });
 server.addHook('onError', async () => { mark('http-error'); });
 const unlink = fs.unlinkSync, fsync = fs.fsyncSync, close = fs.closeSync;
 let deleting = false;
@@ -57,6 +57,8 @@ new ContractRuntime({ authPolicy: new AuthPolicy({}),
   workGcOperatorApiContracts, buildWorkGcOperatorContractHandlers(application));
 const origin = await server.listen({ host: '127.0.0.1', port: 0 });
 mark('request');
-await fetch(`${origin}/api/runtime/gc-work`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'delete' }) });
+const response = await fetch(`${origin}/api/runtime/gc-work`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'delete' }) });
+// Headers are deliberately early; only terminal-plus-EOF could certify a result.
+await response.text();
 mark('client-response');
 await server.close();

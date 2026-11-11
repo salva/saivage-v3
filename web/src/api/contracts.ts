@@ -1,5 +1,6 @@
 export {
   operatorApiContracts,
+  WorkGcStreamDecoder,
   parseOperatorResponse,
   ProcessViewSchema,
   DebugGraphsResponseSchema,
@@ -7,6 +8,7 @@ export {
   ChatWorkspaceContextSchema,
   CardDiffRowSchema,
 } from '@saivage/contracts/operator-api';
+export type { WorkGcProgressObserver } from '@saivage/contracts/operator-api';
 
 export {
   DURABLE_PRIMARY_CONTENT_POLICY,

@@ -7,6 +7,7 @@ import {
   type WorkGcResponse,
   type WorkGcResult,
   type ApplicationFatalPort,
+  type WorkGcProgressObserver,
 } from '../contracts/index.js';
 import {
   collectWorkGarbage,
@@ -17,6 +18,7 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { SaivageConfig } from '../schemas/index.js';
 import type { CompiledProjectWorkflows, ProcessRunner } from '../runtime/runtime-api.js';
 import type { RuntimeApplication } from './runtime-composition.js';
+import { createWorkGcProgress } from './work-gc-progress.js';
 
 // Compiled contracts contain immutable iterable maps/sets with private storage.
 // Project their entries, not Object.keys (which would silently omit selected inputs).
@@ -129,7 +131,7 @@ export function workGcFailureResponse(
   };
 }
 
-export async function runWorkGcOperation(input: {
+export function runWorkGcOperation(input: {
   request: WorkGcRequest;
   signal: AbortSignal;
   projectRoot: string;
@@ -139,20 +141,37 @@ export async function runWorkGcOperation(input: {
   processRunner: ProcessRunner;
   fatalPort: ApplicationFatalPort;
   run: RuntimeApplication['runWorkGc'];
+  progress?: WorkGcProgressObserver;
+  /** Marks transport fatal bypass before entering the terminal port, including throwing ports. */
+  onFatal?: () => void;
 }): Promise<WorkGcResponse> {
+  const progress = createWorkGcProgress(input.progress);
+  let fatal = false;
+  const markFatal = () => {
+    fatal = true;
+    input.onFatal?.();
+  };
+  const failFatally = (error: PublicationOutcomeUnknownError): never => {
+    markFatal();
+    return input.fatalPort.publicationOutcomeUnknown(error);
+  };
   let result: WorkGcResult | null = null;
   let failureReason: WorkGcResponse['reason'] = 'inventory_failed';
-  try {
-    const completed = await input.run({
+  // Reserve synchronously. Only the accepted task is converted to a completion response.
+  const task = input.run({
+       isFatal: () => fatal,
+       onFatal: markFatal,
       signal: input.signal,
       inventory: async (signal) => {
-        const inventory = await inventoryWorkGarbage(input.projectRoot, signal);
+        const inventory = await inventoryWorkGarbage(input.projectRoot, signal, progress);
         failureReason = 'maintenance_refused';
+        progress?.phase('settling');
         return inventory;
       },
       collect: async (inventory, signal) => {
         signal.throwIfAborted();
         failureReason = 'operational_inputs_invalid';
+        progress?.phase('validation_marking');
         const fresh = input.configAuthority.loadEffective();
         const operationalWorkflows = workflowInputs(fresh.workflows);
         if (
@@ -172,6 +191,7 @@ export async function runWorkGcOperation(input: {
             targetBytes: input.request.target_bytes,
           },
           {
+            progress,
             workflows: input.workflows,
             // Executable dependencies live in the selected configuration/operation definitions.
             // Expanded role instructions are checked for composition consistency above; their
@@ -179,16 +199,18 @@ export async function runWorkGcOperation(input: {
             operationalInputs: workGcOperationalInputs(fresh.config, fresh.workflows),
             protection: input.processRunner.workGcProtection(),
             assertCollecting: () => signal.throwIfAborted(),
-            fatal: (error) => input.fatalPort.publicationOutcomeUnknown(error),
+            fatal: failFatally,
           },
         );
         return result;
       },
     });
-    return workGcCompletedResponse(input.request, completed.value, completed.restoredRunning);
-  } catch (error) {
+  return task.then(completed =>
+    workGcCompletedResponse(input.request, completed.value, completed.restoredRunning),
+  (error: unknown) => {
+    if (fatal) throw error;
     if (error instanceof PublicationOutcomeUnknownError)
-      input.fatalPort.publicationOutcomeUnknown(error);
+      failFatally(error);
     if (error instanceof WorkGcBusyError) throw error;
     return workGcFailureResponse(
       input.request,
@@ -202,5 +224,5 @@ export async function runWorkGcOperation(input: {
         : 'not_acquired',
       result,
     );
-  }
+  });
 }

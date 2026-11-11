@@ -14,6 +14,7 @@ export type {
 } from './analyst-mutation-services.js';
 export type { ActorRuntimeReadModel } from './read-models/actor-runtime-read-model.js';
 export { OperatorRuntimeHttpClient } from './operator-runtime-http-client.js';
+export { createWorkGcProgress } from './work-gc-progress.js';
 export {
   workGcCompletedResponse,
   workGcFailureResponse,

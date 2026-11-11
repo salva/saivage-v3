@@ -80,7 +80,10 @@ See the [shared presentation contract](operator-ui-contracts.md#shared-json-data
 ## Operator tasks
 
 Optional CLI/API [work GC](../runbook/work-gc.md) adds no collection button,
-dashboard or public maintenance status. During its private hold, new Analyst,
+dashboard or public maintenance status. Its API client must consume the singular
+incremental progress/result encoding and require final result plus EOF, without
+publishing progress in conversations. CLI observations use stderr, final JSON
+stdout; no visual progress widget is introduced. During its private hold, new Analyst,
 mutation and MCP lifecycle actions can receive temporary busy refusals; operators
 must retain read-only inspection and project Stop. Start/Resume cannot bypass the
 hold. Existing pause observation remains truthful, not a claim that all filesystem

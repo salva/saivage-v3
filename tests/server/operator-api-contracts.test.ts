@@ -74,14 +74,42 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const contract of publicContracts) expect(contract.response).not.toHaveProperty('401');
   });
 
-  it('uses each operation response 200 schema as its exact success authority', () => {
+  it('declares exact wire and logical success authorities for each response encoding', () => {
+    const streamed: string[] = [];
     for (const contract of Object.values(operatorApiContracts)) {
       expect(contract.response).toHaveProperty('200');
-      expect(contract.response[200]).toBe(contract.success);
+      if ('responseEncoding' in contract && contract.responseEncoding === 'ndjson') {
+        streamed.push(contract.operationId);
+        expect(contract.response[200]).toBe(contractsModule.WorkGcFrameSchema);
+        expect(contract.success).toBe(contractsModule.WorkGcResponseSchema);
+      } else {
+        // Ordinary JSON and binary success retain one schema for wire and logical values.
+        expect(contract.response[200]).toBe(contract.success);
+      }
       expect(Object.hasOwn(contract, 'error')).toBe(false);
       expect(Object.hasOwn(contract, 'permissions')).toBe(false);
       expect(Object.hasOwn(contract, 'audit')).toBe(false);
     }
+    expect(streamed).toEqual(['runtime.gcWork']);
+  });
+
+  it('parses GC success only as strict wire frames, keeping the final logical response distinct', () => {
+    const contract = operatorApiContracts['runtime.gcWork'];
+    const response = { mode: 'dry_run', disposition: 'refused', reason: 'maintenance_refused',
+      restoration: 'not_acquired', failure: { code: 'EIO', syscall: 'read' }, result: null };
+    const progress = { type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, observed_count: 0 } };
+    const terminal = { type: 'result', response };
+    expect(contract.success.parse(response)).toEqual(response);
+    expect(parseOperatorResponse('runtime.gcWork', 200, progress)).toEqual(progress);
+    expect(parseOperatorResponse('runtime.gcWork', 200, terminal)).toEqual(terminal);
+    expect(() => parseOperatorResponse('runtime.gcWork', 200, response)).toThrow();
+    expect(() => contract.success.parse(terminal)).toThrow();
+    expect(() => contract.success.parse(progress)).toThrow();
+    for (const invalid of [
+      { ...terminal, extra: true },
+      { type: 'result', response: { ...response, failure: null } },
+      { type: 'progress', progress: { ...progress.progress, path: 'not-an-observation' } },
+    ]) expect(() => parseOperatorResponse('runtime.gcWork', 200, invalid)).toThrow();
   });
 
   it('registers only the exact mounted HTTP methods', () => {

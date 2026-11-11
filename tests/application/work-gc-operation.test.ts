@@ -98,6 +98,10 @@ it('delivers uncertainty to fatal before producing an ordinary refusal report', 
   })).rejects.toBe(terminal);
   expect(fatal).toHaveBeenCalledWith(unknown);
 });
+it('reserves synchronously and leaves an admission refusal synchronous', () => {
+  const { input } = fixture();
+  expect(() => runWorkGcOperation({ ...input, run() { throw new WorkGcBusyError(); } })).toThrow(WorkGcBusyError);
+});
 
 it.each(['direct', 'maintenance', 'interrupted'] as const)('projects only allowlisted original metadata through %s ownership', async owner => {
   const { input } = fixture();

@@ -181,11 +181,18 @@ describe('source-derived publication owner inventory', () => {
       'src/runtime/actors/llm-actor.ts': 1,
     });
     expect(fileCountInventory(/\bobserve\(/gu)).toEqual({
+      // Call-local synchronous stderr sink, not a detached consumer or a publication
+      // owner. Ordinary stderr failure disables progress, never collection.
+      'src/cli-work-gc.ts': 1,
       'src/runtime/actors/llm-actor.ts': 9,
       // Synchronous entry/spawn/finish callbacks to the card evidence wrapper,
       // not detached tasks. Their shared owner sends publication uncertainty to
       // fatalPort before retaining a failure, cleanup or another observation.
       'src/runtime/operation-execution.ts': 3,
+      // Synchronous inventory-counter observations in existing owner loops. The
+      // optional reporter distinguishes ordinary sink failure from publication
+      // uncertainty; the collector's existing fatal boundary remains authoritative.
+      'src/workspace/work-garbage-collector.ts': 2,
     });
     expect(finallyCatchInventory()).toEqual({
       'src/mcp/mcp-manager.ts': 1,

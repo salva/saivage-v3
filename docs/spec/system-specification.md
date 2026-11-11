@@ -157,6 +157,28 @@ tracker. Caller response or an idle snapshot alone is insufficient. GC does not
 close/join the reusable LLM session's lifetime admission or use shutdown disposal
 to finish an accepted turn; failures refuse collection rather than becoming success.
 
+Explicit work-GC HTTP success is a strict `application/x-ndjson` stream, not a
+JSON-200 response: zero or more `{type:'progress',progress:...}` observations,
+then exactly one `{type:'result',response:...}` last, newline terminated and EOF.
+Frames are at most 16 KiB including newline; responses are no-store/nosniff.
+Pre-admission auth/input/busy errors remain JSON 401/400/409, ordinary pre-stream
+internal errors safe JSON 500; post-header failure leaves incomplete transport.
+Only valid terminal response plus EOF establishes the reported outcome, not HTTP
+200 or any snapshot. There is no old encoding fallback. Progress is transient,
+lossy, content/identity/path-free, monotonic elapsed milliseconds with optional
+cumulative nonnegative safe-integer counters: `observed_count`,
+`observed_logical_bytes`, `opaque_entries`, `validated_cards`, `validated_records`,
+`validated_segments`, `candidates_processed`, `would_delete_count`,
+`would_delete_logical_bytes`, `deleted_count`, `deleted_logical_bytes`.
+Phases are `inventory`, online-only `settling`, `validation_marking`, `selection`;
+phase changes emit immediately, loop-driven count observations at most once per
+second. Inspection counters follow completed owner reads, candidate counts follow
+classification, and deletion counters follow known successes. Omission is not
+zero. No ETA, percentages, total-work denominators, heartbeat, completion phase or
+physical-space claim is made. CLI progress/prompt uses stderr; authoritative final
+stdout remains one response JSON line, offline only after lock release. Transport
+loss produces no manufactured final response and never authorizes replay.
+
 Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
 while execution continues, then holds/parks and freshly consumes canonical sources,
 marking explicit and recognized inferred references before checking each candidate

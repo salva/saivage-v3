@@ -20,6 +20,30 @@ export const WorkGcRequestSchema = z
   .strict();
 export type WorkGcRequest = z.infer<typeof WorkGcRequestSchema>;
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+export const WorkGcProgressSchema = z.object({
+  phase: z.enum(['inventory', 'settling', 'validation_marking', 'selection']),
+  elapsed_ms: count,
+  observed_count: count.optional(),
+  observed_logical_bytes: count.optional(),
+  opaque_entries: count.optional(),
+  validated_cards: count.optional(),
+  validated_records: count.optional(),
+  validated_segments: count.optional(),
+  candidates_processed: count.optional(),
+  would_delete_count: count.optional(),
+  would_delete_logical_bytes: count.optional(),
+  deleted_count: count.optional(),
+  deleted_logical_bytes: count.optional(),
+}).strict();
+export type WorkGcProgress = z.infer<typeof WorkGcProgressSchema>;
+export type WorkGcProgressObserver = (progress: WorkGcProgress) => void;
+export type WorkGcCounters = Omit<WorkGcProgress, 'phase' | 'elapsed_ms'>;
+/** Transient observations only; never collection or publication authority. */
+export interface WorkGcProgressPort {
+  phase(phase: WorkGcProgress['phase'], counters?: WorkGcCounters): void;
+  update(counters: WorkGcCounters): void;
+  increment(counter: keyof WorkGcCounters): void;
+}
 const WorkGcResultSchema = z
   .object({
     mode: z.enum(['dry_run', 'delete']),
@@ -98,6 +122,11 @@ export const WorkGcResponseSchema = z
   });
 export type WorkGcResponse = z.infer<typeof WorkGcResponseSchema>;
 export type WorkGcResult = z.infer<typeof WorkGcResultSchema>;
+export const WORK_GC_FRAME_MAX_BYTES = 16 * 1024;
+export const WorkGcFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('progress'), progress: WorkGcProgressSchema }).strict(),
+  z.object({ type: z.literal('result'), response: WorkGcResponseSchema }).strict(),
+]);
 export const WorkGcBusyErrorSchema = z
   .object({
     error: z.literal('WorkGcBusy'),
