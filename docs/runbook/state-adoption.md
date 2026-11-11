@@ -1,5 +1,15 @@
 # State adoption, repair and reset
 
+The card command shell-area convention needs no retained-state conversion: `shell`
+was and remains ordinary concrete card work, existing references/GC meaning and
+sibling work stay unchanged, and directory absence is legitimate lazy absence.
+Adopt matching runtime/tool help and deliberately reconcile selected materialized
+Executor hosts across the six profiles; source edits do not hot-update custom hosts.
+Do not relocate retained artifacts or infer whole-release compatibility from this
+isolated addition. Installed-release applicability is unknown; no deployment,
+reset or external migration is authorized. See the source-parent evidence in the
+[format reference](../architecture/durable-format-changes.md).
+
 The configured direct-object authority source cutover from `e1307b9b` requires
 capabilities1/workflow6, accepted-record6 and conversation13 together; record-head3
 is unchanged. New card-agent record origins identify the actual author card, not

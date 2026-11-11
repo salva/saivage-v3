@@ -1,5 +1,13 @@
 # Prompt handling
 
+Selected `run_command` help owns both card environment locators, lazy shell-directory
+creation, unchanged cwd/global/external behavior and task-owned evidence/cleanup and
+GC lifetime guidance. All six shipped shared Executor hosts recommend purpose-named
+children of `$SAIVAGE_CARD_SHELL_ROOT` and defer detail to that help. These are normal
+selected tool and role instructions on entry/re-entry, not a new prompt lifetime.
+Matching source-built tools and deliberately reconciled selected materialized hosts
+are the adoption unit; source edits do not hot-update installed custom hosts.
+
 Selected `read_agent_session` tool help owns diagnostic-first navigation, exact
 visible-entry inspection, coverage limitations and lossless hex-slice decoding
 for Analyst and Oversight; the redundant Analyst role-level context-paging sentence

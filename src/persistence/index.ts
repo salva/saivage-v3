@@ -91,6 +91,7 @@ export {
   SAIVAGE_WORK_RELATIVE_DIR,
   cardTmpRelativePath,
   cardWorkRoot,
+  cardShellWorkRoot,
   resetOwnedGeneratedRoots,
   saivageCardsRoot,
   saivageWorkRelativePath,

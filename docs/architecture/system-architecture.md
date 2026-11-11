@@ -1186,12 +1186,25 @@ uncertain output writes are fatal before retirement/evidence/cleanup.
 four Git author/committer variables; no default identity or arbitrary credentials.
 Stdio MCP applies explicit configured env afterward. Ordinary run_command sends one
 unchanged bash -c argument; shell.run has its own compiled script/argv/env/time/artifact
-contract. Card tools alone derive `SAIVAGE_CARD_WORK_ROOT`; globals/MCP receive none.
+contract. Only card-scoped `run_command` derives the absolute `SAIVAGE_CARD_WORK_ROOT`
+and `SAIVAGE_CARD_SHELL_ROOT` (the parent's `shell` child). Its tool boundary resolves/
+admits cwd first, then recursively creates the exact shell directory with ordinary
+Node defaults before spawn; failure propagates without launch, scans or cleanup.
+The pure `cardShellWorkRoot` layout helper derives only a path. The generic
+ProcessRunner and inherited-env sanitizer remain unchanged. Global commands supply
+neither card variable and create no card subtree; stdio MCP explicit configuration
+and generic/native captured/interactive spawns retain their own contracts.
 Native absolute/system cwd selects system destinations; relative/project paths stay
-contained and scoped schemes retain their own admission. The card work root is the
-organizational default for disposable command work, not a ban on task-justified
+contained and scoped schemes retain their own admission. Purpose-named children of
+the stable shell directory are the organizational default for disposable command
+work, not a ban on task-justified
 external clean-install, relocation or dependency-isolation checks within authorized
-scope. Captures remain project-owned regardless cwd.
+scope. Captures remain project-owned regardless cwd. Default cwd remains the project
+root; HOME, TMPDIR and caches are not redirected. Existing shell contents and ordinary
+sibling work remain unchanged. Shell is concrete ordinary work, not a reserved root
+or permanent retention mark: current concrete references and existing owner protections
+govern explicit GC, which keeps directories. There is no automatic completion/startup
+cleanup, sandbox or exclusive ownership guarantee.
 
 Process result owner reads captures once, normalizes valid UTF-8 prefix/redacts then
 selects certified 2048-byte/30-line heads, raw counts/completeness and fallback URLs.

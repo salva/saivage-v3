@@ -32,6 +32,20 @@ aliases can still retain all work. No reclamation or historical availability is 
 
 ## Preview first, delete separately
 
+Card `run_command` lazily supplies `.saivage/work/cards/<card-id>/shell` as
+`SAIVAGE_CARD_SHELL_ROOT`. This remains an ordinary concrete child, not a reserved
+root or retention exemption. Neither directory creation, the variable nor card
+existence protects its files. For example, a current
+`work:///cards/card-n/shell/install-check` reference protects only that subtree;
+`work:///cards/card-n/shell` protects all shell work but not sibling scratch or
+captures, while `work:///cards/card-n` alone protects neither. Prefer needed
+purpose-child/artifact references over the whole shell subtree. Old unreferenced
+shell files are eligible just like ordinary sibling work; those siblings remain
+valid without relocation. Existing process-owner, unfinished-execution and capture
+protections still apply. GC keeps directories, and command/card completion, re-entry
+and startup perform no automatic cleanup. Task-owned explicit cleanup remains
+permitted; separately consented generated-state reset includes the whole work root.
+
 From the identified project root, using the matching release:
 
 ```bash

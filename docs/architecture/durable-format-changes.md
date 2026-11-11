@@ -23,6 +23,24 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Card command shell-area guidance from actual implementation source parent
+`ffda83d1a0c8a400ba6d07f79f404b85b7cc8c7c` adds the pure `cardShellWorkRoot`
+accessor and card-only `run_command` lazy creation/environment locator for the
+already legal ordinary `.saivage/work/cards/<card-id>/shell` child. Existing shell
+contents, sibling work, scoped URLs and concrete-subtree GC interpretation are
+unchanged; absence remains lazy, not an old-format signal. No selector, payload,
+provenance, required initialized layout, retention rule or history changes and no
+conversion/relocation occurs. Card head1/history6/mailbox1, record head3/accepted6,
+conversation index/genesis/envelope13, execution3, shared provider/app envelope2,
+workflow6, capabilities1 and initializer1 remain unchanged: no discriminator bump,
+new durable family or unreleased-cutover exception. Evidence: owning layout/tool
+changes and real provider/public collector semantic regressions; the collector,
+generic runner and sanitizer retain their contracts. Matching runtime/tool help and
+deliberately reconciled selected materialized Executor hosts form the adoption unit;
+source edits do not hot-update custom hosts. Installed applicability is unknown,
+and whole-release compatibility depends on all intervening contracts. No deployment,
+reset, external migration, normalization or live relocation is authorized here.
+
 Optional Analyst recovery guidance from actual implementation parent
 `9526a1995a456556a128bea0476c76a92eb21249` changes only role/procedure text,
 documentation and a real-tool manual-catalog fixture. The existing unversioned

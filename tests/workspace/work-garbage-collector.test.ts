@@ -106,6 +106,39 @@ function toolExchange(tool: string, content: string, argumentsText = '{}') {
 }
 
 describe('work GC two-phase selection', () => {
+  it.each(['unreferenced', 'purpose', 'shell', 'card', 'sibling'] as const)(
+    'keeps ordinary shell and sibling work semantics for a current %s reference', async reference => {
+      const root = fixture();
+      const paths = [
+        'cards/project/shell/install-check/result.txt',
+        'cards/project/shell/other/result.txt',
+        'cards/project/ordinary-sibling/result.txt',
+        'cards/project/tmp/other.txt',
+        'cards/project/processes/proc-other/stdout.log',
+      ].map(name => work(root, name));
+      const references = {
+        unreferenced: [],
+        purpose: ['work:///cards/project/shell/install-check'],
+        shell: ['work:///cards/project/shell'],
+        card: ['work:///cards/project'],
+        sibling: ['work:///cards/project/ordinary-sibling'],
+      };
+      baseline(root, JSON.stringify({ paths: references[reference] }));
+      const protectedIndexes = reference === 'purpose' ? [0] : reference === 'shell' ? [0, 1]
+        : reference === 'sibling' ? [2] : [];
+      const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+      expect(preview).toMatchObject({ observed_count: 5, would_delete_count: 5 - protectedIndexes.length,
+        deleted_count: 0, retained: { protected: protectedIndexes.length } });
+      expect(paths.every(existsSync)).toBe(true);
+      const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: 2000 }, context());
+      expect(deleted.deleted_count).toBe(preview.would_delete_count);
+      for (const [index, path] of paths.entries()) {
+        expect(existsSync(path)).toBe(protectedIndexes.includes(index));
+        if (protectedIndexes.includes(index)) expect(readFileSync(path, 'utf8')).toBe('abcd');
+        expect(existsSync(dirname(path))).toBe(true);
+      }
+    });
+
   it('previews and deletes work beneath content administrative roots while preserving concrete artifacts and canonical bytes', async () => {
     const root = fixture(), w = join(root, '.saivage/work'), c = join(w, 'cards/project');
     const selected = [

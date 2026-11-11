@@ -1,7 +1,7 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { quoteBashWord } from '../helpers/bash-word.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -12,7 +12,7 @@ import { cleanupProcessProvider, processToolBinders, type ProcessProviderContext
 import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
-import { cardProcessOutputRoot, cardWorkRoot, nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
+import { cardProcessOutputRoot, cardShellWorkRoot, cardWorkRoot, nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
 import { buildScopedPathUrl, PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 
@@ -44,7 +44,7 @@ function expectUnifiedProcessResult(data: unknown, processId?: string): void {
 }
 
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-process-provider-'));
+  const root = mkdtempSync(join(tmpdir(), 'saivage process-provider-'));
   return fn(root).finally(async () => { await cleanupTestProcessRunners(root); rmSync(root, { recursive: true, force: true }); });
 }
 
@@ -415,38 +415,83 @@ describe('process provider', () => {
     expect(invocation.error).not.toContain('z'.repeat(1_000));
   }));
 
-  it('supplies the existing card work root to card commands without changing default cwd', async () => withRoot(async (root) => {
+  it('lazily supplies and reuses card shell work across activations without changing default cwd, including spaces', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
     const spawn = jest.spyOn(processes.processRunner, 'spawn');
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
+    const cardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const shell = cardShellWorkRoot(root, cardId);
+    expect(existsSync(shell)).toBe(false);
 
     const result = await invokeTestTool(surface, 'run_command', {
-      command: `printf '%s\\n%s\\n' "$SAIVAGE_CARD_WORK_ROOT" "$PWD"; test -d "$SAIVAGE_CARD_WORK_ROOT"`,
+      command: `set -eu; test -d "$SAIVAGE_CARD_SHELL_ROOT"; printf '%s\\n%s\\n%s\\n' "$SAIVAGE_CARD_WORK_ROOT" "$SAIVAGE_CARD_SHELL_ROOT" "$PWD"; mkdir "$SAIVAGE_CARD_SHELL_ROOT/install-check"; printf evidence > "$SAIVAGE_CARD_SHELL_ROOT/install-check/result.txt"`,
       timeout_ms: 1000,
     });
 
     expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ exit_code: 0 }) }));
     if (!result.success) return;
     const processId = (result.data as { process_id: string }).process_id;
-    expect(readFileSync(join(cardProcessOutputRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', processId), 'stdout.log'), 'utf8')).toBe(`${cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa')}\n${root}\n`);
+    expect(readFileSync(join(cardProcessOutputRoot(root, cardId, processId), 'stdout.log'), 'utf8')).toBe(`${cardWorkRoot(root, cardId)}\n${shell}\n${root}\n`);
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: root }));
+    const reentry = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes, 'activation-2')]);
+    const reused = await invokeTestTool(reentry, 'run_command', {
+      command: 'cat "$SAIVAGE_CARD_SHELL_ROOT/install-check/result.txt"; printf "\\n%s\\n" "$PWD"',
+      cwd: shell,
+      timeout_ms: 1000,
+    });
+    expect(reused).toMatchObject({ success: true, data: { exit_code: 0, stdout: `evidence\n${shell}\n` } });
+    if (!reused.success) throw new Error(reused.error);
+    const data = reused.data as { process_id: string; stdout_url: string };
+    expect(data.stdout_url).toBe(`work:///cards/${cardId}/processes/${data.process_id}/stdout.log`);
+    expect(readFileSync(join(shell, 'install-check/result.txt'), 'utf8')).toBe('evidence');
+    expect(spawn).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: shell, cardId, ownerId: 'activation-2', category: 'runtime_card' }));
+    expect(processes.processRunner.list()).toEqual([]);
   }));
 
-  it('does not supply a card work root to global Analyst commands', async () => withRoot(async (root) => {
+  it('does not inherit either host card variable or create card work for global Analyst commands', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
     const spawn = jest.spyOn(processes.processRunner, 'spawn');
     const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processes)]);
 
-    const result = await invokeTestTool(surface, 'run_command', {
-      command: `printf '%s\\n%s\\n' "\${SAIVAGE_CARD_WORK_ROOT+set}" "$PWD"`,
-      timeout_ms: 1000,
-    });
+    const previousWork = process.env.SAIVAGE_CARD_WORK_ROOT;
+    const previousShell = process.env.SAIVAGE_CARD_SHELL_ROOT;
+    process.env.SAIVAGE_CARD_WORK_ROOT = join(root, 'host-work-sentinel');
+    process.env.SAIVAGE_CARD_SHELL_ROOT = join(root, 'host-shell-sentinel');
+    let result: Awaited<ReturnType<typeof invokeTestTool>>;
+    try {
+      result = await invokeTestTool(surface, 'run_command', {
+        command: `printf '%s\\n%s\\n%s\\n' "\${SAIVAGE_CARD_WORK_ROOT+set}" "\${SAIVAGE_CARD_SHELL_ROOT+set}" "$PWD"`,
+        timeout_ms: 1000,
+      });
+    } finally {
+      if (previousWork === undefined) delete process.env.SAIVAGE_CARD_WORK_ROOT;
+      else process.env.SAIVAGE_CARD_WORK_ROOT = previousWork;
+      if (previousShell === undefined) delete process.env.SAIVAGE_CARD_SHELL_ROOT;
+      else process.env.SAIVAGE_CARD_SHELL_ROOT = previousShell;
+    }
 
     expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ exit_code: 0 }) }));
     if (!result.success) return;
     const processId = (result.data as { process_id: string }).process_id;
-    expect(readFileSync(join(nonCardProcessOutputRoot(root, processId), 'stdout.log'), 'utf8')).toBe(`\n${root}\n`);
+    expect(readFileSync(join(nonCardProcessOutputRoot(root, processId), 'stdout.log'), 'utf8')).toBe(`\n\n${root}\n`);
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: root }));
+    expect(spawn.mock.calls[0]![0]).not.toHaveProperty('env');
+    expect(existsSync(join(root, '.saivage/work/cards'))).toBe(false);
+    expect(existsSync(join(root, 'host-shell-sentinel'))).toBe(false);
+  }));
+
+  it('surfaces shell mkdir failure without launching a command', async () => withRoot(async (root) => {
+    const processes = createTestProcessRunner(root);
+    const spawn = jest.spyOn(processes.processRunner, 'spawn');
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
+    const cardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    mkdirSync(cardWorkRoot(root, cardId), { recursive: true });
+    writeFileSync(cardShellWorkRoot(root, cardId), 'existing task data');
+    const result = await invokeTestTool(surface, 'run_command', { command: 'touch must-not-launch' });
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining('EEXIST') });
+    expect(spawn).not.toHaveBeenCalled();
+    expect(existsSync(join(root, 'must-not-launch'))).toBe(false);
+    expect(readFileSync(cardShellWorkRoot(root, cardId), 'utf8')).toBe('existing task data');
   }));
 
   it('rejects the removed inactivity timeout before launching a process', async () => withRoot(async (root) => {
@@ -469,7 +514,7 @@ describe('process provider', () => {
     writeFileSync(join(source, 'node_modules', 'fixture-dependency', 'index.js'), "module.exports = { answer: 42 };\n");
     writeFileSync(join(source, 'check.cjs'), [
       "const { answer } = require('fixture-dependency');",
-      "console.log(JSON.stringify({ cwd: process.cwd(), dependency: require.resolve('fixture-dependency'), answer, workRoot: process.env.SAIVAGE_CARD_WORK_ROOT }));",
+      "console.log(JSON.stringify({ cwd: process.cwd(), dependency: require.resolve('fixture-dependency'), answer, workRoot: process.env.SAIVAGE_CARD_WORK_ROOT, shellRoot: process.env.SAIVAGE_CARD_SHELL_ROOT }));",
     ].join('\n'));
     const processes = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
@@ -496,6 +541,7 @@ describe('process provider', () => {
         dependency: join(install, 'node_modules', 'fixture-dependency', 'index.js'),
         answer: 42,
         workRoot: cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+        shellRoot: cardShellWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
       });
       expect(readFileSync(sentinel, 'utf8')).toBe('unrelated work stays intact\n');
       expect(data.stdout_url).toBe(`work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${data.process_id}/stdout.log`);
@@ -553,7 +599,7 @@ describe('process provider', () => {
         const outputRoot = cardProcessOutputRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', data.process_id);
         expect(readFileSync(join(outputRoot, 'stdout.log'), 'utf8')).toBe(`${expected}\n`);
         expect(data.stdout_url).toBe(`work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${data.process_id}/stdout.log`);
-        expect(spawn).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: expected, ownerId: 'activation-1', ownerKind: 'agent', category: 'runtime_card', directScope, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa') } }));
+        expect(spawn).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: expected, ownerId: 'activation-1', ownerKind: 'agent', category: 'runtime_card', directScope, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'), SAIVAGE_CARD_SHELL_ROOT: cardShellWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa') } }));
         expect(processRunner.processRunner.list()).toEqual([]);
       }
     } finally {
@@ -596,6 +642,7 @@ describe('process provider', () => {
         if (!result.success) expect(result.error).toContain(message);
         expect(processRunner.processRunner.list()).toEqual([]);
         expect(spawn).not.toHaveBeenCalled();
+        expect(existsSync(cardShellWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'))).toBe(false);
       }
     } finally {
       await cleanupTestProcessRunners(root);
