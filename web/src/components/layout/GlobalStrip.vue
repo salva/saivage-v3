@@ -4,7 +4,14 @@
       <div class="strip-identity">
         <img class="strip-brand" src="/saivage-original.svg" alt="Saivage" width="32" height="32">
         <span class="strip-project" data-testid="strip-project">{{ projectId ?? 'saivage' }}</span>
-        <span class="strip-chip" :class="`lifecycle-${statusLabel}`" data-testid="strip-lifecycle">{{ runtimeModeLabel }}</span>
+        <span id="strip-lifecycle" class="strip-chip" :class="`lifecycle-${statusLabel}`" :title="lifecycleGuidance?.description" :aria-description="lifecycleGuidance?.description" data-testid="strip-lifecycle">{{ runtimeModeLabel }}</span>
+        <details v-if="lifecycleGuidance" class="strip-guidance" data-testid="strip-runtime-guidance">
+          <summary aria-describedby="strip-lifecycle">Runtime guidance</summary>
+          <div class="strip-guidance-body">
+            <p>{{ lifecycleGuidance.description }}</p>
+            <p>{{ lifecycleGuidance.detail }}</p>
+          </div>
+        </details>
         <span v-if="currentWorkLabel" class="strip-current" data-testid="strip-current-work">
           <router-link v-if="loaded && !unauthorized && currentCardId" :to="{ name: 'card-detail', params: { id: currentCardId } }">{{ currentWorkLabel }}</router-link>
           <template v-else>{{ currentWorkLabel }}</template>
@@ -81,6 +88,8 @@ const {
   status,
   statusLabel,
   runtimeModeLabel,
+  lifecycleGuidance,
+  availabilityDetail,
   currentCardId,
   oversight,
   restartServerAvailable,
@@ -153,10 +162,9 @@ const oversightTitle = computed(() => {
 
 const problemNotices = computed<string[]>(() => {
   const notices: string[] = [];
-  if (loaded.value && status.value === 'error') notices.push('Runtime reported an error state.');
-  const availabilityDetail = runtimeStore.runtimeDetail;
-  if (loaded.value && status.value !== 'error' && availabilityDetail && availabilityDetail !== 'Runtime snapshot comes from the latest accepted REST response.' && !unauthorized.value) {
-    notices.push(availabilityDetail);
+  if (loaded.value && status.value === 'error') notices.push('Runtime reported an error state. Inspect System for recovery evidence.');
+  if (loaded.value && availabilityDetail.value && !unauthorized.value) {
+    notices.push(availabilityDetail.value);
   }
   if (currentCardNotice.value) notices.push(currentCardNotice.value);
   if (currentCardProblem.value) notices.push(currentCardProblem.value);
@@ -220,6 +228,10 @@ async function restartServer(): Promise<void> {
   flex-wrap: wrap;
 }
 .strip-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.strip-guidance { min-width: 0; max-width: 42rem; font-size: 12px; color: var(--text-muted); }
+.strip-guidance > summary { cursor: pointer; padding: 4px; }
+.strip-guidance-body { line-height: 1.5; overflow-wrap: anywhere; }
+.strip-guidance-body p { margin: 6px 0; }
 .strip-brand { width: 32px; height: 32px; flex: 0 0 32px; image-rendering: pixelated; }
 .strip-project { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .strip-current { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

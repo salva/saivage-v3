@@ -251,6 +251,37 @@ retain their existing meaning. The operator surface remains light, independent
 of OS dark preference; no brand/theme selector is introduced. The favicon is the
 original SVG, not a theme-dependent variant.
 
+Beside the lifecycle chip, a native **Runtime guidance** disclosure provides
+keyboard-, touch- and narrow-screen-accessible ordinary help, not a problem alert.
+The chip also has a concise description from the same lifecycle projection. Help
+is explicitly **last observed lifecycle**, using accepted `runtime.status` even
+when the independently sampled `/api/state` runtime differs or is null. Unknown,
+not-loaded or unauthorized observations provide no actionable lifecycle guidance.
+A failed refresh retains qualified prior guidance alongside the REST failure
+attribution; socket connectivity does not establish observation freshness.
+
+- Running already has a Run. Ordinary Analyst record edits are unavailable;
+  request Pause through the enabled Analyst conversation or configured external
+  runtime controls and wait for observed Paused before requesting edits.
+- Pausing is requested, not settled. Autonomous execution parks at its next
+  provider-admission frontier. Already-admitted provider attempts/retries, tools
+  and processes may continue with no time bound. Ordinary Analyst record edits
+  remain unavailable; Resume cannot skip Pausing. Do not infer a blocking operation
+  or remaining time from lifecycle or independently sampled diagnostics.
+- Paused permits requesting ordinary Analyst record edits, subject to current
+  per-operation admission. Request **Resume** to continue the same Run, not new
+  Run/Start. Parking at the provider frontier does not mean every process or
+  global activity stopped. Stopped also permits requesting ordinary edits, but
+  Start is a separate authorized operation, not Resume, with its own admission.
+- Starting, closing and error do not permit ordinary Analyst record-edit
+  intervention; Pause/Resume is not an automatic remedy. Error retains the System
+  recovery-evidence direction.
+
+Operations recheck current state and their own permissions; other holds may still
+refuse them. Availability/error/current-card problem notices remain separate
+alerts, including degraded availability while paused. No direct project-control
+buttons or inferred admission state are introduced.
+
 Explicit [work GC](../runbook/work-gc.md) has no UI button or dashboard. The
 API client consumes the declared strict NDJSON success stream incrementally,
 resolving only after one terminal result plus EOF; JSON-200 is not supported.

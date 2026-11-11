@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import GlobalStrip from '../../components/layout/GlobalStrip.vue';
 import { useRuntimeStore } from '../../stores/runtime';
+import { OperatorApiError } from '../../api/client';
 import { cardDetail, noCurrentRuntimeStatus, oversightSnapshot, runtimeStatusSnapshot, serverAvailability } from './fixtures';
 
 const api = vi.hoisted(() => ({
@@ -18,10 +19,10 @@ vi.mock('../../api/client', async (importOriginal) => ({
   ...api,
 }));
 
-async function renderStrip() {
+async function renderStrip(load = true) {
   const pinia = createPinia();
   setActivePinia(pinia);
-  await useRuntimeStore(pinia).fetchState();
+  if (load) await useRuntimeStore(pinia).fetchState();
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -57,6 +58,66 @@ describe('global strip runtime controls', () => {
     vi.useRealTimers();
     document.body.innerHTML = '';
     vi.clearAllMocks();
+  });
+
+  it('shows observation status, not intervention advice, before a runtime observation', async () => {
+    const wrapper = await renderStrip(false);
+    expect(wrapper.get('[data-testid="strip-lifecycle"]').text()).toBe('Unknown');
+    expect(wrapper.get('[data-testid="strip-rest"]').text()).toBe('REST Not loaded');
+    expect(wrapper.get('[data-testid="strip-current-work"]').text()).toBe('Current work unknown');
+    expect(wrapper.find('[data-testid="strip-runtime-guidance"]').exists()).toBe(false);
+    expectNoProjectCommandButtons();
+    wrapper.unmount();
+  });
+
+  it('keeps qualified lifecycle help separate from faults through pause and refresh failures', async () => {
+    api.getRuntimeStatus.mockResolvedValue(noCurrentRuntimeStatus({ runtime: 'running' }));
+    const wrapper = await renderStrip();
+    const guidance = () => wrapper.get('[data-testid="strip-runtime-guidance"]');
+    expect(guidance().element.tagName).toBe('DETAILS');
+    expect(guidance().get('summary').attributes('aria-describedby')).toBe('strip-lifecycle');
+    expect(guidance().text()).toContain('wait for observed Paused');
+    expect(guidance().attributes('role')).toBeUndefined();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="strip-lifecycle"]').attributes('aria-description')).toContain('edits are unavailable');
+
+    api.getRuntimeStatus.mockResolvedValue(noCurrentRuntimeStatus({ runtime: 'pausing' }));
+    await useRuntimeStore().fetchState(); await flushPromises();
+    expect(guidance().text()).toContain('no time bound');
+    expect(guidance().text()).toContain('edits remain unavailable');
+
+    api.getRuntimeState.mockResolvedValue({ projectId: 'fixture-project', runtime: null, serverAvailability: {
+      ...serverAvailability(), components: { ...serverAvailability().components, runtime: {
+        state: 'degraded', source: 'runtime-application', checkedAt: '2026-08-14T00:00:00.000Z',
+        diagnostic: { code: 'runtime-status-read-failed', summary: 'Synthetic runtime availability fault.' },
+      } },
+    } });
+    api.getRuntimeStatus.mockResolvedValue(noCurrentRuntimeStatus({ runtime: 'paused' }));
+    await useRuntimeStore().fetchState(); await flushPromises();
+    expect(guidance().text()).toContain('Resume to continue the same Run');
+    expect(wrapper.get('[role="alert"]').text()).toBe('Synthetic runtime availability fault.');
+    expect(wrapper.get('[role="alert"]').text()).not.toContain('Resume');
+
+    api.getRuntimeStatus.mockRejectedValueOnce(new Error('offline'));
+    await expect(useRuntimeStore().fetchState()).rejects.toThrow('offline'); await flushPromises();
+    expect(guidance().text()).toContain('Last observed lifecycle: Paused.');
+    expect(guidance().text()).toContain('other holds may still refuse them');
+    expect(wrapper.get('[data-testid="strip-rest"]').attributes('title')).toContain('Last successful observation is retained');
+
+    api.getRuntimeStatus.mockRejectedValueOnce(new OperatorApiError('runtime.status', 401, { error: 'Unauthorized', statusCode: 401 }));
+    await expect(useRuntimeStore().fetchState()).rejects.toThrow(); await flushPromises();
+    expect(wrapper.find('[data-testid="strip-runtime-guidance"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Current card details unavailable (unauthorized).');
+    expectNoProjectCommandButtons();
+    wrapper.unmount();
+  });
+
+  it('keeps runtime error and availability faults in the alert channel', async () => {
+    api.getRuntimeStatus.mockResolvedValue(noCurrentRuntimeStatus({ runtime: 'error' }));
+    const wrapper = await renderStrip();
+    expect(wrapper.get('[role="alert"]').text()).toContain('Inspect System for recovery evidence');
+    expect(wrapper.get('[data-testid="strip-runtime-guidance"]').text()).toContain('not an automatic remedy');
+    wrapper.unmount();
   });
 
   it.each([

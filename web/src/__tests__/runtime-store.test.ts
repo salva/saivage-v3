@@ -67,7 +67,9 @@ describe('runtime store S06 read-only projection', () => {
     expect(store.loaded).toBe(true);
     expect(store.status).toBe('stopped');
     expect(store.statusLabel).toBe('stopped');
-    expect(store.runtimeDetail).toBe('No live runtime.');
+    expect(store.lifecycleGuidance?.description).toContain('Last observed lifecycle: Stopped.');
+    expect(store.availabilityDetail).toBe('Runtime status read failed.');
+    expect(store).not.toHaveProperty('runtimeDetail');
     expect(store.oversight).toEqual(oversight);
     expect(store.lastFetchedAt).not.toBeNull();
     expect(store).not.toHaveProperty('cardIndex');
@@ -102,6 +104,9 @@ describe('runtime store S06 read-only projection', () => {
     expect(store.statusSnapshot).toEqual(runningStatus);
     expect(store.currentCardId).toBe('card-a-b');
     expect(store.actorCards).toEqual(runningStatus.actorRuntime.cards);
+    // /api/state says no live runtime; runtime.status still owns lifecycle help.
+    expect(store.runtime).toBeNull();
+    expect(store.lifecycleGuidance?.description).toContain('Running. Ordinary Analyst record edits are unavailable.');
     expect(store.cardWorkflowPosition('card-a-b')).toEqual(runningStatus.actorRuntime.cards[1]!.processState);
     expect(store.cardWorkflowPosition('card-zzz')).toBe(null);
   });
@@ -125,6 +130,7 @@ describe('runtime store S06 read-only projection', () => {
     expect(store.refreshError).toBe('Failed to fetch runtime state');
     expect(store.oversight).toEqual(oversight);
     expect(store.lastFetchedAt).toBe(completedAt);
+    expect(store.lifecycleGuidance?.description).toContain('Last observed lifecycle: Stopped.');
   });
 
   it('does not allow a superseded response to replace the current epoch', async () => {

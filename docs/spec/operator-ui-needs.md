@@ -488,6 +488,12 @@ ordinary Analyst mutations: settled paused/stopped versus starting/running/pausi
 closing/error. Check transitions and stale observations: readiness is not HTTP health,
 not a reservation, and not a universal gate overriding operation-specific exceptions.
 The same owner admission applies to configured external tools; transport availability does not grant intervention readiness.
+Make running/pausing/paused intervention guidance discoverable by keyboard and
+touch, readable on narrow screens, and separate from diagnostic alerts. Explain
+cooperative provider-frontier parking and unbounded admitted-work/retry waits:
+Pausing is not Paused, and Paused does not mean every process/global activity stopped.
+Qualify retained guidance as last observed lifecycle; operations recheck current
+state and their own permissions, and other holds may still refuse them.
 
 **F27 — Must — One direct runtime control.** Offer only capability-gated, confirmed
 Restart server as a direct runtime mutation; project Start, Stop, Pause, and Resume
@@ -495,6 +501,10 @@ have no direct UI controls and are requested through the enabled Analyst convers
 Check running and stopped observations with no such controls, restart unavailable,
 rejected confirmation, and exact `RESTART SERVER` confirmation. Explain project
 halt versus server shutdown; Restart neither cancels a card nor starts project work.
+Guidance must support external-only operation: use the enabled Analyst conversation
+or configured external runtime controls. Running needs no new Start; settled Paused
+uses Resume for the same Run, while stopped Start is separately authorized. Do not
+suggest Resume to skip Pausing or restart as a pause remedy.
 
 **F28 — Must — Truthful action feedback.** Distinguish sending, busy/admission denial,
 returned failure, and accepted effect. Check a busy Analyst submission and an

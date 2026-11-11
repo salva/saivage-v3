@@ -23,7 +23,7 @@ import {
 import { createLogger } from '../utils/logger';
 import {
   selectAvailabilityDetail,
-  selectRuntimeDetail,
+  selectLifecycleGuidance,
   selectRuntimeModeLabel,
   selectRuntimeStatusLabel,
   selectStatusCurrentCardId,
@@ -58,12 +58,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
   const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ statusLabel: statusLabel.value }));
   const availabilityDetail = computed(() => selectAvailabilityDetail(serverAvailability.value));
-  const runtimeDetail = computed(() => selectRuntimeDetail({
+  const lifecycleGuidance = computed(() => selectLifecycleGuidance({
     loaded: loaded.value,
     unauthorized: unauthorized.value,
-    runtime: runtime.value,
     status: status.value,
-    availabilityDetail: availabilityDetail.value,
   }));
   function markRestSync(): void {
     lastFetchedAt.value = nowIso();
@@ -133,7 +131,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
     actorCards,
     statusLabel,
     runtimeModeLabel,
-    runtimeDetail,
+    lifecycleGuidance,
+    availabilityDetail,
     cardWorkflowPosition,
     fetchState,
     refetch,

@@ -98,6 +98,17 @@ Removal does not repair state, certify containment or authorize start/Run.
 
 ## Run and Pause
 
+The UI lifecycle chip's **Runtime guidance** disclosure explains the last accepted
+observation, not reserved admission. Running/pausing refuse ordinary Analyst record
+edits; wait for observed Paused before requesting them through the enabled Analyst
+conversation or configured external runtime controls. Pausing can wait indefinitely
+for admitted provider attempts/retries, tools or processes to reach the next
+provider-admission frontier. Paused means autonomous admission is parked, not all
+processes/global work stopped: use authorized **Resume** for the same Run, not new
+Run/Start. Stopped Start is separate. Operations recheck current state and their
+own permissions; other holds may still refuse them. Availability faults and REST
+refresh failures remain independent observations, not hidden by lifecycle help.
+
 Run installs one prepared root owner, reports starting, and may first settle the
 durable interrupted running chain. It launches only project; descendants need
 ordinary immediate-parent activation with fresh explicit direction. It never

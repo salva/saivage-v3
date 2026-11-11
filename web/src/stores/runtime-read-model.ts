@@ -1,5 +1,4 @@
 import type {
-  RuntimeState,
   RuntimeStatus,
   ServerAvailability,
   WsConnectionState,
@@ -32,19 +31,43 @@ export function selectAvailabilityDetail(availability: ServerAvailability | null
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
-export function selectRuntimeDetail(options: {
+export function selectLifecycleGuidance(options: {
   loaded: boolean;
   unauthorized: boolean;
-  runtime: RuntimeState | null;
   status: RuntimeStatus | null;
-  availabilityDetail: string | null;
-}): string {
-  if (options.unauthorized) return 'Runtime observations are unavailable: this browser is not authorized for the operator API.';
-  if (!options.loaded) return 'Runtime state has not been loaded yet.';
-  if (!options.runtime) return 'No live runtime.';
-  if (options.status === 'error') return 'Runtime reported an error state. Inspect System for recovery evidence.';
-  if (options.status === 'paused') return 'Runtime is paused. Ask the Analyst to Run when work should continue.';
-  return options.availabilityDetail ?? 'Runtime snapshot comes from the latest accepted REST response.';
+}): { description: string; detail: string } | null {
+  if (!options.loaded || options.unauthorized || options.status === null) return null;
+  const qualification = 'Operations recheck current state and their own permissions; other holds may still refuse them.';
+  const controls = 'Use the enabled Analyst conversation or configured external runtime controls.';
+  let description: string;
+  let detail: string;
+  switch (options.status) {
+    case 'running':
+      description = 'Last observed lifecycle: Running. Ordinary Analyst record edits are unavailable.';
+      detail = `Request Pause and wait for observed Paused before requesting edits. Running already has a Run; no new Start is needed. ${controls}`;
+      break;
+    case 'pausing':
+      description = 'Last observed lifecycle: Pausing. Cooperative Pause is requested, not settled; ordinary Analyst record edits remain unavailable.';
+      detail = 'Autonomous execution parks at its next provider-admission frontier. Already-admitted provider attempts/retries, tools and processes may continue; the wait has no time bound. Resume is for settled Paused, not a way to skip Pausing.';
+      break;
+    case 'paused':
+      description = 'Last observed lifecycle: Paused. Ordinary Analyst record edits may be requested, subject to current per-operation admission.';
+      detail = `Autonomous execution is parked at the provider frontier; this does not mean all processes or global work have stopped. Request Resume to continue the same Run, not a new Run/Start. ${controls}`;
+      break;
+    case 'stopped':
+      description = 'Last observed lifecycle: Stopped. Ordinary Analyst record edits may be requested, subject to current per-operation admission.';
+      detail = `Start is a separate authorized operation, not Resume, and has its own admission rules. ${controls}`;
+      break;
+    case 'starting':
+    case 'closing':
+    case 'error':
+      description = `Last observed lifecycle: ${selectRuntimeModeLabel({ statusLabel: options.status })}. Ordinary Analyst record-edit intervention is unavailable.`;
+      detail = options.status === 'error'
+        ? 'Inspect System for recovery evidence. Pause or Resume is not an automatic remedy.'
+        : 'Pause or Resume is not an automatic remedy.';
+      break;
+  }
+  return { description, detail: `${detail} ${qualification}` };
 }
 
 export function selectSocketLabel(state: WsConnectionState): string {
