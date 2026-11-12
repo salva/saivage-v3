@@ -105,7 +105,7 @@ without turning quoted old readiness or correction prose into fresh authority.
 
 Match validation to the owning surface and consult existing validation profiles.
 Runtime prompt checks do not prove OpenCode loaded a development skill; skill
-checks do not validate provider serialization. Use no provider calls for validation by default. For changed model-facing assets, the manager invokes a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.1-sol override to perform independent linkage and composition review of the actual composed assets. The author's selfchecks never substitute for that review, and it does not replace the projections in this step.
+checks do not validate provider serialization. Use no provider calls for validation by default. For changed model-facing assets, the invoking owner (the implementation manager in an issue run, or the acting primary for an authorized trivial direct wording assignment) obtains independent linkage and composition review of the actual composed assets from a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.1-sol override. The author's selfchecks never substitute for that review, and it does not replace the projections in this step.
 Report source paths, invocations, projections, assumptions, and gaps: static or
 prepared text proves neither exact delivery nor model understanding or improved
 quality. Add no trivial prose-regex tests, word bans, or production helpers solely
@@ -115,7 +115,7 @@ to test prose.
 
 After all planned edits, including validation-driven edits, assess the current
 whole composed result as if designing it from scratch for today's task. This is a
-separate final pass, not incremental review, step 3, or a passing test. For changed model-facing assets, the manager invokes a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.1-sol override to run this pass unconditionally after the last edit on the actual final composition, recording its session and model evidence. The author's selfchecks never substitute. Findings return through the manager: wording findings go to `prompt-developer` (or `doc-developer` for ordinary documentation) and logic findings go to `code-developer`, followed by affected validation and a fresh final pass after the last edits.
+separate final pass, not incremental review, step 3, or a passing test. For changed model-facing assets, the invoking owner obtains two final activities from a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.1-sol override, on the actual final composition after the last edit: the linkage, positive-sufficiency, and composition review of step 4, and this clean-room pass. One invocation may perform both sequentially if its review identifies each separately; a second invocation is not required for that reason alone. Record its session and model evidence. The author's selfchecks never substitute. Findings return through the invoking owner: wording findings go to `prompt-developer` (or `doc-developer` for ordinary documentation) and logic findings go to `code-developer`, followed by affected validation and fresh final activities on the actual final input, including after any later shared-instruction, host, or configuration change.
 
 Check positive sufficiency as well as clutter: can this recipient identify today's
 objective and scoped next action, necessary evidence/work-product responsibility,

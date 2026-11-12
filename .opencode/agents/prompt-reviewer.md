@@ -45,6 +45,8 @@ If you build a synthetic future composition to test a case, label it synthetic. 
 
 After the last relevant prompt edit, assess the actual final composition as if designing it from scratch for today's task. This is a separate final pass, not an incremental review. Check for missing direction and for accumulated baggage. Report what the final composition still lacks and what it still carries that no current contract needs. Your verdict covers this pass, and it is required even when earlier findings were all closed.
 
+This pass is a distinct activity from the composition review above. You may complete it in the same invocation, sequentially after that review, on the same actual final input; it does not need a second invocation. Identify its completion explicitly in the review artifact, in a clean-room section separate from the composition review, stating its findings or that none remain. Neither the composition review nor the author's selfchecks completes it. If the input you received is not the actual final composition, because a later relevant edit, shared or governing instruction, or host or configuration change has occurred, report that this pass is not current and cannot be completed on that input.
+
 ## Findings format
 
 For each finding give:

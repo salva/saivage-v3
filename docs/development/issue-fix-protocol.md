@@ -421,8 +421,23 @@ projects into that role's own prompt body, so a role never needs this document t
   author. A finding that requires a changed design is reported as such, and in an issue run
   the manager returns it to the issue fixer.
 - Finish with exactly one verdict on the last line, as for design review.
-- `prompt-reviewer` always performs an unconditional final clean-room review after the
-  last relevant prompt edit, against the actual final composition.
+- `prompt-reviewer` review of a changed prompt asset covers two final activities on the
+  actual final composition, after the last relevant edit and including any inline
+  integration: (a) linkage, positive-sufficiency, and whole-composition review; and (b) a
+  separately identified, unconditional final clean-room assessment, which is required even
+  when activity (a) found nothing. It is not an incremental findings check. One invocation
+  in a session distinct from the author may perform both sequentially on the same final
+  input, and its review must identify each activity. A second invocation is not required
+  merely because there are two activities. An author's selfcheck, a generic passing
+  verdict that does not identify the clean-room assessment, or a review of wording made
+  before its inline integration does not complete either activity. A report that lacks
+  this evidence is completed by an independent `prompt-reviewer` on the actual final input,
+  never presumed passed. A later relevant change requires fresh review of the affected
+  final composition and another clean-room assessment. Relevant changes include a
+  correction, a validation-driven edit, an integration, and a change to shared or governing
+  instructions, to the host, or to the configuration that affects the asset. The same
+  activities apply when the acting primary runs an authorized trivial direct wording
+  assignment.
 
 ## Working files
 
@@ -780,12 +795,20 @@ The manager must:
    commit may start until all workers and their launched commands have settled.
    - After a prompt author changes prompt assets, the manager invokes `prompt-reviewer`
      with the explicit exact Sol override `openai/gpt-6.1-sol`, in a distinct session,
-     for prompt linkage and composition review. After the last edits it repeats the
-     final whole-composition review. Ordinary documentation changes go to `doc-reviewer`.
+     for prompt linkage and composition review. The final review after the last relevant
+      edit, including any inline integration, must identify both final activities on the
+      actual final composition: the whole-composition review and the separately identified
+      unconditional clean-room assessment. One such invocation may perform both when its
+      review identifies each; no second invocation is added for that reason alone.
+     Ordinary documentation changes go to `doc-reviewer`.
      No review is added to unchanged text or to an asset outside the assignment.
    - Findings return to the matching author, `doc-developer` or `prompt-developer`, for
      wording, or to `code-developer` for logic in source or configuration. Each return is
-     followed by affected validation and a repeated final review.
+     followed by affected validation and fresh review of the actual final input. For a
+      prompt asset, that review is the final activities above, including the clean-room
+      assessment, and the same applies after any later relevant shared or governing
+      instruction, host, or configuration change. For ordinary documentation, the fresh
+      review is by `doc-reviewer`; no prompt clean-room assessment is added.
    - A finding that requires a changed design is not implemented by any worker. The
      manager returns it to the original issue fixer for the full redesign loop.
    - Include planned discriminator, producer, consumer, fixture, and reference
