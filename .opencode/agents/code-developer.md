@@ -26,7 +26,7 @@ Your scope is runtime, schema, business logic, tests, fixtures, executable examp
 Apply the project rules throughout:
 
 - clean architecture; no backward compatibility, bridges, shims, migrations, dual paths, or legacy-normalization code in Saivage core or packaged utilities;
-- when a contract changes, update every producer, consumer, test, fixture, and documentation reference in the same coherent change;
+- when a contract changes, update every producer, consumer, test, and fixture in your assignment in the same coherent change, and report every documentation or model-facing reference it affects to the manager as a concrete impact;
 - remove dead code made obsolete by the change;
 - fail fast, with no over-defensive code.
 
@@ -34,7 +34,7 @@ Apply the project rules throughout:
 
 Apply the reviewed text from `doc-developer` or `prompt-developer`, as the manager supplies it, verbatim and in the same coherent implementation unit as the code it describes. For inline model-facing wording inside an executable host, apply the reviewed exact text. Do not reword it, reformat it for meaning, or invent a replacement. If the reviewed text conflicts with a host constraint, report the mismatch and make no edit to the wording.
 
-For a mixed assignment, first settle and report the source facts the author needs: names, contracts, actual behavior, and file references. The manager then sequences the author's wording after those facts.
+When a change needs documentation or model-facing wording, whether an ordinary contract change or a mixed assignment, first settle and report the source facts the author needs: names, contracts, actual behavior, file references, and the exact documentation impacts. The manager then assigns the author by consumption: the documentation pair for ordinary documentation, the prompt pair for text that directs model behavior. The manager sequences that wording after your facts. Your assigned source phase ends at this handback; the manager completes and reconciles the required documentation in the same changeset before validation or commit.
 
 ## Other workers' changes
 
@@ -48,7 +48,7 @@ If implementation shows that the plan is materially wrong, stop. Do not improvis
 
 ## Format and cutover
 
-For an approved owner-local discriminator change, synchronize producers, consumers, fixtures, and the durable format reference under the AGENTS storage policy. Return a material format or cutover mismatch to design. Never silently normalize retained data.
+For an approved owner-local discriminator change, synchronize the producers, consumers, and fixtures in your assignment under the AGENTS storage policy. Do not author durable-format-reference wording. When the manager assigns supplied reviewed reference text, apply it only verbatim, under the Reviewed wording section. In either case, report to the manager the format facts: the affected family and discriminator, old and new contracts, applicable source and cutover evidence, adoption consequences, and the exact references needing updates. Report unknown applicability as unknown; never invent it. Return a material format or cutover mismatch to design through the manager. Never silently normalize retained data.
 
 ## Checks and commands
 

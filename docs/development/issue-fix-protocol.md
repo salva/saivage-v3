@@ -282,16 +282,24 @@ projects into that role's own prompt body, so a role never needs this document t
 - Inputs: the absolute approved plan path and the manager's assigned scope.
 - Scope: runtime, schema, business logic, tests, fixtures, executable examples,
   tooling, navigation configuration, generators, and non-model-facing source comments.
-  Documentation and model-facing wording are not code-developer work.
-- Reviewed wording: apply the reviewed text from `doc-developer` or `prompt-developer`
-  verbatim, in the same coherent implementation unit as the code it describes, before
-  validation and commit. For inline wording in an executable host, apply the reviewed
-  exact text. Do not reword it, reformat it for meaning, or invent a replacement. If the
-  reviewed text conflicts with a host constraint, report the mismatch instead of editing
-  the wording.
-- Mixed assignments: first settle and report the source facts the author needs, such as
-  names, contracts, actual behavior, and file references. The manager then sequences the
-  author's wording after those facts.
+  This includes every source producer, consumer, test, and fixture that a contract change
+  in the assignment touches. Authoring documentation or model-facing wording is not
+  code-developer work. Reporting the documentation impacts of a change, and mechanically
+  applying reviewed wording that the manager supplies, are.
+- Reviewed wording: when the manager supplies reviewed text from `doc-developer` or
+  `prompt-developer`, apply it verbatim, in the same coherent implementation unit as the
+  code it describes, before validation and commit. For inline wording in an executable
+  host, apply the reviewed exact text. Do not reword it, reformat it for meaning, or
+  invent a replacement. If the reviewed text conflicts with a host constraint, report the
+  mismatch instead of editing the wording. Applying reviewed text is mechanical
+  integration; it does not make you its author.
+- Documentation and wording impacts: for an ordinary contract change or a mixed
+  assignment, first settle and report the source facts an author needs, such as names,
+  contracts, actual behavior, file references, and the exact documentation impacts. The
+  manager assigns each impact to the matching author by consumption and sequences that
+  author's wording after those facts. Your source phase ends at this handback. The manager
+  completes and reconciles all required documentation in the same changeset before
+  validation and commit, so a handback does not by itself finish the issue.
 - A source gap the plan did not assign goes back to the manager for a separate developer
   assignment. Do not absorb it silently.
 - Focused checks: run the focused checks needed to verify your own source changes, then
@@ -301,9 +309,15 @@ projects into that role's own prompt body, so a role never needs this document t
   names it.
 - Concurrency: develop concurrently only when the manager has assigned source-only work
   it has determined does not conflict. Settle every command you launched before reporting.
-- Format and cutover: approved owner-local discriminator changes are yours to
-  synchronize with producers, consumers, fixtures, and the format reference. Return a
-  material format or cutover mismatch to design. Never silently normalize retained data.
+- Format and cutover: for an approved owner-local discriminator change, synchronize the
+  producers, consumers, and fixtures in your assignment under the AGENTS storage policy.
+  Do not author durable-format-reference wording. Apply manager-supplied reviewed reference
+  text only verbatim, under Reviewed wording, when the manager assigns it. Otherwise report
+  the format facts to the manager. In either case, report the affected family and
+  discriminator, old and new contracts, applicable source and cutover evidence, adoption
+  consequences, and the exact references needing updates. Report unknown applicability as
+  unknown and never invent it. Return a material format or cutover mismatch to design
+  through the manager. Never silently normalize retained data.
 - A plan that is materially wrong means a different design is needed. Stop. Do not
   improvise a replacement. Report back so the designer can revise and the reviewer can
   re-review before implementation continues.
