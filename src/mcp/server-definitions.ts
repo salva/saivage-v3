@@ -1,14 +1,22 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
-import { mcpConnectionSchema, type McpConnection } from '../schemas/index.js';
+import { mcpConnectionSchema, mcpAccessPolicySchema } from '../schemas/index.js';
 import { replaceFile } from '../persistence/index.js';
 
 const mcpServerDefinitionsSchema = z
   .object({
-    format_version: z.literal(1),
+    format_version: z.literal(2),
     type: z.literal('mcp-server-definitions'),
-    servers: z.record(z.string().min(1), mcpConnectionSchema),
+    servers: z.record(
+      z.string().min(1),
+      z
+        .object({
+          connection: mcpConnectionSchema,
+          policy: mcpAccessPolicySchema,
+        })
+        .strict(),
+    ),
   })
   .strict();
 
@@ -16,7 +24,9 @@ export function mcpServerDefinitionsPath(projectRoot: string): string {
   return join(projectRoot, '.saivage', 'config', 'mcp-servers.json');
 }
 
-export function readMcpServerDefinitions(projectRoot: string): Record<string, McpConnection> {
+export type McpServerDefinition = z.infer<typeof mcpServerDefinitionsSchema>['servers'][string];
+
+export function readMcpServerDefinitions(projectRoot: string): Record<string, McpServerDefinition> {
   let source: string;
   try {
     source = readFileSync(mcpServerDefinitionsPath(projectRoot), 'utf8');
@@ -38,14 +48,14 @@ export function readMcpServerDefinitions(projectRoot: string): Record<string, Mc
 
 export function replaceMcpServerDefinitions(
   projectRoot: string,
-  servers: Record<string, McpConnection>,
+  servers: Record<string, McpServerDefinition>,
 ): void {
   const path = mcpServerDefinitionsPath(projectRoot);
   mkdirSync(dirname(path), { recursive: true });
   replaceFile(
     path,
     Buffer.from(
-      `${JSON.stringify({ format_version: 1, type: 'mcp-server-definitions', servers })}\n`,
+      `${JSON.stringify({ format_version: 2, type: 'mcp-server-definitions', servers })}\n`,
     ),
   );
 }

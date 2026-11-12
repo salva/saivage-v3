@@ -29,7 +29,12 @@
         </h4>
         <div class="debug-grid">
           <div class="debug-grid-item"><span class="dg-key">Definition:</span><span class="dg-value">{{ server.definitionSource ?? 'Absent · retained owner' }}</span></div>
-          <div class="debug-grid-item"><span class="dg-key">Containment:</span><span class="dg-value">{{ server.containmentFailed ? 'Failed · name blocked' : 'No failure reported' }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Controller:</span><span class="dg-value">{{ server.policy.controllerCardId }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Audience:</span><span class="dg-value">{{ server.policy.controllerCardId === 'project' && server.policy.exposure === 'subtree' ? 'Project-wide' : server.policy.exposure === 'subtree' ? 'Controller subtree' : 'Controller card only' }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Protocol readiness:</span><span class="dg-value">{{ server.ready ? 'Ready · last established' : 'Not ready' }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Containment:</span><span class="dg-value">{{ server.containment }}{{ server.containment === 'failed' ? ' · name blocked' : '' }} · {{ server.containmentBoundary }}</span></div>
+          <div v-if="server.failureReason" class="debug-grid-item"><span class="dg-key">Failure:</span><span class="dg-value">{{ server.failureReason }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Available management:</span><span class="dg-value">{{ server.availableActions.join(', ') || 'None' }}</span></div>
           <div v-if="server.processId" class="debug-grid-item"><span class="dg-key">Process association:</span><span class="dg-value">{{ server.processId }}</span></div>
           <div v-if="server.bindingId" class="debug-grid-item"><span class="dg-key">Catalog binding:</span><span class="dg-value">{{ server.bindingId }}</span></div>
         </div>
@@ -91,6 +96,7 @@ function fmtDate(timestamp: string): string {
 .mcp-server-badge.mcp-status-running { background: var(--entry-accent-bg); color: var(--accent); }
 .mcp-server-badge.mcp-status-stopped { background: var(--surface-3); color: var(--text-muted); }
 .mcp-server-badge.mcp-status-starting { background: var(--surface-3); color: var(--accent); }
+.mcp-server-badge.mcp-status-stopping { background: var(--surface-3); color: var(--accent); }
 .mcp-server-badge.mcp-status-error { background: var(--entry-danger-bg); color: var(--danger); }
 .mcp-server-transport {
   font-size: 10px;

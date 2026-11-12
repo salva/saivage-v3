@@ -1,4 +1,5 @@
 import { expect, it } from '@jest/globals';
+import { MCP_OPERATOR_CALLER as caller } from '../../src/mcp/manager-api.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -97,7 +98,7 @@ it.each([true, false])('restarts through ordinary production card composition (E
             if (executorControls) { expect(result).toMatchObject({ success: true, data: { status: 'running', toolCount: 1 } }); stale(); }
             else {
               expect(result).toMatchObject({ success: false, error: expect.stringContaining('Unsupported executor tool call') });
-              expect(initializes).toBe(1); expect(app!.server.mcpManager.getServerStatus('local')!.bindingId).toBe(old.bindingId);
+              expect(initializes).toBe(1); expect(app!.server.mcpManager.getServerStatus(caller, 'local')!.bindingId).toBe(old.bindingId);
               call('handoff', 'emit_result', { outcome: 'review', summary: 'Invocation does not confer control.' });
             } break;
           case 5: expect(result).toMatchObject({ success: false, error: expect.stringContaining('Stale MCP binding') }); discover(); break;
@@ -112,7 +113,7 @@ it.each([true, false])('restarts through ordinary production card composition (E
           if (reviewer === 1) control('denied-reviewer');
           else if (reviewer === 2) {
             expect(result).toMatchObject({ success: false, error: "Unsupported reviewer tool call 'mcp_server_control'." });
-            expect(initializes).toBe(2); expect(app!.server.mcpManager.getServerStatus('local')!.bindingId).toBe(fresh.bindingId);
+            expect(initializes).toBe(2); expect(app!.server.mcpManager.getServerStatus(caller, 'local')!.bindingId).toBe(fresh.bindingId);
             call('done', 'emit_result', { outcome: 'approved', summary: 'Denied default Reviewer control before effects.' });
           } else throw new Error(`Unexpected Reviewer step ${reviewer}`);
         } else switch (reviewer) {
@@ -129,7 +130,7 @@ it.each([true, false])('restarts through ordinary production card composition (E
   try {
     const mcpPort = await listen(mcp); const providerPort = await listen(provider);
     writeProductionConfig(root, productionTestConfig(providerPort, config => {
-      config.agents.executor = { ...config.agents.executor!, capabilities:{format_version:1,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_tool_call',...(executorControls?['mcp_server_control']:[])]}]}, skills: false };
+      config.agents.executor = { ...config.agents.executor!, capabilities:{format_version:2,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_tool_call',...(executorControls?['mcp_server_control']:[])]}]}, skills: false };
       // Preserve default Reviewer selection in the denied scenario.
       if (!executorControls) config.agents.reviewer!.capabilities.grants.push({tools:['mcp_server_control','mcp_tools','mcp_tool_call']});
       config.card_types.project = {
@@ -143,7 +144,7 @@ it.each([true, false])('restarts through ordinary production card composition (E
           },
         },
       };
-      config.mcpServers = { local: { transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, autostart: true, disabled: false } };
+      config.mcpServers = { local: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, autostart: true, disabled: false } };
     }));
     initializeProject(root); app = await startProductionApp(root, token);
     const oversight = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never).oversight;

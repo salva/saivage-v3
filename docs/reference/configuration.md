@@ -443,7 +443,7 @@ and the inner prompt default:
 | Field | Type / constraint |
 | --- | --- |
 | `prompt` | Static prompt declaration below |
-| `capabilities` | Strict `{format_version:1, grants:[...]}`; ordered selected tool grants below |
+| `capabilities` | Strict `{format_version:2, grants:[...]}`; ordered selected tool grants below |
 | `model_route` | Existing route identifier |
 | `skills` | Boolean; must equal whether `skill` is selected |
 | `session` | `global` or `card` |
@@ -469,7 +469,7 @@ record/card authority.
 
 ```yaml
 capabilities:
-  format_version: 1
+  format_version: 2
   grants:
     - tools: [write, edit]
       resources:
@@ -764,6 +764,8 @@ Path `mcpServers.<name>`; two disjoint strict shapes:
 
 | Field | stdio | streamable-http |
 | --- | --- | --- |
+| `format_version` | Required literal 1 | Required literal 1 |
+| `policy` | Required `{controllerCardId,exposure:card|subtree}` | Same |
 | `transport` | Required literal stdio | Required literal streamable-http |
 | `command` | Required nonempty string | Not accepted |
 | `args` | Optional string array | Not accepted |
@@ -773,11 +775,20 @@ Path `mcpServers.<name>`; two disjoint strict shapes:
 | `autostart` | true | true |
 
 YAML connections use normal interpolation. Dynamic
-`.saivage/config/mcp-servers.json` definitions use connection-only fields, remain
-literal and never autostart; they cannot collide with YAML names. Transport config,
+`.saivage/config/mcp-servers.json` uses `format_version:2`,
+`type:mcp-server-definitions`, `servers:{name:{connection,policy}}`. Connections
+remain literal and never autostart; they cannot collide with YAML names. Transport config,
 tool grants, live binding and discovered catalog are distinct. Definition edits do
 not hot-rebind the whole runtime. Full example and operations:
 [outbound MCP](../runbook/mcp.md#saivage-tools-to-configured-mcp-servers).
+
+Policy is mandatory for retained inputs; no absent-policy project-wide default.
+Root plus subtree means Project-wide. Generic independently selected operations
+remain targetless; card callers need canonical live exposure for calls and
+controller/ancestor authority for management. Globals require explicit registration
+anchors. `mcp_server_set_scope` is optional and dynamic-only, preserving connection
+identity; YAML policy uses normal input/restart adoption. Reset preserves definitions
+and does not convert old inputs. See [state adoption](../runbook/state-adoption.md).
 
 ## Server YAML
 

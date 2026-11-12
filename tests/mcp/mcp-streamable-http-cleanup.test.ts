@@ -44,7 +44,7 @@ describe('Streamable HTTP native fetch cleanup', () => {
       const caller = new AbortController();
       const serverController = new AbortController();
       const reason = { exact: 'HTTP caller reason' };
-      const input = { serverName: 'loopback', config: { transport: 'streamable-http' as const, disabled: false, autostart: true, url: `http://127.0.0.1:${address.port}/mcp` }, handle: { abortController: serverController, streamableHttpSessionId: 'retained-session' }, ids: { next: () => 1 }, signal: caller.signal };
+      const input = { serverName: 'loopback', config: { format_version: 1 as const, policy: { controllerCardId: 'project', exposure: 'subtree' as const }, transport: 'streamable-http' as const, disabled: false, autostart: true, url: `http://127.0.0.1:${address.port}/mcp` }, handle: { abortController: serverController, streamableHttpSessionId: 'retained-session' }, ids: { next: () => 1 }, signal: caller.signal };
       const observed = (operation === 'discovery' ? initializeStreamableHttp(input).then(() => listStreamableHttpTools(input)) : invokeStreamableHttpTool({ ...input, toolName: 'pending', args: {}, timeoutMs: 5_000 })).catch(error => error);
       await entered.promise;
       caller.abort(reason);
@@ -69,7 +69,7 @@ describe('Streamable HTTP native fetch cleanup', () => {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     try {
       const address = server.address(); if (!address || typeof address === 'string') throw new Error('Expected IP listener');
-      const input = { serverName: 'loopback', config: { transport: 'streamable-http' as const, disabled: false, autostart: false, url: `http://127.0.0.1:${address.port}/mcp` }, ids: { next: () => 1 }, signal: new AbortController().signal };
+      const input = { serverName: 'loopback', config: { format_version: 1 as const, policy: { controllerCardId: 'project', exposure: 'subtree' as const }, transport: 'streamable-http' as const, disabled: false, autostart: false, url: `http://127.0.0.1:${address.port}/mcp` }, ids: { next: () => 1 }, signal: new AbortController().signal };
       const error = await initializeStreamableHttp(input).then(() => listStreamableHttpTools(input)).catch(error => error);
       expect(error).toBeInstanceOf(TransportError);
       expect(error.message).toContain('initialize rejected (code -32007)');
@@ -103,7 +103,7 @@ describe('Streamable HTTP native fetch cleanup', () => {
         serverName: 'loopback',
         toolName: 'keep-open',
         args: {},
-        config: { transport: 'streamable-http', disabled: false, autostart: true, url: `http://127.0.0.1:${address.port}/mcp` },
+        config: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', disabled: false, autostart: true, url: `http://127.0.0.1:${address.port}/mcp` },
         timeoutMs: 5_000,
         ids: { next: () => 17 },
         signal: new AbortController().signal,

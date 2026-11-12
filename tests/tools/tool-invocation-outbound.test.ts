@@ -28,6 +28,25 @@ const sessionId = parseConversationSessionId('agent:planner:project');
 const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
+it.each(['mcp_server_register', 'mcp_server_replace'])('suppresses malformed %s connection input before live or historical presentation', toolName => {
+  const identity = { sessionId, sourceInputId, toolCallId: 'malformed-connection', toolName, startedAt: '2026-11-11T00:00:00.000Z' };
+  for (const argumentsValue of [
+    '{"connection":{"env":{"CUSTOM":"opaque-private-env"}',
+    JSON.stringify({ serverName: 'peer', connection: [{ env: { CUSTOM: 'opaque-private-env' } }] }),
+    JSON.stringify({ serverName: 'peer', connection: { transport: 'stdio', env: 'opaque-private-env' } }),
+  ]) {
+    const input: ToolInvocationProjectionInput = { shape: 'call-row', identity, arguments: argumentsValue };
+    const historical = projectToolInvocation(input);
+    expect(JSON.stringify(historical)).not.toContain('opaque-private-env');
+    expect(projectToolInvocation(historical)).toEqual(historical);
+    let argumentsObject: unknown;
+    try { argumentsObject = JSON.parse(argumentsValue); } catch { argumentsObject = argumentsValue; }
+    const live = projectLiveToolInvocation({ shape: 'complete', identity, arguments: argumentsObject, result: { success: false, error: 'Invalid input' } });
+    expect(JSON.stringify(live)).not.toContain('opaque-private-env');
+    expect(projectLiveToolInvocation(live)).toEqual(live);
+  }
+});
+
 it('projects historical and current opaque Start results without reclassifying history', () => {
   for (const result of [
     { success: true, data: { started: true, historical_field: marker } },
@@ -69,6 +88,7 @@ it('redacts exact-message query text in live and historical call arguments witho
 });
 
 const validArguments: Record<KnownToolInvocationName, unknown> = {
+  mcp_server_set_scope: { serverName: 'one', policy: { controllerCardId: 'project', exposure: 'subtree' } },
   checkpoint_source: {},
   code_quality_javascript_eslint: {},
   code_quality_typescript_eslint: {},

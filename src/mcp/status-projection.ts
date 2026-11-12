@@ -9,7 +9,12 @@ export interface InternalMcpToolsReadModel {
     status: RuntimeMcpServerStatus['status'];
     bindingId: string | null;
     definitionSource: RuntimeMcpServerStatus['definitionSource'];
-    containmentFailed: boolean;
+    policy: RuntimeMcpServerStatus['policy'];
+    availableActions: RuntimeMcpServerStatus['availableActions'];
+    ready: boolean;
+    containment: RuntimeMcpServerStatus['containment'];
+    failureReason: RuntimeMcpServerStatus['failureReason'];
+    containmentBoundary: RuntimeMcpServerStatus['containmentBoundary'];
     processId: string | null;
     toolCount: number;
     tools: Array<McpToolDefinition & { stats: McpInvocationStat }>;
@@ -25,11 +30,13 @@ export function buildMcpServerStatus(input: {
   tools?: McpToolDefinition[];
   ready: boolean;
   starting: boolean;
-}): Omit<
+}): Pick<
   RuntimeMcpServerStatus,
-  'bindingId' | 'definitionSource' | 'containmentFailed' | 'processId'
+  'name' | 'transport' | 'status' | 'error' | 'startedAt' | 'tools_count' | 'pid'
 > {
   const { name, config: cfg, handle, override, startedAt, tools } = input;
+  if (override?.status === 'stopping')
+    return { name, transport: cfg.transport, status: 'stopping', startedAt, tools_count: 0 };
   if (cfg.disabled) return { name, transport: cfg.transport, status: 'stopped' };
   if (override?.status === 'error')
     return {
@@ -109,7 +116,12 @@ export function buildMcpToolsReadModel(input: {
       status: status.status,
       bindingId: status.bindingId,
       definitionSource: status.definitionSource,
-      containmentFailed: status.containmentFailed,
+      policy: status.policy,
+      availableActions: status.availableActions,
+      ready: status.ready,
+      containment: status.containment,
+      failureReason: status.failureReason,
+      containmentBoundary: status.containmentBoundary,
       processId: status.processId,
       toolCount: toolDefs.length,
       tools: toolList,

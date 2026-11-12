@@ -1,4 +1,5 @@
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
+import type { McpCaller } from '../mcp/manager-api.js';
 import { McpToolInvocationNotInstalledError, McpInvokeError } from '../mcp/tool-api.js';
 import type { NativeMcpResult } from '../mcp/tool-api.js';
 import {
@@ -18,6 +19,7 @@ import {
   McpServerRegisterArgumentsSchema,
   McpServerReplaceArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
+  McpServerSetScopeArgumentsSchema,
   McpServersArgumentsSchema,
   toolSucceeded,
 } from '../contracts/index.js';
@@ -38,11 +40,34 @@ function boundedMcpError(message: string): string {
 }
 
 export interface McpProviderContext {
+  readonly mcpCaller: McpCaller;
   readonly projectRoot: string;
   readonly mcpToolInvocation: McpToolInvocationPort;
 }
 
 export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Object.freeze([
+  defineToolBinder({
+    name: 'mcp_server_set_scope',
+    description:
+      'Set the complete controller/exposure policy of a dynamic MCP definition without changing its connection, binding or catalog. Manage the current anchor, then select self or a live descendant. Globals must select an explicit live card.',
+    resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
+    inputSchema: () => McpServerSetScopeArgumentsSchema,
+    executor: async (ctx: McpProviderContext, args, signal) => {
+      signal.throwIfAborted();
+      try {
+        return executedToolOutcome(
+          'none',
+          toolSucceeded(
+            ctx.mcpToolInvocation.setServerScope(ctx.mcpCaller, args.serverName, args.policy),
+          ),
+        );
+      } catch (error) {
+        throwIfPublicationOutcomeUnknown(error);
+        if (!(error instanceof McpInvokeError)) throw error;
+        return executedToolOutcome('none', toolFailed(boundedMcpError(error.message)));
+      }
+    },
+  }),
   defineToolBinder({
     name: 'mcp_server_replace',
     description:
@@ -54,7 +79,9 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
       try {
         return executedToolOutcome(
           'none',
-          toolSucceeded(ctx.mcpToolInvocation.replaceServer(args.serverName, args.connection)),
+          toolSucceeded(
+            ctx.mcpToolInvocation.replaceServer(ctx.mcpCaller, args.serverName, args.connection),
+          ),
         );
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
@@ -66,7 +93,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
   defineToolBinder({
     name: 'mcp_server_register',
     description:
-      'Persist a new agent-owned MCP connection without launching it. Explicit start is separate; dynamic connections never autostart. Does not grant invocation permission.',
+      'Persist a new dynamic MCP connection without launching it. Cards default to self/subtree; an explicit complete policy may select self or a live descendant. Globals must select an explicit live anchor. Explicit start is separate; dynamic connections never autostart. Connections live until explicit stop/unregister/application cleanup, not card completion. Registration grants no other operation.',
     resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
     inputSchema: () => McpServerRegisterArgumentsSchema,
     executor: async (ctx: McpProviderContext, args, signal) => {
@@ -74,7 +101,14 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
       try {
         return executedToolOutcome(
           'none',
-          toolSucceeded(ctx.mcpToolInvocation.registerServer(args.serverName, args.connection)),
+          toolSucceeded(
+            ctx.mcpToolInvocation.registerServer(
+              ctx.mcpCaller,
+              args.serverName,
+              args.connection,
+              args.policy,
+            ),
+          ),
         );
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
@@ -92,7 +126,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
     executor: async (ctx: McpProviderContext, args, signal) => {
       signal.throwIfAborted();
       try {
-        const result = await ctx.mcpToolInvocation.unregisterServer(args.serverName);
+        const result = await ctx.mcpToolInvocation.unregisterServer(ctx.mcpCaller, args.serverName);
         return executedToolOutcome('none', toolSucceeded(result));
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
@@ -110,8 +144,10 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
     executor: async (ctx: McpProviderContext, args, signal) => {
       signal.throwIfAborted();
       const statuses = args.serverName
-        ? [ctx.mcpToolInvocation.getServerStatus(args.serverName)].filter((s) => s !== undefined)
-        : ctx.mcpToolInvocation.getStatus();
+        ? [ctx.mcpToolInvocation.getServerStatus(ctx.mcpCaller, args.serverName)].filter(
+            (s) => s !== undefined,
+          )
+        : ctx.mcpToolInvocation.getStatus(ctx.mcpCaller);
       const data = projectDynamicForOutbound({
         servers: statuses.map(
           ({
@@ -119,7 +155,12 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
             transport,
             status,
             definitionSource,
-            containmentFailed,
+            policy,
+            ready,
+            containment,
+            failureReason,
+            containmentBoundary,
+            availableActions,
             processId,
             bindingId,
             tools_count,
@@ -128,10 +169,15 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
             transport,
             status,
             definitionSource,
-            containmentFailed,
+            policy,
+            ready,
+            containment,
+            failureReason,
+            containmentBoundary,
+            availableActions,
             processId,
             bindingId,
-            toolCount: tools_count ?? 0,
+            ...(tools_count === undefined ? {} : { toolCount: tools_count }),
           }),
         ),
       });
@@ -162,13 +208,21 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
         let result;
         switch (args.action) {
           case 'start':
-            result = await ctx.mcpToolInvocation.startServer(args.serverName, options);
+            result = await ctx.mcpToolInvocation.startServer(
+              ctx.mcpCaller,
+              args.serverName,
+              options,
+            );
             break;
           case 'stop':
-            result = await ctx.mcpToolInvocation.stopServer(args.serverName);
+            result = await ctx.mcpToolInvocation.stopServer(ctx.mcpCaller, args.serverName);
             break;
           case 'restart':
-            result = await ctx.mcpToolInvocation.restartServer(args.serverName, options);
+            result = await ctx.mcpToolInvocation.restartServer(
+              ctx.mcpCaller,
+              args.serverName,
+              options,
+            );
             break;
           default: {
             const unexpected: never = args.action;
@@ -193,7 +247,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
     executor: async (ctx: McpProviderContext, args, signal) => {
       signal.throwIfAborted();
       try {
-        const catalog = ctx.mcpToolInvocation.getServerCatalog(args.serverName);
+        const catalog = ctx.mcpToolInvocation.getServerCatalog(ctx.mcpCaller, args.serverName);
         if (!catalog)
           return executedToolOutcome('none', toolFailed('MCP server is stopped or not ready.'));
         const tools = args.toolName
@@ -245,6 +299,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
       signal.throwIfAborted();
       try {
         const result = await ctx.mcpToolInvocation.refreshServerCatalog(
+          ctx.mcpCaller,
           args.serverName,
           args.bindingId,
           {
@@ -275,6 +330,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
       let value: NativeMcpResult;
       try {
         value = await ctx.mcpToolInvocation.invokeTool(
+          ctx.mcpCaller,
           args.serverName,
           args.bindingId,
           args.catalogId,

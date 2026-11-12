@@ -1450,7 +1450,8 @@ then installs once before inbound work. Duplicate/preinstall use is invariant fa
 not unavailable fallback. Manager retains definitions/runtimes/status/cleanup;
 tools receive narrow installed invocation/control ports and independent grants.
 
-YAML connection policy and lazy strict format 1 `mcp-servers.json` definitions share
+YAML entries require initial per-entry format 1 plus policy; lazy strict format 2
+`mcp-servers.json` definitions contain `{connection,policy}` records sharing
 connection schemas. Dynamic literal definitions cannot shadow YAML, never autostart
 and survive reset. Register/replace/unregister are exact synchronous publication,
 not partial config patch or topology journal. Replacement needs contained/eligible
@@ -1459,6 +1460,34 @@ containment proof. Unregister can commit removal before stop failure and retains
 closed owner without compensation. Restart captures retained owner, joins stop,
 checks identity/admission/cancellation and fresh-starts selected definition. HTTP
 reconnect is local, never remote-service restart. Failed containment blocks replacement.
+
+Binding constructs trusted card/global principals with the final selected MCP
+operations (external Analyst retains its restricted subset); installed delegation
+preserves that context. Authenticated operator composition supplies operator
+authority. Manager admission uses exact canonical root-to-card membership reads,
+not tree scans, caches or syntactic ancestry alone. Invocation requires live-anchor
+exposure; management requires controller/ancestor authority, independent of audience.
+Reached live ancestors can contain/reanchor an unreachable anchor, without reading
+below a tombstone. Global/operator admitted operations have project reach but cannot
+invoke an unreachable anchor. Ancestor-only observations omit catalog/statistics.
+
+Runtime owner-local metadata retains last established policy/source after definition
+removal, for safe observation/stop only. Dynamic scope publication updates it
+synchronously without reconciliation. Connection revision hashing excludes policy;
+scope edits preserve process/binding/catalog/queues/statistics. Fresh callbacks check
+selected policy and exact runtime owner inside stdio serialization, before HTTP
+dispatch, after lifecycle joins and before each refresh page/catalog publication.
+No policy epoch, registry, second queue or lifetime hook exists. Parent adoption
+uses one set-scope action only after terminal child settlement releases its parent.
+
+Closure projects `stopping`, nonready and containment `pending`; only shared
+ProcessRunner direct-scope containment plus operation settlement establishes
+`contained`. Failure remains `error/failed`, retaining ownership and blocking names.
+Leader exit/EOF/missing process ID is not group containment. Safe failure categories
+are startup_failed, transport_closed, process_unavailable and containment_failed.
+Boundaries are local_process_group or local_connection; HTTP never contains remote
+processes. Foreground stdio workers in the same group are covered; escaped workers
+need external supervision. Stderr is drained/discarded, not archived.
 
 Each runtime owns transient binding UUID/catalog UUID and a complete discovery snapshot.
 Ready requires initialize/initialized/all list pages under one 180 s budget. HTTP has
@@ -1787,6 +1816,7 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 | `POST /api/mcp/servers/:name/start` | Start/install/complete discovery. | `src/contracts/operator-api-mcp.ts:77` |
 | `POST /api/mcp/servers/:name/stop` | Stop/join retained owner. | `src/contracts/operator-api-mcp.ts:83` |
 | `POST /api/mcp/servers/:name/restart` | Nonatomic stop then fresh start. | `src/contracts/operator-api-mcp.ts:89` |
+| `POST /api/mcp/servers/:name/scope` | Dynamic policy-only publication; connection preserved. | `src/contracts/operator-api-mcp.ts:80` |
 | `GET /api/processes` | Process observations. | `src/contracts/operator-api-processes.ts:221` |
 | `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:559` |
 | `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:567` |
@@ -1853,7 +1883,7 @@ separate claims, not a second executable catalog.
 <!-- saivage:value-contract:tool-identities:start -->
 ```text
 tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"executor","tools":["read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"oversight","tools":["get_status","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","glob","grep","read_runtime_events","read_runtime_errors","list_processes_tool","list_agent_sessions","read_agent_session","queue_notification"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","list_observed_collections","query_observed_collections"]},{"name":"reviewer","tools":["read","view_image","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","list_observed_collections","query_observed_collections"]}],"templates":["classic","classic-typed","newloop","newloop2","paad-typed"]}
-tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","checkpoint_source","code_quality_javascript_eslint","code_quality_python_ruff","code_quality_typescript_eslint","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_observed_collections","list_processes_tool","mcp_catalog_refresh","mcp_server_control","mcp_server_register","mcp_server_replace","mcp_server_unregister","mcp_servers","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","query_observed_collections","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal-and-optional-mcp-and-quality"]}
+tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","checkpoint_source","code_quality_javascript_eslint","code_quality_python_ruff","code_quality_typescript_eslint","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_observed_collections","list_processes_tool","mcp_catalog_refresh","mcp_server_control","mcp_server_register","mcp_server_replace","mcp_server_set_scope","mcp_server_unregister","mcp_servers","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","query_observed_collections","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal-and-optional-mcp-and-quality"]}
 tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_back","navigate_workspace","pause_runtime","read_control_actions","reconfigure","restart_server","resume_runtime","show_config","start_project","stop_project"],"plannerOnly":["activate_card","edit_card"]}
 ```
 <!-- saivage:value-contract:tool-identities:end -->
@@ -1970,6 +2000,8 @@ map. These are field inventories, not defaults or permission grants.
 | `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:244` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.pending_notifications.prompt` | `compactable,compaction_key,reference` | `src/schemas/saivage-config.ts:203` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.variant2.otherwise.inputs.entry` | `output` | `src/schemas/saivage-config.ts:258` |
-| `mcpServers.entry.variant1` | `args,autostart,command,disabled,env,transport` | `src/schemas/saivage-config.ts:191` |
-| `mcpServers.entry.variant2` | `autostart,disabled,transport,url` | `src/schemas/saivage-config.ts:192` |
+| `mcpServers.entry.variant1` | `args,autostart,command,disabled,env,format_version,policy,transport` | `src/schemas/saivage-config.ts:200` |
+| `mcpServers.entry.variant1.policy` | `controllerCardId,exposure` | `src/schemas/saivage-config.ts:185` |
+| `mcpServers.entry.variant2` | `autostart,disabled,format_version,policy,transport,url` | `src/schemas/saivage-config.ts:200` |
+| `mcpServers.entry.variant2.policy` | `controllerCardId,exposure` | `src/schemas/saivage-config.ts:185` |
 <!-- saivage:config-schema:end -->

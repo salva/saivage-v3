@@ -12,7 +12,8 @@ describe('MCP observation panel', () => {
             transport: 'stdio',
             status: 'starting',
             definitionSource: 'agent',
-            containmentFailed: false,
+            policy: { controllerCardId: 'project', exposure: 'subtree' },
+            availableActions: [], ready: false, containment: 'pending', failureReason: null, containmentBoundary: 'local_process_group',
             processId: 'launch-1',
             bindingId: '11111111-1111-4111-8111-111111111111',
             toolCount: 0,
@@ -23,7 +24,8 @@ describe('MCP observation panel', () => {
             transport: 'streamable-http',
             status: 'error',
             definitionSource: null,
-            containmentFailed: true,
+            policy: { controllerCardId: 'card-a', exposure: 'card' },
+            availableActions: ['mcp_server_control'], ready: false, containment: 'failed', failureReason: 'containment_failed', containmentBoundary: 'local_connection',
             processId: null,
             bindingId: null,
             toolCount: 0,
@@ -45,7 +47,8 @@ describe('MCP observation panel', () => {
       'launch-1',
       '11111111-1111-4111-8111-111111111111',
       'Absent · retained owner',
-      'Failed · name blocked',
+      'failed · name blocked',
+      'Project-wide', 'card-a', 'Controller card only', 'Not ready', 'pending', 'local_connection',
     ])
       expect(wrapper.text()).toContain(text);
     expect(wrapper.findAll('button')).toHaveLength(0);

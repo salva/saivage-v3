@@ -111,7 +111,7 @@ export const unusedMcpToolInvocation: McpToolInvocationPort = {
   restartServer: async () => { throw new Error('Unexpected MCP restart'); },
   getServerCatalog: () => { throw new Error('Unexpected MCP catalog read in test.'); },
   refreshServerCatalog: async () => { throw new Error('Unexpected MCP refresh in test.'); },
-  findToolCapability: () => { throw new Error('Unexpected MCP capability read in test.'); },
+  setServerScope: () => { throw new Error('Unexpected MCP scope edit in test.'); },
   invokeTool: () => Promise.reject(new Error('Unexpected MCP invocation in test.')),
 };
 

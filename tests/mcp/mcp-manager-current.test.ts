@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import * as YAML from 'yaml';
 
-import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { createRootCardMcpFixture } from '../helpers/mcp-fixture.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { ServerNotRunningError, TransportError } from '../../src/mcp/errors.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
@@ -21,10 +21,15 @@ const roots:string[]=[];
 afterEach(()=>{jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 function root():string{const value=mkdtempSync(join(tmpdir(),'mcp-current-'));roots.push(value);mkdirSync(join(value,'.saivage'),{recursive:true});return value;}
-function writeConfig(projectRoot:string,mcpServers:Record<string,unknown>):void{writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers}));}
+function writeConfig(projectRoot:string,connections:Record<string,unknown>):void{
+  const mcpServers = Object.fromEntries(Object.entries(connections).map(([name, connection]) => [name, {
+    format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, ...(connection as object),
+  }]));
+  writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers}));
+}
 function response(id:number,result:unknown):Response{const bytes=JSON.stringify({jsonrpc:'2.0',id,result});const value=new Response(bytes,{status:200,headers:{'content-type':'application/json'}});value.json=async()=>JSON.parse(bytes);return value;}
 function successfulFetch(){return jest.fn(async(_url:string|URL,init?:RequestInit)=>{const request=JSON.parse(String(init?.body)) as {id:number;method:string};if(request.method==='notifications/initialized')return new Response(null,{status:202});if(request.method==='initialize')return response(request.id,{protocolVersion:'2025-06-18'});if(request.method==='tools/list')return response(request.id,{tools:[{name:'ping',inputSchema:{type:'object',properties:{}}}]});return response(request.id,{content:['pong']});});}
-function manager(projectRoot:string){const registry=new ManagedProcessGroupRegistry();const scope=registry.createContainerScope(registry.rootScope,'mcp-servers');const runner=new ProcessRunner(projectRoot,registry,testApplicationFatalPort);return{value:new McpManager({nativeGit:false,configAuthority:testConfigAuthority(projectRoot),processRunner:runner,mcpProcessRootScope:scope,eventLogger:{appendEvent(){}} as never}),runner,scope};}
+function manager(projectRoot:string){const registry=new ManagedProcessGroupRegistry();const scope=registry.createContainerScope(registry.rootScope,'mcp-servers');const runner=new ProcessRunner(projectRoot,registry,testApplicationFatalPort);return{value:createRootCardMcpFixture({nativeGit:false,configAuthority:testConfigAuthority(projectRoot),processRunner:runner,mcpProcessRootScope:scope,eventLogger:{appendEvent(){}} as never}),runner,scope};}
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: unknown) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 const emptyReport: ProcessStopReport = { selected: [], stopped: [], failed: [] };
 
@@ -52,7 +57,7 @@ describe('current named-agent MCP manager contract',()=>{
       writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp', disabled: true } });
       await expect(value.restartServer('one')).rejects.toMatchObject({ statusCode: 409 });
       expect(value.getServerCatalog('one')).toBeUndefined();
-      expect(value.getServerStatus('one')).toMatchObject({ status: 'stopped', containmentFailed: false });
+      expect(value.getServerStatus('one')).toMatchObject({ status: 'stopped', containment: 'contained' });
       expect(fetchMock.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).method === 'initialize')).toHaveLength(3);
     } finally { await value.cleanupForApplicationStop(); globalThis.fetch = originalFetch; }
   });
@@ -70,7 +75,7 @@ describe('current named-agent MCP manager contract',()=>{
       expect(start).not.toHaveBeenCalled();
       // No follow-up inspection or cleanup after publication uncertainty.
       if (mode === 'failure') {
-        expect(value.getServerStatus('one')).toMatchObject({ status: 'error', containmentFailed: true });
+        expect(value.getServerStatus('one')).toMatchObject({ status: 'error', containment: 'failed' });
         await expect(value.restartServer('one')).rejects.toBe(failure);
         expect(stop).toHaveBeenCalledTimes(1);
         await expect(value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
@@ -127,7 +132,7 @@ describe('current named-agent MCP manager contract',()=>{
       globalThis.fetch = jest.fn(async () => new Response(null, { status: 503 })) as typeof fetch;
       await expect(value.restartServer('one')).rejects.toBeInstanceOf(TransportError);
       expect(value.getServerCatalog('one')).toBeUndefined();
-      expect(value.getServerStatus('one')).toMatchObject({ status: 'stopped', containmentFailed: false });
+      expect(value.getServerStatus('one')).toMatchObject({ status: 'error', containment: 'contained', failureReason: 'startup_failed' });
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     } finally { await value.cleanupForApplicationStop(); globalThis.fetch = originalFetch; }
   });
@@ -236,7 +241,7 @@ describe('current named-agent MCP manager contract',()=>{
     expect(await value.startServer('one')).toEqual({ serverName: 'one', status: 'running', toolCount: 1 });
     expect(await value.startServer('one')).toEqual({ serverName: 'one', status: 'running', toolCount: 1 });
     // Unrelated workflows and other server entries are not consumed at on-demand start.
-    writeFileSync(join(projectRoot, '.saivage/saivage.yaml'), YAML.stringify({ agents: 'invalid-unrelated', mcpServers: { one: { transport: 'streamable-http', url: 'http://localhost/changed', autostart: false }, unrelated: 'invalid' } }));
+    writeFileSync(join(projectRoot, '.saivage/saivage.yaml'), YAML.stringify({ agents: 'invalid-unrelated', mcpServers: { one: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: 'http://localhost/changed', autostart: false }, unrelated: 'invalid' } }));
     await expect(value.startServer('one')).rejects.toThrow('Stop before');
     await expect(value.stopServer('absent')).rejects.toMatchObject({ statusCode: 404 });
     expect(await value.stopServer('one')).toEqual({ serverName: 'one', status: 'stopped', toolCount: 0 });
@@ -312,7 +317,7 @@ describe('current named-agent MCP manager contract',()=>{
       await jest.advanceTimersByTimeAsync(79_999); expect(settled).toBe(false);
       await jest.advanceTimersByTimeAsync(1);
       expect(await exhausted).toMatchObject({ code: 'TIMEOUT' });
-      expect(second.value.getServerStatus('one')).toMatchObject({ status: 'stopped' });
+      expect(second.value.getServerStatus('one')).toMatchObject({ status: 'error', containment: 'contained', failureReason: 'startup_failed' });
       await second.value.cleanupForApplicationStop();
     } finally { globalThis.fetch = originalFetch; jest.useRealTimers(); }
   });
@@ -422,12 +427,12 @@ describe('current named-agent MCP manager contract',()=>{
     const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value}=manager(projectRoot);await value.reconcilePersistedConfig();writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers:'invalid'}));
     await expect(value.reconcilePersistedConfig()).rejects.toThrow();
     expect(() =>value.getStatus()).toThrow('mcpServers must be a mapping');
-    expect(value.getServerCatalog('one')?.tools).toEqual([expect.objectContaining({name:'ping'})]);
+    expect(() => value.getServerCatalog('one')).toThrow('mcpServers must be a mapping');
   });
 
   it('closes open admission once, retrieves containment separately, and waits for all containment',async()=>{
     const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value,runner}=manager(projectRoot);await value.reconcilePersistedConfig();
-    const managerClose = jest.spyOn(value, 'closeAdmission');
+    const managerClose = jest.spyOn(value.owner, 'closeAdmission');
     const runtimeClose = jest.spyOn(McpServerRuntime.prototype, 'closeAdmission');
     const containmentAccess = jest.spyOn(McpServerRuntime.prototype, 'directContainment');
     const direct = deferred<ProcessStopReport>();
@@ -452,14 +457,14 @@ describe('current named-agent MCP manager contract',()=>{
 
   it('retrieves the existing containment when application admission was already closed',async()=>{
     const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value,runner}=manager(projectRoot);await value.reconcilePersistedConfig();
-    const managerClose = jest.spyOn(value, 'closeAdmission');
+    const managerClose = jest.spyOn(value.owner, 'closeAdmission');
     const runtimeClose = jest.spyOn(McpServerRuntime.prototype, 'closeAdmission');
     const containmentAccess = jest.spyOn(McpServerRuntime.prototype, 'directContainment');
     const direct = deferred<ProcessStopReport>();
     jest.spyOn(runner, 'closeAndTerminateDirectScope').mockReturnValue(direct.promise);
     jest.spyOn(runner, 'terminateScopeTree').mockResolvedValue(emptyReport);
 
-    value.closeAdmission();
+    value.owner.closeAdmission();
     expect(runtimeClose).toHaveBeenCalledTimes(1);
     expect(containmentAccess).not.toHaveBeenCalled();
     const cleanup = value.cleanupForApplicationStop();
@@ -543,7 +548,7 @@ describe('current named-agent MCP manager contract',()=>{
       closeAndTerminateDirectScope: jest.fn(async () => emptyReport),
     };
     const runtime = new McpServerRuntime({
-      name: 'one', config: { transport: 'stdio', command: 'server', autostart: true, disabled: false }, revision: 'revision',
+      name: 'one', source: 'operator', config: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'stdio', command: 'server', autostart: true, disabled: false }, revision: 'revision',
       processRunner: processRunner as never, processScope, ids: { next: () => 1 }, invocationStats: {} as never,
     });
 
@@ -552,9 +557,9 @@ describe('current named-agent MCP manager contract',()=>{
     terminal.reject(captureFailure);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    expect(runtime.getStatus()).toEqual(expect.objectContaining({ status: 'error', error: 'Process output capture failed' }));
+    expect(runtime.getStatus()).toMatchObject({ status: 'error', containment: 'contained', failureReason: 'transport_closed' });
     expect(runtime.isRunning()).toBe(false);
-    expect(processRunner.retireSettled).toHaveBeenCalledWith(record.id, processScope);
+    expect(processRunner.retireSettled).not.toHaveBeenCalled(); // The shared direct-scope boundary retires records.
   });
 
   it('retires each short-lived stdio launch and projects its actual terminal result in its own revision scope', async () => {
@@ -565,11 +570,11 @@ describe('current named-agent MCP manager contract',()=>{
     const wait = processRunner.waitForSettlement.bind(processRunner);
     let observed: Promise<ProcessWaitResult>;
     jest.spyOn(processRunner, 'waitForSettlement').mockImplementation(id => { observed = wait(id); return observed; });
-    const config = { transport: 'stdio' as const, command: '/bin/sh', args: ['-c', 'exit 0'], autostart: true, disabled: false };
+    const config = { format_version: 1 as const, policy: { controllerCardId: 'project', exposure: 'subtree' as const }, transport: 'stdio' as const, command: '/bin/sh', args: ['-c', 'exit 0'], autostart: true, disabled: false };
 
     for (let cycle = 0; cycle < 2; cycle += 1) {
       const processScope = registry.createDirectScope(mcpRoot, `one:revision:${cycle}`, 'service_infrastructure');
-      const runtime = new McpServerRuntime({ name: 'one', config, revision: 'revision', processRunner, processScope, ids: { next: () => 1 }, invocationStats: {} as never });
+      const runtime = new McpServerRuntime({ name: 'one', source: 'operator', config, revision: 'revision', processRunner, processScope, ids: { next: () => 1 }, invocationStats: {} as never });
       const startStdio = Reflect.get(runtime, 'startStdio') as (selected: typeof config, signal: AbortSignal) => void;
       startStdio.call(runtime, config, new AbortController().signal);
       for (let attempt = 0; attempt < 100 && processRunner.list().length > 0; attempt += 1) {

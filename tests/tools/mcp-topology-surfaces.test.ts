@@ -10,7 +10,8 @@ import {
   testLlmToolInvocationContext,
   unusedMcpToolInvocation,
 } from '../helpers/llm-test-helpers.js';
-import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
+import type { McpCaller, McpToolInvocationPort } from '../../src/mcp/manager-api.js';
+import { READY_PROJECT_MCP_STATUS } from '../helpers/mcp-fixture.js';
 import {
   PublicationOutcomeUnknownError,
   McpServerRegisterArgumentsSchema,
@@ -34,7 +35,7 @@ async function invoke(
   args: unknown,
 ) {
   const surface = new BoundAgentToolSet(names.map((name) => resolveRuntimeTool('card', name))).bind(
-    { scope: 'card', agentName: 'reviewer', projectRoot: '/', mcpToolInvocation: port } as never,
+    { scope: 'card', cardId: 'project', agentName: 'reviewer', projectRoot: '/', mcpToolInvocation: port } as never,
   );
   const settlement = await invokeToolForLlm(
     surface,
@@ -51,7 +52,7 @@ async function invoke(
 
 describe('dynamic MCP ordinary surfaces', () => {
   it('compiles independent management selections for custom card participants without default or Oversight grants', () => {
-    const tools = ['mcp_server_register', 'mcp_server_replace', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh'];
+    const tools = ['mcp_server_register', 'mcp_server_replace', 'mcp_server_unregister', 'mcp_server_set_scope', 'mcp_servers', 'mcp_catalog_refresh'];
     for (const name of ['planner', 'executor', 'reviewer', 'analyst']) {
       const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
       config.agents[name]!.capabilities.grants.push({ tools: [...tools] });
@@ -74,11 +75,11 @@ describe('dynamic MCP ordinary surfaces', () => {
   });
 
   it('registration publishes only its own fact and each permission remains separate', async () => {
-    const registerServer = jest.fn((serverName: string) => ({
+    const registerServer = jest.fn((_caller: McpCaller, serverName: string) => ({
       serverName,
       registered: true as const,
     }));
-    const unregisterServer = jest.fn(async (serverName: string) => ({
+    const unregisterServer = jest.fn(async (_caller: McpCaller, serverName: string) => ({
       serverName,
       unregistered: true as const,
       status: 'stopped' as const,
@@ -159,7 +160,7 @@ describe('dynamic MCP ordinary surfaces', () => {
   });
 
   it('replacement is independently authorized and publishes only the committed synchronous fact', async () => {
-    const replaceServer = jest.fn((serverName: string) => ({ serverName, replaced: true as const, status: 'stopped' as const }));
+    const replaceServer = jest.fn((_caller: McpCaller, serverName: string) => ({ serverName, replaced: true as const, status: 'stopped' as const }));
     const port = { ...unusedMcpToolInvocation, replaceServer };
     const args = { serverName: 'one', connection: { transport: 'stdio', command: 'node' } };
     for (const selected of ['mcp_server_register', 'mcp_server_unregister', 'mcp_server_control', 'mcp_servers', 'mcp_tools', 'mcp_catalog_refresh', 'mcp_tool_call']) {
@@ -187,7 +188,7 @@ describe('dynamic MCP ordinary surfaces', () => {
         status: 'starting' as const,
         definitionSource: 'agent' as const,
         bindingId,
-        containmentFailed: false,
+        ...READY_PROJECT_MCP_STATUS, ready: false, containment: 'pending' as const,
         processId: 'launch-1',
         error: 'opaque-private-error',
       },
@@ -197,14 +198,14 @@ describe('dynamic MCP ordinary surfaces', () => {
         status: 'error' as const,
         definitionSource: null,
         bindingId,
-        containmentFailed: true,
+        ...READY_PROJECT_MCP_STATUS, ready: false, containment: 'failed' as const, failureReason: 'containment_failed' as const, containmentBoundary: 'local_connection' as const,
         processId: null,
       },
     ];
     const port = {
       ...unusedMcpToolInvocation,
       getStatus,
-      getServerStatus: (name: string) => getStatus().find((s) => s.name === name),
+      getServerStatus: (_caller: McpCaller, name: string) => getStatus().find((s) => s.name === name),
     };
     const result = await invoke(['mcp_servers'], port, 'mcp_servers', {});
     expect(result).toMatchObject({
@@ -212,7 +213,7 @@ describe('dynamic MCP ordinary surfaces', () => {
       data: {
         servers: [
           { name: 'one', status: 'starting', processId: 'launch-1' },
-          { name: 'old', definitionSource: null, containmentFailed: true },
+          { name: 'old', definitionSource: null, containment: 'failed' },
         ],
       },
     });
@@ -223,6 +224,11 @@ describe('dynamic MCP ordinary surfaces', () => {
   });
 
   it('suppresses arbitrary env values even in rejected registration input and redacts URL/command text', () => {
+    for (const malformed of [
+      'opaque-env-secret', [{ connection: { env: { CUSTOM: 'opaque-env-secret' } } }],
+      { serverName: 'one', connection: 'opaque-env-secret' },
+      { serverName: 'one', connection: [{ env: { CUSTOM: 'opaque-env-secret' } }] },
+    ]) expect(JSON.stringify(projectMcpConnectionDefinitionForOutbound(malformed))).not.toContain('opaque-env-secret');
     for (const env of [
       { CUSTOM: 'opaque-env-secret', OBJECT: { value: 'opaque-env-secret' } },
       'opaque-env-secret',
@@ -269,7 +275,7 @@ describe('dynamic MCP ordinary surfaces', () => {
       status: 'running' as const,
       definitionSource: 'agent' as const,
       bindingId,
-      containmentFailed: false,
+      ...READY_PROJECT_MCP_STATUS,
       processId: null,
     };
     const port = {

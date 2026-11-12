@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { presentToolCall, presentToolResult } from '../../utils/tool-presenters';
 describe('native MCP result metadata', () => {
+  it('reports scope publication only with complete successful facts; historical missing policy remains absent', () => {
+    const policy = { controllerCardId: 'project', exposure: 'subtree' };
+    const facts = { serverName: 'one', policy, updated: true };
+    expect(presentToolResult(JSON.stringify({ success: true, data: facts }), { tool: 'mcp_server_set_scope' }).outcome).toBe('Scope updated · connection preserved');
+    for (const envelope of [
+      { success: false, error: 'Refused', data: facts },
+      { success: true, data: { serverName: 'one', updated: true } },
+      { success: true, data: { ...facts, outcome_unknown: true } },
+    ]) expect(presentToolResult(JSON.stringify(envelope), { tool: 'mcp_server_set_scope' }).outcome).not.toContain('Scope updated');
+    const absent = presentToolResult(JSON.stringify({ success: true, data: { serverName: 'one', updated: true } }), { tool: 'mcp_server_set_scope' });
+    expect(JSON.stringify(absent.sections)).not.toContain('controllerCardId');
+  });
   it.each([
     [{ success: true, data: { serverName: 'browser', status: 'running', toolCount: 1 } }, 'Server ready'],
     [{ success: false, error: 'MCP discovery failed after containment.' }, 'Failed · Outcome not reported'],

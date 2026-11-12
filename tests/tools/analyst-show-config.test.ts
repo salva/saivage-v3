@@ -20,6 +20,7 @@ describe('show_config outbound projection', () => {
       };
       config.mcpServers = {
         remote: {
+          format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },
           transport: 'streamable-http',
           url: 'https://mcp-user:mcp-pass@mcp.example.test/rpc?token=secret#private',
           disabled: false,

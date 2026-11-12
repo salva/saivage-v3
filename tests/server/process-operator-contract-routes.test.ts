@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
+import { readCanonicalLiveCardPath } from '../../src/persistence/index.js';
 import Fastify from 'fastify';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -95,6 +96,7 @@ describe('contract-backed process routes', () => {
       const processRunner = processes.processRunner;
       const cardStore = new CardService(projectRoot);
       const mcpManager = new McpManager({
+        readCanonicalLivePath: id => readCanonicalLiveCardPath(projectRoot, id),
         nativeGit: false,
         configAuthority: testConfigAuthority(projectRoot),
         processRunner,

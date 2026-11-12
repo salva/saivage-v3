@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as YAML from 'yaml';
-import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { createRootCardMcpFixture } from '../helpers/mcp-fixture.js';
 import { TimeoutError } from '../../src/mcp/errors.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -22,10 +22,10 @@ function fixture() {
   writeFileSync(join(root, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: {} }));
   const groups = new ManagedProcessGroupRegistry();
   const runner = new ProcessRunner(root, groups, testApplicationFatalPort);
-  const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
+  const manager = createRootCardMcpFixture({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
   const installation = createMcpToolInvocationInstallation();
-  installation.installer.install(manager);
-  const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_tool_call')]).bind({ scope: 'card', agentName: 'executor', projectRoot: root, mcpToolInvocation: installation.port } as never);
+  installation.installer.install(manager.owner);
+  const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_tool_call')]).bind({ scope: 'card', cardId: 'project', agentName: 'executor', projectRoot: root, mcpToolInvocation: installation.port } as never);
   return { root, manager, runner, surface, async close() { await manager.cleanupForApplicationStop(); rmSync(root, { recursive: true }); } };
 }
 

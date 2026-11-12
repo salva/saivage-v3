@@ -236,8 +236,8 @@ it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
     ], structuredContent: { type: 'image', data: 'opaque structured lookalike' } };
     const scope = sessionId === 'agent:analyst:global' ? 'global' : 'card';
     const surface = new BoundAgentToolSet([resolveRuntimeTool(scope, 'mcp_tool_call')]).bind({
-      scope, agentName: scope === 'global' ? 'analyst' : 'planner', projectRoot,
-      mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => nativeEnvelope, findToolCapability: () => null },
+      scope, cardId: 'project', agentName: scope === 'global' ? 'analyst' : 'planner', projectRoot,
+      mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => nativeEnvelope },
     } as never);
     const invocation = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'native-fixture',
         bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'capture' },

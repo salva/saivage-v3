@@ -2073,7 +2073,7 @@ There is no scope/group scan, tombstone, historical-ID set, retry, or repair pat
 
 Process presentation normally has one owner-visible lifetime: launch, live or unconsumed result, final owner consumption, then retirement. Foreground `run_command`, terminal `wait_process`, and confirmed `kill_process` copy the terminal record and form their result before retiring it; terminal capture failure is likewise consumed and then reported unchanged. `wait:false`, a running `timeout_ms:0` inspection, and a timed-out running wait do not retire the presentation: that outstanding result remains available for a later wait or kill. Closing the exact direct scope is the final consumer for all residual terminal presentations and joins every eligible settlement even when another rejects, retires eligible entries, and then propagates the first settlement rejection. Scope-tree containment joins confirmed group absence and both readable drains for exactly its successfully stopped selections, retires those presentations, then propagates the first ordinary terminal-settlement rejection. Failed or unconfirmed groups, unrelated scopes/categories, and previously naturally completed presentations outside that selection remain present. Already-entered waits and kills retain their captured terminal record and output despite retirement; publication uncertainty is fatal without retirement or follow-up.
 
-Stdio MCP consumes each normally settled launch's terminal record or capture error in its terminal observer, retains the corresponding stopped/error MCP projection, clears the handle and caches, and retires that launch without waiting for revision-scope teardown. Unavailable rejection instead closes open admission through existing transport closure, clears readiness/catalogs and retains the failed handle/launch. A genuine capture error plus unavailable evidence takes the same retention branch, not successful containment. Intentional closure or failed direct containment may win the observer race; failed-containment precedence and retained ownership remain. The observer never awaits its own public stop join. Permanent runtime-admission/handle/caller fences, connection-owned roots lifetime, classified discovery settlement and correlated native-response telemetry remain unchanged. Publication uncertainty escapes before inspection, closure or cleanup. Process lists are current-lifetime snapshots, not execution history; after final consumption the process ID is unknown to wait/kill and absent from lists. There is no fixed bound on outstanding jobs or unavailable entries. Returned canonical `work:///` output URLs remain independently readable subject to ordinary Files admission and file availability; retirement neither deletes output nor promises retention.
+Stdio MCP consumes exact launch terminal/capture facts in its terminal observer, closes readiness/admission on transport or process loss and joins the existing shared ProcessRunner direct-scope containment. A leader exit or EOF alone never certifies group absence. Projection remains stopping/pending until containment and operation settlement finish; known failure can remain error after successful containment. Failed/unverifiable containment retains error/failed ownership and blocks a successor. The observer never awaits its own public stop join, and only starts its settlement join after the observer itself settles. Permanent runtime-admission/handle/caller fences, connection-owned roots lifetime, classified discovery settlement and correlated native-response telemetry remain unchanged. Publication uncertainty escapes before inspection, closure or cleanup. Process lists are current-lifetime snapshots, not execution history; after successful shared retirement the process ID is unknown to wait/kill and absent from lists. There is no fixed bound on outstanding jobs or unavailable entries. Returned canonical `work:///` output URLs remain independently readable subject to ordinary Files admission and file availability; retirement neither deletes output nor promises retention.
 
 Selected process tools recommend a long appropriate supported wait when only completion is actionable; waits return early on completion. Shorter/zero waits or background execution serve purposeful intermediate inspection or genuinely independent nonconflicting permitted work, not repeated unchanged checks or shell sleeps. The wait ceiling (default 120000 ms, maximum 600000 ms) is not a command lifetime limit; ownership, containment and actual terminal-result consumption remain unchanged.
 
@@ -2721,6 +2721,51 @@ This is Saivage calling configured servers, not an external client calling Analy
 Connection definitions, retained runtime bindings, discovered catalogs and role
 grants are distinct. Registering or discovering a server grants no tool authority.
 
+### Service policy and caller admission
+
+Each service selects `{controllerCardId,exposure:'card'|'subtree'}`. Dynamic
+definitions use format 2 `{connection,policy}` records; operator YAML entries
+require initial per-entry `format_version:1` and the same policy. Agent capability
+inputs use format 2. Old/mixed inputs fail; reset preserves MCP configuration.
+The controller is an authority anchor, not the process/lifetime owner.
+
+| Granted operation | Additional card relationship |
+|---|---|
+| Register | Destination self or linked live descendant; omitted policy means self/subtree |
+| Tools/call | Live anchor exposes to self, or live descendant for subtree |
+| Control/refresh/replace/unregister/set scope | Controller or live ancestor of controller |
+| Servers | Exposed metadata plus manageable metadata for actually granted management operations |
+
+Bound callers and final independently selected operations flow from real runtime
+scope, not arguments or names. Configured globals (including external Analyst's
+restricted final subset) and authenticated operators have project reach for their
+admitted operations; global registration requires explicit policy. Invocation
+always needs a canonically live anchor. Exact root-to-anchor committed membership
+is read at use; tombstones/unlinked membership stop descent, malformed linked
+state fails. DONE/FAILED/CANCELLED remain live when linked, not tombstoned.
+Live reached ancestors retain stop/unregister/reanchor after anchor deletion.
+Definition-less retained owners permit only management observation/stop.
+Ancestor-only observations contain no catalogs, tool counts or invocation statistics;
+hidden exact requests are indistinguishable from unknown names.
+
+`mcp_server_set_scope({serverName,policy})` is an independent optional grant. It
+requires management over the current dynamic anchor and a permissible live
+destination. Publication changes only policy, preserving connection/process,
+binding, catalog and statistics. Replace preserves policy. A parent may adopt
+itself/subtree **after** the child returns terminal and releases the parent, then
+discover/call separately; children cannot appoint parents/siblings. YAML policy
+edits use configuration/restart, never dynamic tools.
+
+Policy is re-read inside queued stdio dispatch, immediately before HTTP dispatch,
+after lifecycle joins and at each refresh page/publication. Revoked undispatched
+work sends no bytes or collateral stop. Already-dispatched results retain truthful
+effects/attribution; no cancellation, replay or rollback is implied.
+
+Connections are application-lived: card completion/failure/cancellation/deletion,
+project Pause and project Stop do not dispose them. Explicit stop/unregister or
+application cleanup is required; dynamic definitions restart stopped. Protocol
+readiness is last established readiness, not heartbeat or guest health.
+
 `mcp_tool_call` validates the complete live native CallToolResult envelope at protocol ingress, then carries that schema-inferred result through its internal invocation port to conversion without a second envelope parse. Conversion retains its projection, image, size and publication checks. Successful native text and images retain their original positions in ordered `content`; non-text/non-image protocol blocks are projected JSON serialized as text at their positions, never fetched or promoted into pixels. Envelope extensions, `structuredContent` and `_meta` remain ordinary `data.result`; indexed native metadata and captures are `data.native_content` and `data.images`. Native errors retain safe diagnostics but select no images. Malformed/unknown native blocks fail explicitly. JSON-looking text and image-like structured data stay ordinary data.
 
 For an eligible invocation returning a validated native envelope, `isError:true`
@@ -2817,7 +2862,7 @@ Authenticated `POST /api/mcp/servers/:name/restart` (`mcp.restart`) accepts only
 and delegates to the same operation as the selected control tool, with existing
 lifecycle auth/error boundaries. No new permission or default role grant is added.
 
-Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No enable/disable tools or card-tree lifetime rules are added.
+Independently selectable `mcp_server_register({serverName,connection,policy?})` persists a strict stdio command/args/env or Streamable HTTP URL with explicit policy without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No enable/disable tools or card-tree lifetime rules are added.
 
 ### Dynamic definitions and catalog identity
 
@@ -2835,9 +2880,9 @@ Start/discover separately afterward; even identical replacement retires the old 
 and stale binding/catalog calls fail before dispatch. In-flight known responses retain their
 original attribution; HTTP containment remains local only. Publication uncertainty permits
 no retirement, result, observation, logging, retry or cleanup. This adds no default grant,
-REST topology endpoint, editor, autostart or durable-format change.
+registration endpoint, editor or autostart. Scope uses its separate policy-only operation.
 
-`mcp_servers({serverName?})` independently observes definitions and retained owners, bounded at 1 MiB (select an exact name on overflow). Common observations expose source `operator|agent|null`, `starting|running|stopped|error`, containment failure, binding and safe process association. Running means discovery complete; starting exposes no ready tools. Null source means an unregistered retained owner. `mcp_tool_call` strictly requires both discovered identities and validates against that exact catalog at dispatch, inside the stdio exchange queue or immediately before HTTP dispatch. Stale identities fail without sending the call, retry or replay. Possession grants no tool permission. Prepared generic gateways stay frozen; configured card/global participants may independently select management, refresh, observation or invocation. Oversight remains observation-only and admits no MCP tools.
+`mcp_servers({serverName?})` independently observes admitted definitions and retained owners, bounded at 1 MiB (select an exact name on overflow). Safe observations expose policy, admitted available actions, source `operator|agent|null`, `status:starting|running|stopping|stopped|error`, `ready`, `containment:not_started|open|pending|contained|failed`, nullable categorical `failureReason:startup_failed|transport_closed|process_unavailable|containment_failed`, `containmentBoundary:local_process_group|local_connection`, binding and safe process association. Closure is stopping/pending until containment and settlement succeed, never stopped merely on EOF. Failed containment retains error/failed ownership. Null source means an unregistered retained owner. `mcp_tool_call` strictly requires both discovered identities and validates against that exact catalog at dispatch, inside the stdio exchange queue or immediately before HTTP dispatch. Stale identities fail without sending the call, retry or replay. Possession grants no tool permission. Prepared generic gateways stay frozen; configured card/global participants may independently select management, refresh, observation or invocation. Oversight admits no MCP tools. Authenticated POST `/api/mcp/servers/:name/scope` accepts strict `{policy}` and returns `{serverName,policy,updated:true}` through existing busy/auth/fatal management ingress. YAML source refuses this mutation; no topology editor is added.
 
 Independently selectable `mcp_catalog_refresh({serverName,bindingId})` re-lists only
 an already-ready exact configured connection, without initialization, restart,

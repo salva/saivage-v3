@@ -550,8 +550,12 @@ can remain unknown. Failed/missing results never imply success or replay permiss
 The authenticated restart API accepts `{}` under existing authority/default grants.
 Current instructions show composed browser guidance, not discovery, pixels or wire.
 
-Distinguish starting from discovery-complete running; show operator/agent definition
-origin or its absence for a retained blocker, containment failure, binding and safe
+Distinguish starting, discovery-complete running and stopping pending containment;
+show controller anchor/audience (root/subtree as Project-wide), last established
+protocol readiness, categorical failure and containment boundary. Ancestor management
+visibility is not tool exposure. Explain application lifetime and explicit cleanup:
+card termination/deletion and project Stop do not dispose services. Show operator/agent definition
+origin or its absence for a retained blocker, failed containment/name block, binding and safe
 current process association. Association grants no wait/kill authority or captured
 protocol output; HTTP has no process association. Registration/removal show recorded
 facts, not inferred later lifetime. No topology editor or lifetime timeline is added.

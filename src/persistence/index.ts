@@ -50,6 +50,7 @@ export {
   readActiveCardPath,
   readActiveCardSubtree,
   readCanonicalCard,
+  readCanonicalLiveCardPath,
   readCanonicalCardHierarchy,
   readCanonicalLinkedCardHistoryTree,
   readCard,

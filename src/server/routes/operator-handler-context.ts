@@ -3,7 +3,7 @@ import type {
   OperatorApiHandlerResult,
   OperatorApiOperationId,
 } from '../../contracts/index.js';
-import type { McpToolsReadModelProvider, McpToolInvocationPort } from '../../mcp/manager-api.js';
+import type { McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import type { RuntimeApplication } from '../../application/index.js';
 import type { ProviderRoutingReadModel } from '../../agents/execution-api.js';
 import type { CardService } from '../../cards/store-api.js';
@@ -46,7 +46,10 @@ export interface OperatorAvailabilityContext {
 
 export interface OperatorMcpProviderContext {
   mcpToolsProvider: McpToolsReadModelProvider;
-  mcpLifecycle: Pick<McpToolInvocationPort, 'startServer' | 'stopServer' | 'restartServer'>;
+  mcpLifecycle: Pick<
+    import('../composition/mcp-lifecycle-ingress.js').McpLifecycleIngress,
+    'startServer' | 'stopServer' | 'restartServer' | 'setServerScope'
+  >;
 }
 
 export interface OperatorConfigContext {

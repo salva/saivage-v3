@@ -94,8 +94,8 @@ describe('compiled direct-object capabilities', () => {
       expect(effectiveSaivageConfigSchema.safeParse(input).success).toBe(false);
     }
     for (const grants of [[{tools:['websearch','websearch']}],[{tools:['websearch']},{tools:['websearch']}]])
-      expect(agentCapabilitiesSchema.safeParse({format_version:1,grants}).success).toBe(false);
-    expect(agentCapabilitiesSchema.safeParse({format_version:2,grants:[]}).success).toBe(false);
+      expect(agentCapabilitiesSchema.safeParse({format_version:2,grants}).success).toBe(false);
+    expect(agentCapabilitiesSchema.safeParse({format_version:1,grants:[]}).success).toBe(false);
     config.agents.executor!.capabilities.grants = [{tools:['read','get_card'],resources:[{kind:'workspace'}]}];
     expect(() => compileProjectWorkflows(config)).toThrow(/does not support workspace/);
   });

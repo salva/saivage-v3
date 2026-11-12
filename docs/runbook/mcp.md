@@ -126,13 +126,22 @@ receipt body. See [evidence](./evidence.md#control-events-notifications-and-exte
 
 ### Define a connection and grant tools
 
-YAML `mcpServers` owns operator definitions: stdio `{transport,command,args?,env?}`
-or Streamable HTTP `{transport,url}`, plus `autostart`/`disabled`. Agent-created
-definitions are strict literal connections persisted separately in
+YAML `mcpServers` owns operator definitions: required per-entry `format_version:1`
+and `policy:{controllerCardId,exposure:'card'|'subtree'}`, stdio
+`{transport,command,args?,env?}` or Streamable HTTP `{transport,url}`, plus
+`autostart`/`disabled`. Agent-created definitions are format 2 strict
+`{connection,policy}` records persisted separately in
 `.saivage/config/mcp-servers.json`; registration neither edits YAML nor launches.
 Dynamic definitions survive normal reset/restart but **never autostart**. Preserve
 them in complete backups; `show_config` is YAML-only and Files refuses raw definitions.
 Name collision between sources fails; there is no merge or auth-profile lookup.
+
+Current dynamic source shape (tool registration is the ordinary producer, not a
+request to hand-edit a running installation):
+
+```json
+{"format_version":2,"type":"mcp-server-definitions","servers":{"local":{"connection":{"transport":"stdio","command":"node","args":["peer.js"]},"policy":{"controllerCardId":"project","exposure":"subtree"}}}}
+```
 
 Each named role must explicitly grant the required operations independently.
 Defaults give Analyst/Executor lifecycle control, discovery and invocation;
@@ -140,6 +149,49 @@ Reviewer requires selection, Oversight has none. Custom participants may opt in.
 Register/replace/unregister/list and catalog-refresh grants are separate, not
 implied by connection registration or another MCP tool. See
 [configuration](../guides/configuration.md) for YAML selection.
+
+For example, a custom consumer can select only tools/call; a custom manager can
+select observation/control/scope without gaining invocation. These explicit
+selections do not broaden shipped defaults:
+
+```yaml
+capabilities:
+  format_version: 2
+  grants:
+    - tools: [mcp_servers, mcp_server_control, mcp_server_set_scope]
+```
+
+Operation grants are targetless and independent; capabilities require format 2.
+Scope membership never grants an operation. Consumers need tools/call grants and
+live-anchor exposure. Managers need control/refresh/replace/unregister/set-scope
+grants and controller/ancestor authority. Ancestors see only safe manageable
+metadata, not remote catalogs/counts/statistics until exposed. Globals have project
+reach for each selected operation but must explicitly choose a live registration
+anchor; there is no Analyst exemption. External Analyst retains its selected subset.
+
+Card registration defaults to self/subtree; explicit destinations are self or linked
+live descendants. A child cannot appoint parent/sibling/project. After a child
+returns terminal and releases its parent, the parent can adopt the same service:
+
+```text
+mcp_server_set_scope({serverName:"local",policy:{controllerCardId:"<parent card>",exposure:"subtree"}})
+mcp_tools({serverName:"local"})
+```
+
+This one action changes policy only, preserving binding/catalog/process/session and
+statistics. Replace changes only connection, preserving policy. Narrowing to a child
+removes ancestor invocation but preserves its management. Queued work rechecks policy
+at dispatch; revoked calls send no bytes or collateral stop. Dispatched calls retain
+their actual results/effects, never retroactive invalidation or replay.
+
+Services live until explicit cleanup or application close, not card termination,
+deletion, project Pause or Stop. Deleted/unlinked anchors block invocation, including
+globals. A reached live ancestor or global/operator can stop/unregister/reanchor;
+reanchor to a permissible live destination before start. Definition-less retained
+owners allow only observation/stop; failed containment blocks name reuse.
+Reset preserves configuration and does not repair incompatible formats/anchors.
+Old/mixed inputs need deliberate matching release/input adoption, with separately
+authorized external offline migration where required; no default policy/converter.
 
 ### Start, discover and call
 
@@ -184,6 +236,22 @@ Lifecycle operator alternatives are authenticated
 `POST /api/mcp/servers/:name/start`, `/stop`, `/restart` with strict `{}` body.
 Success is `{serverName,status,toolCount}`; there is no browser lifecycle button.
 System UI refresh only fetches observations, not a remote catalog refresh.
+
+Authenticated `POST /api/mcp/servers/:name/scope` takes
+`{"policy":{"controllerCardId":"project","exposure":"subtree"}}` and returns
+`{serverName,policy,updated:true}`. Only dynamic definitions can change here; YAML
+policy uses the ordinary configuration/restart procedure. Root/subtree displays as
+“Project-wide”, not a third stored exposure. No registration/topology UI exists.
+
+Observe status/readiness separately from containment. Closure is stopping/nonready/
+pending until settlement; contained permits stopped, failure is error/failed with
+name blocked. Failure reasons are safe categories, never stderr/env/URL payloads.
+Readiness is last established protocol readiness, not guest health. HTTP stop owns
+local requests/connection only. Stdio requires a foreground server: same-group
+workers are covered, escaped/new-session workers require external supervision.
+Leader exit, EOF or absent process ID never proves group absence. Stderr is drained
+and discarded; protocol stdout must remain protocol-only. Cleanup failure remains
+failure, not a successful stopped result.
 
 ```text
 mcp_server_control({serverName:"local",action:"stop"})
@@ -264,6 +332,8 @@ Create dedicated project `tmp/browser-output` and provision OS browser libraries
 # mcpServers excerpt, not a complete Saivage configuration.
 mcpServers:
   browser:
+    format_version: 1
+    policy: {controllerCardId: project, exposure: subtree}
     transport: stdio
     command: npx
     args:

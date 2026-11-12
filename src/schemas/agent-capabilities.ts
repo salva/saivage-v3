@@ -33,7 +33,7 @@ export const capabilityResourceSchema = z.discriminatedUnion('kind', [
 ]);
 export const agentCapabilitiesSchema = z
   .object({
-    format_version: z.literal(1),
+    format_version: z.literal(2),
     grants: z.array(
       z
         .object({

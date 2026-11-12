@@ -57,7 +57,7 @@ async function runCompositionScenario(options: {
       return app;
     });
     const config = structuredClone(TEST_SAIVAGE_CONFIG); config.oversight.enabled = false;
-    config.mcpServers = { 'secret-server': { transport: 'streamable-http', url: 'https://secret-host.invalid/secret-path?secret-query#secret-fragment', autostart: true, disabled: false } };
+    config.mcpServers = { 'secret-server': { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: 'https://secret-host.invalid/secret-path?secret-query#secret-fragment', autostart: true, disabled: false } };
     createProjectIdentity(root, 'Offline composition'); replaceConfigYaml(join(root, '.saivage/saivage.yaml'), config);
     publishInitialProjectRuntime(root, compileProjectWorkflows(config));
     const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {

@@ -6,11 +6,17 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
 import { mcpOperatorApiContracts } from '../../src/contracts/operator-api-mcp.js';
 import type { McpToolsReadModelProvider } from '../../src/mcp/manager-api.js';
-import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import { PROJECT_MCP_ENTRY_POLICY, READY_PROJECT_MCP_STATUS } from '../helpers/mcp-fixture.js';
 import { McpLifecycleError } from '../../src/mcp/errors.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 
 const fastifies: ReturnType<typeof Fastify>[] = [];
+const unusedLifecycle = {
+  async startServer(_name: string): Promise<never> { throw new Error('Unexpected start'); },
+  async stopServer(_name: string): Promise<never> { throw new Error('Unexpected stop'); },
+  async restartServer(_name: string): Promise<never> { throw new Error('Unexpected restart'); },
+  async setServerScope(_name: string, _policy: typeof PROJECT_MCP_ENTRY_POLICY.policy): Promise<never> { throw new Error('Unexpected scope'); },
+};
 
 afterEach(async () => {
   await Promise.all(fastifies.splice(0).map((fastify) => fastify.close()));
@@ -20,7 +26,7 @@ function mountRoutes(options: { mcpToolsProvider: McpToolsReadModelProvider }) {
   const fastify = Fastify({ logger: false });
   fastifies.push(fastify);
   const runtime = new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: {} as never, fatalPort: testApplicationFatalPort });
-  runtime.mount(fastify, mcpOperatorApiContracts, buildMcpOperatorContractHandlers({ ...options, mcpLifecycle: unusedMcpToolInvocation }));
+  runtime.mount(fastify, mcpOperatorApiContracts, buildMcpOperatorContractHandlers({ ...options, mcpLifecycle: unusedLifecycle }));
   return fastify;
 }
 
@@ -28,10 +34,10 @@ describe('MCP operator contract routes', () => {
   it('keeps actual discovery rejection an authenticated internal failure, not a lifecycle conflict or ToolResult', async () => {
     const originalFetch = globalThis.fetch;
     const terminate = jest.fn(async () => ({ failed: [] }));
-    const runtime = new McpServerRuntime({ name: 'browser', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: {} as never });
+    const runtime = new McpServerRuntime({ name: 'browser', source: 'operator', config: { ...PROJECT_MCP_ENTRY_POLICY, transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: {} as never });
     const fastify = Fastify({ logger: false }); fastifies.push(fastify);
     const startServer = async (name: string) => { await runtime.start(); return { serverName: name, status: 'running' as const, toolCount: 0 }; };
-    const handlers = buildMcpOperatorContractHandlers({ mcpToolsProvider: { getToolsReadModel: () => ({ servers: [] }) }, mcpLifecycle: { ...unusedMcpToolInvocation, startServer } });
+    const handlers = buildMcpOperatorContractHandlers({ mcpToolsProvider: { getToolsReadModel: () => ({ servers: [] }) }, mcpLifecycle: { ...unusedLifecycle, startServer } });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'test-token' }), eventLogger: { appendEventPrepared() {} } as never, fatalPort: testApplicationFatalPort }).mount(fastify, mcpOperatorApiContracts, handlers);
     const fetchMock = jest.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'secret remote REST text' } })));
     globalThis.fetch = fetchMock as typeof fetch;
@@ -51,6 +57,7 @@ describe('MCP operator contract routes', () => {
     const fastify = Fastify({ logger: false }); fastifies.push(fastify);
     const calls: string[] = [];
     const handlers = buildMcpOperatorContractHandlers({ mcpToolsProvider: { getToolsReadModel: () => ({ servers: [] }) }, mcpLifecycle: {
+      ...unusedLifecycle,
       startServer: async name => { calls.push(name); if (name === 'missing') throw new McpLifecycleError('Unknown', 404); if (name === 'disabled') throw new McpLifecycleError('Disabled', 409); if (name === 'failure') throw new Error('private failure'); return { serverName: name, status: 'running', toolCount: 2 }; },
       stopServer: async name => ({ serverName: name, status: 'stopped', toolCount: 0 }),
       restartServer: async name => { calls.push(name); if (name === 'missing') throw new McpLifecycleError('Unknown', 404); if (name === 'disabled') throw new McpLifecycleError('Disabled', 409); if (name === 'failure') throw new Error('private failure'); return { serverName: name, status: 'running', toolCount: 2 }; },
@@ -86,7 +93,7 @@ describe('MCP operator contract routes', () => {
         servers: [{ name: 'ghu_server', transport: 'stdio', status: 'error',
               bindingId: null,
               definitionSource: null,
-              containmentFailed: true,
+               ...READY_PROJECT_MCP_STATUS, ready: false, containment: 'failed', failureReason: 'containment_failed',
               processId: 'process-1', toolCount: 1, tools: [{ ...tool, stats: stat }] }],
       }) },
     });
@@ -98,7 +105,7 @@ describe('MCP operator contract routes', () => {
       servers: [{ name: 'ghu_server', transport: 'stdio', status: 'error',
           bindingId: null,
           definitionSource: null,
-          containmentFailed: true,
+           ...READY_PROJECT_MCP_STATUS, ready: false, containment: 'failed', failureReason: 'containment_failed',
           processId: 'process-1', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
     });
     const serialized = tools.body;

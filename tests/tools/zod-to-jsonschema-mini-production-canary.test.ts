@@ -87,7 +87,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       async restartServer() { throw new Error('Unexpected MCP restart'); },
       getServerCatalog() { throw new Error('Unexpected MCP catalog read'); },
       async refreshServerCatalog() { throw new Error('Unexpected MCP catalog refresh'); },
-      findToolCapability: () => null,
+      setServerScope() { throw new Error('Unexpected MCP scope'); },
       invokeTool: async () => { throw new Error('Unexpected MCP invocation in test.'); },
     };
     const analystToolContext: ToolContext = {

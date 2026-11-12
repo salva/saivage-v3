@@ -2,17 +2,18 @@ import { describe, expect, it } from '@jest/globals';
 import { McpToolsResponseSchema } from '../../src/contracts/index.js';
 import { buildMcpServerStatus, buildMcpToolsReadModel } from '../../src/mcp/status-projection.js';
 import { projectMcpToolsForOutbound } from '../../src/mcp/tool-api.js';
+import { PROJECT_MCP_ENTRY_POLICY, READY_PROJECT_MCP_STATUS } from '../helpers/mcp-fixture.js';
 
 describe('MCP status/read-model projection', () => {
   it('narrows opaque integration fields while preserving exact topology and statistics', () => {
     expect(buildMcpServerStatus({
         ready: false,
-        starting: false, name: 'disabled', config: { transport: 'stdio', command: 'disabled-server', disabled: true, autostart: true } })).toEqual({ name: 'disabled', transport: 'stdio', status: 'stopped' });
+        starting: false, name: 'disabled', config: { ...PROJECT_MCP_ENTRY_POLICY, transport: 'stdio', command: 'disabled-server', disabled: true, autostart: true } })).toEqual({ name: 'disabled', transport: 'stdio', status: 'stopped' });
     const running = buildMcpServerStatus({
       name: 'ghu_server',
       ready: true,
       starting: false,
-      config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://example.invalid/mcp' },
+      config: { ...PROJECT_MCP_ENTRY_POLICY, transport: 'streamable-http', disabled: false, autostart: true, url: 'http://example.invalid/mcp' },
       handle: { abortController: new AbortController() },
       startedAt: '2026-01-01T00:00:00.000Z',
       tools: [{ name: 'tok_tool', title: 'opaque-title-marker', description: 'opaque-description-marker', inputSchema: { type: 'object', properties: { opaque_schema_marker: {} } }, outputSchema: { type: 'object', properties: { opaque_output_marker: {} } }, annotations: { title: 'opaque-annotation-marker', readOnlyHint: true }, _meta: { opaque_meta_marker: true } }],
@@ -25,7 +26,7 @@ describe('MCP status/read-model projection', () => {
           ...running,
           bindingId: '11111111-1111-4111-8111-111111111111',
           definitionSource: 'operator',
-          containmentFailed: false,
+          ...READY_PROJECT_MCP_STATUS, containmentBoundary: 'local_connection',
           processId: null,
         }],
       getServerTools: () => [{ name: 'tok_tool', description: 'nested-opaque-description-marker', inputSchema: { type: 'object', properties: { nested_schema_marker: {} } }, annotations: { title: 'nested-opaque-annotation-marker' }, _meta: { nested_meta_marker: true } }],
@@ -37,7 +38,7 @@ describe('MCP status/read-model projection', () => {
       servers: [{ name: 'ghu_server', transport: 'streamable-http', status: 'running',
           bindingId: '11111111-1111-4111-8111-111111111111',
           definitionSource: 'operator',
-          containmentFailed: false,
+          ...READY_PROJECT_MCP_STATUS, containmentBoundary: 'local_connection',
           processId: null, toolCount: 1, tools: [{ name: 'tok_tool', stats: { total: 7, success: 5, error: 2, lastInvokedAt: '2026-07-22T10:11:12.000Z' } }] }],
     });
     const serialized = JSON.stringify(tools);

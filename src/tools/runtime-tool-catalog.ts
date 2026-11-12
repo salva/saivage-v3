@@ -15,6 +15,7 @@ import { qualityToolBinders, type QualityProviderContext } from './quality-provi
 import type { RetrievalPort } from '../contracts/index.js';
 import { retrievalToolBinders, type RetrievalProviderContext } from './retrieval-provider.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
+import { MCP_OPERATIONS, type McpCaller } from '../mcp/manager-api.js';
 import type {
   AgentName,
   CardNotification,
@@ -437,6 +438,15 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
         context: (runtime): McpProviderContext => ({
           projectRoot: runtime.projectRoot,
           mcpToolInvocation: runtime.mcpToolInvocation,
+          mcpCaller: {
+            principal:
+              runtime.scope === 'card'
+                ? { kind: 'card', cardId: runtime.cardId }
+                : { kind: 'global' },
+            operations: MCP_OPERATIONS.filter((name) =>
+              runtime.authority.tools.some((tool) => tool.name === name),
+            ),
+          } satisfies McpCaller,
         }),
       },
     ]),

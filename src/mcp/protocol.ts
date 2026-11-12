@@ -2,6 +2,8 @@
 
 import { SAIVAGE_VERSION } from '../version.js';
 import type { SchemaObject } from 'ajv';
+import type { McpAccessPolicy } from '../schemas/index.js';
+import type { McpOperation } from './access-policy.js';
 
 /** Complete received external schema; boolean subschemas and extension keywords are retained. */
 type McpObjectSchema = SchemaObject & { type: 'object' };
@@ -31,7 +33,7 @@ export interface McpCatalogSnapshot {
   tools: McpToolDefinition[];
 }
 
-export type McpCatalogRefreshResult = Omit<McpCatalogSnapshot, 'tools'> & { toolCount: number };
+export type McpCatalogRefreshResult = Omit<McpCatalogSnapshot, 'tools'> & { toolCount?: number };
 
 export interface McpJsonRpcRequest {
   jsonrpc: '2.0';
@@ -41,7 +43,7 @@ export interface McpJsonRpcRequest {
 }
 
 type McpTransport = 'stdio' | 'streamable-http';
-export type McpStatus = 'starting' | 'running' | 'stopped' | 'error';
+export type McpStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
 
 export interface McpServerStatus {
   name: string;
@@ -49,7 +51,17 @@ export interface McpServerStatus {
   status: McpStatus;
   bindingId: string | null;
   definitionSource: 'operator' | 'agent' | null;
-  containmentFailed: boolean;
+  policy: McpAccessPolicy;
+  availableActions: readonly McpOperation[];
+  ready: boolean;
+  containment: 'not_started' | 'open' | 'pending' | 'contained' | 'failed';
+  failureReason:
+    | 'startup_failed'
+    | 'transport_closed'
+    | 'process_unavailable'
+    | 'containment_failed'
+    | null;
+  containmentBoundary: 'local_process_group' | 'local_connection';
   processId: string | null;
   pid?: number;
   error?: string;

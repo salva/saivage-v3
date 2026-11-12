@@ -215,8 +215,9 @@ export class StdioMcpConnection {
     });
   }
 
-  async initialize(signal: AbortSignal): Promise<void> {
+  async initialize(signal: AbortSignal, assertDispatchAllowed?: () => void): Promise<void> {
     signal.throwIfAborted();
+    assertDispatchAllowed?.();
     const response = await this.exchange(
       {
         jsonrpc: '2.0',
@@ -233,14 +234,19 @@ export class StdioMcpConnection {
     this.checkDiscovery(response, 'initialize');
     signal.throwIfAborted();
     if (this.closed) throw this.terminalReason;
+    assertDispatchAllowed?.();
     this.write({ jsonrpc: '2.0', method: 'notifications/initialized' });
   }
 
-  async listTools(signal: AbortSignal): Promise<McpToolDefinition[]> {
+  async listTools(
+    signal: AbortSignal,
+    assertDispatchAllowed?: () => void,
+  ): Promise<McpToolDefinition[]> {
     const tools: McpToolDefinition[] = [];
     const names = new Set<string>();
     let cursor: string | undefined;
     do {
+      assertDispatchAllowed?.();
       const request: McpJsonRpcRequest = {
         jsonrpc: '2.0',
         id: this.input.ids.next(),

@@ -1,16 +1,23 @@
 import { z } from 'zod';
 import { imageMaxDimensionSchema } from './image-normalization.js';
-import { mcpConnectionSchema } from '../schemas/index.js';
+import { mcpConnectionSchema, mcpAccessPolicySchema } from '../schemas/index.js';
 
 export const McpServerRegisterArgumentsSchema = z
   .object({
     serverName: z.string().min(1),
     connection: mcpConnectionSchema,
+    policy: mcpAccessPolicySchema.optional(),
   })
   .strict();
 export const McpServerUnregisterArgumentsSchema = z
   .object({
     serverName: z.string().min(1),
+  })
+  .strict();
+export const McpServerSetScopeArgumentsSchema = z
+  .object({
+    serverName: z.string().min(1),
+    policy: mcpAccessPolicySchema,
   })
   .strict();
 export const McpServerReplaceArgumentsSchema = z

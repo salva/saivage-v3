@@ -3,9 +3,24 @@ import type { OperatorMcpProviderContext } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import { McpLifecycleError, projectMcpToolsForOutbound } from '../../mcp/tool-api.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
+import { MCP_OPERATOR_CALLER } from '../../mcp/manager-api.js';
 
 export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderContext) {
   return defineOperatorContractHandlers({
+    'mcp.scope': async ({ params, body }) => {
+      try {
+        return { body: await options.mcpLifecycle.setServerScope(params.name, body.policy) };
+      } catch (error) {
+        if (!(error instanceof McpLifecycleError)) throw error;
+        return {
+          statusCode: error.statusCode as 404 | 409,
+          body: {
+            error: error.code as 'MCP_NOT_FOUND' | 'MCP_CONFLICT',
+            message: redactTextForOutbound(error.message),
+          },
+        };
+      }
+    },
     'mcp.start': async ({ params }) => {
       try {
         return { body: await options.mcpLifecycle.startServer(params.name) };
@@ -50,7 +65,7 @@ export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderCon
     },
     'mcp.tools': () => {
       const body: OperatorApiSuccess<'mcp.tools'> = projectMcpToolsForOutbound(
-        options.mcpToolsProvider.getToolsReadModel(),
+        options.mcpToolsProvider.getToolsReadModel(MCP_OPERATOR_CALLER),
       );
       return { body };
     },

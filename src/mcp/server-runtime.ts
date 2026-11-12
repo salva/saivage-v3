@@ -44,12 +44,14 @@ import {
 } from './streamable-http-transport.js';
 import { StdioMcpConnection } from './stdio-transport.js';
 import type { NativeMcpResult } from './native-result.js';
+import type { McpAccessPolicy } from '../schemas/index.js';
 
 interface McpJsonRpcIdProvider {
   next(): number | string;
 }
 
 interface McpServerRuntimeOptions {
+  source: 'operator' | 'agent';
   outboundHttp?: OutboundHttpEmitter;
   name: string;
   config: McpServerConfig;
@@ -62,6 +64,8 @@ interface McpServerRuntimeOptions {
 }
 
 export class McpServerRuntime {
+  policy: McpAccessPolicy;
+  readonly originalSource: 'operator' | 'agent';
   readonly #outboundHttp?: OutboundHttpEmitter;
   readonly bindingId = randomUUID();
   readonly #processRunner: ProcessRunner;
@@ -78,7 +82,8 @@ export class McpServerRuntime {
   private observerController?: AbortController;
   private closureCause?: 'intentional' | 'transport';
   private observedCaptureError?: unknown;
-  private containmentFailed = false;
+  private containment: McpServerStatus['containment'] = 'not_started';
+  private failureReason: McpServerStatus['failureReason'] = null;
   private statusOverride?: { status: McpStatus; error?: string };
   private startedAt?: string;
   private catalog?: McpCatalogSnapshot;
@@ -86,12 +91,12 @@ export class McpServerRuntime {
   private readonly argumentValidatorCache = new Map<string, CachedMcpArgumentValidator>();
   private stdioExchangeQueue?: Promise<void>;
   private admissionOpen = true;
-  private contained = false;
   private ready = false;
   private readonly controllers = new Set<AbortController>();
   private readonly operations = new Set<Promise<void>>();
 
   constructor({
+    source,
     name,
     config,
     revision,
@@ -102,6 +107,8 @@ export class McpServerRuntime {
     projectRoot,
     outboundHttp,
   }: McpServerRuntimeOptions) {
+    this.policy = config.policy;
+    this.originalSource = source;
     this.#name = name;
     this.#outboundHttp = outboundHttp;
     this.#config = config;
@@ -130,22 +137,23 @@ export class McpServerRuntime {
     return (
       this.operations.size !== 0 ||
       this.handle !== undefined ||
-      this.containmentFailed ||
+      this.containment === 'failed' ||
       this.observedCaptureError !== undefined ||
       this.refreshing
     );
   }
   isContained(): boolean {
-    return this.contained;
+    return this.containment === 'contained';
   }
   canReplaceDefinition(): boolean {
-    return this.contained || (this.admissionOpen && !this.handle && this.operations.size === 0);
+    return this.isContained() || (this.admissionOpen && !this.handle && this.operations.size === 0);
   }
   isAdmissionOpen(): boolean {
     return this.admissionOpen;
   }
 
   start(options?: {
+    assertDispatchAllowed?: () => void;
     signal?: AbortSignal;
     observationSource?: OutboundObservationSource;
   }): Promise<void> {
@@ -167,19 +175,30 @@ export class McpServerRuntime {
       let publicationUnknown = false;
       try {
         const cfg = this.config;
+        options?.assertDispatchAllowed?.();
         if (cfg.disabled) return;
         this.statusOverride = undefined;
         if (cfg.transport === 'stdio') this.startStdio(cfg, signal);
         else this.startStreamableHttp();
         this.assertAdmissionOpen(signal);
-        await this.initializeTransport(signal, options?.observationSource);
-        const tools = await this.listTools(signal, options?.observationSource);
+        await this.initializeTransport(
+          signal,
+          options?.observationSource,
+          options?.assertDispatchAllowed,
+        );
+        const tools = await this.listTools(
+          signal,
+          options?.observationSource,
+          options?.assertDispatchAllowed,
+        );
         this.assertAdmissionOpen(signal);
+        options?.assertDispatchAllowed?.();
         this.publishCatalog(tools);
         this.ready = true;
       } catch (error) {
         publicationUnknown = error instanceof PublicationOutcomeUnknownError;
         throwIfPublicationOutcomeUnknown(error);
+        this.failureReason = 'startup_failed';
         try {
           this.closeAdmission();
           await this.directContainment();
@@ -216,7 +235,9 @@ export class McpServerRuntime {
     this.ready = false;
     this.catalog = undefined;
     this.argumentValidatorCache.clear();
-    this.statusOverride = { status: 'stopped' };
+    this.statusOverride = { status: 'stopping' };
+    this.containment = 'pending';
+    if (cause === 'transport') this.failureReason = 'transport_closed';
     let containment: Promise<import('../runtime/runtime-api.js').ProcessStopReport>;
     try {
       containment = this.#processRunner.closeAndTerminateDirectScope({
@@ -231,7 +252,7 @@ export class McpServerRuntime {
     const directContainment = containment.then(
       (report) => {
         if (report.failed.length > 0) {
-          this.containmentFailed = true;
+          this.containment = 'failed';
           this.observerController?.abort();
           this.statusOverride = { status: 'error', error: 'Process containment failed' };
           throw new Error(`MCP server '${this.name}' process containment failed.`);
@@ -239,7 +260,7 @@ export class McpServerRuntime {
       },
       (error) => {
         throwIfPublicationOutcomeUnknown(error);
-        this.containmentFailed = true;
+        this.containment = 'failed';
         this.observerController?.abort();
         if (error !== this.observedCaptureError)
           this.statusOverride = { status: 'error', error: 'Process containment failed' };
@@ -260,7 +281,7 @@ export class McpServerRuntime {
   }
 
   async stop(): Promise<void> {
-    if (this.contained) return;
+    if (this.isContained()) return;
     if (!this.#directContainment) this.closeAdmission();
     const directContainment = this.directContainment();
     const operations = [...this.operations];
@@ -272,10 +293,10 @@ export class McpServerRuntime {
     this.handle?.abortController?.abort();
     this.disposeStdio(new ServerNotRunningError(this.name));
     this.handle = undefined;
-    if (this.closureCause !== 'transport') this.statusOverride = { status: 'stopped' };
+    this.statusOverride = { status: this.failureReason ? 'error' : 'stopped' };
     this.ready = false;
     this.clearCaches();
-    this.contained = true;
+    this.containment = 'contained';
   }
 
   dispose(): Promise<void> {
@@ -284,7 +305,11 @@ export class McpServerRuntime {
 
   refreshCatalog(
     bindingId: string,
-    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+    options?: {
+      signal?: AbortSignal;
+      observationSource?: OutboundObservationSource;
+      assertDispatchAllowed?: () => void;
+    },
   ): Promise<McpCatalogRefreshResult> {
     if (options?.signal?.aborted) return Promise.reject(options.signal.reason);
     if (!this.admissionOpen || !this.ready)
@@ -333,6 +358,7 @@ export class McpServerRuntime {
       let publicationUnknown = false;
       const list = async () => {
         this.assertAdmissionOpen(signal);
+        options?.assertDispatchAllowed?.();
         if (!this.ready) throw new ServerNotRunningError(this.name);
         listStarted = true;
         const invalidate = () => {
@@ -342,7 +368,11 @@ export class McpServerRuntime {
         signal.addEventListener('abort', invalidate, { once: true });
         let listPublicationUnknown = false;
         try {
-          return await this.listTools(signal, options?.observationSource);
+          return await this.listTools(
+            signal,
+            options?.observationSource,
+            options?.assertDispatchAllowed,
+          );
         } catch (error) {
           listPublicationUnknown = error instanceof PublicationOutcomeUnknownError;
           throw error;
@@ -358,6 +388,7 @@ export class McpServerRuntime {
         const tools =
           this.config.transport === 'stdio' ? await this.enqueueStdioExchange(list) : await list();
         this.assertAdmissionOpen(signal);
+        options?.assertDispatchAllowed?.();
         if (!this.ready) throw new ServerNotRunningError(this.name);
         this.publishCatalog(tools);
         published = true;
@@ -442,6 +473,7 @@ export class McpServerRuntime {
     toolName: string,
     args: Record<string, unknown>,
     options?: {
+      assertDispatchAllowed?: () => void;
       timeoutMs?: number;
       signal?: AbortSignal;
       observationSource?: OutboundObservationSource;
@@ -454,6 +486,7 @@ export class McpServerRuntime {
       let startTime = 0;
       let dispatched = false;
       const admitDispatch = () => {
+        options?.assertDispatchAllowed?.();
         this.assertAdmissionOpen(signal);
         this.assertCatalog(bindingId, catalogId);
         if (!handle) throw new ServerNotRunningError(this.name);
@@ -534,6 +567,7 @@ export class McpServerRuntime {
             timeoutMs,
             ids: this.#ids,
             signal,
+            assertDispatchAllowed: options?.assertDispatchAllowed,
           });
         }
         // A dispatched HTTP call retains its own response even after catalog replacement.
@@ -589,7 +623,13 @@ export class McpServerRuntime {
       }),
       bindingId: this.bindingId,
       definitionSource: null,
-      containmentFailed: this.containmentFailed,
+      policy: this.policy,
+      availableActions: [],
+      ready: this.ready && this.admissionOpen,
+      containment: this.containment,
+      failureReason: this.containment === 'failed' ? 'containment_failed' : this.failureReason,
+      containmentBoundary:
+        this.config.transport === 'stdio' ? 'local_process_group' : 'local_connection',
       processId: this.handle?.processId ?? null,
     };
   }
@@ -659,6 +699,7 @@ export class McpServerRuntime {
       process: launch.process,
       processId: launch.record.id,
     };
+    this.containment = 'open';
     this.startedAt = new Date().toISOString();
     launch.process.stdin?.on('error', () => undefined);
     if (!launch.process.stdin || !launch.process.stdout)
@@ -690,33 +731,23 @@ export class McpServerRuntime {
         if (
           !result ||
           this.handle !== observedHandle ||
-          this.containmentFailed ||
+          this.containment === 'failed' ||
           (this.closureCause !== 'transport' && !this.admissionOpen)
         )
           return;
         const admissionWasOpen = this.admissionOpen;
         if (admissionWasOpen) this.closeAdmission('transport');
-        if (result.record.status === 'exited') this.statusOverride = { status: 'stopped' };
-        else
-          this.statusOverride = {
-            status: 'error',
-            error: result.record.signal
-              ? 'Process exited with a signal'
-              : 'Process exited unsuccessfully',
-          };
+        this.failureReason = 'transport_closed';
         this.disposeStdio(new ServerNotRunningError(this.name));
-        if (admissionWasOpen) this.handle = undefined;
         this.ready = false;
         this.clearCaches();
-        this.#processRunner.retireSettled(launch.record.id, this.#processScope);
-        delete observedHandle.processId;
       },
       (error) => {
         publicationUnknown = error instanceof PublicationOutcomeUnknownError;
         throwIfPublicationOutcomeUnknown(error);
         if (
           this.handle !== observedHandle ||
-          this.containmentFailed ||
+          this.containment === 'failed' ||
           (this.closureCause !== 'transport' && !this.admissionOpen)
         )
           return;
@@ -732,6 +763,7 @@ export class McpServerRuntime {
             status: 'error',
             error: 'Process evidence unavailable; containment unconfirmed',
           };
+          this.failureReason = 'process_unavailable';
           this.ready = false;
           this.clearCaches();
           return;
@@ -741,11 +773,8 @@ export class McpServerRuntime {
         if (admissionWasOpen) this.closeAdmission('transport');
         this.statusOverride = { status: 'error', error: 'Process output capture failed' };
         this.disposeStdio(new ServerNotRunningError(this.name));
-        if (admissionWasOpen) this.handle = undefined;
         this.ready = false;
         this.clearCaches();
-        this.#processRunner.retireSettled(launch.record.id, this.#processScope);
-        delete observedHandle.processId;
       },
     );
     const tracked = settlement
@@ -761,19 +790,29 @@ export class McpServerRuntime {
       });
     this.operations.add(tracked);
     void tracked.catch(() => undefined);
+    // The observer itself must settle before joining the remaining owned operations.
+    // EOF/leader settlement initiates containment; it never certifies group absence.
+    void tracked
+      .then(async () => {
+        if (this.closureCause === 'transport') await this.stop();
+      })
+      .catch(() => undefined);
   }
 
   private startStreamableHttp(): void {
     const abortController = new AbortController();
     this.handle = { abortController };
+    this.containment = 'open';
     this.startedAt = new Date().toISOString();
   }
 
   private async initializeTransport(
     signal: AbortSignal,
     observationSource?: OutboundObservationSource,
+    assertDispatchAllowed?: () => void,
   ): Promise<void> {
-    if (this.config.transport === 'stdio') await this.stdioConnection!.initialize(signal);
+    if (this.config.transport === 'stdio')
+      await this.stdioConnection!.initialize(signal, assertDispatchAllowed);
     else
       await initializeStreamableHttp({
         outboundHttp: this.#outboundHttp,
@@ -783,15 +822,17 @@ export class McpServerRuntime {
         handle: this.handle,
         ids: this.#ids,
         signal,
+        assertDispatchAllowed,
       });
   }
 
   private listTools(
     signal: AbortSignal,
     observationSource?: OutboundObservationSource,
+    assertDispatchAllowed?: () => void,
   ): Promise<McpToolDefinition[]> {
     return this.config.transport === 'stdio'
-      ? this.stdioConnection!.listTools(signal)
+      ? this.stdioConnection!.listTools(signal, assertDispatchAllowed)
       : listStreamableHttpTools({
           outboundHttp: this.#outboundHttp,
           observationSource,
@@ -800,6 +841,7 @@ export class McpServerRuntime {
           handle: this.handle,
           ids: this.#ids,
           signal,
+          assertDispatchAllowed,
         });
   }
 

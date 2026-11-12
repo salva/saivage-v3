@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { MCP_OPERATOR_CALLER as mcpCaller } from '../../src/mcp/manager-api.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
@@ -11,8 +12,8 @@ import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import { mapToolsCallResponse } from '../../src/mcp/tools-call-response.js';
 
 function invocation(invokeTool: () => Promise<NativeMcpResult>, signal?: AbortSignal) {
-  const manager = { ...unusedMcpToolInvocation, invokeTool, findToolCapability: () => null };
-  const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
+  const manager = { ...unusedMcpToolInvocation, invokeTool };
+  const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpCaller, mcpToolInvocation: manager })]);
   return invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }), signal);
 }
 async function result(value: NativeMcpResult) {

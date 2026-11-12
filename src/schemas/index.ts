@@ -189,6 +189,8 @@ export {
   type McpServerConfig,
   mcpServerEntrySchema,
   mcpConnectionSchema,
+  mcpAccessPolicySchema,
+  type McpAccessPolicy,
   type McpConnection,
   type StdioMcpServerConfig,
   type StreamableHttpMcpServerConfig,

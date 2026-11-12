@@ -206,6 +206,7 @@ export async function createServerServices(input: {
   }
 
   const mcpManager = new McpManager({
+    readCanonicalLivePath: (id) => cardStore.readCanonicalLivePath(id),
     nativeGit: workflows.gitPolicy !== null,
     outboundHttp,
     configAuthority: environment.configAuthority,

@@ -1,4 +1,5 @@
 import { PassThrough } from 'node:stream';
+import { MCP_OPERATOR_CALLER as mcpCaller } from '../../src/mcp/manager-api.js';
 import { describe, expect, it } from '@jest/globals';
 
 import { StdioMcpConnection } from '../../src/mcp/stdio-transport.js';
@@ -22,9 +23,8 @@ async function composedStdioCall(content: unknown) {
   const manager = {
     ...unusedMcpToolInvocation,
     invokeTool: () => connection.invoke({ toolName: 'tool', args: {}, onResponse() {}, signal: new AbortController().signal }),
-    findToolCapability: () => null,
   };
-  const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
+  const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpCaller, mcpToolInvocation: manager })]);
   const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
   connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy();
   return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);

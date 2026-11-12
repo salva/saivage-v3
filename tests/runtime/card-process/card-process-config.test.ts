@@ -51,7 +51,7 @@ describe('named-agent card-type workflow compilation',()=>{
       expect(()=>compileProjectWorkflows(broken,{defaultPromptRoot:resolveSystemTemplate(profile).promptRoot})).toThrow(/entries\.STOPPED must target a node run by notification recipient/);
     }
     const custom=source();
-    custom.agents.advisor={...custom.agents.planner!,capabilities:{format_version:1,grants:custom.agents.planner!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((tool)=>tool!=='activate_card'&&tool!=='create_card')})).filter((grant)=>grant.tools.length>0)},model_route:'planner'};
+    custom.agents.advisor={...custom.agents.planner!,capabilities:{format_version:2,grants:custom.agents.planner!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((tool)=>tool!=='activate_card'&&tool!=='create_card')})).filter((grant)=>grant.tools.length>0)},model_route:'planner'};
     const goal=custom.card_types.goal!;
     goal.workflow.notification_recipient='advisor';
     for(const node of Object.values(goal.workflow.nodes)) if(agentExecution(node).agent==='planner') agentExecution(node).agent='advisor';
@@ -643,7 +643,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(saivageConfigSchema.safeParse({...structuredClone(DEFAULT_SAIVAGE_CONFIG),agents:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents),executor:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents.executor!),record_writes:['status?.md']}}}).success).toBe(false);
 
     for(const [mode,gate,needsWrite] of [['clean','exists',true],['clean','updated',true],['continue','updated',true],['continue','exists',false]] as const){
-      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),capabilities:{format_version:1,grants:[{tools:['edit'],resources:[{kind:'record',scopes:['self'],patterns:['notes.md']}]}]},skills:false};const execute=value.card_types.code!.workflow.nodes.execute!;agentExecution(execute).agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges)){const target=directEdge(edge).target;if('terminal'in target)target.export_records=['notes.md'];}
+      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),capabilities:{format_version:2,grants:[{tools:['edit'],resources:[{kind:'record',scopes:['self'],patterns:['notes.md']}]}]},skills:false};const execute=value.card_types.code!.workflow.nodes.execute!;agentExecution(execute).agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges)){const target=directEdge(edge).target;if('terminal'in target)target.export_records=['notes.md'];}
       value.card_types.code!.records['status.md']!.initialization=null;
       execute.initialize_records=[];
       if(needsWrite)expect(()=>compileProjectWorkflows(value)).toThrow(/requires the write tool/);else expect(()=>compileProjectWorkflows(value)).not.toThrow();

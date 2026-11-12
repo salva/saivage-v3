@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import * as YAML from 'yaml';
-import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { createRootCardMcpFixture } from '../helpers/mcp-fixture.js';
 import type { McpToolDefinition } from '../../src/mcp/protocol.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -83,7 +83,7 @@ describe('MCP schema validation at runtime use', () => {
     );
     const registry = new ManagedProcessGroupRegistry();
     const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
-    const manager = new McpManager({
+    const manager = createRootCardMcpFixture({
       nativeGit: false,
       configAuthority: testConfigAuthority(root),
       processRunner: runner,
@@ -178,12 +178,12 @@ describe('MCP schema validation at runtime use', () => {
       const config = transport === 'stdio'
         ? { transport, command: process.execPath, args: [fileURLToPath(new URL('../fixtures/mcp/schema-server.mjs', import.meta.url)), toolPath, callsPath] }
         : { transport, url: 'http://localhost/schema-mcp' };
-      writeFileSync(join(root, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: config } }));
+      writeFileSync(join(root, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, ...config } } }));
       const registry = new ManagedProcessGroupRegistry();
       const scope = registry.createContainerScope(registry.rootScope, 'mcp');
       const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
       const events = { appendEventPrepared: jest.fn() };
-      const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: events as never });
+      const manager = createRootCardMcpFixture({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: events as never });
       const calls = () => transport === 'stdio'
         ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
         : httpCalls;

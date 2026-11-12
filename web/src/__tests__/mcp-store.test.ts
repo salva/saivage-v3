@@ -20,7 +20,8 @@ describe('MCP displayed hierarchy store', () => {
       servers: [{
         name: 'filesystem', transport: 'stdio', status: 'running', toolCount: 2,
           definitionSource: 'agent',
-          containmentFailed: false,
+          policy: { controllerCardId: 'project', exposure: 'subtree' },
+          availableActions: [], ready: true, containment: 'open', failureReason: null, containmentBoundary: 'local_process_group',
           processId: 'launch-1',
           bindingId: '11111111-1111-4111-8111-111111111111',
         tools: [
@@ -33,6 +34,7 @@ describe('MCP displayed hierarchy store', () => {
     await store.fetchMcpData();
 
     expect(store.servers).toHaveLength(1);
+    expect(store.servers[0]).toMatchObject({ policy: { controllerCardId: 'project', exposure: 'subtree' }, ready: true, containment: 'open' });
     expect(store.toolCount).toBe(2);
     expect(store.totalInvocations).toBe(10);
     expect(store.totalErrors).toBe(1);

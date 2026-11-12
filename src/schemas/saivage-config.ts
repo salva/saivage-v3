@@ -5,6 +5,7 @@ import { qualityToolBindingsSchema, qualityToolNames } from './quality-operation
 import { agentNameSchema } from './agent-name.js';
 import { recordNameSchema, type RecordName } from './record-name.js';
 import { cardTypeNameSchema } from './card-type-name.js';
+import { cardIdSchema } from './card-id.js';
 
 // ── Zod Schemas ───────────────────────────────────────────────
 
@@ -181,7 +182,17 @@ export const mcpConnectionSchema = z.discriminatedUnion('transport', [
 ]);
 export type McpConnection = z.infer<typeof mcpConnectionSchema>;
 
+export const mcpAccessPolicySchema = z
+  .object({
+    controllerCardId: cardIdSchema,
+    exposure: z.enum(['card', 'subtree']),
+  })
+  .strict();
+export type McpAccessPolicy = z.infer<typeof mcpAccessPolicySchema>;
+
 const lifecycleFields = {
+  format_version: z.literal(1),
+  policy: mcpAccessPolicySchema,
   disabled: z.boolean().default(false),
   autostart: z.boolean().default(true),
 };
@@ -586,7 +597,12 @@ const effectiveCompactionSectionSchema = z
   })
   .strict()
   .superRefine(validateCompaction);
-const effectiveLifecycleFields = { disabled: z.boolean(), autostart: z.boolean() };
+const effectiveLifecycleFields = {
+  format_version: z.literal(1),
+  policy: mcpAccessPolicySchema,
+  disabled: z.boolean(),
+  autostart: z.boolean(),
+};
 const effectiveStdioMcpServerSchema = stdioMcpConnectionSchema.extend(effectiveLifecycleFields);
 const effectiveStreamableHttpMcpServerSchema =
   streamableHttpMcpConnectionSchema.extend(effectiveLifecycleFields);

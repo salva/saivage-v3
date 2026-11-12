@@ -87,7 +87,8 @@ function fixture(options?: {
   const stats = new McpInvocationStatsRecorder(events as never);
   const runtime = new McpServerRuntime({
     name: 'one',
-    config: { transport: 'stdio', command: 'synthetic', autostart: false, disabled: false },
+    source: 'operator',
+    config: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'stdio', command: 'synthetic', autostart: false, disabled: false },
     revision: 'r',
     processRunner: runner as never,
     processScope: {} as never,
@@ -187,7 +188,7 @@ describe('runtime lifetime receiver ordering', () => {
       f.terminal.resolve({ record: { status: 'exited', signal: null } });
       f.containment.resolve(success);
       await f.runtime.stop();
-      expect(f.retire).toHaveBeenCalledTimes(1);
+      expect(f.retire).not.toHaveBeenCalled(); // Shared direct-scope containment owns retirement.
       expect(f.stdout.listenerCount('data')).toBe(0);
       jest.restoreAllMocks();
       f.destroy();
@@ -222,7 +223,7 @@ describe('runtime lifetime receiver ordering', () => {
       f.stdout.emit('end');
       expect(f.runtime.isReady()).toBe(false);
       expect(f.runtime.isAdmissionOpen()).toBe(false);
-      expect(f.runtime.getStatus().status).toBe('stopped');
+      expect(f.runtime.getStatus()).toMatchObject({ status: 'stopping', containment: 'pending', ready: false });
       expect(f.retire).not.toHaveBeenCalled();
       let joined = false;
       const stopping = f.runtime.stop().then(
@@ -242,26 +243,14 @@ describe('runtime lifetime receiver ordering', () => {
         });
       await turn();
       expect(joined).toBe(false);
-      expect(f.runtime.getStatus()).toMatchObject(
-        kind === 'zero'
-          ? { status: 'stopped' }
-          : {
-              status: 'error',
-              error:
-                kind === 'capture'
-                  ? 'Process output capture failed'
-                  : kind === 'signal'
-                    ? 'Process exited with a signal'
-                    : 'Process exited unsuccessfully',
-            },
-      );
+      expect(f.runtime.getStatus()).toMatchObject({ status: kind === 'capture' ? 'error' : 'stopping', containment: 'pending' });
       if (kind === 'capture') f.containment.reject(capture);
       else f.containment.resolve(success);
       const result = await stopping;
       if (kind === 'capture') expect(result).toBe(capture);
-      expect(f.runtime.getStatus().status).toBe(kind === 'zero' ? 'stopped' : 'error');
+      expect(f.runtime.getStatus()).toMatchObject({ status: 'error', containment: kind === 'capture' ? 'failed' : 'contained', failureReason: kind === 'capture' ? 'containment_failed' : 'transport_closed' });
       expect(f.runner.waitForSettlement).toHaveBeenCalledTimes(1);
-      expect(f.retire).toHaveBeenCalledTimes(1);
+      expect(f.retire).not.toHaveBeenCalled();
       expect(f.stdout.listenerCount('data')).toBe(0);
       f.destroy();
     },
@@ -340,7 +329,7 @@ describe('runtime lifetime receiver ordering', () => {
       expect(failure).toBeInstanceOf(TransportError);
       expect(failure.message).toContain(`${stage} stream closed before response`);
       expect(f.runtime.isContained()).toBe(true);
-      expect(f.retire).toHaveBeenCalledTimes(1);
+      expect(f.retire).not.toHaveBeenCalled();
       expect(f.methods).toEqual(
         stage === 'initialize'
           ? ['initialize']

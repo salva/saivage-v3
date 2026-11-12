@@ -1,4 +1,6 @@
 import { afterEach, expect, jest, test } from '@jest/globals';
+import { MCP_OPERATOR_CALLER as caller } from '../../../src/mcp/manager-api.js';
+import { readCanonicalLiveCardPath } from '../../../src/persistence/index.js';
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, symlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -197,6 +199,7 @@ test('frozen native capability refuses dynamic MCP persistence, HTTP lifecycle, 
   writeFileSync(configPath, YAML.stringify(TEST_SAIVAGE_CONFIG));
   const authority = testConfigAuthority(f.root);
   const manager = new McpManager({ nativeGit: true, configAuthority: authority,
+    readCanonicalLivePath: id => readCanonicalLiveCardPath(f.root, id),
     processRunner: f.processes.processRunner, mcpProcessRootScope: f.processes.runtimeProcessRootScope,
     eventLogger: { appendEventPrepared() {} } as never });
   const lifecycle = new McpLifecycleIngress(manager, () => undefined, testApplicationFatalPort);
@@ -204,17 +207,23 @@ test('frozen native capability refuses dynamic MCP persistence, HTTP lifecycle, 
   const spawn = jest.spyOn(f.processes.processRunner, 'spawnCaptured');
   const original = readFileSync(configPath);
   try {
-    expect(() => manager.registerServer('unknown', connection)).toThrow(/unknown source footprint/);
-    expect(() => manager.replaceServer('unknown', connection)).toThrow(/unknown source footprint/);
-    await expect(lifecycle.startServer('unknown')).rejects.toThrow(/unknown source footprint/);
-    await expect(lifecycle.restartServer('unknown')).rejects.toThrow(/unknown source footprint/);
-    expect(() => manager.refreshServerCatalog('unknown', 'binding')).toThrow(/unknown source footprint/);
-    await expect(manager.invokeTool('unknown', 'binding', 'catalog', 'tool', {})).rejects.toThrow(/unknown source footprint/);
+    expect(() => manager.registerServer(caller, 'unknown', connection, { controllerCardId: 'project', exposure: 'subtree' })).toThrow(/unknown source footprint/);
+    expect(() => manager.replaceServer(caller, 'unknown', connection)).toThrow(/unavailable/);
+    await expect(lifecycle.startServer('unknown')).rejects.toThrow(/unavailable/);
+    await expect(lifecycle.restartServer('unknown')).rejects.toThrow(/unavailable/);
+    expect(() => manager.refreshServerCatalog(caller, 'unknown', 'binding')).toThrow(/unavailable/);
+    await expect(manager.invokeTool(caller, 'unknown', 'binding', 'catalog', 'tool', {})).rejects.toThrow(/unavailable/);
     expect(existsSync(mcpServerDefinitionsPath(f.root))).toBe(false);
     expect(readFileSync(configPath)).toEqual(original);
     // Later operator config does not enlarge the frozen ON owner, even if the
     // newly read document says OFF. No connector or subprocess is admitted.
-    writeFileSync(configPath, YAML.stringify({ ...TEST_SAIVAGE_CONFIG, git_workflow: { format_version: 1, enabled: false }, mcpServers: { unknown: { ...connection, autostart: true } } }));
+    writeFileSync(configPath, YAML.stringify({ ...TEST_SAIVAGE_CONFIG, git_workflow: { format_version: 1, enabled: false }, mcpServers: { unknown: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, ...connection, autostart: true } } }));
+    // A real selected definition reaches the frozen native-source fence. Unknown
+    // names above remain the same bounded unavailable response as hidden names.
+    await expect(lifecycle.startServer('unknown')).rejects.toThrow(/unknown source footprint/);
+    await expect(lifecycle.restartServer('unknown')).rejects.toThrow(/unknown source footprint/);
+    expect(() => manager.refreshServerCatalog(caller, 'unknown', 'binding')).toThrow(/unknown source footprint/);
+    await expect(manager.invokeTool(caller, 'unknown', 'binding', 'catalog', 'tool', {})).rejects.toThrow(/unknown source footprint/);
     await expect(manager.reconcilePersistedConfig()).rejects.toThrow(/unknown source footprint/);
     await expect(lifecycle.startServer('unknown')).rejects.toThrow(/unknown source footprint/);
     expect(spawn).not.toHaveBeenCalled();

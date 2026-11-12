@@ -85,7 +85,7 @@ function configured(): SaivageConfig {
 describe('Git workflow policy input and declaration compilation', () => {
   test('checks selected global declarations and actual bound capabilities, not only tool names', () => {
     const config = configured();
-    config.agents.extra = { ...structuredClone(config.agents.analyst!), skills: false, capabilities:{format_version:1,grants:[{tools:['run_command']}]} };
+    config.agents.extra = { ...structuredClone(config.agents.analyst!), skills: false, capabilities:{format_version:2,grants:[{tools:['run_command']}]} };
     expect(compileGitWorkflowPolicy(config)).not.toBeNull();
     config.agents[config.analyst_agent]!.capabilities.grants.push({tools:['run_command']});
     expect(() => compileGitWorkflowPolicy(config)).toThrow(/unsupported source writer/);

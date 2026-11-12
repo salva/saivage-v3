@@ -58,6 +58,7 @@ const targetlessTools = new Set([
   'mcp_server_replace',
   'mcp_server_register',
   'mcp_server_unregister',
+  'mcp_server_set_scope',
   'mcp_servers',
   'mcp_server_control',
   'mcp_tools',

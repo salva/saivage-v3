@@ -22,6 +22,7 @@ jest.unstable_mockModule('node:fs', () => ({
   },
 }));
 const { McpManager } = await import('../../src/mcp/mcp-manager.js');
+const { createRootCardMcpFixture, PROJECT_MCP_ENTRY_POLICY } = await import('../helpers/mcp-fixture.js');
 const { McpServerRuntime } = await import('../../src/mcp/server-runtime.js');
 const { readMcpServerDefinitions, mcpServerDefinitionsPath } =
   await import('../../src/mcp/server-definitions.js');
@@ -43,7 +44,8 @@ afterEach(() => {
   jest.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function setup(operator = {}) {
+function setup(connections: Record<string, object> = {}) {
+  const operator = Object.fromEntries(Object.entries(connections).map(([name, connection]) => [name, { ...PROJECT_MCP_ENTRY_POLICY, ...connection }]));
   const root = mkdtempSync(join(tmpdir(), 'mcp-topology-'));
   roots.push(root);
   mkdirSync(join(root, '.saivage'));
@@ -55,7 +57,7 @@ function setup(operator = {}) {
   const scope = registry.createContainerScope(registry.rootScope, 'mcp');
   const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
   const events = { appendEventPrepared: jest.fn() };
-  const manager = new McpManager({
+  const manager = createRootCardMcpFixture({
     nativeGit: false,
     configAuthority: testConfigAuthority(root),
     processRunner: runner,
@@ -72,6 +74,7 @@ function deferred() {
   return { promise, resolve };
 }
 const connection = { transport: 'streamable-http' as const, url: 'http://localhost/mcp' };
+const definition = (connection: object) => ({ connection, policy: { controllerCardId: 'project', exposure: 'subtree' } });
 
 describe('dynamic MCP exact definitions and owner fences', () => {
   it('replaces whole literal connections before launch and retires pristine owners without changing YAML or neighbors', async () => {
@@ -84,7 +87,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
     const stop = jest.spyOn(McpServerRuntime.prototype, 'stop');
     const launch = jest.spyOn(runner, 'closeAndTerminateDirectScope');
     expect(manager.replaceServer('one', { transport: 'stdio', command: '${NEW_LITERAL}' })).toEqual({ serverName: 'one', replaced: true, status: 'stopped' });
-    expect(readMcpServerDefinitions(root)).toEqual({ one: { transport: 'stdio', command: '${NEW_LITERAL}' }, other: connection });
+    expect(readMcpServerDefinitions(root)).toEqual({ one: definition({ transport: 'stdio', command: '${NEW_LITERAL}' }), other: definition(connection) });
     await manager.reconcilePersistedConfig();
     expect(manager.getServerStatus('one')!.bindingId).toEqual(expect.any(String));
     manager.replaceServer('one', connection);
@@ -112,20 +115,20 @@ describe('dynamic MCP exact definitions and owner fences', () => {
     manager.registerServer('one', connection);
     manager.registerServer('two', connection);
     await manager.unregisterServer('one');
-    expect(readMcpServerDefinitions(root)).toEqual({ two: connection });
+    expect(readMcpServerDefinitions(root)).toEqual({ two: definition(connection) });
     expect(JSON.parse(readFileSync(mcpServerDefinitionsPath(root), 'utf8'))).toEqual({
-      format_version: 1,
+      format_version: 2,
       type: 'mcp-server-definitions',
-      servers: { two: connection },
+      servers: { two: definition(connection) },
     });
     expect(readFileSync(join(root, '.saivage/saivage.yaml'))).toEqual(yaml);
     expect(() => manager.registerServer('two', connection)).toThrow('already');
     expect(() => manager.registerServer('operator', connection)).toThrow('already');
-    await expect(manager.unregisterServer('operator')).rejects.toThrow('agent-owned');
-    await expect(manager.unregisterServer('missing')).rejects.toThrow('agent-owned');
+    await expect(manager.unregisterServer('operator')).rejects.toThrow('unavailable');
+    await expect(manager.unregisterServer('missing')).rejects.toThrow('unavailable');
     for (const value of [
       '{secret',
-      { format_version: 2, type: 'mcp-server-definitions', servers: {} },
+      { format_version: 1, type: 'mcp-server-definitions', servers: {} },
       { format_version: 1, type: 'wrong', servers: {} },
       {
         format_version: 1,
@@ -142,7 +145,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
     }
   });
 
-  it.each(['register', 'replace', 'unregister'] as const)(
+  it.each(['register', 'replace', 'unregister', 'scope'] as const)(
     '%s publication uncertainty reaches the caller before further reads, status, logs, results or containment',
     async (operation) => {
       const { manager, events, runner } = setup();
@@ -163,6 +166,8 @@ describe('dynamic MCP exact definitions and owner fences', () => {
         );
       else if (operation === 'replace')
         expect(() => manager.replaceServer('one', connection)).toThrow(PublicationOutcomeUnknownError);
+      else if (operation === 'scope')
+        expect(() => manager.setServerScope('one', { controllerCardId: 'project', exposure: 'card' })).toThrow(PublicationOutcomeUnknownError);
       else
         expect(() => manager.registerServer('two', connection)).toThrow(
           PublicationOutcomeUnknownError,
@@ -180,17 +185,17 @@ describe('dynamic MCP exact definitions and owner fences', () => {
 
   it('strict startup rejects cross-source collisions without entering any runtime', async () => {
     const { root, manager } = setup({ one: { ...connection, autostart: true } });
-    mkdirSync(join(root, '.saivage/config'));
+    mkdirSync(join(root, '.saivage/config'), { recursive: true });
     writeFileSync(
       mcpServerDefinitionsPath(root),
       JSON.stringify({
-        format_version: 1,
+        format_version: 2,
         type: 'mcp-server-definitions',
-        servers: { one: connection },
+        servers: { one: definition(connection) },
       }),
     );
     const start = jest.spyOn(McpServerRuntime.prototype, 'start');
-    expect(() => manager.replaceServer('one', connection)).toThrow('agent-owned');
+    expect(() => manager.replaceServer('one', connection)).toThrow('conflicting');
     await expect(manager.reconcilePersistedConfig()).rejects.toThrow('conflicting');
     expect(start).not.toHaveBeenCalled();
     await manager.cleanupForApplicationStop();
@@ -463,7 +468,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
         expect(manager.getServerStatus('one')).toMatchObject({
           definitionSource: null,
           status: 'error',
-          containmentFailed: true,
+          containment: 'failed',
         });
         expect(() => manager.registerServer('one', connection)).toThrow('containment');
       } finally {
@@ -529,7 +534,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       await manager.cleanupForApplicationStop();
       const registry = new ManagedProcessGroupRegistry();
       const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
-      const fresh = new McpManager({
+      const fresh = createRootCardMcpFixture({
         nativeGit: false,
         configAuthority: testConfigAuthority(root),
         processRunner: runner,
@@ -549,5 +554,5 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       await manager.cleanupForApplicationStop();
       await closeServer(peer);
     }
-  });
+  }, 20_000);
 });

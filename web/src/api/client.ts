@@ -423,6 +423,10 @@ export function getMcpTools(signal?: AbortSignal): Promise<McpToolsResponse> {
   return operatorRequest('mcp.tools', { signal });
 }
 
+export function setMcpServerScope(name: string, policy: OperatorApiBody<'mcp.scope'>['policy'], signal?: AbortSignal) {
+  return operatorRequest('mcp.scope', { params: { name }, body: { policy }, signal });
+}
+
 interface EventsQueryOptions {
   kind?: string;
   cardId?: string;

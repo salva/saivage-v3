@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { PassThrough } from 'node:stream';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
+import { MCP_OPERATOR_CALLER as mcpCaller } from '../../src/mcp/manager-api.js';
 import { McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
 import { TimeoutError, TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
@@ -41,7 +42,7 @@ async function fixture() {
   let id = 0;
   const events = { appendEventPrepared: jest.fn((_prepare: () => unknown) => {}) };
   const stats = new McpInvocationStatsRecorder(events as never);
-  const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'stdio', command: 'test', autostart: true, disabled: false }, revision: 'r', processRunner: runner as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: stats });
+  const runtime = new McpServerRuntime({ name: 'one', source: 'operator', config: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'stdio', command: 'test', autostart: true, disabled: false }, revision: 'r', processRunner: runner as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: stats });
   await runtime.start();
   return { runtime, catalogId: runtime.getCatalog()!.catalogId, containment, terminate, entered, calls, stdout, events, stats };
 }
@@ -53,8 +54,8 @@ describe('active stdio cancellation ownership', () => {
     // Initialize with real timers: the fixture's peer replies with setImmediate.
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: (_server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, options) });
-    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
+    installation.installer.install({ ...unusedMcpToolInvocation, invokeTool: (_caller, _server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, options) });
+    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpCaller, mcpToolInvocation: installation.port })]);
     jest.useFakeTimers();
     try {
       let settled = false;
@@ -124,7 +125,7 @@ describe('active stdio cancellation ownership', () => {
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: request.method === 'initialize' ? {} : { tools: [{ name: 'pending', inputSchema: { type: 'object' } }] } }));
     }) as typeof fetch;
     let id = 0;
-    const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: new McpInvocationStatsRecorder({ appendEventPrepared() {} } as never) });
+    const runtime = new McpServerRuntime({ name: 'one', source: 'operator', config: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: new McpInvocationStatsRecorder({ appendEventPrepared() {} } as never) });
     try {
       await runtime.start();
       const catalog = runtime.getCatalog()!;
@@ -182,7 +183,7 @@ describe('active stdio cancellation ownership', () => {
       return new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true }));
     }) as typeof fetch;
     let id = 0;
-    const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: new McpInvocationStatsRecorder({ appendEventPrepared() {} } as never) });
+    const runtime = new McpServerRuntime({ name: 'one', source: 'operator', config: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: new McpInvocationStatsRecorder({ appendEventPrepared() {} } as never) });
     try {
       if (phase === 'refresh') { await runtime.start(); methods.length = 0; refreshing = true; }
       const previous = runtime.getCatalog();
@@ -213,7 +214,7 @@ describe('active stdio cancellation ownership', () => {
     const terminate = jest.fn(() => { entered.resolve(); return containment.promise; });
     const events = { appendEventPrepared: jest.fn() };
     const caller = new AbortController();
-    const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: new McpInvocationStatsRecorder(events as never) });
+    const runtime = new McpServerRuntime({ name: 'one', source: 'operator', config: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: new McpInvocationStatsRecorder(events as never) });
     const cancel = jest.spyOn(ReadableStreamDefaultReader.prototype, 'cancel');
     const release = jest.spyOn(ReadableStreamDefaultReader.prototype, 'releaseLock');
     globalThis.fetch = jest.fn(async () => {
@@ -244,8 +245,8 @@ describe('active stdio cancellation ownership', () => {
   it.each(['caller', 'deadline'] as const)('preserves %s classification through installed port, reader and real shared tool invocation', async mode => {
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: (_server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, { ...options, timeoutMs: mode === 'deadline' ? 15 : 10_000 }) });
-    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
+    installation.installer.install({ ...unusedMcpToolInvocation, invokeTool: (_caller, _server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, { ...options, timeoutMs: mode === 'deadline' ? 15 : 10_000 }) });
+    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpCaller, mcpToolInvocation: installation.port })]);
     const caller = new AbortController();
     const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, catalogId: f.catalogId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }), caller.signal);
     await f.entered.promise;
@@ -284,8 +285,8 @@ describe('active stdio cancellation ownership', () => {
   it('later recognized image conversion failure leaves the actual native invocation successful without replay', async () => {
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: (_server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, options) });
-    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
+    installation.installer.install({ ...unusedMcpToolInvocation, invokeTool: (_caller, _server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, options) });
+    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpCaller, mcpToolInvocation: installation.port })]);
     const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, catalogId: f.catalogId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
     await f.entered.promise;
     f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [{ type: 'image', mimeType: 'image/png', data: 'YQ==' }] } }) + '\n');

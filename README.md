@@ -205,3 +205,12 @@ high/critical gate. `npm run lint` and `npm run deps:review` have their own
 [coverage and applicability](docs/validation.md#select-a-profile).
 Local results do not establish exact-SHA CI success, provider behavior or deployment
 readiness. Validation grants no live restart, Run, reset or migration permission.
+## Scoped MCP services
+
+Outbound MCP services have a controller-card anchor and card/subtree audience,
+independent generic operation grants, and application lifetime. Parent adoption
+after child return preserves the live connection. Card termination/deletion and
+project Stop do **not** clean them up: explicitly stop/unregister or close the
+application. The System MCP view is manual observation, not a topology editor.
+See the [MCP runbook](docs/runbook/mcp.md) and
+[operator contracts](docs/spec/operator-ui-contracts.md#configured-mcp-presentation).

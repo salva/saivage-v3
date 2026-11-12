@@ -61,7 +61,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         },
         skills: agent.skills,
         capabilities: {
-          format_version: 1 as const,
+          format_version: 2 as const,
           grants: agent.tools.map((reference) => ({
             tools: [reference.name],
             ...(reference.resources.length
@@ -119,7 +119,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
               },
               skills: execution.agent.skills,
               capabilities: {
-                format_version: 1 as const,
+                format_version: 2 as const,
                 grants: effectiveCardNodeToolReferences(
                   execution.agent.tools,
                   node.childCreationTypes,

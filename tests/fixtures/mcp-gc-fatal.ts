@@ -6,6 +6,8 @@ import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { MCP_OPERATOR_CALLER } from '../../src/mcp/manager-api.js';
+import { readCanonicalLiveCardPath } from '../../src/persistence/index.js';
 import { McpLifecycleIngress } from '../../src/server/composition/mcp-lifecycle-ingress.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
@@ -22,12 +24,13 @@ const fatal = createApplicationFatalPort(), groups = new ManagedProcessGroupRegi
 const runner = new ProcessRunner(root, groups, fatal);
 const eventLogger = createEventLog(root);
 const manager = new McpManager({ nativeGit: false, configAuthority: createTestConfigAuthority(root), processRunner: runner,
+  readCanonicalLivePath: id => readCanonicalLiveCardPath(root, id),
   mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger });
 const peer = join(root, 'peer.cjs');
 writeFileSync(peer, `require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
  const r=JSON.parse(line); if(r.id) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result:r.method==='initialize'?{}:{tools:'invalid'}})+'\\n');
 });`);
-manager.registerServer('one', { transport: 'stdio', command: process.execPath, args: [peer] });
+manager.registerServer(MCP_OPERATOR_CALLER, 'one', { transport: 'stdio', command: process.execPath, args: [peer] }, { controllerCardId: 'project', exposure: 'subtree' });
 const containment = runner.closeAndTerminateDirectScope.bind(runner);
 runner.closeAndTerminateDirectScope = async input => {
   await containment(input); // Real synthetic child is gone before the injected failure.

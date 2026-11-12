@@ -630,7 +630,6 @@ describe('named-agent inventories and composition', () => {
       processRunner: {} as never,
       mcpToolInvocation: {
         ...unusedMcpToolInvocation,
-        findToolCapability: () => null,
         invokeTool: async () => ({ content: [] }),
       },
     });

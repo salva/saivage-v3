@@ -22,6 +22,7 @@ import { beginOutboundHttp } from '../observability/index.js';
 import { decodeMcpListPage } from './catalog-discovery.js';
 
 interface HttpObservationOptions {
+  assertDispatchAllowed?: () => void;
   outboundHttp?: OutboundHttpEmitter;
   observationSource?: OutboundObservationSource;
 }
@@ -37,6 +38,7 @@ async function consumeMcpHttp<T>(
   isProtocolFailure?: (value: T) => boolean,
 ): Promise<T> {
   init.signal?.throwIfAborted();
+  options.assertDispatchAllowed?.();
   const http = beginOutboundHttp({
     emitter: options.outboundHttp,
     context: {
@@ -436,6 +438,7 @@ export function listStreamableHttpTools(input: HttpDiscoveryInput): Promise<McpT
     const names = new Set<string>();
     let cursor: string | undefined;
     do {
+      input.assertDispatchAllowed?.();
       const listId = ids.next();
       const listReq: McpJsonRpcRequest = { jsonrpc: '2.0', id: listId, method: 'tools/list' };
       if (cursor) listReq.params = { cursor };

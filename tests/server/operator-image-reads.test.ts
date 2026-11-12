@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from '@jest/globals';
+import { MCP_OPERATOR_CALLER as mcpCaller } from '../../src/mcp/manager-api.js';
 import { randomUUID } from 'node:crypto';
 import {
   mkdirSync,
@@ -223,6 +224,7 @@ it.each(['agent:analyst:global', 'agent:planner:project'] as const)(
       .find((binder) => binder.name === 'mcp_tool_call')!
       .bind({
         projectRoot: root,
+        mcpCaller,
         mcpToolInvocation: {
           ...unusedMcpToolInvocation,
           invokeTool: async () => ({
@@ -234,7 +236,6 @@ it.each(['agent:analyst:global', 'agent:planner:project'] as const)(
               { type: 'image', data: first.toString('base64'), mimeType: 'image/png' },
             ],
           }),
-          findToolCapability: () => null,
         },
       });
     const context = testLlmToolInvocationContext({ sessionId: session, toolName: 'mcp_tool_call' });

@@ -922,6 +922,7 @@ function renamedExecutorConfig() {
   agentExecution(config.card_types.code!.workflow.nodes.execute!).agent = 'executor-v2';
   config.mcpServers = {
     admission_probe: {
+      format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },
       transport: 'streamable-http',
       url: 'http://127.0.0.1:1/mcp',
       autostart: true,

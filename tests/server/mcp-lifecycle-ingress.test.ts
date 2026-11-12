@@ -5,6 +5,28 @@ import { deferred } from '../../src/runtime/actors/deferred.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 
 describe('whole HTTP MCP lifecycle ingress', () => {
+  it('admits scope through the operator authority, rejects GC busy and preserves fatal accounting', async () => {
+    const policy = { controllerCardId: 'project', exposure: 'subtree' as const };
+    const failure = new PublicationOutcomeUnknownError();
+    let busy = false;
+    const setServerScope = jest.fn<McpToolInvocationPort['setServerScope']>((caller, serverName, selected) => {
+      expect(caller.principal).toEqual({ kind: 'operator' });
+      if (serverName === 'fatal') throw failure;
+      return { serverName, policy: selected, updated: true };
+    });
+    const fatal = jest.fn((error: PublicationOutcomeUnknownError): never => { throw error; });
+    const ingress = new McpLifecycleIngress({ setServerScope } as unknown as McpToolInvocationPort,
+      () => { if (busy) throw new Error('GC busy'); }, { publicationOutcomeUnknown: fatal });
+    await expect(ingress.setServerScope('one', policy)).resolves.toEqual({ serverName: 'one', policy, updated: true });
+    expect(ingress.hasActiveLifecycleCall()).toBe(false);
+    busy = true;
+    await expect(ingress.setServerScope('one', policy)).rejects.toThrow('GC busy');
+    expect(setServerScope).toHaveBeenCalledTimes(1);
+    busy = false;
+    await expect(ingress.setServerScope('fatal', policy)).rejects.toBe(failure);
+    expect(fatal).toHaveBeenCalledWith(failure);
+    expect(ingress.hasActiveLifecycleCall()).toBe(true);
+  });
   it.each(['startServer', 'stopServer', 'restartServer'] as const)('observes all of %s, including post-stop continuation and failing cleanup', async method => {
     const stopped = deferred<void>();
     const cleanup = deferred<void>();

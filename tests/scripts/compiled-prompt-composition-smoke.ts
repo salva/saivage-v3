@@ -262,7 +262,7 @@ try {
   assertRoleComposition(native.name, native.promptRoot, nativeSourceRoot, nativeWorkflows, nativeSourceWorkflows);
   for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig], [paad, paadConfig], [newloop, newloopConfig]] as const) {
     const custom = structuredClone(config);
-    custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, capabilities: {format_version:1,grants:custom.agents.reviewer!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((name)=>['read','write'].includes(name))})).filter((grant)=>grant.tools.length>0)}, skills: false };
+    custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, capabilities: {format_version:2,grants:custom.agents.reviewer!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((name)=>['read','write'].includes(name))})).filter((grant)=>grant.tools.length>0)}, skills: false };
     for (const cardType of Object.values(custom.card_types)) for (const node of Object.values(cardType.workflow.nodes)) {
       if (agentExecution(node).agent === 'reviewer') agentExecution(node).agent = 'evidence-reader';
     }
@@ -347,6 +347,7 @@ try {
   createEventLog(projectRoot);
   const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
   const mcpToolInvocation = {
+    setServerScope() { throw new Error('Unexpected MCP scope'); },
     registerServer() { throw new Error('Unexpected MCP register'); },
     replaceServer() { throw new Error('Unexpected MCP replace'); },
     async unregisterServer() { throw new Error('Unexpected MCP unregister'); },
@@ -357,7 +358,6 @@ try {
     async restartServer() { throw new Error('Unexpected MCP restart in prompt smoke.'); },
     getServerCatalog() { throw new Error('Unexpected MCP catalog read in compiled prompt smoke.'); },
     refreshServerCatalog() { throw new Error('Unexpected MCP refresh in compiled prompt smoke.'); },
-    findToolCapability() { throw new Error('Unexpected MCP capability read in compiled prompt smoke.'); },
     invokeTool() { return Promise.reject(new Error('Unexpected MCP invocation in compiled prompt smoke.')); },
   };
 

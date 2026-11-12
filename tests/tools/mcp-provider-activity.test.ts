@@ -8,11 +8,12 @@ import type { LlmToolInvocationContext } from '../../src/runtime/actors/executin
 import { createMcpToolInvocationInstallation, McpToolInvocationNotInstalledError } from '../../src/mcp/tool-invocation-installation.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { McpInvokeError } from '../../src/mcp/errors.js';
+import { MCP_OPERATOR_CALLER as mcpCaller } from '../../src/mcp/manager-api.js';
 
 const settlementResult = (settlement: ToolSettlementInput) => settleToolActionOutcome(settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome).providerResult;
 
 describe('MCP activity segmentation', () => {
-  const provider = (context: Omit<McpProviderContext, 'projectRoot'>) => bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', ...context });
+  const provider = (context: Omit<McpProviderContext, 'projectRoot' | 'mcpCaller'>) => bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpCaller, ...context });
   it('keeps the complete current MCP invocation active without calling any wait callback', async () => {
     const waits = { external: 0, process: 0 };
     const base = testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolCallId: 'mcp-call', toolName: 'mcp_tool_call' });
@@ -23,7 +24,7 @@ describe('MCP activity segmentation', () => {
         waitProcess: async <T>(_id: string, promise: Promise<T>) => { waits.process += 1; return promise; },
       },
     };
-    const manager = { ...unusedMcpToolInvocation, invokeTool: jest.fn(async () => ({ content: [], structuredContent: { value: 1 } })), findToolCapability: jest.fn(() => null) };
+    const manager = { ...unusedMcpToolInvocation, invokeTool: jest.fn(async () => ({ content: [], structuredContent: { value: 1 } })) };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
     expect(settlementResult(await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server',
             bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' }, context))).toEqual({ success: true, data: { result: { structuredContent: { value: 1 } } } });
@@ -42,13 +43,13 @@ describe('MCP activity segmentation', () => {
 
   it('keeps invocation failures as failed results and never derives authority from annotations or agent names', async () => {
     const invocationFailure = buildInvocationSurfaceFixture('executor', [provider({
-      mcpToolInvocation: { ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: async () => { throw new McpInvokeError('transport failed', 'TRANSPORT_ERROR', 502); } },
+      mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => { throw new McpInvokeError('transport failed', 'TRANSPORT_ERROR', 502); } },
     })]);
     expect(settlementResult(await invokeToolForLlm(invocationFailure, 'mcp_tool_call', { serverName: 'server',
             bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: false, error: 'transport failed' });
 
     const reviewerFailure = buildInvocationSurfaceFixture('reviewer', [provider({
-      mcpToolInvocation: { ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: async () => ({ content: [] }) },
+      mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => ({ content: [] }) },
     })]);
     expect(settlementResult(await invokeToolForLlm(reviewerFailure, 'mcp_tool_call', { serverName: 'server',
             bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: { result: {} } });
@@ -56,8 +57,6 @@ describe('MCP activity segmentation', () => {
     const reviewerDestructive = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: {
         ...unusedMcpToolInvocation,
-        findToolCapability: () => ({ serverName: 'server',
-            bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', name: 'tool', description: 'tool', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: true } }),
         invokeTool: async () => ({ content: [] }),
       },
     })]);
@@ -67,8 +66,6 @@ describe('MCP activity segmentation', () => {
     const reviewerWritable = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: {
         ...unusedMcpToolInvocation,
-        findToolCapability: () => ({ serverName: 'server',
-            bindingId: '11111111-1111-4111-8111-111111111111', catalogId: '22222222-2222-4222-8222-222222222222', name: 'tool', description: 'tool', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }),
         invokeTool: async () => ({ content: [] }),
       },
     })]);

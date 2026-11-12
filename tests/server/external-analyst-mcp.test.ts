@@ -237,7 +237,12 @@ it('returns ordered images from a real synthetic outbound MCP server through the
   });
   const port=await listen(outbound);
   try {
-    const f=await fixture('external',1,config=>{config.mcpServers={images:{transport:'streamable-http',url:`http://127.0.0.1:${port}`,autostart:true,disabled:false}};});
+    const f=await fixture('external',1,config=>{config.agents[config.analyst_agent]!.capabilities.grants.push({tools:['mcp_server_set_scope']});config.mcpServers={images:{format_version:1,policy:{controllerCardId:'project',exposure:'subtree'},transport:'streamable-http',url:`http://127.0.0.1:${port}`,autostart:true,disabled:false}};});
+    const offered = await f.client.listTools();
+    expect(offered.tools.map(tool => tool.name)).not.toContain('mcp_server_control');
+    expect(offered.tools.map(tool => tool.name)).not.toContain('mcp_server_set_scope');
+    await expect(f.client.callTool({name:'mcp_server_control',arguments:{serverName:'images',action:'stop'}})).rejects.toThrow('unavailable');
+    await expect(f.client.callTool({name:'mcp_server_set_scope',arguments:{serverName:'images',policy:{controllerCardId:'project',exposure:'card'}}})).rejects.toThrow('unavailable');
     const discovered=await f.client.callTool({name:'mcp_tools',arguments:{serverName:'images'}});
     const data=(discovered.structuredContent as {result:{data:{bindingId:string;catalogId:string}}}).result.data;
     const result=await f.client.callTool({name:'mcp_tool_call',arguments:{serverName:'images',bindingId:data.bindingId,catalogId:data.catalogId,toolName:'screen',args:{}}});

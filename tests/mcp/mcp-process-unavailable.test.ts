@@ -6,7 +6,7 @@ import * as YAML from 'yaml';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
-import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { createRootCardMcpFixture } from '../helpers/mcp-fixture.js';
 import { McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
 import { TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
@@ -61,6 +61,7 @@ function fixture(rejectDiscovery = false, io?: ConstructorParameters<typeof Proc
   const events = { appendEventPrepared: jest.fn<(prepare: () => unknown) => void>() };
   const stats = new McpInvocationStatsRecorder(events as never);
   const config = {
+    format_version: 1 as const, policy: { controllerCardId: 'project', exposure: 'subtree' as const },
     transport: 'stdio' as const,
     command: 'synthetic',
     autostart: false,
@@ -70,6 +71,7 @@ function fixture(rejectDiscovery = false, io?: ConstructorParameters<typeof Proc
   let id = 0;
   const runtime = new McpServerRuntime({
     name: 'one',
+    source: 'operator',
     config,
     revision: 'r',
     processRunner: runner,
@@ -297,7 +299,7 @@ describe('real process authority loss in current stdio lifetime owner', () => {
     // Real runner retains the pre-existing termination-reason/killed presentation.
     expect(f.runtime.getStatus()).toMatchObject({
       status: 'error',
-      error: 'Process exited with a signal',
+      failureReason: 'transport_closed', containment: 'contained',
     });
   });
 
@@ -309,7 +311,7 @@ describe('real process authority loss in current stdio lifetime owner', () => {
         YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: servers }),
       );
     writeConfig({ one: f.config });
-    const manager = new McpManager({
+    const manager = createRootCardMcpFixture({
       nativeGit: false,
       configAuthority: testConfigAuthority(f.root),
       processRunner: f.runner,
@@ -355,7 +357,7 @@ describe('real process authority loss in current stdio lifetime owner', () => {
     expect(f.runner.get(sibling.id)).toBeNull();
     expect(f.runner.get(record.id)?.status).toBe('unavailable');
     expect(manager.getStatus()).toHaveLength(1);
-    expect(manager.getServerCatalog('one')?.tools).toBeUndefined();
+    expect(() => manager.getServerCatalog('one')).toThrow('unavailable');
     expect(f.platform.children).toHaveLength(2);
   });
 

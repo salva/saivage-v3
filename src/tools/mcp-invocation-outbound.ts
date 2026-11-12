@@ -8,11 +8,11 @@ import {
 // Also used for rejected inputs: env values must never depend on secret-key heuristics.
 export function projectMcpConnectionDefinitionForOutbound(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    return projectDynamicForOutbound(value);
+    return SECRET_REDACTION_PLACEHOLDER;
   const input = value as Record<string, unknown>;
   const connection = input['connection'];
   if (!connection || typeof connection !== 'object' || Array.isArray(connection))
-    return projectDynamicForOutbound(value);
+    return projectDynamicForOutbound({ ...input, connection: SECRET_REDACTION_PLACEHOLDER });
   const fields = connection as Record<string, unknown>;
   return projectDynamicForOutbound({
     ...input,

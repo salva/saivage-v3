@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as YAML from 'yaml';
-import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { createRootCardMcpFixture, PROJECT_MCP_ENTRY_POLICY } from '../helpers/mcp-fixture.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -48,7 +48,7 @@ function fixture() {
   const groups = new ManagedProcessGroupRegistry();
   const runner = new ProcessRunner(root, groups, testApplicationFatalPort);
   const events = { appendEventPrepared: jest.fn() };
-  const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: events as never });
+  const manager = createRootCardMcpFixture({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: groups.createContainerScope(groups.rootScope, 'mcp'), eventLogger: events as never });
   return { root, manager, events, runner, groups, async close() { await manager.cleanupForApplicationStop(); rmSync(root, { recursive: true }); } };
 }
 
@@ -64,7 +64,7 @@ async function gcApplication(f: ReturnType<typeof fixture>, ingress: McpLifecycl
     processRunner: f.runner, runtimeProcessRootScope: f.groups.createContainerScope(f.groups.rootScope, 'runtime'),
     analystProcessRootScope: f.groups.createContainerScope(f.groups.rootScope, 'analyst'),
     analystStartup: { mode: 'internal' }, externalProjectIdentityDigest: null,
-    analystSessionId: 'agent:analyst:global', mcpToolInvocation: f.manager,
+    analystSessionId: 'agent:analyst:global', mcpToolInvocation: f.manager.owner,
     restartCapability: { available: false }, fatalPort: testApplicationFatalPort,
     assertWorkGcEntryIdle() { if (ingress.hasActiveLifecycleCall() || f.manager.hasPendingReconciliation()) throw new Error('MCP entry active'); },
     assertWorkGcReady() { if (ingress.hasActiveLifecycleCall() || f.manager.hasWorkGcBlocker()) throw new Error('MCP surviving footprint'); },
@@ -119,8 +119,8 @@ rl.createInterface({input:process.stdin}).on('line',line=>{
   return { set, calls: () => readFileSync(wire, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)), connection: { transport: 'stdio' as const, command: process.execPath, args: [script] } };
 }
 
-async function discover(manager: McpManager, name: string) {
-  const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_tools')]).bind({ scope: 'card', agentName: 'executor', projectRoot: '/', mcpToolInvocation: manager } as never);
+async function discover(manager: ReturnType<typeof createRootCardMcpFixture>, name: string) {
+  const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_tools')]).bind({ scope: 'card', cardId: 'project', agentName: 'executor', projectRoot: '/', mcpToolInvocation: manager.owner } as never);
   const result = await invokeToolForLlm(surface, 'mcp_tools', { serverName: name }, testLlmToolInvocationContext({ toolName: 'mcp_tools' }));
   return settleToolActionOutcome(result.kind === 'executed' ? result.execution.providerOutcome : result.providerOutcome).providerResult;
 }
@@ -128,7 +128,7 @@ async function discover(manager: McpManager, name: string) {
 describe('explicit catalog refresh through real local peers', () => {
   it('start replaces a reconciled never-started owner across its real stop await and GC refuses the whole ingress', async () => {
     const f = fixture(), peer = stdioPeer(f.root, 'gc-dormant-replacement');
-    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const ingress = new McpLifecycleIngress(f.manager.owner, () => {}, testApplicationFatalPort);
     const gc = await gcApplication(f, ingress);
     const entered = deferred<void>(), release = deferred<void>();
     const original = f.runner.closeAndTerminateDirectScope.bind(f.runner);
@@ -137,7 +137,7 @@ describe('explicit catalog refresh through real local peers', () => {
       const result = await original(input); entered.resolve(); await release.promise; return result;
     });
     try {
-      const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: { ...peer.connection, autostart: false } } };
+      const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: { ...PROJECT_MCP_ENTRY_POLICY, ...peer.connection, autostart: false } } };
       writeFileSync(join(f.root, '.saivage/saivage.yaml'), YAML.stringify(config));
       await f.manager.reconcilePersistedConfig();
       expect(peer.calls()).toHaveLength(0);
@@ -156,13 +156,13 @@ describe('explicit catalog refresh through real local peers', () => {
 
   it('a settled failed accepted MCP tool does not certify the surviving service footprint for application GC', async () => {
     const f = fixture(), peer = stdioPeer(f.root, 'gc-failed-tool');
-    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const ingress = new McpLifecycleIngress(f.manager.owner, () => {}, testApplicationFatalPort);
     const gc = await gcApplication(f, ingress);
     try {
       f.manager.registerServer('one', peer.connection); await f.manager.startServer('one');
       const catalog = f.manager.getServerCatalog('one')!;
       const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_tool_call')]).bind({
-        scope: 'card', agentName: 'executor', projectRoot: f.root, mcpToolInvocation: f.manager } as never);
+        scope: 'card', cardId: 'project', agentName: 'executor', projectRoot: f.root, mcpToolInvocation: f.manager.owner } as never);
       const result = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: catalog.bindingId,
         catalogId: catalog.catalogId, toolName: 'common', args: { value: 'failed' } }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
       expect(result).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'failed' } } });
@@ -183,11 +183,11 @@ describe('explicit catalog refresh through real local peers', () => {
       entered.resolve(); await release.promise;
       return report;
     });
-    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const ingress = new McpLifecycleIngress(f.manager.owner, () => {}, testApplicationFatalPort);
     const gc = await gcApplication(f, ingress);
-    const start = f.manager.startServer.bind(f.manager);
+    const start = f.manager.owner.startServer.bind(f.manager.owner);
     let originalFailure: unknown;
-    const observedStart = jest.spyOn(f.manager, 'startServer').mockImplementation(async (...args) => {
+    const observedStart = jest.spyOn(f.manager.owner, 'startServer').mockImplementation(async (...args) => {
       try { return await start(...args); } catch (error) { originalFailure = error; throw error; }
     });
     const abort = new AbortController();
@@ -231,8 +231,8 @@ describe('explicit catalog refresh through real local peers', () => {
     let pending: Promise<unknown> | undefined;
     const original = f.runner.closeAndTerminateDirectScope.bind(f.runner);
     let containment: ReturnType<typeof jest.spyOn> | undefined;
-    const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: { ...peer.connection, autostart: true } } };
-    const ingress = new McpLifecycleIngress(f.manager, () => {}, testApplicationFatalPort);
+    const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { one: { ...PROJECT_MCP_ENTRY_POLICY, ...peer.connection, autostart: true } } };
+    const ingress = new McpLifecycleIngress(f.manager.owner, () => {}, testApplicationFatalPort);
     const gc = await gcApplication(f, ingress);
     try {
       writeFileSync(join(f.root, '.saivage/saivage.yaml'), YAML.stringify(config));
@@ -274,13 +274,13 @@ describe('explicit catalog refresh through real local peers', () => {
     try {
       f.manager.registerServer('one', peer.connection);
       await f.manager.startServer('one');
-      const originalStart = f.manager.startServer.bind(f.manager);
-      const continuation = jest.spyOn(f.manager, 'startServer').mockImplementation(async (...args) => {
+      const originalStart = f.manager.owner.startServer.bind(f.manager.owner);
+      const continuation = jest.spyOn(f.manager.owner, 'startServer').mockImplementation(async (...args) => {
         // restartServer has awaited the actual runtime.stop before reaching this public method.
         entered.resolve(); await release.promise;
         return originalStart(...args);
       });
-      const ingress = new McpLifecycleIngress(f.manager,
+      const ingress = new McpLifecycleIngress(f.manager.owner,
         () => { if (held) throw new Error('GC held'); }, testApplicationFatalPort);
       pending = ingress.restartServer('one');
       await entered.promise;
@@ -348,8 +348,8 @@ describe('explicit catalog refresh through real local peers', () => {
       f.manager.registerServer('other', other.connection);
       await f.manager.startServer('one'); await f.manager.startServer('other');
       const a = f.manager.getServerCatalog('one')!; const untouched = f.manager.getServerCatalog('other')!;
-      const installation = createMcpToolInvocationInstallation(); installation.installer.install(f.manager);
-      new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'synthetic-token' }), eventLogger: { appendEventPrepared() {} } as never, fatalPort: testApplicationFatalPort }).mount(operator, mcpOperatorApiContracts, buildMcpOperatorContractHandlers({ mcpLifecycle: installation.port, mcpToolsProvider: f.manager }));
+      const installation = createMcpToolInvocationInstallation(); installation.installer.install(f.manager.owner);
+      new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'synthetic-token' }), eventLogger: { appendEventPrepared() {} } as never, fatalPort: testApplicationFatalPort }).mount(operator, mcpOperatorApiContracts, buildMcpOperatorContractHandlers({ mcpLifecycle: new McpLifecycleIngress(installation.port, () => {}, testApplicationFatalPort), mcpToolsProvider: f.manager }));
       const address = await operator.listen({ host: '127.0.0.1', port: 0 });
       const url = `${address}/api/mcp/servers/one/restart`;
       const post = (authenticated: boolean, body: unknown) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(authenticated ? { authorization: 'Bearer synthetic-token' } : {}) }, body: JSON.stringify(body) });
@@ -381,10 +381,10 @@ describe('explicit catalog refresh through real local peers', () => {
   it('rejects missing, disabled, unready, stale and edited definitions without starting or reconciling services', async () => {
     const f = fixture(); const peer = stdioPeer(f.root, 'operator');
     const binding = '11111111-1111-4111-8111-111111111111';
-    const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { operator: { ...structuredClone(peer.connection), autostart: false }, disabled: { ...structuredClone(peer.connection), disabled: true } } };
+    const config = { ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { operator: { ...PROJECT_MCP_ENTRY_POLICY, ...structuredClone(peer.connection), autostart: false }, disabled: { ...PROJECT_MCP_ENTRY_POLICY, ...structuredClone(peer.connection), disabled: true } } };
     writeFileSync(join(f.root, '.saivage/saivage.yaml'), YAML.stringify(config));
     try {
-      expect(() => f.manager.refreshServerCatalog('missing', binding)).toThrow('Unknown configured');
+      expect(() => f.manager.refreshServerCatalog('missing', binding)).toThrow('unavailable');
       expect(() => f.manager.refreshServerCatalog('disabled', binding)).toThrow('disabled');
       expect(() => f.manager.refreshServerCatalog('operator', binding)).toThrow('not running');
       expect(peer.calls()).toEqual([]);
@@ -405,7 +405,7 @@ describe('explicit catalog refresh through real local peers', () => {
     try {
       for (const [name, p] of [['one', peer], ['other', other]] as const) { f.manager.registerServer(name, p.connection); await f.manager.startServer(name); }
       const a = f.manager.getServerCatalog('one')!; const unrelated = f.manager.getServerCatalog('other')!;
-      expect(f.manager.findToolCapability('one', 'common')).toMatchObject({ serverName: 'one', bindingId: a.bindingId, catalogId: a.catalogId, inputSchema: A[0]!.inputSchema });
+      expect(f.manager.getServerCatalog('one')).toMatchObject({ serverName: 'one', bindingId: a.bindingId, catalogId: a.catalogId, tools: expect.arrayContaining([expect.objectContaining({ name: 'common', inputSchema: A[0]!.inputSchema })]) });
       const active = f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'A', hold: true });
       void active.catch(() => undefined);
       await waitFor(() => peer.calls().some(r => r.method === 'tools/call'), 'held stdio A call');
@@ -550,12 +550,12 @@ describe('explicit catalog refresh through real local peers', () => {
       expect(wire.filter(r => r.method === 'tools/call')).toHaveLength(2);
       mode = 'B';
       const afterPublication = new AbortController();
-      const invocationPort: McpToolInvocationPort = { ...unusedMcpToolInvocation, refreshServerCatalog: async (name, bindingId, options) => {
-        const known = await f.manager.refreshServerCatalog(name, bindingId, options);
+      const invocationPort: McpToolInvocationPort = { ...unusedMcpToolInvocation, refreshServerCatalog: async (caller, name, bindingId, options) => {
+        const known = await f.manager.owner.refreshServerCatalog(caller, name, bindingId, options);
         afterPublication.abort(new Error('caller cancelled after known publication'));
         return known;
       } };
-      const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_catalog_refresh')]).bind({ scope: 'card', agentName: 'executor', projectRoot: f.root, mcpToolInvocation: invocationPort } as never);
+      const surface = new BoundAgentToolSet([resolveRuntimeTool('card', 'mcp_catalog_refresh')]).bind({ scope: 'card', cardId: 'project', agentName: 'executor', projectRoot: f.root, mcpToolInvocation: invocationPort } as never);
       const known = await invokeToolForLlm(surface, 'mcp_catalog_refresh', { serverName: 'one', bindingId: a.bindingId }, testLlmToolInvocationContext({ toolName: 'mcp_catalog_refresh' }), afterPublication.signal);
       expect(known).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'succeeded', data: { catalogId: f.manager.getServerCatalog('one')!.catalogId, toolCount: 2 } } } });
       mode = 'hold'; heldList = false;

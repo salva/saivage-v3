@@ -593,3 +593,16 @@ first record write also fails closed. New startup freshly consumes strict canoni
 state and may settle a valid remaining running prefix; it is not inspection/retry of
 the uncertain operation. Failed startup is not automatically repeated. A later
 explicit Run alone launches project work.
+## Scoped MCP input adoption
+
+Dynamic MCP definitions now require format 2 records `{connection,policy}`;
+capabilities require format 2 for scoped-card versus global operation interpretation.
+Operator `mcpServers` entries establish initial per-entry format 1 and required
+`policy:{controllerCardId,exposure:'card'|'subtree'}`. Installed applicability of the
+source contracts is unknown; no deployment is certified by this source change.
+Old/mixed inputs fail strict admission, without policy inference or autostart.
+Reset preserves MCP configuration and cannot solve old definitions. Deliberate
+matching release/input selection is required; retained-state transformation requires
+the separately requested external offline migration gates, not startup conversion.
+After adoption, binary-only rollback is unsupported; matched release/input restoration
+is a separate authorized operation. No deployment/migration/reset is authorized here.

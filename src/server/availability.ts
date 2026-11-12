@@ -1,4 +1,5 @@
 import type { McpStatusProvider } from '../mcp/manager-api.js';
+import { MCP_OPERATOR_CALLER } from '../mcp/manager-api.js';
 import type { RuntimeApplication } from '../application/index.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
@@ -61,7 +62,7 @@ export function buildServerAvailability(inputs: ServerAvailabilityInputs): Serve
 
   let mcp: ServerAvailability['components']['mcp'];
   try {
-    const statuses = inputs.mcpManager.getStatus();
+    const statuses = inputs.mcpManager.getStatus(MCP_OPERATOR_CALLER);
     const hasRunning = statuses.some((status) => status.status === 'running');
     const hasConfigured = statuses.length > 0;
     mcp = hasRunning

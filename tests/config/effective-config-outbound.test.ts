@@ -32,6 +32,7 @@ describe('effective config outbound boundary', () => {
       },
       mcpServers: {
         local: {
+          format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },
           transport: 'stdio',
           command: 'node',
           args: ['server.js'],
@@ -40,6 +41,7 @@ describe('effective config outbound boundary', () => {
           autostart: true,
         },
         remote: {
+          format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },
           transport: 'streamable-http',
           url: 'https://mcp-user:mcp-pass@mcp.example.test/rpc?token=secret#private',
           disabled: true,
@@ -71,6 +73,7 @@ describe('effective config outbound boundary', () => {
       },
       mcpServers: {
         local: {
+          format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },
           transport: 'stdio',
           command: 'node',
           args: ['server.js'],
@@ -79,6 +82,7 @@ describe('effective config outbound boundary', () => {
           autostart: true,
         },
         remote: {
+          format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },
           transport: 'streamable-http',
           url: 'https://%5BREDACTED%5D:%5BREDACTED%5D@mcp.example.test/rpc?[REDACTED]',
           disabled: true,

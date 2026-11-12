@@ -146,25 +146,35 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(() => parseOperatorResponse('mcp.tools', 200, {
       servers: [{ name: 'ghu_server', transport: 'stdio', status: 'running',
             definitionSource: 'agent',
-            containmentFailed: false,
+             policy: { controllerCardId: 'project', exposure: 'subtree' }, availableActions: [], ready: true, containment: 'open', failureReason: null, containmentBoundary: 'local_process_group',
             processId: 'launch-1',
             bindingId: '11111111-1111-4111-8111-111111111111', toolCount: 1, tools: [{ name: 'tok_tool', description: 'nested-opaque-marker', inputSchema: { type: 'object' }, stats: stat }] }],
     })).toThrow();
     const parsed = parseOperatorResponse('mcp.tools', 200, {
       servers: [{ name: 'ghu_server', transport: 'stdio', status: 'running',
           definitionSource: 'agent',
-          containmentFailed: false,
+           policy: { controllerCardId: 'project', exposure: 'subtree' }, availableActions: [], ready: true, containment: 'open', failureReason: null, containmentBoundary: 'local_process_group',
           processId: 'launch-1',
           bindingId: '11111111-1111-4111-8111-111111111111', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
     });
     expect(parsed).toEqual({
       servers: [{ name: 'ghu_server', transport: 'stdio', status: 'running',
           definitionSource: 'agent',
-          containmentFailed: false,
+           policy: { controllerCardId: 'project', exposure: 'subtree' }, availableActions: [], ready: true, containment: 'open', failureReason: null, containmentBoundary: 'local_process_group',
           processId: 'launch-1',
           bindingId: '11111111-1111-4111-8111-111111111111', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
     });
     expect(JSON.stringify(parsed)).not.toMatch(/opaque|description|inputSchema|annotations|_meta/);
+  });
+
+  it('uses the shared strict operator scope contract without a topology UI', async () => {
+    const policy = { controllerCardId: 'card-a', exposure: 'card' as const };
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ serverName: 'peer', policy, updated: true }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(client.setMcpServerScope('peer', policy)).resolves.toEqual({ serverName: 'peer', policy, updated: true });
+    expect(new URL(fetch.mock.calls[0]![0]).pathname).toBe('/api/mcp/servers/peer/scope');
+    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toEqual({ policy });
+    expect(() => parseOperatorResponse('mcp.scope', 200, { serverName: 'peer', updated: true })).toThrow();
   });
 
   it('returns exact shared Debug operation promises and rejects malformed Debug JSON', async () => {

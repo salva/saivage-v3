@@ -38,21 +38,18 @@ export function createMcpToolInvocationInstallation(): McpToolInvocationInstalla
   };
 
   const port: McpToolInvocationPort = {
-    registerServer: (name, connection) => authority().registerServer(name, connection),
-    replaceServer: (name, connection) => authority().replaceServer(name, connection),
-    unregisterServer: (name) => authority().unregisterServer(name),
-    getStatus: () => authority().getStatus(),
-    getServerStatus: (name) => authority().getServerStatus(name),
-    startServer: (name, options) => authority().startServer(name, options),
-    stopServer: (name) => authority().stopServer(name),
-    restartServer: (name, options) => authority().restartServer(name, options),
-    getServerCatalog: (name) => authority().getServerCatalog(name),
-    refreshServerCatalog: (name, bindingId, options) =>
-      authority().refreshServerCatalog(name, bindingId, options),
-    findToolCapability: (serverName, toolName) =>
-      authority().findToolCapability(serverName, toolName),
-    invokeTool: (serverName, bindingId, catalogId, toolName, args, options) =>
-      authority().invokeTool(serverName, bindingId, catalogId, toolName, args, options),
+    registerServer: (...args) => authority().registerServer(...args),
+    replaceServer: (...args) => authority().replaceServer(...args),
+    unregisterServer: (...args) => authority().unregisterServer(...args),
+    setServerScope: (...args) => authority().setServerScope(...args),
+    getStatus: (...args) => authority().getStatus(...args),
+    getServerStatus: (...args) => authority().getServerStatus(...args),
+    startServer: (...args) => authority().startServer(...args),
+    stopServer: (...args) => authority().stopServer(...args),
+    restartServer: (...args) => authority().restartServer(...args),
+    getServerCatalog: (...args) => authority().getServerCatalog(...args),
+    refreshServerCatalog: (...args) => authority().refreshServerCatalog(...args),
+    invokeTool: (...args) => authority().invokeTool(...args),
   };
   Object.freeze(port);
   const installer = new McpToolInvocationInstaller((next) => {

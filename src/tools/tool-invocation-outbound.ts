@@ -54,6 +54,7 @@ import {
   McpServerRegisterArgumentsSchema,
   McpServerReplaceArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
+  McpServerSetScopeArgumentsSchema,
   McpServersArgumentsSchema,
   type ToolInvocationProjectionInput,
   type ToolResult,
@@ -129,6 +130,7 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'mcp_server_register',
   'mcp_server_replace',
   'mcp_server_unregister',
+  'mcp_server_set_scope',
   'mcp_servers',
   'edit_card',
   'activate_card',
@@ -161,6 +163,12 @@ export function projectToolInvocation(
       try {
         parsed = JSON.parse(input.arguments) as unknown;
       } catch {
+        if (toolName === 'mcp_server_register' || toolName === 'mcp_server_replace')
+          return {
+            shape: 'call-row',
+            identity,
+            arguments: '[Invalid MCP connection input suppressed]',
+          };
         return { shape: 'call-row', identity, arguments: redactTextForOutbound(input.arguments) };
       }
       const projectedArguments = projectParsedArguments(toolName, parsed);
@@ -301,6 +309,7 @@ function projectValidArguments(
     case 'mcp_catalog_refresh':
     case 'mcp_servers':
     case 'mcp_server_unregister':
+    case 'mcp_server_set_scope':
       return projectDynamicForOutbound(input);
     case 'emit_result':
       return {
@@ -504,6 +513,8 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return McpServerReplaceArgumentsSchema;
     case 'mcp_server_unregister':
       return McpServerUnregisterArgumentsSchema;
+    case 'mcp_server_set_scope':
+      return McpServerSetScopeArgumentsSchema;
     case 'edit_card':
       return plannerEditCardInputSchema;
     case 'activate_card':

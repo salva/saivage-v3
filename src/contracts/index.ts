@@ -316,6 +316,7 @@ export {
   McpServerRegisterArgumentsSchema,
   McpServerReplaceArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
+  McpServerSetScopeArgumentsSchema,
   McpServersArgumentsSchema,
 } from './mcp-invocation.js';
 export type { McpToolCallArguments } from './mcp-invocation.js';

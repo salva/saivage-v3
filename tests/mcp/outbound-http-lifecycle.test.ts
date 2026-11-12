@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { stringify } from 'yaml';
-import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { createRootCardMcpFixture } from '../helpers/mcp-fixture.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
 import { invokeStreamableHttpTool } from '../../src/mcp/streamable-http-transport.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -19,7 +19,7 @@ import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { capturedHttp, deferred, microtasks, assertPrivateMetadata, assertLifecycles } from '../helpers/http-lifecycle.js';
 import { controlledResponse, pendingHeaders } from '../helpers/provider-inactivity.js';
 
-const config = { transport: 'streamable-http' as const, url: 'https://secret-host.invalid/secret-path?secret-query#secret-fragment', autostart: false, disabled: false };
+const config = { format_version: 1 as const, policy: { controllerCardId: 'project', exposure: 'subtree' as const }, transport: 'streamable-http' as const, url: 'https://secret-host.invalid/secret-path?secret-query#secret-fragment', autostart: false, disabled: false };
 const roots: string[] = [];
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function rpc(id: number, result: unknown, sse = false) {
@@ -32,9 +32,9 @@ function fixture(autostart = false) {
   writeFileSync(join(root, '.saivage/saivage.yaml'), stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { 'secret-server': { ...config, autostart } } }));
   const processRegistry = new ManagedProcessGroupRegistry(); const scope = processRegistry.createContainerScope(processRegistry.rootScope, 'mcp-servers');
   const runner = new ProcessRunner(root, processRegistry, testApplicationFatalPort); const capture = capturedHttp();
-  const manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: { appendEvent() {}, appendEventPrepared() {} } as never, outboundHttp: capture.sink });
-  const installation = createMcpToolInvocationInstallation(); installation.installer.install(manager);
-  const surface = new BoundAgentToolSet(['mcp_server_control', 'mcp_tool_call'].map(n => resolveRuntimeTool('card', n))).bind({ scope: 'card', agentName: 'executor', projectRoot: root, mcpToolInvocation: installation.port } as never);
+  const manager = createRootCardMcpFixture({ nativeGit: false, configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: { appendEvent() {}, appendEventPrepared() {} } as never, outboundHttp: capture.sink });
+  const installation = createMcpToolInvocationInstallation(); installation.installer.install(manager.owner);
+  const surface = new BoundAgentToolSet(['mcp_server_control', 'mcp_tool_call'].map(n => resolveRuntimeTool('card', n))).bind({ scope: 'card', cardId: 'project', agentName: 'executor', projectRoot: root, mcpToolInvocation: installation.port } as never);
   return { manager, surface, ...capture };
 }
 describe('MCP owner-local observations through installed real tool surface', () => {

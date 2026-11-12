@@ -42,7 +42,7 @@ function sseResponse(payload: unknown, init: ResponseInit = {}): Response {
 }
 
 describe('Streamable HTTP MCP transport', () => {
-  const config = { transport: 'streamable-http' as const, disabled: false, autostart: false, url: 'http://localhost/mcp' };
+  const config = { format_version: 1 as const, policy: { controllerCardId: 'project', exposure: 'subtree' as const }, transport: 'streamable-http' as const, disabled: false, autostart: false, url: 'http://localhost/mcp' };
   const discovery = (signal = new AbortController().signal) => {
     let id = 0;
     const input = { serverName: 'srv', config, ids: { next: () => ++id }, signal };
@@ -257,12 +257,12 @@ describe('Streamable HTTP MCP transport', () => {
       return sseResponse({ jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: 'ok' }] } });
     });
 
-    const input = { serverName: 'srv', config: { transport: 'streamable-http' as const, disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, ids: { next: () => id++ }, signal: new AbortController().signal };
+    const input = { serverName: 'srv', config: { ...config, autostart: true }, handle, ids: { next: () => id++ }, signal: new AbortController().signal };
     await initializeStreamableHttp(input);
     const tools = await listStreamableHttpTools(input);
     expect(tools.map((tool) => tool.name)).toEqual(['one', 'two']);
     expect(handle.streamableHttpSessionId).toBe('sess-1');
-    const result = await invokeStreamableHttpTool({ serverName: 'srv', toolName: 'one', args: {}, config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, timeoutMs: 1000, ids: { next: () => id++ }, signal: new AbortController().signal });
+    const result = await invokeStreamableHttpTool({ serverName: 'srv', toolName: 'one', args: {}, config: { ...config, autostart: true }, handle, timeoutMs: 1000, ids: { next: () => id++ }, signal: new AbortController().signal });
     expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }] });
     expect(calls.filter((call) => call.body && JSON.parse(call.body).method !== 'initialize').every((call) => call.headers['Mcp-Session-Id'] === 'sess-1')).toBe(true);
   });

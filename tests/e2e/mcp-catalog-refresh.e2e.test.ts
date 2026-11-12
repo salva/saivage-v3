@@ -110,8 +110,8 @@ it('uses ordinary opted-in card refresh with frozen gateways, retained observati
   try {
     const mcpPort = await listen(mcp); const providerPort = await listen(provider);
     writeProductionConfig(root, productionTestConfig(providerPort, config => {
-      config.agents.executor = { ...config.agents.executor!, capabilities: {format_version:1,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_catalog_refresh','mcp_tool_call']}]}, skills: false };
-      config.agents.reviewer = { ...config.agents.reviewer!, capabilities: {format_version:1,grants:[{tools:['read'],resources:[{kind:'record',scopes:['all'],patterns:['*']}]},{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['review.md','review-*.md']}]}]}, skills: false };
+      config.agents.executor = { ...config.agents.executor!, capabilities: {format_version:2,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_catalog_refresh','mcp_tool_call']}]}, skills: false };
+      config.agents.reviewer = { ...config.agents.reviewer!, capabilities: {format_version:2,grants:[{tools:['read'],resources:[{kind:'record',scopes:['all'],patterns:['*']}]},{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['review.md','review-*.md']}]}]}, skills: false };
       config.card_types.project = {
         permitted_child_types: [], records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
         workflow: { format_version: 7,
@@ -136,7 +136,7 @@ it('uses ordinary opted-in card refresh with frozen gateways, retained observati
           },
         },
       };
-      config.mcpServers = { local: { transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, autostart: true, disabled: false } };
+      config.mcpServers = { local: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, autostart: true, disabled: false } };
     }));
     initializeProject(root); app = await startProductionApp(root, token);
     expect((await postStartProject(appOrigin(app), token)).status).toBe(200);

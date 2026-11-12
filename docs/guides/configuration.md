@@ -188,7 +188,7 @@ singular grammar, not the complete shipped tool inventory:
 planner:
   prompt: { reference: planner, compactable: true }
   capabilities:
-    format_version: 1
+    format_version: 2
     grants:
       - tools: [create_card, reorder_child]
         resources: [{kind: card, scopes: [self]}]
@@ -444,11 +444,15 @@ Analyst listener:
 ```yaml
 mcpServers:
   documentation-tools:
+    format_version: 1
+    policy: {controllerCardId: project, exposure: subtree}
     transport: streamable-http
     url: https://tools.example.invalid/mcp
     disabled: false
     autostart: false
   local-tools:
+    format_version: 1
+    policy: {controllerCardId: project, exposure: subtree}
     transport: stdio
     command: node
     args: [/absolute/path/to/server.js]

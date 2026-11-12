@@ -5,7 +5,8 @@ import { join, resolve } from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import { pathToFileURL } from 'node:url';
 import * as YAML from 'yaml';
-import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { MCP_OPERATOR_CALLER as caller } from '../../src/mcp/manager-api.js';
+import { bindMcpTestCaller, createRootCardMcpFixture } from '../helpers/mcp-fixture.js';
 import { readMcpServerDefinitions } from '../../src/mcp/server-definitions.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -81,14 +82,14 @@ describe('MCP tool invocation production composition', () => {
         } else throw new Error('Unexpected MCP startup operation');
       } catch (error) { fixtureFailure = error; res.statusCode = 500; res.end(); }
     });
-    let manager: McpManager | undefined;
+    let manager: ReturnType<typeof createRootCardMcpFixture> | undefined;
     try {
       const port = await listen(peer);
       mkdirSync(join(projectRoot, '.saivage'));
-      writeFileSync(join(projectRoot, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { offline: { transport: 'streamable-http', url: `http://127.0.0.1:${port}`, autostart: false } } }));
+      writeFileSync(join(projectRoot, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { offline: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: `http://127.0.0.1:${port}`, autostart: false } } }));
       const registry = new ManagedProcessGroupRegistry();
       const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
-      manager = new McpManager({ nativeGit: false, configAuthority: testConfigAuthority(projectRoot), processRunner: runner, mcpProcessRootScope: registry.createContainerScope(registry.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
+      manager = createRootCardMcpFixture({ nativeGit: false, configAuthority: testConfigAuthority(projectRoot), processRunner: runner, mcpProcessRootScope: registry.createContainerScope(registry.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
       let settled = false;
       const start = manager.startServer('offline', { signal: AbortSignal.timeout(5_000) }).then(result => { settled = true; return result; }, error => { settled = true; throw error; });
       // Attach a rejection observer while the bounded final-page wait is pending.
@@ -218,12 +219,12 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           step++;
           switch (step) {
             case 1:
-              expect(app!.server.mcpManager.getServerStatus('dynamic')).toBeUndefined();
-              emit('mcp_server_register', { serverName: 'dynamic', connection });
+              expect(app!.server.mcpManager.getServerStatus(caller, 'dynamic')).toBeUndefined();
+              emit('mcp_server_register', { serverName: 'dynamic', connection, policy: { controllerCardId: 'project', exposure: 'subtree' } });
               break;
             case 2:
               expect(settled).toMatchObject({ success: true, data: { registered: true } });
-              expect(app!.server.mcpManager.getServerStatus('dynamic')).toMatchObject({
+              expect(app!.server.mcpManager.getServerStatus(caller, 'dynamic')).toMatchObject({
                 status: 'stopped',
                 processId: null,
               });
@@ -317,7 +318,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
               break;
             case 11:
               expect(settled).toMatchObject({ success: false, error: expect.stringContaining('containment') });
-              expect(app!.server.mcpManager.getServerStatus('dynamic')!.bindingId).toBe(binding);
+              expect(app!.server.mcpManager.getServerStatus(caller, 'dynamic')!.bindingId).toBe(binding);
               emit('mcp_server_control', { serverName: 'dynamic', action: 'stop' });
               break;
             case 12:
@@ -328,8 +329,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
               break;
             case 13:
               expect(settled).toEqual({ success: true, data: { serverName: 'dynamic', replaced: true, status: 'stopped' } });
-              expect(readMcpServerDefinitions(projectRoot)).toEqual({ dynamic: httpConnection });
-              expect(app!.server.mcpManager.getServerStatus('dynamic')).toMatchObject({ status: 'stopped', transport: 'streamable-http', bindingId: null, processId: null, tools_count: 0 });
+              expect(readMcpServerDefinitions(projectRoot)).toEqual({ dynamic: { connection: httpConnection, policy: { controllerCardId: 'project', exposure: 'subtree' } } });
+              expect(app!.server.mcpManager.getServerStatus(caller, 'dynamic')).toMatchObject({ status: 'stopped', transport: 'streamable-http', bindingId: null, processId: null, tools_count: 0 });
               emit('mcp_server_control', { serverName: 'dynamic', action: 'start' });
               break;
             case 14:
@@ -344,12 +345,12 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
             case 16:
               expect(settled).toMatchObject({ success: false, error: expect.stringContaining('Stale MCP binding') });
               expect(JSON.stringify(wireCalls)).not.toContain('stale-no-dispatch');
-              emit('mcp_tool_call', { serverName: 'dynamic', bindingId: app!.server.mcpManager.getServerStatus('dynamic')!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog('dynamic')!.catalogId, toolName: 'ping', args: { value: 'replacement-B' } });
+              emit('mcp_tool_call', { serverName: 'dynamic', bindingId: app!.server.mcpManager.getServerStatus(caller, 'dynamic')!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog(caller, 'dynamic')!.catalogId, toolName: 'ping', args: { value: 'replacement-B' } });
               break;
             case 17:
               expect(JSON.stringify(settled)).toContain('pong:replacement-B');
               {
-                const manager = app!.server.mcpManager;
+                const manager = bindMcpTestCaller(app!.server.mcpManager, caller);
                 const before = manager.getServerStatus('dynamic');
                 const call = manager.invokeTool('dynamic', before!.bindingId!, manager.getServerCatalog('dynamic')!.catalogId, 'ping', { value: 'held-replacement' });
                 await heldEntered;
@@ -389,7 +390,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
               'mcp_servers',
             ]});
             config.mcpServers = {
-              independent: { ...httpConnection, autostart: true, disabled: false },
+              independent: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, ...httpConnection, autostart: true, disabled: false },
             };
           }),
         );
@@ -399,7 +400,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         // Observation-only spies retain the real shared runner and owner mechanics.
         processWait = jest.spyOn(app.server.runtimeApplication.processRunner, 'waitForSettlement');
         processKill = jest.spyOn(app.server.runtimeApplication.processRunner, 'kill');
-        const independentBefore = app.server.mcpManager.getServerCatalog('independent')!;
+        const independentBefore = app.server.mcpManager.getServerCatalog(caller, 'independent')!;
         const response = await fetch(`${appOrigin(app)}/api/chat`, {
           method: 'POST',
           headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
@@ -411,7 +412,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         expect(step).toBe(19);
         expect(seen).toHaveLength(18);
         expect(JSON.stringify(reply)).not.toContain('synthetic-private-env');
-        const manager = app.server.mcpManager;
+        const manager = bindMcpTestCaller(app.server.mcpManager, { principal: { kind: 'card', cardId: 'project' }, operations: caller.operations });
         expect(manager.getServerCatalog('independent')).toEqual(independentBefore);
         const runner = app.server.runtimeApplication.processRunner;
         await expect(
@@ -456,7 +457,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           expect(runner.get(oldProcess)).toBeNull();
           const stdioB = { transport: 'stdio' as const, command: process.execPath, args: [script, 'stdio-B'] };
           expect(manager.replaceServer('dynamic', stdioB)).toEqual({ serverName: 'dynamic', replaced: true, status: 'stopped' });
-          expect(readMcpServerDefinitions(projectRoot)).toEqual({ dynamic: stdioB });
+          expect(readMcpServerDefinitions(projectRoot)).toEqual({ dynamic: { connection: stdioB, policy: { controllerCardId: 'project', exposure: 'subtree' } } });
           expect(manager.getServerStatus('dynamic')).toMatchObject({ status: 'stopped', transport: 'stdio', bindingId: null, processId: null, tools_count: 0 });
           const beforeStdioB = wireCount();
           await manager.startServer('dynamic');
@@ -569,6 +570,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         ...structuredClone(TEST_SAIVAGE_CONFIG),
         mcpServers: {
           local: {
+            format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },
             transport: 'stdio',
             command: process.execPath,
             args: [script],
@@ -580,7 +582,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     const registry = new ManagedProcessGroupRegistry();
     const mcpScope = registry.createContainerScope(registry.rootScope, 'mcp');
     const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
-    const manager = new McpManager({
+    const manager = createRootCardMcpFixture({
       nativeGit: false,
       configAuthority: testConfigAuthority(projectRoot),
       processRunner: runner,
@@ -657,7 +659,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     try {
       const mcpPort = await listen(mcp); const providerPort = await listen(provider);
       writeProductionConfig(projectRoot, productionTestConfig(providerPort, config => {
-        config.mcpServers = { [SERVER_NAME]: { transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, autostart: false, disabled: false } };
+        config.mcpServers = { [SERVER_NAME]: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, autostart: false, disabled: false } };
       }));
       initializeProject(projectRoot);
       app = await startProductionApp(projectRoot, TOKEN); apps.add(app);
@@ -679,7 +681,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       }
       expect(rows.filter(row => row.kind === 'tool_call').map(row => row.tool_call_id)).toEqual([failedId, correctedId]);
       expect(rows.filter(row => row.kind === 'tool_result').map(row => row.tool_call_id)).toEqual([failedId, correctedId]);
-      expect(app.server.mcpManager.getServerCatalog(SERVER_NAME)?.tools).toEqual([]);
+      expect(app.server.mcpManager.getServerCatalog(caller, SERVER_NAME)?.tools).toEqual([]);
     } finally {
       if (app) { apps.delete(app); await app.stop(); }
       await closeServer(provider); await closeServer(mcp);
@@ -745,7 +747,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         rootCalls += 1;
         if (rootCalls === 1) {
           expectedMcpArgs = { serverName: SERVER_NAME,
-              bindingId: app!.server.mcpManager.getServerStatus(SERVER_NAME)!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog(SERVER_NAME)!.catalogId, toolName: 'echo_marker', args: { marker: MARKER } };
+              bindingId: app!.server.mcpManager.getServerStatus(caller, SERVER_NAME)!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog(caller, SERVER_NAME)!.catalogId, toolName: 'echo_marker', args: { marker: MARKER } };
           sendToolCall(response, 'mcp-call', 'mcp_tool_call', expectedMcpArgs);
         } else if (rootCalls === 2) {
           const last = expectedSettlement(body, projectRoot, 'agent:executor:project', 'mcp-call', 'mcp_tool_call', expectedMcpArgs);
@@ -763,7 +765,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     const nativeFetch = globalThis.fetch;
     try {
       const config = productionTestConfig(providerPort, (value) => {
-        value.agents.executor = { ...value.agents.executor!, capabilities:{format_version:1,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tool_call']}]}, skills: false };
+        value.agents.executor = { ...value.agents.executor!, capabilities:{format_version:2,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tool_call']}]}, skills: false };
         value.card_types.project = {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
@@ -773,13 +775,13 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
             nodes: { execute: { execution: { kind: 'agent', agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true } }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
           },
         };
-        value.mcpServers = { [SERVER_NAME]: { transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, disabled: false, autostart: true } };
+        value.mcpServers = { [SERVER_NAME]: { format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' }, transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, disabled: false, autostart: true } };
       });
       writeProductionConfig(projectRoot, config);
       initializeProject(projectRoot);
       app = await startProductionApp(projectRoot, TOKEN);
       apps.add(app);
-      expect(app.server.mcpManager.getServerCatalog(SERVER_NAME)?.tools).toEqual([
+      expect(app.server.mcpManager.getServerCatalog(caller, SERVER_NAME)?.tools).toEqual([
         expect.objectContaining({ name: 'echo_marker', inputSchema: expect.objectContaining({ type: 'object' }) }),
       ]);
 
@@ -789,7 +791,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const cards = app.server.runtimeApplication.cardStore;
       try { await waitFor(() => cards.read('project')?.lifecycle.status === 'done', 'MCP-backed root completion'); }
       catch (error) {
-        throw new Error(`${(error as Error).message} fixture=${(fixtureFailure as Error | null)?.message ?? 'none'} calls=${JSON.stringify({ analystCalls, rootCalls, mcpMethods, toolCalls })} tools=${JSON.stringify(app.server.mcpManager.getServerCatalog(SERVER_NAME)?.tools)} card=${JSON.stringify(cards.read('project')?.lifecycle)} conversation=${JSON.stringify(readConversation(projectRoot, 'agent:executor:project').physicalRows)}`);
+        throw new Error(`${(error as Error).message} fixture=${(fixtureFailure as Error | null)?.message ?? 'none'} calls=${JSON.stringify({ analystCalls, rootCalls, mcpMethods, toolCalls })} tools=${JSON.stringify(app.server.mcpManager.getServerCatalog(caller, SERVER_NAME)?.tools)} card=${JSON.stringify(cards.read('project')?.lifecycle)} conversation=${JSON.stringify(readConversation(projectRoot, 'agent:executor:project').physicalRows)}`);
       }
 
       if (fixtureFailure) throw fixtureFailure;
@@ -823,7 +825,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       expect(JSON.stringify(events)).not.toContain('synthetic-peer');
       const stats = { total: 1, success: isError === true ? 0 : 1, error: isError === true ? 1 : 0 };
       expect(app.server.mcpManager.getInvocationStats()[`${SERVER_NAME}:echo_marker`]).toMatchObject(stats);
-      expect(app.server.mcpManager.getToolsReadModel().servers).toEqual([
+      expect(app.server.mcpManager.getToolsReadModel(caller).servers).toEqual([
         expect.objectContaining({ name: SERVER_NAME, tools: [expect.objectContaining({ name: 'echo_marker', stats: expect.objectContaining(stats) })] }),
       ]);
       const headers = { authorization: `Bearer ${TOKEN}` };

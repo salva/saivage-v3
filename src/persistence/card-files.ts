@@ -328,6 +328,25 @@ function readLinkedCard(
   return current;
 }
 
+/** Exact committed path prefix only; never reads siblings or below an unreachable selection. */
+export function readCanonicalLiveCardPath(projectRoot: string, targetId: string): string[] {
+  const segments = cardIdSegments(targetId);
+  let currentId = 'project';
+  let current = readRoot(resolve(projectRoot));
+  const reached: string[] = [];
+  if (!current || current.tombstone) return reached;
+  reached.push(currentId);
+  for (const segment of segments) {
+    const nextId = childCardId(currentId, segment);
+    if (!current.current.card.child_membership.includes(nextId)) break;
+    current = readExactCard(resolve(projectRoot), nextId);
+    if (current.tombstone) break;
+    reached.push(nextId);
+    currentId = nextId;
+  }
+  return reached;
+}
+
 export function readActiveCardPath(
   projectRoot: string,
   targetId: string,

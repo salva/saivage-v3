@@ -207,8 +207,12 @@ missing outcome remains unreported, never inferred success. Restart is stop-firs
 non-atomic and may lose context; failed containment retains the old owner and
 interrupted effects can remain unknown, with no replay. No new browser controls or
 default role grants are added. MCP observations show
-`starting|running|stopped|error` (running means ready after discovery),
-`definitionSource:operator|agent|null`, `containmentFailed`, inspectable `bindingId`
+ `status:starting|running|stopping|stopped|error`, `ready` (last established protocol readiness),
+ `policy:{controllerCardId,exposure:card|subtree}`, admitted `availableActions`,
+ `containment:not_started|open|pending|contained|failed`, nullable categorical
+ `failureReason:startup_failed|transport_closed|process_unavailable|containment_failed`,
+ `containmentBoundary:local_process_group|local_connection`,
+ `definitionSource:operator|agent|null`, inspectable `bindingId`
 and safe `processId` (null after retirement or for HTTP). A null source with
 containment failure is a removed retained blocker, not an available definition.
 Starting exposes no ready tools. Process association grants no wait/kill authority
@@ -219,7 +223,18 @@ connection, then recorded `serverName`, `replaced` and `status`: **Definition re
 not launched** is a definition-publication fact, not readiness or target termination.
 Both registration and replacement suppress arbitrary env values structurally, including
 malformed rejected inputs, and redact URL/command secrets before live or historical
-presentation. Raw definition reads remain denied; no topology editor or endpoint is added.
+presentation. Raw definition reads remain denied; no topology editor is added.
+Authenticated strict POST `/api/mcp/servers/:name/scope` (`mcp.scope`) accepts
+`{policy}` and returns `{serverName,policy,updated:true}` through existing GC busy,
+auth and publication-fatal boundaries. It edits dynamic policy only, not YAML.
+The recorded `mcp_server_set_scope` presenter shows server/policy and publication
+facts; **Scope updated · connection preserved** requires successful `updated:true`
+with a complete recorded policy/server, not missing, failed or uncertain facts.
+Historical absent policy stays absent; never fabricate project scope. Current
+root/subtree is labelled **Project-wide**. Stopping/nonready/pending is not contained;
+failed containment/source-null remains a retained blocked name. HTTP containment
+means local connection only. System observation remains selected/manual with no
+topology/lifecycle controls or polling.
 The `mcp_catalog_refresh` presenter shows requested server/connection and recorded
 returned server, `bindingId`, `catalogId` and tool count. **Refresh recorded** requires
 a successful result with those supporting facts; failed, uncertain or missing facts
@@ -227,7 +242,7 @@ never acquire that success label. Error details and raw facts stay accessible.
 This is not present readiness or target-continuity evidence. Discovery results and
 call request details disclose recorded `catalogId` when present; historical absence
 stays absent. System UI refresh only fetches observations: it does not send remote
-`tools/list`. There is no new button, endpoint or polling behavior.
+`tools/list`. There is no new button or polling behavior.
 Loaded current instructions show browser guidance only when actually
 composed, never dynamic discovery or full historical wire. Retained ordinary MCP data stays opaque inspectable JSON,
 not retrospectively complete or an attachment/delivery claim. Safe originals/copy,

@@ -38,6 +38,7 @@ import {
   publishInitialChildCard,
   readCard,
   readCanonicalCard,
+  readCanonicalLiveCardPath,
   readCanonicalCardHierarchy,
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,
@@ -388,6 +389,9 @@ export class CardService {
   read(id: string): CardRecord | null {
     const card = readCard(this.projectRoot, id);
     return card ? clone(card) : null;
+  }
+  readCanonicalLivePath(id: string): string[] {
+    return readCanonicalLiveCardPath(this.projectRoot, id);
   }
   list(): CardRecord[] {
     return clone(

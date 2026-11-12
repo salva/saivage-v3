@@ -36,7 +36,7 @@ const grant = (
   ...(resources ? { resources: structuredClone(resources) } : {}),
 });
 const capabilities = (...grants: AgentCapabilities['grants']): AgentCapabilities => ({
-  format_version: 1,
+  format_version: 2,
   grants,
 });
 

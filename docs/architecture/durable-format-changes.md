@@ -452,17 +452,41 @@ source-era values; they must not be read as today's accepted-version list.
 | Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:6`, `kind:accepted-record`; consecutive document versions, immutable body/discriminated card-agent (actual author card), historical agent, external/runtime/action-output author with body-bound output descriptor and target ordinary card provenance. Historical projection has null current head/revision. |
 | Record initialization input | Card-type YAML; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; no old content/trigger input reader. |
 | Workflow input | Card-type YAML `workflow`; same owners | `format_version:7`; compiled direct-object authority and reviewed-input applicability, including the reviewed card's accepted configured-bootstrap UUID/version and refusal of same-settlement bootstrap acceptance under an older freshness review, with native correction and typed action/result contracts retained. |
-| Agent authority input | Agent YAML `capabilities`; `schemas/agent-capabilities.ts`, workflow compiler | Initial `format_version:1`; singular ordered grants with scoped card/record and workspace clauses; old unversioned authority fields rejected. |
+| Agent authority input | Agent YAML `capabilities`; `schemas/agent-capabilities.ts`, workflow compiler | `format_version:2`; singular ordered grants with scoped card/record and workspace clauses; MCP operations interpreted against trusted card/global scope; old input versions rejected. |
 | Operation selection | Explicit compiled definition; `runtime/card-process/operation-contract.ts`, `shell-operation.ts` | `contract_version:1` for `shell.run` and explicitly declared plugin contracts; retained in action results/execution observations, not package/shared-envelope version. |
 | Card execution evidence | Lazy `records/executions.jsonl`; `persistence/card-execution-log.ts`, action owner and `runtime/git-workflow.ts` | `version:3`, `type:card-execution`; strict action and native start/process/finish associations. Native step/binding, known effects/selections and exact captures/private-index artifacts; unchanged action meanings. Incomplete is valid, not resumable state; artifacts select mutable source. |
 | Conversation index / previous index and ordinary/compacted genesis | Session `index.json`, `index.prev.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:13`; exact catalog/source/cutoff/continuation, record facts and card-agent author projections, protected prompts, excerpts and declared structural omission. |
 | Conversation segment envelope / selected PNGs | Same versions and `images/<UUID>.png`; above owners plus `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:13`, `type:conversation-segment`; strict messages/results including nonself `card_acceptance`, private context, activation and ordered result-content selection. Raw PNGs use this identified owning descriptor contract, not an independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use **shared** `version:2`, `type:rows`, with distinct strict row owners. App log includes event/control/external-receipt rows; provider grammar is unchanged by the attribution bump. Not independently numbered envelopes. |
-| Dynamic MCP definitions | `.saivage/config/mcp-servers.json`; `mcp/server-definitions.ts` | `format_version:1`, `type:mcp-server-definitions`; strict literal connection map, absent means empty, preserved by reset, never autostart/shadow YAML. |
+| Dynamic MCP definitions | `.saivage/config/mcp-servers.json`; `mcp/server-definitions.ts` | `format_version:2`, `type:mcp-server-definitions`; strict `{connection,policy}` map with required controller/exposure, absent means empty, preserved by reset, never autostart/shadow YAML. |
+| Operator MCP entry input | YAML `mcpServers.<name>`; `schemas/saivage-config.ts` | Initial per-entry `format_version:1`; transport/lifecycle fields plus required `{controllerCardId,exposure:card|subtree}` policy. Previously unversioned input, not a new label for the dynamic family. |
 | Observed definitions | `.saivage/config/observed-collections.json`; `retrieval/collection-definitions.ts` | New `format_version:1`, `type:observed-collections`; strict logical names/purposes/kinds/roots and bounded slash patterns. Absent disables retrieval; reset preserves operator input. |
 | Private observed native deployment | `.saivage/config/observed-collections-native.json`; same schema owner, `retrieval/xerj-deployment.ts` producer | New `format_version:1`, `type:xerj-observed-deployment`; loopback endpoint, exact native/model identities and root→prefix association. No concrete destinations/progress. Selects fixed raw `xerj.key` encoding and derived deployment bundle. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; exceptional lifecycle exclusion, outside generated-root replacement. |
 | Private failed-provider diagnostics | `.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`; `agents/failed-provider-request-diagnostics.ts` | `format_version:3`, `kind:failed-provider-request-diagnostic`, `privacy_policy:failed-provider-request-privacy-2`; opt-in finite private observation, no retained runtime reader/index. |
+
+### Scoped dynamic MCP authority — 2026-11-11
+
+Source parent `c8551d3369fec58d68965bb64d37a046563f2219` has dynamic definitions
+format 1 literal connection maps, capabilities format 1 and unversioned operator
+MCP entries. This source changes dynamic `format_version:1→2` to required
+`servers:{name:{connection,policy}}`, capabilities `format_version:1→2` for the
+incompatible card-scope/global-project operation interpretation, and establishes
+initial per-entry operator MCP `format_version:1` plus required policy. Evidence:
+`mcp/server-definitions.ts`, `schemas/agent-capabilities.ts`, `schemas/saivage-config.ts`,
+shared bundled capability producer and strict consumers. Dynamic format 1 originated
+in the 2026-10-10 entry (its source parent
+`e980b1b14ce859808e469d4e2018e75f142ab30d`); these are fresh owner-local bumps,
+not reuse of an asserted undeployed cutover. Installed applicability is **unknown**.
+
+Policy selects a canonical controller and card/subtree exposure. Scope publication
+preserves connection identities; status is process-local/API. Card/head/record,
+workflow 7, conversation 13, execution and shared event envelopes are unchanged.
+Recorded tool arguments/results remain opaque history, never revalidated or assigned
+fictional missing policy. Old/mixed inputs fail; reset preserves definitions and is
+not conversion. Adoption requires matching inputs/release and separately authorized
+external offline migration where applicable. No deployment/adoption inventory,
+binary-only rollback support, implicit reset or shipped migration is claimed.
 
 ### Native Git policy input spine — 2026-10-25
 
