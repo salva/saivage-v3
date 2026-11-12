@@ -158,9 +158,13 @@ Operational rules for the transition:
   designer to normalize its name.
 - A changed agent file does not replace the body stored in a running session, and a catalog
   reload does not prove that a stored body was replaced. The new bodies describe fresh-session
-  behavior. A shared file, such as `AGENTS.md` or a skill, can be read later by a session that
-  loads it, so it can affect that session after the change. Neither an edit nor a read proves
-  adoption.
+  behavior. Shared instructions reach a running session by different routes. Global and upward
+  `AGENTS.md` files and existing local configured instruction files are updated before that session's next model
+  request, so their change can apply while its role body stays old. A nested `AGENTS.md` already
+  discovered stays in the session's history and is not refreshed automatically. A skill already
+  loaded keeps its earlier text, and a later permitted load can read the changed file. Neither an
+  edit nor a read proves adoption, and a read grants no authority that the reader's effective
+  instructions do not already give.
 - A retained session whose stored procedure still carries a superseded mechanism (the
   continuity nonce, its challenge and authorization, cancelled-wait re-entry, or an exceptional
   lock recipe) continues only through an ordinary resume that forwards the owner's superseding
@@ -692,10 +696,11 @@ roles write them, each limited to facts it observed:
 - **Issue fixer.** Never writes either file. It reports lifecycle evidence in its disposition,
   as described in [Structured fixer dispositions](#structured-fixer-dispositions).
 
-Each role acts only on the tracker authority in its own effective instructions. The shared
-todo skill describes the lifecycle but grants no write authority a session's stored body does
-not give it. A session that lacks an assigned action reports the update as pending or blocked,
-and no other session takes it over. The adoption rules for running sessions are in
+Each role acts only on the tracker authority in its effective instructions: its stored body
+together with the shared instructions that currently take effect for it, under their priority.
+The shared todo skill describes the lifecycle but grants no write authority those effective
+instructions do not give. A session that lacks an assigned action, or meets an unresolved
+instruction conflict, reports the update as pending or blocked, and no other session takes it over. The adoption rules for running sessions are in
 [Final reporting](#final-reporting).
 
 Status may lag while the selected issue run is in progress. The coordinator applies each item's latest
@@ -1192,16 +1197,26 @@ Task IDs remain session context and are not written to tracker or repository fil
 Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
 fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles
 without a separate adoption approval. A running session keeps the stored agent body it already
-has, and a changed agent file is not a replacement for that body. A shared skill is different:
-a running session whose role permits it may later load the changed skill file, so it can
-consume the updated shared guidance. That consumption does not replace the stored body, and it
-does not expand a narrower effective permission. The session's stored authority still decides
-what it may do, so a missing allowance for a tracker action is reported as pending or blocked,
-never handed to another session. Consumption and adoption are separate facts; a file edit alone
-proves neither. The final report must not claim that a running session has adopted the change
-unless it observed the consumption or the replaced body. Do not restart OpenCode, switch running
-sessions, or replace stored instructions to force adoption. An effective instruction conflict is reported as a blocker; it is not repaired by restarting or altering a session. Actual deployment, service
-operations, and other separately controlled live actions keep their own distinct approval.
+has, and a changed agent file is not a replacement for that body. Shared instructions reach a
+running session by their own routes, as the
+[OpenCode instructions documentation](https://opencode.ai/docs/instructions) describes. Global
+and upward `AGENTS.md` files and existing local configured instruction files are updated before the session's
+next model request, so such a change can apply while the stored body stays old. A nested
+`AGENTS.md` already discovered is not refreshed automatically. If compaction or a revert removes
+that entry from history, a later read can load it again. An already-loaded skill keeps its
+earlier text; a session whose role permits it may later load the changed skill and consume the
+updated text. None of these routes replaces the stored body or expands a narrower effective
+permission. Effective authority is the stored body together with the shared instructions that
+currently take effect, under their priority. A missing allowance for a tracker action is reported
+as pending or blocked, never handed to another session. Consumption and adoption are separate
+facts, and a file edit alone proves neither; a read grants no authority the reader's effective
+instructions lack. Claim receipt or consumption only with evidence that supports that specific
+claim, and do not claim adoption unless consumption or a replaced body was observed. Source
+completion does not require delivery evidence from a running session. Do not restart OpenCode,
+switch running sessions, or replace stored instructions to force adoption. An effective instruction
+conflict is reported as a blocker; it is not repaired by restarting or altering a session. Actual
+deployment, service operations, and other separately controlled live actions keep their own
+distinct approval.
 The current stored implementation manager does not launch the canonical leaves merely to
 manufacture execution evidence, so their live invocation remains untested and must be
 disclosed as such.

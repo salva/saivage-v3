@@ -62,7 +62,7 @@ The issue-fix workflow (`saivage-issue-fix-adversarial-review`) assigns these li
 - **Implementation manager** records its own attempt's factual progress while it is the sole implementation writer.
 - **Issue fixer** never writes `todo.md` or `done.md`. It reports its lifecycle evidence in its disposition.
 
-Authority comes from each role's own effective instructions. This skill describes the contract and grants no write authority to a session whose stored instructions do not give it. When a required action lacks authority, or ownership or settlement is unknown, report the update as pending or blocked. Never transfer it to another session.
+Authority comes from each role's effective instructions: its stored body together with the shared instructions that currently take effect for it, under their priority. This skill describes the contract and grants no write authority to a session whose effective instructions do not give it. When a required action lacks authority, or ownership or settlement is unknown, or effective instructions conflict without resolution, report the update as pending or blocked. Never transfer it to another session.
 
 ### Intake
 

@@ -104,4 +104,4 @@ Also run `opencode debug config --pure` from the project root when changing root
 - Commit skill files that belong in Git.
 - Do not commit `docs/working/` design, plan, or review artifacts.
 - If a skill change supports a behavior or workflow change, update `AGENTS.md` or the relevant main docs at the same time.
-- After skill or config changes, tell the user that running sessions keep their already-loaded config and stored instructions, so the change applies to fresh sessions. Restart OpenCode or reload sessions only when the user asks for it.
+- After skill or config changes, tell the user which surface changed and what it reaches. A stored agent body reaches only sessions launched afterwards. Ambient or configured instruction files and skills can reach a running session by their own loading rules, and an already-loaded skill keeps its earlier text. A change to `opencode.json` itself, such as skill paths or agent configuration, has no live-pickup behavior established here, so do not claim that a running session applied it without evidence. Restart OpenCode or reload sessions only when the user asks for it.
