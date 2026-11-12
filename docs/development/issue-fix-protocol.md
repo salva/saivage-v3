@@ -529,8 +529,9 @@ unreleased claims that are unsupported. Defer non-essential robustness and rare 
 unless deferral blocks the core fix or leaves the system unsafe.
 
 Validation follows the affected semantic owners and the economical selection in
-[docs/validation.md](../validation.md#economical-selection-and-reuse). Broader checks are
-justified only by a demonstrated cross-cutting risk. Substitute no prose-regex assertions,
+[docs/validation.md](../validation.md#economical-selection-and-reuse). The focused check is the minimum, not a ceiling: a model
+may run broader checks sooner when the risk or a safer preference warrants it, without
+requiring prior approval or a demonstrated cross-cutting risk. Substitute no prose-regex assertions,
 repository-wide spelling bans, or unrelated test matrices for semantic evidence. Name the
 prompt or documentation author and reviewer pair by purpose for any model-facing or
 documentation wording.
