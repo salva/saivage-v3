@@ -8,14 +8,24 @@
       "permissions": [
         { "action": "skill", "resource": "saivage-issue-fix-adversarial-review", "effect": "allow" },
         { "action": "subagent", "resource": "developer", "effect": "deny" },
-        { "action": "subagent", "resource": "documenter", "effect": "deny" }
+        { "action": "subagent", "resource": "documenter", "effect": "deny" },
+        { "action": "subagent", "resource": "code-developer", "effect": "deny" },
+        { "action": "subagent", "resource": "doc-developer", "effect": "deny" },
+        { "action": "subagent", "resource": "doc-reviewer", "effect": "deny" },
+        { "action": "subagent", "resource": "prompt-developer", "effect": "deny" },
+        { "action": "subagent", "resource": "prompt-reviewer", "effect": "deny" }
       ]
     },
     "plan": {
       "permissions": [
         { "action": "skill", "resource": "saivage-issue-fix-adversarial-review", "effect": "allow" },
         { "action": "subagent", "resource": "developer", "effect": "deny" },
-        { "action": "subagent", "resource": "documenter", "effect": "deny" }
+        { "action": "subagent", "resource": "documenter", "effect": "deny" },
+        { "action": "subagent", "resource": "code-developer", "effect": "deny" },
+        { "action": "subagent", "resource": "doc-developer", "effect": "deny" },
+        { "action": "subagent", "resource": "doc-reviewer", "effect": "deny" },
+        { "action": "subagent", "resource": "prompt-developer", "effect": "deny" },
+        { "action": "subagent", "resource": "prompt-reviewer", "effect": "deny" }
       ]
     }
   },

@@ -65,7 +65,7 @@ add needed behavioral guidance without copying schema definitions. Separate futu
 requested behavior from retrospective history. Use few justified examples, labeled
 non-exhaustive where appropriate so they do not narrow valid behavior.
 
-Authoring and review roles: when model-facing wording is assigned, the documenter (exact model opencode-go/claude-haiku-5-5, with no variant or temperature) authors the exact replacement text and its selfchecks. Those selfchecks are author checks, not independent review. A developer applies reviewed wording verbatim and does not author it. Skills carry no model frontmatter; model selection stays in agent configuration.
+Authoring and review roles: classify each asset by purpose and consumption, not topic or extension. Ordinary documentation, including technical documentation about prompts, is `doc-developer` work reviewed by `doc-reviewer`. Model-facing wording that directs model behavior is `prompt-developer` work (exact model opencode-go/claude-haiku-5-5, with no variant or temperature) that authors the exact replacement text and its selfchecks, reviewed by `prompt-reviewer` under the manager's explicit exact override openai/gpt-6.1-sol. Those selfchecks are author checks, not independent review. `code-developer` applies reviewed wording verbatim and does not author it. Mixed assets are split into exact sections run sequentially; no double review is added automatically. Skills carry no model frontmatter; model selection stays in agent configuration. The canonical `prompt-developer` and `prompt-reviewer` bodies carry their complete procedure, so they do not require loading this skill.
 
 ## 3. Consolidate at the correct delivery owner
 
@@ -105,7 +105,7 @@ without turning quoted old readiness or correction prose into fresh authority.
 
 Match validation to the owning surface and consult existing validation profiles.
 Runtime prompt checks do not prove OpenCode loaded a development skill; skill
-checks do not validate provider serialization. Use no provider calls for validation by default. For changed model-facing assets, the manager invokes a distinct reviewer session with explicit exact openai/gpt-6.1-sol override to perform independent linkage and composition review of the actual composed assets. The author's selfchecks never substitute for that review, and it does not replace the projections in this step.
+checks do not validate provider serialization. Use no provider calls for validation by default. For changed model-facing assets, the manager invokes a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.1-sol override to perform independent linkage and composition review of the actual composed assets. The author's selfchecks never substitute for that review, and it does not replace the projections in this step.
 Report source paths, invocations, projections, assumptions, and gaps: static or
 prepared text proves neither exact delivery nor model understanding or improved
 quality. Add no trivial prose-regex tests, word bans, or production helpers solely
@@ -115,7 +115,7 @@ to test prose.
 
 After all planned edits, including validation-driven edits, assess the current
 whole composed result as if designing it from scratch for today's task. This is a
-separate final pass, not incremental review, step 3, or a passing test. For changed model-facing assets, the manager invokes a distinct reviewer session with explicit exact openai/gpt-6.1-sol override to run this pass unconditionally after the last edit on the actual final composition, recording its session and model evidence. The author's selfchecks never substitute. Findings return through the manager: wording findings go to the documenter and logic findings go to the developer, followed by affected validation and a fresh final pass after the last edits.
+separate final pass, not incremental review, step 3, or a passing test. For changed model-facing assets, the manager invokes a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.1-sol override to run this pass unconditionally after the last edit on the actual final composition, recording its session and model evidence. The author's selfchecks never substitute. Findings return through the manager: wording findings go to `prompt-developer` (or `doc-developer` for ordinary documentation) and logic findings go to `code-developer`, followed by affected validation and a fresh final pass after the last edits.
 
 Check positive sufficiency as well as clutter: can this recipient identify today's
 objective and scoped next action, necessary evidence/work-product responsibility,
@@ -137,9 +137,8 @@ both missing direction and accumulated baggage.
 
 ## Report
 
-Summarize purpose/changes, authoring and review roles (documenter Haiku author and selfchecks, distinct exact-Sol reviewer verdict and session/model evidence), useful direction added or retained, removals/consolidation,
+Summarize purpose/changes, authoring and review roles (prompt-developer or doc-developer author and selfchecks, distinct exact-Sol prompt-reviewer or doc-reviewer verdict and session/model evidence), useful direction added or retained, removals/consolidation,
 any init/shared move and its retention rationale (or none), the final-pass outcome
 for sufficiency and baggage, and validation sources/commands/projections/limits.
 No large routine artifact or proven subjective-quality claim is required. For
-skill/agent-prompt changes, tell the operator to restart OpenCode before relying on
-them; do not restart it or claim the current session newly discovered the file.
+skill or agent-prompt changes, state that a running session keeps its stored instructions and that the change applies to fresh sessions. Do not restart OpenCode or rewrite stored sessions. Do not claim the change was discovered by a running session.

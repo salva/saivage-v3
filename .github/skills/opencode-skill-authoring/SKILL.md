@@ -104,4 +104,4 @@ Also run `opencode debug config --pure` from the project root when changing root
 - Commit skill files that belong in Git.
 - Do not commit `docs/working/` design, plan, or review artifacts.
 - If a skill change supports a behavior or workflow change, update `AGENTS.md` or the relevant main docs at the same time.
-- Tell the user to restart OpenCode after skill/config changes because running sessions keep already-loaded config.
+- After skill or config changes, tell the user that running sessions keep their already-loaded config and stored instructions, so the change applies to fresh sessions. Restart OpenCode or reload sessions only when the user asks for it.

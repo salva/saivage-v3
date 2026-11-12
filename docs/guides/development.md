@@ -222,6 +222,10 @@ before editing any prompt/template/instruction. Use
 to find the actual selected file, then the
 [host contract](../architecture/prompts.md#compiler-and-host-contract) for allowed tokens/includes.
 
+In development, who writes and who reviews model-facing wording is decided by purpose,
+not topic: see the protocol's [author and reviewer pair](../development/issue-fix-protocol.md#choosing-the-author-and-reviewer-pair).
+Technical documentation that explains prompts is ordinary documentation.
+
 Role/shared text owns reusable method; node text owns the present task delta;
 correction/edge messages own the observed handoff. Records/initializers are data,
 not a shortcut for new prompt authority. `prompt-api.ts` compiles host closure;
@@ -243,6 +247,13 @@ freshness, the single implementation lock and aggregate checks, is the
 [issue-fix protocol](../development/issue-fix-protocol.md). Each development role
 carries its own procedure in its agent body. Read the protocol to understand or
 change that workflow. It is contributor material, not runtime Saivage behavior.
+
+Development assignments follow purpose. Ordinary documentation has its own author and
+reviewer. Model-facing instructions, prompts, agent bodies, skills, and AGENTS wording
+have a separate prompt author and reviewer. Design review stays separate from both. The
+[canonical roles and transition](../development/issue-fix-protocol.md#canonical-roles-and-transition)
+section names the identities for new work and the retained older profiles that running
+sessions still use. Do not rename or delete a retained profile to normalize an in-flight issue.
 
 ## Choose validation and deliver the documentation
 
