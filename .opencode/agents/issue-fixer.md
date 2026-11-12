@@ -1,6 +1,6 @@
 ---
 description: 'Per-issue fixer for one Saivage v3 issue, launched only by the main batch coordinator. Runs the issue-designer and design-reviewer loop, finding triage, design-value reassessment, semantic freshness checks and the single implementation-manager handoff, then returns exactly one structured disposition. Never a coordinator; invokes no developer, author, or prompt or documentation reviewer.'
-mode: all
+mode: subagent
 model: openai/gpt-6.1-sol
 permissions:
   - {action: read, resource: '*', effect: allow}
