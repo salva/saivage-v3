@@ -327,7 +327,11 @@ projects into that role's own prompt body, so a role never needs this document t
   assumptions; missed root causes and over-local fixes; contract mismatches and missing
   call-site updates; missing or stale documentation; missing validation proportional to
   the risk; unnecessary compatibility code, dead code, or excessive complexity; and
-  over-scoped changes that bundle deferrable robustness.
+  over-scoped changes that bundle optional specialized recovery, optimization, or
+  non-essential robustness instead of deferring them. Conversely, a necessary failure path
+  omitted merely because it is uncommon is a correctness gap, not a deferral; a broad stop,
+  refuse, or report path satisfies it only when it meets the affected contract without
+  swallowing errors or misreporting known effects and uncertainty.
 - Judge plan sufficiency by consequence. The test is whether the next role can implement the
   chosen design safely and verify the result from the plan and the named current sources.
   Raise a finding only for missing or wrong information that matters to that outcome, and state
@@ -540,8 +544,11 @@ For a Saivage-owned durable contract, settle the consequences under the
 [AGENTS storage policy](https://github.com/salva/saivage-v3/blob/master/AGENTS.md#durable-format-versioning)
 and name the required updates to the
 [durable format reference](../architecture/durable-format-changes.md). Reject equal-version or
-unreleased claims that are unsupported. Defer non-essential robustness and rare edge cases
-unless deferral blocks the core fix or leaves the system unsafe.
+unreleased claims that are unsupported. Necessary correctness and error handling stay in the
+minimal coherent fix, including uncommon failures; rarity alone never defers them. A broad, safe
+stop, refuse, or report path may cover a family of failures when it actually satisfies the affected
+contract. Optional specialized recovery, optimization, and non-essential robustness may be deferred
+only when the core fix remains correct and safe.
 
 Validation follows the affected semantic owners and the economical selection in
 [docs/validation.md](../validation.md#economical-selection-and-reuse). The focused check is the minimum, not a ceiling: a model
@@ -658,9 +665,11 @@ Confirm each of these:
 - **Project alignment.** The plan follows AGENTS, including clean architecture,
   fail-fast and singular-contract rules, and the prohibitions on compatibility paths
   and test-driven production complexity.
-- **Scope discipline.** The plan is the minimal coherent safe fix. Deferred or
-  non-essential robustness and rare-edge-case concerns remain deferred unless they
-  block the core behavior or leave it unsafe.
+- **Scope discipline.** The plan is the minimal coherent safe fix. Necessary correctness and
+  error handling stay in it, including uncommon failures; rarity alone never defers them. A broad,
+  safe stop, refuse, or report path may cover a family of failures when it actually satisfies the
+  affected contract. Optional specialized recovery, optimization, and non-essential robustness stay
+  deferred unless they block the core behavior or leave it unsafe.
 
 Record one outcome with concise evidence:
 

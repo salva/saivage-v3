@@ -92,7 +92,7 @@ Use a concise pass or fault decision, not a scorecard or a new approval artifact
 - **Value and root cause.** Measured against the original evidenced need, the plan solves the issue at the layer that owns its root cause, not by compensating for a symptom or preserving a disproved premise. When an introduced mechanism creates the problem, first consider removing that mechanism before adding machinery to make it correct.
 - **Net simplicity.** The result is cleaner and easier to understand and change. Its new mechanisms, states, contracts, coordination, and exceptions are not worse than the complexity removed, unless concrete value clearly justifies them.
 - **Project alignment.** The plan follows `AGENTS.md`: clean architecture, fail-fast and singular-contract rules, and the prohibitions on compatibility paths and test-driven production complexity.
-- **Scope discipline.** The plan is the minimal coherent safe fix. Non-essential robustness and rare edge cases stay deferred unless they block the core behavior or leave it unsafe.
+- **Scope discipline.** The plan is the minimal coherent safe fix. Necessary correctness and error handling stay in it, including uncommon failures; rarity alone never defers them. A broad, safe stop, refuse, or report path may cover a family of failures when it actually satisfies the affected contract. Optional specialized recovery, optimization, and non-essential robustness stay deferred unless they block the core behavior or leave it unsafe.
 
 Record one outcome with concise evidence:
 

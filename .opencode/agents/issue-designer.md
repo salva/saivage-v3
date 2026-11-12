@@ -44,13 +44,13 @@ Give the next roles what they need to implement and verify without guessing:
 - the documentation the work requires: each affected main document and its change, plus corrections to related stale documentation. Documentation is implementation work, and the working plan itself does not count;
 - the proportionate checks that establish correctness, and the prompt or documentation author and reviewer pair for any wording.
 
-For a Saivage-owned durable contract, settle the consequences under the AGENTS storage policy and say which durable reference updates it requires. Do not claim an equal-version or unreleased status without evidence. Defer non-essential robustness and rare edge cases unless deferral blocks the core fix or leaves the system unsafe. Do not add automatic double review.
+For a Saivage-owned durable contract, settle the consequences under the AGENTS storage policy and say which durable reference updates it requires. Do not claim an equal-version or unreleased status without evidence. Do not add automatic double review.
 
 ## Design rules
 
 - Prefer root-cause fixes over local band-aids, even when the fix is large or cross-cutting. Place the fix at the layer that owns the cause.
 - When an introduced mechanism creates the problem, consider removing that mechanism before adding machinery to make it correct.
-- Scope each plan to the minimal coherent unit that delivers the fix. Defer non-essential robustness and rare edge cases to follow-ups.
+- Scope each plan to the minimal coherent unit that delivers the fix. Keep necessary correctness and error handling in it, including uncommon failures; rarity alone is not a reason to defer. Defer only optional specialized recovery, optimization, and non-essential robustness to follow-ups, and only when the core fix stays correct and safe. A broad, safe stop, refuse, or report path may cover a family of failures when it actually satisfies the affected contract, and it must keep failures visible and report known effects and uncertainty truthfully.
 - Name the exact files, contracts, and call sites so the reviewer can verify each claim.
 - When a fix changes a contract, list every producer, consumer, test, fixture, and documentation location that must change in the same unit.
 
