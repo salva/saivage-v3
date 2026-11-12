@@ -112,7 +112,7 @@ one implementation manager holding the lock at a time.
 
 | Role | Owns | Must not |
 | --- | --- | --- |
-| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The exception is, for a clearly trivial direct wording fix, the author and reviewer pair under [Direct trivial fixes](#direct-trivial-fixes). |
+| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned session IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The exception is, for a clearly trivial direct wording fix, the author and reviewer pair under [Direct trivial fixes](#direct-trivial-fixes). |
 | Issue fixer (`issue-fixer`) | One issue end to end: designer and design-reviewer delegation, finding triage, design-value reassessment, final approval record, freshness decisions, implementation-manager delegation, read-only reconciliation, and reporting, including the issue's tracker evidence. Writes only ignored planning and review artifacts. | Write `docs/working/todo.md` or `docs/working/done.md`; edit implementation or model-facing assets, run validation or generators, stage or commit, author wording, invoke any developer, documenter, or implementation reviewer, or run prompt or documentation review itself. |
 | Issue designer (`issue-designer`) | Writes and revises the issue's self-contained plan, including revisions prompted by review or implementation learning. | Approve its own plan or decide merit. |
 | Design reviewer (`design-reviewer`) | Adversarially reviews every current design or plan revision. Read-only apart from its assigned review artifact. | Edit any plan, asset, source, or configuration; take the issue fixer's merit decision; review implementation assets. |
@@ -535,6 +535,35 @@ repository-wide spelling bans, or unrelated test matrices for semantic evidence.
 prompt or documentation author and reviewer pair by purpose for any model-facing or
 documentation wording.
 
+## Native delegation and settlement
+
+Development roles invoke one another through the exposed native subagent tool. The
+published OpenCode V2 contract is in the [OpenCode tools documentation, Subagent section](https://opencode.ai/docs/tools/#subagent).
+Its essentials: the caller supplies an agent ID, a short description, and a complete
+prompt; the call returns a `sessionID`; a continuation names the same agent and passes
+that exact `sessionID` to continue the same child conversation.
+
+Published V2 behavior runs a subagent in the background. The call returns at once with
+the session ID, and the parent receives a subagent message when the child goes idle and
+again after each later round. Any delivery option, default, or wrapper detail belongs to
+the tool contract that the calling session actually exposes. This document does not publish
+a wrapper signature, assume a universal blocking or background default, or name a universal
+tool namespace.
+
+Settlement is separate from routing:
+
+- A session ID is routing state. It is not a result, not approval, and not evidence that
+  the child finished or that its work is safe.
+- A worker's result is its substantive final report. For asynchronous delivery that report
+  arrives with the round's completion or idle message. An idle message without the report
+  does not prove success, command settlement, lock release, or repository stability.
+- A settled synchronous return may carry both the routing ID and the report.
+- A missing, partial, or ID-only result is unsettled. The caller takes no step that depends
+  on it, reports it with the recorded session ID, and launches no replacement.
+- Continuation is one ordinary call to the original agent identity with the exact recorded
+  session ID, made only at an eligible boundary. It is not polling, a probe, or an ID
+  comparison, and it approves nothing.
+
 ## Adversarial review and revision loop
 
 The issue fixer uses `issue-designer` for all plan authoring and `design-reviewer` for
@@ -551,10 +580,13 @@ every design review.
    material finding remains, run the mandatory final design-value reassessment.
    Review closure alone never authorizes freshness checking or implementation.
 
-Invoke the issue designer with `subagent_type: "issue-designer"`, the issue context and
-the absolute plan path. Invoke the design reviewer with `subagent_type: "design-reviewer"`
-and the absolute current plan path. Save or summarize each review in the issue's working
-directory. Pre-transition sessions use their retained identities as described under
+Invoke the issue designer through the exposed native subagent tool with agent
+`issue-designer`, a short description, and a prompt giving the issue context and the
+absolute plan path. Invoke the design reviewer with agent `design-reviewer` and a prompt
+giving the absolute current plan path. Triage begins only after that round's substantive
+report has returned, as [Native delegation and settlement](#native-delegation-and-settlement)
+requires. Save or summarize each review in the issue's working directory. Pre-transition
+sessions use their retained identities and recorded session IDs as described under
 [Retained profiles](#retained-profiles).
 
 ### Finding triage
@@ -662,23 +694,24 @@ For a batch, the coordinator must:
    [Tracker lifecycle ownership](#tracker-lifecycle-ownership)). Give each issue fixer a
    complete issue statement, a unique absolute working-plan path, and the entry identifier
    with the tracker paths.
-2. Launch one new issue fixer at a time, with `subagent_type: "issue-fixer"`. Its whole
+2. Launch one new issue fixer at a time, with agent `issue-fixer` through the exposed native
+   subagent tool. Its whole
    run is the unit of selection. Do not launch the next new issue, or resume any waiting
    fixer, while the selected fixer can still launch an implementation manager. Do not
    launch issue fixers in parallel. Plan approval, an apparently free lock, or an issue's
    apparent independence is not a reason to fan out, because the extra calls would only
    contend for the lock and waste work.
-3. Record task-continuity state only in coordinator session context, never in a repository
-   file or registry: issue identity and summary, exact returned fixer task ID and its
+3. Record session-routing state only in coordinator session context, never in a repository
+   file or registry: issue identity and summary, exact returned fixer session ID and its
    identity, plan path, latest disposition, known implementation-lock ownership, and any
-   tracker facts still pending. Task IDs are routing state and are never tracker fields.
+   tracker facts still pending. Session IDs are routing state and are never tracker fields.
 4. Handle each return before selecting the next run. One issue's failure or cancellation
    does not cancel the others unless explicitly requested, and it does not make other work
    eligible while settlement or shared-worktree safety is unknown.
 
-Each selected run settles before the next one is chosen. Concurrent initial Task calls for
+Each selected run settles before the next one is chosen. Concurrent initial launches of
 issue fixers are therefore not part of this workflow. If launching the selected fixer,
-resuming it, or observing its exact returned task ID is unavailable, report the batch
+resuming it, or observing its exact returned session ID is unavailable, report the batch
 workflow as blocked. Do not silently weaken it.
 
 ### Selecting the next run
@@ -705,7 +738,7 @@ continuation, as described in
 It never selects two. The protocol sets no priority between new issues, waiting fixers, and
 cancelled waiters. The selected fixer is resumed by one ordinary call, as described in
 [Ordinary resume](#ordinary-resume), and the coordinator then awaits that entire run. Every other
-waiter, cancelled waiters included, stays dormant, with its exact task ID and identity unchanged,
+waiter, cancelled waiters included, stays dormant, with its exact session ID and identity unchanged,
 until a later eligible boundary. If the selected waiter's freshness check requires design review,
 its own design and review loop continues, and no other waiter is selected in its place. Waiters
 never race for the lock.
@@ -754,7 +787,7 @@ terminal ABANDONED note giving the merit reason and the abandoned scope. If no i
 occurred, the note says so. After partial delivery, the entry retains the delivered units,
 validation and commit references, and it identifies the abandoned remainder, which is terminal
 rather than pending work. Such an entry never claims whole-issue completion. Completion
-records implementation only; aggregate workflow results are tracked separately. Task IDs remain session context and are never tracker fields.
+records implementation only; aggregate workflow results are tracked separately. Session IDs remain session context and are never tracker fields.
 
 ## Final approval and freshness gate
 
@@ -795,8 +828,10 @@ loses contention, the issue fixer waits and repeats freshness after its ordinary
 
 ## Singular complete implementation boundary
 
-Every approved issue fixer invokes Task with `subagent_type: "implementation-manager"` and
-the absolute approved-plan path. No primary agent or issue fixer inspects the lock and
+Every approved issue fixer invokes `implementation-manager` through the exposed native
+subagent tool, with agent `implementation-manager` and a prompt giving the absolute
+approved-plan path, the tracker entry identifier and paths, and its approval facts. A returned
+session ID does not settle that manager; its substantive report does. No primary agent or issue fixer inspects the lock and
 implements around it. The file `.opencode/locks/implementation-manager-working.md` is
 the only serialization boundary.
 
@@ -952,12 +987,15 @@ selects again only at a later eligible boundary.
 
 ### Ordinary resume
 
-The coordinator resumes the selected fixer with one ordinary call that uses the identity recorded
-at launch and the exact recorded task ID:
+The coordinator resumes the selected fixer with one ordinary continuation call through the exposed
+native subagent tool. It names the identity recorded at launch as the agent and passes the exact
+recorded session ID as `sessionID`. These are illustrative arguments, not a callable namespace:
 
 ```text
-subagent_type: "<the identity recorded at launch>"
-task_id: "<exact recorded task ID>"
+agent: "<the identity recorded at launch>"
+description: "<continuation label>"
+prompt: "<continuation prompt>"
+sessionID: "<exact recorded session ID>"
 ```
 
 The prompt asks the fixer to continue the named issue from its plan at the recorded absolute
@@ -966,10 +1004,11 @@ that the earlier waiting episode was cancelled and forwards the owner's continua
 verbatim. It supplies no freshness conclusion and no approval.
 
 The resume is not a challenge, an identity proof, or an entry call. The coordinator does not
-compare the returned task ID or any value with a record, and it does not verify that the reply is
-the original fixer's own report. The recorded task ID is ordinary tool routing, and this protocol
-claims no wrong-session containment from it. A tool or host failure, or an unusable task ID, is an
-ordinary blocker: report it, guess no IDs, and launch no replacement fixer.
+compare the returned session ID or any value with a record, and it does not verify that the reply is
+the original fixer's own report. The recorded session ID is ordinary tool routing, and this protocol
+claims no wrong-session containment from it. The continuation's substantive report, not its session
+ID, is its result. A tool or host failure, or an unusable session ID, is an ordinary blocker: report
+it, guess no IDs, and launch no replacement fixer.
 
 A retained session whose stored procedure still carries a superseded mechanism (the continuity
 nonce, its challenge and authorization, cancelled-wait re-entry, or an exceptional lock recipe)
@@ -985,7 +1024,7 @@ and turns no old evidence into current evidence.
 ### Owner-directed continuation of a cancelled waiter
 
 Cancellation is effective at once. A cancelled waiter makes no manager call, stops launches and
-resumes, and does not touch the lock. It keeps its exact task ID, issue identity, plan path, and
+resumes, and does not touch the lock. It keeps its exact session ID, issue identity, plan path, and
 last known facts, including the approval facts and the cumulative prior manager effects. Cancellation
 alone never resumes the issue.
 
@@ -1064,7 +1103,7 @@ A waiting return reports, once and without a fixed template:
   committed state, after which the coordinator may select this fixer for an ordinary resume.
 
 The return carries no challenge result, nonce, or other continuity value. The coordinator keeps the
-fixer's task ID in its session context as routing state.
+fixer's session ID in its session context as routing state.
 
 Before any manager delegation, record the resume check:
 
@@ -1109,7 +1148,7 @@ The coordinator uses that line at its next safe boundary.
   issues continue unless directed otherwise.
 - **Resume without usable context or task:** mark `BLOCKED`. Name the missing fact, guess no IDs,
   adopt no other session's output, and launch no replacement fixer.
-- **Design, review, or Task problem before implementation:** use `BLOCKED` for unavailable
+- **Design, review, or delegation problem before implementation:** use `BLOCKED` for unavailable
   required tooling and `FAILED` for an actual issue-local failure. Other fixers may
   continue if the shared worktree is safe.
 - **Design abandoned on merit:** return `ABANDONED` as an intentional terminal decision not to
@@ -1132,8 +1171,11 @@ The coordinator uses that line at its next safe boundary.
 - **Coordinator cancellation:** stop launches and resumes. Cancel children only when
   explicitly requested and supported. Report all last dispositions and any active
   holder. Never remove another session's lock.
-- **Unresumable task ID:** a Task error or failed ordinary resume is `BLOCKED`. Do not
+- **Unusable session ID:** a delegation error or failed ordinary resume is `BLOCKED`. Do not
   automatically launch a replacement fixer.
+- **Missing or ID-only result:** a launched or continued fixer, designer, reviewer, or manager that
+  returns no substantive report, or only its session ID, is unsettled. It makes no further launch or
+  resume eligible. Report it as `BLOCKED` with its recorded session ID, and do not replace it.
 
 ## Post-batch aggregate validation
 
@@ -1149,9 +1191,9 @@ boundary.
 
 Scenario evidence is reported separately from implementation completion. The plan's offline
 waiting, resume, cancellation, and freshness scenarios, and the source validation, are reported as
-what they are. Static scenario evidence does not establish live Task behavior, host adoption, or
+what they are. Static scenario evidence does not establish live delegation behavior, host adoption, or
 lock contention, and unavailable live evidence is reported as unavailable, never certified by
-silence. No Task smoke, real cancellation, lock contention, or manager call is run merely to test
+silence. No delegation smoke, real cancellation, lock contention, or manager call is run merely to test
 the wording.
 
 ## Prohibited mechanisms
@@ -1206,7 +1248,7 @@ order, the boundary evidence used before each launch or resume, and each dormant
 only. For each owner-directed continuation of a cancelled waiter, it reports the owner instruction
 received, the cancellation evidence, and the resume result. Facts that the resumed run carries from
 earlier reports are reported as historical, never as new lock contention or fresh freshness evidence.
-Task IDs remain session context and are not written to tracker or repository files.
+Session IDs remain session context and are not written to tracker or repository files.
 
 Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
 fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles
