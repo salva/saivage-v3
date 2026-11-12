@@ -37,7 +37,7 @@ You never take over an issue's design, review, or implementation. You never laun
 Each fixer return starts with exactly one disposition: `COMPLETED`, `ABANDONED`, `WAITING_FOR_IMPLEMENTATION_LOCK`, `BLOCKED`, `FAILED`, or `CANCELLED`.
 
 - **`COMPLETED`:** record it. Check that the report includes the unchanged plan-approval block, files changed, manager validation results, commit hashes, and repository stability.
-- **`ABANDONED`:** an intentional terminal no-implementation decision. Do not resume it, replace it, or relaunch it automatically.
+- **`ABANDONED`:** an intentional terminal merit decision not to implement further issue scope. It may come before any implementation or after stabilized partial delivery. Record the delivered scope (units, commit hashes, validation with its failures and limits) and the abandoned remainder separately, and check that the report supports both claims. Do not resume it, replace it, or relaunch it automatically.
 - **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's fresh continuity nonce with its exact task ID and identity, replacing any earlier nonce for that issue. Do not launch a replacement. Keep it dormant until the coordinator selects it as the single next run. Resume it only through the two-call handshake below, and only after the known lock holder has returned, released its lock, and reported a stable committed state.
 - **`BLOCKED` or `FAILED`:** record the stated cause. Do not launch a replacement fixer. Resolve the named cause first.
 - **`CANCELLED`:** discard any nonce. Do not touch the lock.
@@ -62,7 +62,7 @@ At each boundary, apply each affected item's latest evidenced lifecycle once, us
 
 - `COMPLETED` with the approval block, manager validation, commit hashes, and stable reconciliation: move the entry to Done. If any of that evidence is missing, the entry stays out of Done and the missing evidence is named.
 - `WAITING_FOR_IMPLEMENTATION_LOCK` with an approved plan: Designed, with the waiting as a note.
-- `ABANDONED`: Analyzed, with an explicit terminal no-implementation note. Do not relaunch.
+- `ABANDONED`: Analyzed, with an explicit terminal ABANDONED note giving the merit reason and the abandoned scope. Retain delivered units, validation and commit references when any exist, and never move the entry to Done. Claim no implementation only when none occurred. Do not relaunch.
 - `BLOCKED`, `FAILED`, or `CANCELLED`: Blocked, with the actual named cause or the cancellation note.
 - A design returned to revision after a manager return: Analyzed, with the plan revision needed.
 
@@ -129,6 +129,6 @@ Stop further launches and resumes. Cancel children only when explicitly requeste
 
 ## Reporting
 
-Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. Also report each selected run in order, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. When an issue used a retained profile rather than a canonical identity, say so. Never imply that an abandoned issue was implemented. Do not commit `docs/working/` artifacts.
+Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. Also report each selected run in order, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. When an issue used a retained profile rather than a canonical identity, say so. For an abandoned or partly delivered issue, report the delivered scope and the abandoned remainder factually. Never imply whole-issue completion, and never omit partial delivery the reports show. Do not commit `docs/working/` artifacts.
 
 A running session keeps the stored instructions of its agent body. Shared skills and instruction files may be consumed by sessions that load them after this change; consumption is not proof of effective authority or adoption. Do not restart OpenCode or rewrite stored sessions to adopt this change, do not claim that a running session discovered a changed file, and report any effective instruction conflict as a blocker rather than patching the session.

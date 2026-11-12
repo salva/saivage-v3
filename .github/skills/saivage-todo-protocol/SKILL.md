@@ -106,9 +106,9 @@ The coordinator applies these actions at a safe boundary:
 | Reviewed, fixer-approved plan, including lock contention | **Designed**; link the plan. Waiting is a note, not a status |
 | Named prerequisite, failure needing resolution, cancellation, or unsafe or unknown settled outcome | **Blocked** with the actual cause or cancellation note. Never infer success |
 | `COMPLETED` with full approval, manager validation and commits, and stable read-only reconciliation | Move the full entry to `done.md`, prepended in its section. Leave the one-line Done pointer with commit hashes in `todo.md` |
-| `ABANDONED` without implementation | Keep the full entry in `todo.md` as **Analyzed**, with an explicit terminal no-implementation disposition and its reason. No automatic relaunch and no Done claim |
+| `ABANDONED`, before implementation or for an explicitly identified remainder after stabilized partial delivery | Keep the full entry in `todo.md` as **Analyzed**, with an explicit terminal ABANDONED note giving the merit reason and the abandoned scope. Retain delivered units, validation and commit references when any exist; state no implementation only when none occurred. No automatic relaunch, no Done move or claim, and no treatment of the remainder as pending work |
 
-Abandonment is a disposition note, not a sixth status. Preserve partial commits and historical facts. A design invalidated after a manager return becomes **Analyzed** with the plan revision needed.
+Abandonment is a disposition note, not a sixth status. Partial abandonment stays **Analyzed**, not Done: the whole issue is not complete, and its abandoned remainder is terminal rather than pending. Preserve partial commits and historical facts. A design invalidated after a manager return becomes **Analyzed** with the plan revision needed.
 
 ### Done evidence
 

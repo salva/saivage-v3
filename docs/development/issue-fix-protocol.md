@@ -521,11 +521,17 @@ Record one outcome with concise evidence:
   Give the complete issue, evidence, and constraints to the issue designer, then restart
   the full designer and reviewer loop on a self-contained plan. Every redesigned plan is
   subject to the same periodic and final gates.
-- **`ABANDONED`:** no credible compliant redesign is worthwhile. Examples are a
-  disproved premise, necessary complexity that outweighs the concrete value, or an
-  objective that conflicts with AGENTS. End the issue without freshness or
-  implementation. Report the evidence, the failed conditions, and why precise
-  constraints cannot save it. Do not relaunch it automatically.
+- **`ABANDONED`:** an intentional terminal decision not to implement further issue scope,
+  because no credible compliant redesign is worthwhile. Examples are a disproved premise,
+  necessary complexity that outweighs the concrete value, or an objective that conflicts
+  with AGENTS. Before any implementation it abandons the proposed fix. After stabilized
+  partial delivery it abandons only the remainder the fixer identifies, and it is reached
+  only at a gate of the complete designer and reviewer loop, never directly from a manager
+  report. It is neither `COMPLETED`, a failure, nor a cancellation. Perform no further
+  freshness check or implementation after the decision; this does not shortcut review.
+  Report the evidence, the failed conditions, why precise constraints cannot save the
+  remaining scope, and the delivered and abandoned scope separately. Do not relaunch it
+  automatically.
 - **`BLOCKED`:** evidence is insufficient, or an operator-owned product tradeoff
   prevents a reliable decision. Ask the user rather than guessing, abandoning, or
   implementing.
@@ -638,9 +644,12 @@ to status is defined in
 A completed issue moves its full entry to `done.md` only with its approved-plan record, the
 manager's validation results, the commit hashes, and stable read-only reconciliation. If any
 of that evidence is missing, the entry stays out of Done and the missing evidence is named.
-An abandoned issue is kept as Analyzed with an explicit terminal no-implementation note, not
-recorded as Done. Completion records implementation only; aggregate workflow results are
-tracked separately. Task IDs, nonces, and handshake records remain session context and are
+An abandoned issue is kept as Analyzed, not recorded as Done. Its entry carries an explicit
+terminal ABANDONED note giving the merit reason and the abandoned scope. If no implementation
+occurred, the note says so. After partial delivery, the entry retains the delivered units,
+validation and commit references, and it identifies the abandoned remainder, which is terminal
+rather than pending work. Such an entry never claims whole-issue completion. Completion
+records implementation only; aggregate workflow results are tracked separately. Task IDs, nonces, and handshake records remain session context and are
 never tracker fields.
 
 ## Final approval and freshness gate
@@ -1001,10 +1010,20 @@ A completed report includes the issue identity, the plan path, the unchanged suc
 plan-approval block, files changed, manager-supplied validation results, commit hashes,
 remaining work or divergence, and repository stability.
 
-An `ABANDONED` report instead includes the review outcome, the merit evidence, the failed
-conditions, why redesign cannot make the issue worthwhile, and any separate follow-up.
-It claims no files changed, no validation, and no commits. Never imply that an abandoned
-issue was implemented.
+An `ABANDONED` report instead includes the issue identity and plan path, the review outcome,
+the merit evidence, the failed conditions, why redesign cannot make the remaining scope
+worthwhile, and any separate follow-up. It states whether the decision abandons the whole
+proposed fix before implementation or only the identified remainder after stabilized partial
+delivery. Delivered and abandoned scope are reported separately; partial delivery never means
+the issue or the original plan was completed. The report gives the actual effects of every
+attempt, taken from the manager's final reports and the fixer's read-only reconciliation rather
+than only the final round or attempt: changed files, completed units, commit hashes,
+manager-supplied validation results with their failures and limits, remaining scope, repository
+stability, and lock release status. It states that there were no implementation changes,
+validation, or commits only when that is true of the whole implementation history. Design review
+and planning activity are not implementation validation. Its `Tracker evidence` line supports
+Analyzed with a terminal ABANDONED note, never Done. Abandonment authorizes no cleanup, no
+reverting of coherent delivered units, no additional validation by the fixer, and no lock release.
 
 The issue fixer generates no new implementation evidence after the manager returns. It never
 writes `todo.md` or `done.md`, before or after the return. Every disposition report carries a
@@ -1026,9 +1045,13 @@ The coordinator uses that line at its next safe boundary.
 - **Design, review, or Task problem before implementation:** use `BLOCKED` for unavailable
   required tooling and `FAILED` for an actual issue-local failure. Other fixers may
   continue if the shared worktree is safe.
-- **Design abandoned on merit:** return `ABANDONED` as an intentional terminal
-  no-implementation decision, not `FAILED` or `CANCELLED`. The coordinator does not
-  resume or replace it.
+- **Design abandoned on merit:** return `ABANDONED` as an intentional terminal decision not to
+  implement further scope, before implementation or for an identified remainder after
+  stabilized partial delivery, not `FAILED` or `CANCELLED`. It reaches the fixer's
+  disposition only through the complete designer and reviewer loop. Abandonment does not
+  waive a blocker: an unsafe worktree, an unsettled manager, or an outcome-unknown Saivage
+  publication remains `BLOCKED` and is never concealed. The coordinator does not resume or
+  replace it.
 - **Acquired-lock error, partial result, or divergence:** the manager stabilizes coherent
   work before normal release, unless the [uncertain publication boundary](#uncertain-publication-boundary)
   applies. The issue fixer reconciles read-only, then either returns to design and review
@@ -1116,7 +1139,10 @@ identifiers with the lifecycle applied or pending, the adversarial review and fi
 outcomes, material findings, the main documents and files changed, the author and reviewer identities used for documentation and model-facing
 assets, prompt-review evidence where model-facing assets changed, manager-run validation
 commands and results, commit hashes, repository stability, residual risks and follow-ups,
-and any abandoned, blocked, or cancelled issues. When a session used a retained profile
+and any abandoned, blocked, or cancelled issues. For an abandoned or partly delivered issue,
+report the delivered scope (units, files, commit hashes, and validation with its failures and
+limits) and the abandoned remainder separately. Never imply whole-issue completion, and never
+omit partial delivery that the reports show. When a session used a retained profile
 rather than a canonical identity, say so. The coordinator also reports each selected run in
 order, the boundary evidence used before each launch or resume, and each dormant waiter by
 identifier only.
