@@ -55,7 +55,7 @@ one implementation manager holding the lock at a time.
 
 | Role | Owns | Must not |
 | --- | --- | --- |
-| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks one issue fixer per issue; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The only exception is the bounded passive aggregate check in [Post-batch aggregate validation](#post-batch-aggregate-validation). |
+| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The only exception is the bounded passive aggregate check in [Post-batch aggregate validation](#post-batch-aggregate-validation). |
 | Issue fixer (`issue-fixer`) | One issue end to end: designer and design-reviewer delegation, finding triage, design-value reassessment, final approval record, freshness decisions, implementation-manager delegation, read-only reconciliation, and reporting, including the issue's tracker evidence. Writes only ignored planning and review artifacts. | Write `docs/working/todo.md` or `docs/working/done.md`; edit implementation or model-facing assets, run validation or generators, stage or commit, author wording, invoke any developer, documenter, or implementation reviewer, or run prompt or documentation review itself. |
 | Issue designer (`issue-designer`) | Writes and revises the issue's self-contained plan, including revisions prompted by review or implementation learning. | Approve its own plan or decide merit. |
 | Design reviewer (`design-reviewer`) | Adversarially reviews every current design or plan revision. Read-only apart from its assigned review artifact. | Edit any plan, asset, source, or configuration; take the issue fixer's merit decision; review implementation assets. |
@@ -74,11 +74,13 @@ are written by `prompt-developer` and checked by `prompt-reviewer`, which the ma
 invokes with the explicit exact override `openai/gpt-6.1-sol`. Skills carry no model
 frontmatter; model selection stays in agent configuration.
 
-Each issue completes its own design and review loop. Issues that may collide can plan
-and review concurrently; plan approval reserves no file or contract. Implementation
-stays serialized by the single lock regardless of apparent independence. For a
-one-issue batch, the primary agent is the one-item coordinator and drives the same
-specialist workflow.
+Each issue completes its own design and review loop, but the batch coordinator selects
+only one whole issue-fixer run at a time. That run covers design, review, freshness,
+manager handoff, and read-only reconciliation, and it is the unit of selection. Plan
+approval reserves no file or contract and does not permit another issue to start.
+Implementation stays serialized by the single lock. The coordinator's sequencing is
+scheduling discipline, not a replacement for that lock. For a one-issue batch, the
+primary agent is the one-item coordinator and drives the same specialist workflow.
 
 ## Canonical roles and transition
 
@@ -552,20 +554,51 @@ For a batch, the coordinator must:
    [Tracker lifecycle ownership](#tracker-lifecycle-ownership)). Give each issue fixer a
    complete issue statement, a unique absolute working-plan path, and the entry identifier
    with the tracker paths.
-2. Launch independent initial Task calls concurrently, in the same orchestration turn
-   or tool batch when supported, with `subagent_type: "issue-fixer"`. Do not serialize
-   design or review merely because issues may touch the same files.
+2. Launch one new issue fixer at a time, with `subagent_type: "issue-fixer"`. Its whole
+   run is the unit of selection. Do not launch the next new issue, or resume any waiting
+   fixer, while the selected fixer can still launch an implementation manager. Do not
+   launch issue fixers in parallel. Plan approval, an apparently free lock, or an issue's
+   apparent independence is not a reason to fan out, because the extra calls would only
+   contend for the lock and waste work.
 3. Record task-continuity state only in coordinator session context, never in a repository
    file or registry: issue identity and summary, exact returned fixer task ID and its
    identity, plan path, latest disposition, known implementation-lock ownership, and any
    tracker facts still pending. Task IDs, nonces, and handshake records are never tracker
    fields.
-4. Handle each return independently. One issue's failure or cancellation does not
-   cancel the others unless explicitly requested.
+4. Handle each return before selecting the next run. One issue's failure or cancellation
+   does not cancel the others unless explicitly requested, and it does not make other work
+   eligible while settlement or shared-worktree safety is unknown.
 
-Awaiting each initial fixer in sequence defeats the batch contract. If concurrent Task
-launch or exact returned-ID observation is unavailable, report the batch workflow as
-blocked. Do not silently weaken it.
+Each selected run settles before the next one is chosen. Concurrent initial Task calls for
+issue fixers are therefore not part of this workflow. If launching the selected fixer,
+resuming it, or observing its exact returned task ID is unavailable, report the batch
+workflow as blocked. Do not silently weaken it.
+
+### Selecting the next run
+
+Advance only on evidenced settlement:
+
+- A `COMPLETED` issue advances only with its full evidence: the approval block, manager
+  validation, commit hashes, and stable read-only reconciliation.
+- A partial or redesign return that continues the same fixer's design loop keeps that fixer
+  selected until it returns.
+- An `ABANDONED`, `BLOCKED`, `FAILED`, or `CANCELLED` return can allow the next run only
+  after its launched calls have settled and the shared worktree is established safe. Such a
+  return is never converted to success and is never retried automatically.
+- Unknown settlement, a retained lock, a timeout, a missing result, or an unsafe worktree
+  blocks every further implementation-capable launch and resume.
+- Lock inspection, polling, sleeps, speculative manager calls, and new approval ceremonies do
+  not establish eligibility.
+
+At each eligible boundary the coordinator selects exactly one next run: either one new issue,
+or one recorded waiting fixer whose known lock holder has returned, released its lock, and
+reported a stable committed state. It never selects two. The protocol sets no priority
+between new issues and waiting fixers. A selected waiter resumes through the two-call
+handshake in [Lock contention and event-driven resume](#lock-contention-and-event-driven-resume),
+and the coordinator then awaits that entire run. Every other waiter stays dormant, with its
+exact task ID, identity, and nonce episode unchanged, until a later eligible boundary. If the
+selected waiter's freshness check requires design review, its own design and review loop
+continues, and no other waiter is selected in its place. Waiters never race for the lock.
 
 ### Tracker lifecycle ownership
 
@@ -581,7 +614,8 @@ roles write them, each limited to facts it observed:
   retains the lock. Settlement comes from task results and reports. The coordinator does not
   inspect or poll the lock to create the boundary. If ownership or settlement is unknown, it
   keeps the facts in session context, reports the update as pending, and edits nothing. It
-  does not delay an independent return or an initial design launch.
+  holds no settled return for unrelated tracker work beyond the bounded update itself, and the
+  next launch or resume waits until that update finishes.
 - **Implementation manager.** Under the lock, keeps only its own issue's factual progress
   current, as described in
   [Singular complete implementation boundary](#singular-complete-implementation-boundary).
@@ -594,7 +628,7 @@ not give it. A session that lacks an assigned action reports the update as pendi
 and no other session takes it over. The adoption rules for running sessions are in
 [Final reporting](#final-reporting).
 
-Status may lag while issue work runs concurrently. The coordinator applies each item's latest
+Status may lag while the selected issue run is in progress. The coordinator applies each item's latest
 evidenced state once, so no per-round notification, intermediate status gate, or queue is
 needed. An issue is **Designed** only after its plan has passed review and the fixer has
 recorded its approval; waiting for the lock is a note on that entry. The mapping from evidence
@@ -820,10 +854,16 @@ not divergence, and not evidence that requires redesign. The issue fixer keeps i
 ownership. It must not poll, sleep, retry in the same turn, inspect, remove, or
 classify the lock as stale, or launch another manager.
 
-The coordinator may resume waiting fixers only after the known holder has returned,
-released its lock, and reported a stable committed state. Several waiting fixers may be
-resumed optimistically. One manager wins and the others wait again. This creates no
-queue, scheduler, fairness promise, timer, watcher, or additional lock.
+Coordinator sequencing prevents most contention, but unexpected contention can still occur,
+for example from a run outside the coordinator's sequence. The lock therefore remains the
+only safety boundary, and every contender follows this section.
+
+The coordinator selects a waiting fixer only at an eligible boundary: the known holder has
+returned, released its lock, and reported a stable committed state, and no other run is
+selected. It selects one waiter. Waiters are not resumed optimistically as a group, because
+the losers would only wait again. Selection creates no queue, scheduler, fairness promise,
+timer, watcher, or additional lock. A resumed fixer that loses contention again waits with a
+fresh nonce, and the coordinator selects again only at a later eligible boundary.
 
 ### Waiting nonce
 
@@ -925,8 +965,8 @@ Lock holder: <verbatim or concise faithful existing lock description>
 Continuity nonce: <fresh opaque value retained in this fixer session>
 Work performed in this attempt: none
 Tracker evidence: <entry identifier or unavailable>; lifecycle Designed with the approved plan above
-Resume condition: known lock-holder run has returned and released its lock
-Coordinator action: retain this nonce with the exact fixer task ID, then use the two-call handshake; do not launch a replacement
+Resume condition: known lock-holder run has returned, released its lock, and reported stable committed state; the coordinator then selects this fixer as its single next run
+Coordinator action: retain this nonce with the exact fixer task ID; when selected as the single next run, use the two-call handshake; do not launch a replacement
 ```
 
 The waiting return's tracker evidence is `Designed` only because it carries the approval block
@@ -1041,7 +1081,7 @@ boundary.
 For workflow changes that require Task continuity validation, run the plan's harmless
 live smoke exactly as written. It uses concurrent synthetic issue-fixer sessions,
 exact-ID recording, a nonce-free and tool-free Call 1, and a verified same-ID Call 2, and
-it checks for a mismatch safely. If Task concurrency, IDs, resume, nonce retention, or
+it checks for a mismatch safely. Its synthetic episodes acquire no lock, invoke no manager, and implement nothing. Their concurrency is the approved validation requirement, not live issue fanout, and the smoke runs only at this aggregate gate. If Task concurrency, IDs, resume, nonce retention, or
 tool-free evidence is unavailable, report workflow validation as `BLOCKED`. Do not
 substitute a sequential, one-call, or text-only imitation.
 
@@ -1050,6 +1090,8 @@ substitute a sequential, one-call, or text-only imitation.
 Do not introduce any of the following:
 
 - parallel issue-level implementation;
+- concurrent initial launch or optimistic resume of several issue fixers, or resumption of a
+  waiting fixer while the selected run can still launch a manager;
 - multiple lock-holding managers;
 - direct primary-agent or issue-fixer implementation;
 - extra locks, lock takeover, or stale-lock classification;
@@ -1057,7 +1099,10 @@ Do not introduce any of the following:
 - registries, replacement fixers, aliases, dispatch fallbacks, loaders, or branches,
   worktrees, clones, or merge orchestration.
 
-Do not run documentation or prompt authoring concurrently with any other worker. Do not
+Permitted concurrency is narrow: a manager's positively nonconflicting source-only
+`code-developer` group, and the harmless synthetic continuity smoke at the aggregate gate.
+Neither is live issue fanout. Do not run documentation or prompt authoring concurrently with
+any other worker. Do not
 run concurrent developer assignments that overlap in files, contracts, outputs,
 validation side effects, or ordering. Do not invoke `code-developer`, `doc-developer`,
 `prompt-developer`, `doc-reviewer`, `prompt-reviewer`, or a retained developer or
@@ -1072,7 +1117,9 @@ outcomes, material findings, the main documents and files changed, the author an
 assets, prompt-review evidence where model-facing assets changed, manager-run validation
 commands and results, commit hashes, repository stability, residual risks and follow-ups,
 and any abandoned, blocked, or cancelled issues. When a session used a retained profile
-rather than a canonical identity, say so.
+rather than a canonical identity, say so. The coordinator also reports each selected run in
+order, the boundary evidence used before each launch or resume, and each dormant waiter by
+identifier only.
 
 Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
 fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles
@@ -1085,7 +1132,7 @@ what it may do, so a missing allowance for a tracker action is reported as pendi
 never handed to another session. Consumption and adoption are separate facts; a file edit alone
 proves neither. The final report must not claim that a running session has adopted the change
 unless it observed the consumption or the replaced body. Do not restart OpenCode, switch running
-sessions, or replace stored instructions to force adoption. Actual deployment, service
+sessions, or replace stored instructions to force adoption. An effective instruction conflict is reported as a blocker; it is not repaired by restarting or altering a session. Actual deployment, service
 operations, and other separately controlled live actions keep their own distinct approval.
 The current stored implementation manager does not launch the canonical leaves merely to
 manufacture execution evidence, so their live invocation remains untested and must be

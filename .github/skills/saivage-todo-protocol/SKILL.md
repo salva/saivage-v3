@@ -81,9 +81,9 @@ The coordinator writes only at a quiescent orchestration boundary:
 - no implementation manager is active or retains the implementation lock;
 - no launch or resume occurs until the bounded update finishes.
 
-Establish settlement from existing task results and reports. Do not inspect, poll, or wait on the lock to create the boundary. If ownership or settlement is unknown, keep the pending facts in session context, report tracker maintenance as pending, and edit nothing. Do not delay an independent return or an initial design launch for a tracker update.
+Establish settlement from existing task results and reports. Do not inspect, poll, or wait on the lock to create the boundary. If ownership or settlement is unknown, keep the pending facts in session context, report tracker maintenance as pending, and edit nothing. Because the coordinator runs one selected issue run at a time, apply the settled return's update once at that boundary, then select the next run. Do not hold a settled return for an unrelated tracker update beyond the bounded update itself.
 
-Status may lag while issue work runs concurrently. At the boundary, the coordinator applies each item's latest evidenced lifecycle once, so no intermediate writes or status gates are needed.
+Status may lag while the selected issue run is in progress. At the boundary, the coordinator applies each item's latest evidenced lifecycle once, so no intermediate writes or status gates are needed.
 
 ### Implementation manager updates
 

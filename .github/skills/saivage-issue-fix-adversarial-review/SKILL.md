@@ -1,6 +1,6 @@
 ---
 name: saivage-issue-fix-adversarial-review
-description: 'Main-coordinator workflow for Saivage v3 issue-fix batches: use ONLY in the primary build or plan session to accept bugs, regressions, review findings, design flaws, behavior gaps or issue-fix workflow changes, intake each issue into the todo tracker, launch one issue-fixer per issue concurrently, record exact fixer task IDs, run the two-call waiting resume, apply tracker lifecycle updates at safe boundaries and report dispositions. Workers never load this skill.'
+description: 'Main-coordinator workflow for Saivage v3 issue-fix batches: use ONLY in the primary build or plan session to accept bugs, regressions, review findings, design flaws, behavior gaps or issue-fix workflow changes, intake each issue into the todo tracker, run one issue-fixer at a time as a whole serialized run, record exact fixer task IDs, resume one waiting fixer at a time through the two-call handshake, apply tracker lifecycle updates at safe boundaries and report dispositions. Workers never load this skill.'
 ---
 
 # Saivage Issue Fix Adversarial Review (Main Coordinator)
@@ -27,10 +27,10 @@ You never take over an issue's design, review, or implementation. You never laun
 1. Intake each issue before launching it. Read `saivage-todo-protocol`, then find the issue's existing entry in `docs/working/todo.md` by its identifier, including a table row inside a section. Merge into that entry and keep its identifier; never create a duplicate. If none exists, add it as Open, or as Analyzed when investigation already exists, with its facts and evidence path.
 2. Give each issue a unique absolute working-plan path under `docs/working/<date>-<issue-slug>/`.
 3. Give each new issue fixer a complete issue statement, its absolute plan path, and its existing tracker entry identifier with the tracker paths.
-4. Launch all initial new fixers concurrently, in the same orchestration turn or tool batch, with `subagent_type: "issue-fixer"`. Do not serialize design or review because issues may touch the same files.
+4. Launch one new issue fixer at a time, with `subagent_type: "issue-fixer"`. Its whole run (design, review, freshness, manager handoff and read-only reconciliation) is the unit of selection. Do not launch the next new issue, or resume any waiting fixer, while the selected fixer can still launch an implementation manager. Launching fixers in parallel only adds lock contention and wasted calls; the lock is not a reason to fan out.
 5. Record, in your session context only, each issue's identity and summary, the exact returned fixer task ID, the fixer identity used, the plan path, the latest disposition, known implementation-lock ownership, any nonce, and any tracker facts still pending. Task IDs, nonces, and handshake records are task-continuity state. Never copy them into `todo.md`, `done.md`, or any repository file.
-6. Handle each return independently. One failure or cancellation does not cancel the others unless directed.
-7. If concurrent launch or exact returned-ID observation is unavailable, report the batch workflow as blocked. Do not silently weaken it.
+6. Handle each return before selecting the next run. A failure or cancellation does not cancel other recorded fixers unless directed, and it never makes other work eligible while settlement or shared-worktree safety is unknown.
+7. If launch, resume, or exact returned-ID observation is unavailable, report the batch workflow as blocked. Do not silently weaken it.
 
 ## Handle dispositions
 
@@ -38,11 +38,21 @@ Each fixer return starts with exactly one disposition: `COMPLETED`, `ABANDONED`,
 
 - **`COMPLETED`:** record it. Check that the report includes the unchanged plan-approval block, files changed, manager validation results, commit hashes, and repository stability.
 - **`ABANDONED`:** an intentional terminal no-implementation decision. Do not resume it, replace it, or relaunch it automatically.
-- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's fresh continuity nonce with its exact task ID and identity, replacing any earlier nonce for that issue. Do not launch a replacement. Resume only through the two-call handshake below, and only after the known lock holder has returned, released its lock, and reported a stable committed state.
+- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's fresh continuity nonce with its exact task ID and identity, replacing any earlier nonce for that issue. Do not launch a replacement. Keep it dormant until the coordinator selects it as the single next run. Resume it only through the two-call handshake below, and only after the known lock holder has returned, released its lock, and reported a stable committed state.
 - **`BLOCKED` or `FAILED`:** record the stated cause. Do not launch a replacement fixer. Resolve the named cause first.
 - **`CANCELLED`:** discard any nonce. Do not touch the lock.
 
-Several waiting fixers may be resumed optimistically. One manager wins and the others wait again. Do not create a queue, timer, poller, watcher, or extra lock.
+## Select one run at a time
+
+Advance only on evidenced settlement:
+
+- A `COMPLETED` issue advances only with its full evidence: the approval block, manager validation, commit hashes, and stable read-only reconciliation.
+- A partial or redesign return that continues the same fixer's design loop keeps that fixer selected until it returns.
+- An `ABANDONED`, `BLOCKED`, `FAILED`, or `CANCELLED` return may allow the next run only after its launched calls have settled and the shared worktree is established safe. Such a return is never converted to success and is never retried automatically.
+- Unknown settlement, a retained lock, a timeout, a missing result, or an unsafe worktree blocks every further implementation-capable launch and resume.
+- Do not use lock inspection, polling, sleeps, speculative manager calls, or new approval ceremonies to establish eligibility.
+
+At each eligible boundary, select exactly one next run: either one new issue, or one recorded waiting fixer whose known lock holder has returned, released its lock, and reported a stable committed state. Never select two. A selected waiter resumes through the two-call handshake, then you await that entire run. Leave every other recorded waiter dormant, with its task ID, identity, and nonce episode unchanged, until a later eligible boundary. Waiters never race for the lock. If the selected waiter's freshness check requires design review, its own design and review loop continues; no other waiter is selected in its place. Do not create a queue, timer, poller, watcher, or extra lock.
 
 ## Tracker lifecycle at safe boundaries
 
@@ -56,7 +66,7 @@ At each boundary, apply each affected item's latest evidenced lifecycle once, us
 - `BLOCKED`, `FAILED`, or `CANCELLED`: Blocked, with the actual named cause or the cancellation note.
 - A design returned to revision after a manager return: Analyzed, with the plan revision needed.
 
-Then continue with the normal resumes and launches. Do not add per-round notifications, intermediate status gates, a queue, or a registry. Do not delay an independent return or an initial design launch for a tracker update.
+Then select the next run under the rules above. Do not add per-round notifications, intermediate status gates, a queue, or a registry. Do not hold a settled return for an unrelated tracker update beyond the bounded update itself; the next launch or resume waits for that update to finish.
 
 ## Two-call resume handshake
 
@@ -110,7 +120,7 @@ Aggregate checks are harmless: they never stage, commit, repair, or start an imp
 
 1. **Plan-required aggregate validation.** Run the read-only or harmless aggregate validation that the approved plan requires to test batch coordination. Settle every launched command. Report any unexpected tracked or generated diff as a failed aggregate check. Do not repair it outside the manager boundary.
 2. **Passive role checks.** When the approved plan requires them, run fresh passive checks of `issue-designer`, `design-reviewer`, an explicitly requested `design-reviewer-secondary`, and `implementation-manager`, using only their allowed edges. Each check is a fresh no-tool session that explains decisions only. It never reads a plan, acquires a lock, or delegates. Verify main-only skill access through the build and plan primaries. Passive checks never launch implementation roles.
-3. **Conditional continuity smoke.** Run this only when the approved plan of a completed issue is a workflow change that requires Task continuity validation. Then execute that plan's specified smoke exactly as written, and do not substitute your own version. Its requirements are: concurrent synthetic `issue-fixer` sessions in one tool batch; exact returned-ID recording; a nonce-free, tool-free challenge whose returned ID and retained values match your record before any further call; a same-ID authorization only after that match; and a safe mismatch check that marks the synthetic episode `BLOCKED` without sending the second call. Never launch guessed IDs or substitute sessions. If the plan's required concurrency, IDs, resume, nonce retention, or tool-free evidence is unavailable, report workflow validation as `BLOCKED`. Do not replace it with a sequential, one-call, or text-only imitation.
+3. **Conditional continuity smoke.** Run this only when the approved plan of a completed issue is a workflow change that requires Task continuity validation. Then execute that plan's specified smoke exactly as written, and do not substitute your own version. Its requirements are: concurrent synthetic `issue-fixer` sessions in one tool batch; exact returned-ID recording; a nonce-free, tool-free challenge whose returned ID and retained values match your record before any further call; a same-ID authorization only after that match; and a safe mismatch check that marks the synthetic episode `BLOCKED` without sending the second call. Never launch guessed IDs or substitute sessions. Its synthetic episodes acquire no lock, invoke no manager, and implement nothing; their concurrency is the approved validation requirement, not live issue fanout. If the plan's required concurrency, IDs, resume, nonce retention, or tool-free evidence is unavailable, report workflow validation as `BLOCKED`. Do not replace it with a sequential, one-call, or text-only imitation.
 4. **Reporting.** Report the aggregate results separately from implementation completion. A failed or blocked aggregate check means the source implementation may be complete while workflow validation is blocked or failed. Route any required correction through ordinary design, review, freshness, and a new serialized manager attempt. Never repair outside a fresh manager attempt.
 
 ## Cancellation
@@ -119,6 +129,6 @@ Stop further launches and resumes. Cancel children only when explicitly requeste
 
 ## Reporting
 
-Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. When an issue used a retained profile rather than a canonical identity, say so. Never imply that an abandoned issue was implemented. Do not commit `docs/working/` artifacts.
+Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. Also report each selected run in order, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. When an issue used a retained profile rather than a canonical identity, say so. Never imply that an abandoned issue was implemented. Do not commit `docs/working/` artifacts.
 
-A running session keeps its stored instructions. Changed profiles apply to fresh sessions. Do not restart OpenCode or rewrite stored sessions to adopt this change, and do not claim that a running session discovered a changed file.
+A running session keeps the stored instructions of its agent body. Shared skills and instruction files may be consumed by sessions that load them after this change; consumption is not proof of effective authority or adoption. Do not restart OpenCode or rewrite stored sessions to adopt this change, do not claim that a running session discovered a changed file, and report any effective instruction conflict as a blocker rather than patching the session.

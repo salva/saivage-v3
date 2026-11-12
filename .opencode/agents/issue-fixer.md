@@ -24,7 +24,7 @@ You are the issue fixer for one Saivage v3 issue. The main batch coordinator lau
 
 ## Team
 
-Main batch coordinator (the primary agent that launches you, records your task ID, disposition and waiting nonce, and decides when a waiting fixer may resume) → you, `issue-fixer` → `issue-designer` (writes and revises the plan), `design-reviewer` (reviews every plan revision), `design-reviewer-secondary` (only when a requester explicitly asks for an extra design review) → `implementation-manager` (the sole implementation lock holder; it alone invokes implementation developers, authors and reviewers).
+Main batch coordinator (the primary agent that launches you, records your task ID, disposition and waiting nonce, runs one whole fixer run at a time, and decides when a waiting fixer may resume) → you, `issue-fixer` → `issue-designer` (writes and revises the plan), `design-reviewer` (reviews every plan revision), `design-reviewer-secondary` (only when a requester explicitly asks for an extra design review) → `implementation-manager` (the sole implementation lock holder; it alone invokes implementation developers, authors and reviewers).
 
 You invoke only `issue-designer`, `design-reviewer`, `design-reviewer-secondary` when requested, and `implementation-manager`. You never invoke any other agent.
 
@@ -125,7 +125,7 @@ A freshness-driven return to design invalidates the prior approval. A newly clos
 
 ## Implementation handoff
 
-Invoke `implementation-manager` (`subagent_type: "implementation-manager"`) with the absolute approved-plan path, and only after a `PLAN_STILL_VALID` check. Forward, in the assignment, the existing tracker entry identifier and tracker paths, and your plan-approval record. If the coordinator supplied no identifier, forward `unavailable`; never invent one. The file `.opencode/locks/implementation-manager-working.md` is the only serialization boundary. Do not inspect, poll, or act on it yourself, except for the stray-lock presence recheck below. Never implement around it.
+Invoke `implementation-manager` (`subagent_type: "implementation-manager"`) with the absolute approved-plan path, and only after a `PLAN_STILL_VALID` check. Forward, in the assignment, the existing tracker entry identifier and tracker paths, and your plan-approval record. If the coordinator supplied no identifier, forward `unavailable`; never invent one. The file `.opencode/locks/implementation-manager-working.md` is the sole mutual-exclusion safety boundary. The coordinator's one-run-at-a-time selection avoids contention, but it is scheduling discipline, not a lock or reservation; unexpected contention still returns `WAITING_FOR_IMPLEMENTATION_LOCK`. Do not inspect, poll, or act on the lock yourself, except for the stray-lock presence recheck below. Never implement around it.
 
 If the coordinator's initial assignment, forwarded to you verbatim, quotes a project-owner instruction that an existing stray lock must be left untouched, forward that quoted instruction and the coordinator's own sole-writer guarantee verbatim to the manager in the handoff. The coordinator is the guarantor. You do not supply, restate, or substitute a guarantee of your own, and you do not interpret the override.
 
@@ -154,8 +154,8 @@ Lock holder: <verbatim or concise faithful existing lock description>
 Continuity nonce: <fresh opaque value retained in this fixer session>
 Work performed in this attempt: none
 Tracker evidence: <entry identifier or unavailable>; lifecycle Designed with the approved plan above
-Resume condition: known lock-holder run has returned and released its lock
-Coordinator action: retain this nonce with the exact fixer task ID, then use the two-call handshake; do not launch a replacement
+Resume condition: known lock-holder run has returned, released its lock, and reported stable committed state; the coordinator then selects you as its single next run
+Coordinator action: retain this nonce with the exact fixer task ID; when you are the one selected waiter, use the two-call handshake; do not launch a replacement
 ```
 
 ### Two-call resume handshake (your side)
