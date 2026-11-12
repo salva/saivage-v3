@@ -64,6 +64,8 @@ add needed behavioral guidance without copying schema definitions. Separate futu
 requested behavior from retrospective history. Use few justified examples, labeled
 non-exhaustive where appropriate so they do not narrow valid behavior.
 
+Authoring and review roles: when model-facing wording is assigned, the documenter (exact model opencode-go/claude-haiku-5-5, with no variant or temperature) authors the exact replacement text and its selfchecks. Those selfchecks are author checks, not independent review. A developer applies reviewed wording verbatim and does not author it. Skills carry no model frontmatter; model selection stays in agent configuration.
+
 ## 3. Consolidate at the correct delivery owner
 
 Remove redundancy across the assembled result, not only within one file. Keep
@@ -102,7 +104,7 @@ without turning quoted old readiness or correction prose into fresh authority.
 
 Match validation to the owning surface and consult existing validation profiles.
 Runtime prompt checks do not prove OpenCode loaded a development skill; skill
-checks do not validate provider serialization. Use no provider calls by default.
+checks do not validate provider serialization. Use no provider calls for validation by default. For changed model-facing assets, the manager invokes a distinct reviewer session with explicit exact openai/gpt-6.1-sol override to perform independent linkage and composition review of the actual composed assets. The author's selfchecks never substitute for that review, and it does not replace the projections in this step.
 Report source paths, invocations, projections, assumptions, and gaps: static or
 prepared text proves neither exact delivery nor model understanding or improved
 quality. Add no trivial prose-regex tests, word bans, or production helpers solely
@@ -112,7 +114,7 @@ to test prose.
 
 After all planned edits, including validation-driven edits, assess the current
 whole composed result as if designing it from scratch for today's task. This is a
-separate final pass, not incremental review, step 3, or a passing test.
+separate final pass, not incremental review, step 3, or a passing test. For changed model-facing assets, the manager invokes a distinct reviewer session with explicit exact openai/gpt-6.1-sol override to run this pass unconditionally after the last edit on the actual final composition, recording its session and model evidence. The author's selfchecks never substitute. Findings return through the manager: wording findings go to the documenter and logic findings go to the developer, followed by affected validation and a fresh final pass after the last edits.
 
 Check positive sufficiency as well as clutter: can this recipient identify today's
 objective and scoped next action, necessary evidence/work-product responsibility,
@@ -134,7 +136,7 @@ both missing direction and accumulated baggage.
 
 ## Report
 
-Summarize purpose/changes, useful direction added or retained, removals/consolidation,
+Summarize purpose/changes, authoring and review roles (documenter Haiku author and selfchecks, distinct exact-Sol reviewer verdict and session/model evidence), useful direction added or retained, removals/consolidation,
 any init/shared move and its retention rationale (or none), the final-pass outcome
 for sufficiency and baggage, and validation sources/commands/projections/limits.
 No large routine artifact or proven subjective-quality claim is required. For
