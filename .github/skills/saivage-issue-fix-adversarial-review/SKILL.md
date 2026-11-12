@@ -1,6 +1,6 @@
 ---
 name: saivage-issue-fix-adversarial-review
-description: 'Main-coordinator workflow for Saivage v3 issue-fix batches: use ONLY in the primary build or plan session to accept bugs, regressions, review findings, design flaws, behavior gaps or issue-fix workflow changes, launch one issue-fixer per issue concurrently, record exact fixer task IDs, run the two-call waiting resume and report dispositions. Workers never load this skill.'
+description: 'Main-coordinator workflow for Saivage v3 issue-fix batches: use ONLY in the primary build or plan session to accept bugs, regressions, review findings, design flaws, behavior gaps or issue-fix workflow changes, intake each issue into the todo tracker, launch one issue-fixer per issue concurrently, record exact fixer task IDs, run the two-call waiting resume, apply tracker lifecycle updates at safe boundaries and report dispositions. Workers never load this skill.'
 ---
 
 # Saivage Issue Fix Adversarial Review (Main Coordinator)
@@ -24,12 +24,13 @@ You never take over an issue's design, review, or implementation. You never laun
 
 ## Launch the batch
 
-1. Give each issue a unique absolute working-plan path under `docs/working/<date>-<issue-slug>/`.
-2. Give each new issue fixer a complete issue statement and its absolute plan path.
-3. Launch all initial new fixers concurrently, in the same orchestration turn or tool batch, with `subagent_type: "issue-fixer"`. Do not serialize design or review because issues may touch the same files.
-4. Record, in your session context and never in a repository file, each issue's identity and summary, the exact returned fixer task ID, the fixer identity used, the plan path, the latest disposition, known implementation-lock ownership, and any nonce.
-5. Handle each return independently. One failure or cancellation does not cancel the others unless directed.
-6. If concurrent launch or exact returned-ID observation is unavailable, report the batch workflow as blocked. Do not silently weaken it.
+1. Intake each issue before launching it. Read `saivage-todo-protocol`, then find the issue's existing entry in `docs/working/todo.md` by its identifier, including a table row inside a section. Merge into that entry and keep its identifier; never create a duplicate. If none exists, add it as Open, or as Analyzed when investigation already exists, with its facts and evidence path.
+2. Give each issue a unique absolute working-plan path under `docs/working/<date>-<issue-slug>/`.
+3. Give each new issue fixer a complete issue statement, its absolute plan path, and its existing tracker entry identifier with the tracker paths.
+4. Launch all initial new fixers concurrently, in the same orchestration turn or tool batch, with `subagent_type: "issue-fixer"`. Do not serialize design or review because issues may touch the same files.
+5. Record, in your session context only, each issue's identity and summary, the exact returned fixer task ID, the fixer identity used, the plan path, the latest disposition, known implementation-lock ownership, any nonce, and any tracker facts still pending. Task IDs, nonces, and handshake records are task-continuity state. Never copy them into `todo.md`, `done.md`, or any repository file.
+6. Handle each return independently. One failure or cancellation does not cancel the others unless directed.
+7. If concurrent launch or exact returned-ID observation is unavailable, report the batch workflow as blocked. Do not silently weaken it.
 
 ## Handle dispositions
 
@@ -43,6 +44,20 @@ Each fixer return starts with exactly one disposition: `COMPLETED`, `ABANDONED`,
 
 Several waiting fixers may be resumed optimistically. One manager wins and the others wait again. Do not create a queue, timer, poller, watcher, or extra lock.
 
+## Tracker lifecycle at safe boundaries
+
+Apply the tracker lifecycle from `saivage-todo-protocol` only at a quiescent boundary. Every previously launched or resumed issue call has settled (a returned waiting fixer counts as settled; a fixer that could still launch a manager does not), no implementation manager is active or retains the lock, and no launch or resume follows until the bounded update finishes. Establish this from task results and reports. Do not inspect, poll, or wait on the lock to create it. If ownership or settlement is unknown, keep the pending facts in session context, report tracker maintenance as pending, and edit nothing.
+
+At each boundary, apply each affected item's latest evidenced lifecycle once, using the protocol's settlement mapping:
+
+- `COMPLETED` with the approval block, manager validation, commit hashes, and stable reconciliation: move the entry to Done. If any of that evidence is missing, the entry stays out of Done and the missing evidence is named.
+- `WAITING_FOR_IMPLEMENTATION_LOCK` with an approved plan: Designed, with the waiting as a note.
+- `ABANDONED`: Analyzed, with an explicit terminal no-implementation note. Do not relaunch.
+- `BLOCKED`, `FAILED`, or `CANCELLED`: Blocked, with the actual named cause or the cancellation note.
+- A design returned to revision after a manager return: Analyzed, with the plan revision needed.
+
+Then continue with the normal resumes and launches. Do not add per-round notifications, intermediate status gates, a queue, or a registry. Do not delay an independent return or an initial design launch for a tracker update.
+
 ## Two-call resume handshake
 
 Both calls use the same identity the fixer was launched under and its exact recorded task ID:
@@ -55,7 +70,7 @@ subagent_type: "<the identity recorded at launch>"
 task_id: "<exact recorded task ID>"
 ```
 
-**Call 1, challenge.** Do not include the expected nonce. The prompt unconditionally forbids tools, edits, commands, and every mutation. It asks only for the issue identity, the plan path, the prior `WAITING_FOR_IMPLEMENTATION_LOCK` disposition, and the nonce the fixer retained in its session context. Independently verify that the returned task ID is byte-for-byte identical to the requested ID and that all retained values exactly match your record. Record the result:
+**Call 1, challenge.** Do not include the expected nonce. The prompt unconditionally forbids tools, edits, commands, and every mutation. It asks only for the issue identity, the plan path, the prior `WAITING_FOR_IMPLEMENTATION_LOCK` disposition, and the nonce the fixer retained in its session context. Independently verify that the returned task ID is byte-for-byte identical to the requested ID and that all retained values exactly match your record. Record the result in session context; it is never a tracker field:
 
 ```text
 Requested task ID: <exact recorded ID>
@@ -81,6 +96,8 @@ The fixer reconciles a manager return read-only. You do not perform implementati
 - Partial work, divergence, or redesign-worthy learning returns the issue to design and review. Planning-file edits remain allowed. A later attempt needs a new freshness check and a new manager lock.
 - A manager that could not stabilize and kept the lock is `BLOCKED`. No issue implementation resumes until explicit owner or operator verification and repair.
 
+A manager may already have recorded its own in-progress or partial tracker state before release. Reconcile that with the fixer's disposition at the next safe boundary. Never write a tracker file while a manager attempt is active.
+
 Use an owner override only when the owner explicitly says an existing lock was wrongly acquired by an unrelated run and must be left untouched. Quote that instruction exactly in the initial assignment to the fixer. You guarantee that this is the sole writing agent until the run reports completion. Never remove or modify the lock. Each responsible fixer re-checks before a new attempt whether the stray lock is gone.
 
 Interrupted owner continuation is allowed only when the explicit project owner authorizes continuing the original interrupted manager session. You never create a replacement manager or transfer ownership. The original manager must itself establish identity, acquisition, and settlement. If it cannot, it remains blocked with the lock untouched.
@@ -102,6 +119,6 @@ Stop further launches and resumes. Cancel children only when explicitly requeste
 
 ## Reporting
 
-Report the issues, the core design choice, the plan paths, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. When an issue used a retained profile rather than a canonical identity, say so. Never imply that an abandoned issue was implemented. Do not commit `docs/working/` artifacts.
+Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. When an issue used a retained profile rather than a canonical identity, say so. Never imply that an abandoned issue was implemented. Do not commit `docs/working/` artifacts.
 
 A running session keeps its stored instructions. Changed profiles apply to fresh sessions. Do not restart OpenCode or rewrite stored sessions to adopt this change, and do not claim that a running session discovered a changed file.

@@ -55,12 +55,12 @@ one implementation manager holding the lock at a time.
 
 | Role | Owns | Must not |
 | --- | --- | --- |
-| Batch coordinator (main primary agent) | Accepts the batch; assigns one unique working path per issue; launches and tracks one issue fixer per issue; records returned task IDs and dispositions in its own session context; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly. The only exception is the bounded passive aggregate check in [Post-batch aggregate validation](#post-batch-aggregate-validation). |
-| Issue fixer (`issue-fixer`) | One issue end to end: designer and design-reviewer delegation, finding triage, design-value reassessment, final approval record, freshness decisions, implementation-manager delegation, read-only reconciliation, and reporting. Writes only ignored planning and review artifacts. | Edit implementation or model-facing assets, run validation or generators, stage or commit, author wording, invoke any developer, documenter, or implementation reviewer, or run prompt or documentation review itself. |
+| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks one issue fixer per issue; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The only exception is the bounded passive aggregate check in [Post-batch aggregate validation](#post-batch-aggregate-validation). |
+| Issue fixer (`issue-fixer`) | One issue end to end: designer and design-reviewer delegation, finding triage, design-value reassessment, final approval record, freshness decisions, implementation-manager delegation, read-only reconciliation, and reporting, including the issue's tracker evidence. Writes only ignored planning and review artifacts. | Write `docs/working/todo.md` or `docs/working/done.md`; edit implementation or model-facing assets, run validation or generators, stage or commit, author wording, invoke any developer, documenter, or implementation reviewer, or run prompt or documentation review itself. |
 | Issue designer (`issue-designer`) | Writes and revises the issue's self-contained plan, including revisions prompted by review or implementation learning. | Approve its own plan or decide merit. |
 | Design reviewer (`design-reviewer`) | Adversarially reviews every current design or plan revision. Read-only apart from its assigned review artifact. | Edit any plan, asset, source, or configuration; take the issue fixer's merit decision; review implementation assets. |
 | Optional secondary design reviewer (`design-reviewer-secondary`) | Only when a requester explicitly asks for it: the same design-review criteria, failure and reporting boundaries, and verdicts as `design-reviewer`. | Substitute for ordinary design review, or for any documentation or prompt review. |
-| Implementation manager (`implementation-manager`) | The sole implementation orchestrator and the only agent that invokes implementation authors and reviewers. Holds the one lock covering all implementation mutation, validation, generated artifacts, staging, commits and stabilization. | Author implementation or model-facing wording directly. |
+| Implementation manager (`implementation-manager`) | The sole implementation orchestrator and the only agent that invokes implementation authors and reviewers. Holds the one lock covering all implementation mutation, validation, generated artifacts, staging, commits and stabilization. Under that lock it keeps only its own issue's existing factual tracker entry current, and never moves an entry to Done. | Author implementation or model-facing wording directly; write any tracker entry other than its own issue's factual status; delegate a tracker write. |
 | Code developer (`code-developer`) | Leaf implementer of manager-assigned runtime, source, configuration, tooling, tests, fixtures, and navigation work. Supplies source facts. Mechanically applies reviewed inline wording. | Author documentation or model-facing wording, delegate, acquire or release locks, stage, or commit. |
 | Documentation developer (`doc-developer`) | Manager-assigned ordinary documentation: facts, structure, clear progression, explanation, and reader usefulness. | Author model-facing instructions, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
 | Documentation reviewer (`doc-reviewer`) | Manager-assigned independent review of ordinary documentation for facts, quality, structure, and progression. Read-only apart from its assigned review artifact. | Edit any asset; review model-facing instructions; take the author's role. |
@@ -368,6 +368,11 @@ It holds the current design or plan and one file per adversarial review round.
 
 - `docs/working/` is ignored and must not be committed. It is not canonical
   documentation.
+- `docs/working/todo.md` and `docs/working/done.md` are the ignored issue lifecycle
+  records. Their writers and timing are described in
+  [Batch launch and tracking](#batch-launch-and-tracking) and
+  [Singular complete implementation boundary](#singular-complete-implementation-boundary).
+  They are never staged or committed.
 - Keep every revised plan self-contained. Readers must not need earlier revisions.
 - Keep reviews factual and actionable. Do not preserve weak critiques as required work.
 - Ignored working artifacts are the only place for task-local semantic evidence.
@@ -529,19 +534,66 @@ judges whether repository changes invalidated an approved design.
 
 For a batch, the coordinator must:
 
-1. Give each issue fixer a complete issue statement and a unique absolute working-plan path.
+1. Before launch, find or add the issue's existing tracker entry (see
+   [Tracker lifecycle ownership](#tracker-lifecycle-ownership)). Give each issue fixer a
+   complete issue statement, a unique absolute working-plan path, and the entry identifier
+   with the tracker paths.
 2. Launch independent initial Task calls concurrently, in the same orchestration turn
    or tool batch when supported, with `subagent_type: "issue-fixer"`. Do not serialize
    design or review merely because issues may touch the same files.
-3. Record, in coordinator session context and never in a repository file or registry:
-   issue identity and summary, exact returned fixer task ID and its identity, plan path,
-   latest disposition, and known implementation-lock ownership.
+3. Record task-continuity state only in coordinator session context, never in a repository
+   file or registry: issue identity and summary, exact returned fixer task ID and its
+   identity, plan path, latest disposition, known implementation-lock ownership, and any
+   tracker facts still pending. Task IDs, nonces, and handshake records are never tracker
+   fields.
 4. Handle each return independently. One issue's failure or cancellation does not
    cancel the others unless explicitly requested.
 
 Awaiting each initial fixer in sequence defeats the batch contract. If concurrent Task
 launch or exact returned-ID observation is unavailable, report the batch workflow as
 blocked. Do not silently weaken it.
+
+### Tracker lifecycle ownership
+
+`docs/working/todo.md` and `docs/working/done.md` record each issue's lifecycle. Only these
+roles write them, each limited to facts it observed:
+
+- **Batch coordinator.** Performs intake before launching a new issue. It finds the existing
+  entry by identifier and merges into it, keeping that identifier, or adds the entry as Open
+  or Analyzed when none exists. At a quiescent boundary it then applies each affected issue's
+  latest evidenced lifecycle once. The boundary requires that every previously launched or
+  resumed issue call has settled (a returned waiting fixer counts as settled; a fixer that
+  could still launch a manager does not), and that no implementation manager is active or
+  retains the lock. Settlement comes from task results and reports. The coordinator does not
+  inspect or poll the lock to create the boundary. If ownership or settlement is unknown, it
+  keeps the facts in session context, reports the update as pending, and edits nothing. It
+  does not delay an independent return or an initial design launch.
+- **Implementation manager.** Under the lock, keeps only its own issue's factual progress
+  current, as described in
+  [Singular complete implementation boundary](#singular-complete-implementation-boundary).
+- **Issue fixer.** Never writes either file. It reports lifecycle evidence in its disposition,
+  as described in [Structured fixer dispositions](#structured-fixer-dispositions).
+
+Each role acts only on the tracker authority in its own effective instructions. The shared
+todo skill describes the lifecycle but grants no write authority a session's stored body does
+not give it. A session that lacks an assigned action reports the update as pending or blocked,
+and no other session takes it over. The adoption rules for running sessions are in
+[Final reporting](#final-reporting).
+
+Status may lag while issue work runs concurrently. The coordinator applies each item's latest
+evidenced state once, so no per-round notification, intermediate status gate, or queue is
+needed. An issue is **Designed** only after its plan has passed review and the fixer has
+recorded its approval; waiting for the lock is a note on that entry. The mapping from evidence
+to status is defined in
+[saivage-todo-protocol](https://github.com/salva/saivage-v3/blob/HEAD/.github/skills/saivage-todo-protocol/SKILL.md).
+
+A completed issue moves its full entry to `done.md` only with its approved-plan record, the
+manager's validation results, the commit hashes, and stable read-only reconciliation. If any
+of that evidence is missing, the entry stays out of Done and the missing evidence is named.
+An abandoned issue is kept as Analyzed with an explicit terminal no-implementation note, not
+recorded as Done. Completion records implementation only; aggregate workflow results are
+tracked separately. Task IDs, nonces, and handshake records remain session context and are
+never tracker fields.
 
 ## Final approval and freshness gate
 
@@ -611,10 +663,17 @@ The manager must:
    - Before each new implementation attempt, the responsible issue fixer re-checks whether
      the stray lock was released. Once it is gone, normal acquisition resumes for
      every later run.
+    - As sole writer under this exception, the run also carries the factual tracker duties
+      in this section.
 
 2. Capture pre-existing Git status and diff sufficiently to preserve unrelated work and
-   to avoid staging or removing it.
-3. Decompose the approved plan into assignments. Route runtime, source, configuration,
+   to avoid staging or removing it. This includes any existing tracker-file changes, which
+   are preserved and never staged.
+3. Before any implementation delegation, read the todo protocol and the fresh exact entry for
+   the identifier the issue fixer forwarded. Set that entry to In progress, link the approved
+   plan, and note the implementing manager role. A missing, ambiguous, or unmatched identifier
+   is a blocker: invent no entry, make no tracker edit, and stop before delegation.
+   Then decompose the approved plan into assignments. Route runtime, source, configuration,
    and tooling work to `code-developer`. Route ordinary documentation to `doc-developer`,
    with `doc-reviewer`. Route model-facing instructions, prompts, templates and fragments,
    agent bodies and descriptions, skills, and AGENTS wording to `prompt-developer`, with
@@ -651,7 +710,7 @@ The manager must:
    manager-run required validation.
 6. Prepare its final report with command results and commit hashes. Before normal
    release, ensure the completed issue work is stable and committed, and that no
-   issue-owned uncommitted mutation remains.
+   issue-owned uncommitted mutation remains. Ignored tracker edits are excluded from that check.
 7. For partial completion, or for redesign-worthy learning after edits, validate and
    commit only coherent completed units. Then finish or remove only this run's
    incomplete, uncommittable changes, preserving pre-existing and unrelated work. If
@@ -663,8 +722,19 @@ The manager must:
    agent removes it or takes it over. Do not perform this removal after an uncertain
    publication that the boundary below governs.
 
-The lock spans tracked and main-document edits, generated outputs, mutating build,
-test, and documentation commands, staging, commit hooks, commits, and final issue
+**Factual tracker status before release.** Before step 8, record this attempt's factual
+status in its own issue's existing entry, and only that entry. Full implementation committed
+and awaiting fixer reconciliation stays **In progress**, with the note "implementation complete;
+fixer reconciliation pending" and the commit and validation references. A known partial attempt
+that returns to design becomes **Analyzed**, with the remaining work and the plan revision
+needed. A prerequisite or unsafe settled outcome becomes **Blocked**, with its named cause. An
+unknown outcome is recorded as **Blocked** only where the uncertain publication boundary still
+permits a write; otherwise the update is pending. Never write a Done move, and never claim
+validation or completion that was not observed. A contention-only attempt edits nothing. Tracker
+edits are never staged or committed, and lock removal remains the final mutation.
+
+The lock spans tracked and main-document edits, the factual tracker updates, generated outputs,
+mutating build, test, and documentation commands, staging, commit hooks, commits, and final issue
 cleanup. Concurrent developers stay inside one lock holder's single issue, and no
 other issue's implementation may overlap.
 
@@ -840,11 +910,14 @@ Implementation attempt: <number>
 Lock holder: <verbatim or concise faithful existing lock description>
 Continuity nonce: <fresh opaque value retained in this fixer session>
 Work performed in this attempt: none
+Tracker evidence: <entry identifier or unavailable>; lifecycle Designed with the approved plan above
 Resume condition: known lock-holder run has returned and released its lock
 Coordinator action: retain this nonce with the exact fixer task ID, then use the two-call handshake; do not launch a replacement
 ```
 
-The coordinator records each Call 1 result as:
+The waiting return's tracker evidence is `Designed` only because it carries the approval block
+above. Waiting itself is a note on the entry, not a separate status. The coordinator records the
+Call 1 result as:
 
 ```text
 Requested task ID: <exact recorded ID>
@@ -879,7 +952,11 @@ conditions, why redesign cannot make the issue worthwhile, and any separate foll
 It claims no files changed, no validation, and no commits. Never imply that an abandoned
 issue was implemented.
 
-The issue fixer generates no new implementation evidence after the manager returns.
+The issue fixer generates no new implementation evidence after the manager returns. It never
+writes `todo.md` or `done.md`, before or after the return. Every disposition report carries a
+`Tracker evidence` line naming the entry identifier, the lifecycle state the evidence supports,
+the manager's applied or pending tracker status when a manager ran, and any pending correction.
+The coordinator uses that line at its next safe boundary.
 
 ## Cancellation and error handling
 
@@ -975,19 +1052,25 @@ implementation manager invokes them.
 
 ## Final reporting
 
-Report the issue or issues, the core design choice, the plan path or paths, the
-adversarial review and final merit outcomes, material findings, the main documents and
-files changed, the author and reviewer identities used for documentation and model-facing
+Report the issue or issues, the core design choice, the plan path or paths, the tracker entry
+identifiers with the lifecycle applied or pending, the adversarial review and final merit
+outcomes, material findings, the main documents and files changed, the author and reviewer identities used for documentation and model-facing
 assets, prompt-review evidence where model-facing assets changed, manager-run validation
 commands and results, commit hashes, repository stability, residual risks and follow-ups,
 and any abandoned, blocked, or cancelled issues. When a session used a retained profile
 rather than a canonical identity, say so.
 
-Do not commit `docs/working/` artifacts. A change to skills or agent prompts in source
-describes fresh-session behavior. Ordinary, authorized fresh development sessions use the
-new profiles without a separate adoption approval. A running session keeps the instructions
-it already stored and does not newly discover a changed file, so the final report must not
-claim that such a session has adopted the change. Do not restart OpenCode, switch running
+Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
+fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles
+without a separate adoption approval. A running session keeps the stored agent body it already
+has, and a changed agent file is not a replacement for that body. A shared skill is different:
+a running session whose role permits it may later load the changed skill file, so it can
+consume the updated shared guidance. That consumption does not replace the stored body, and it
+does not expand a narrower effective permission. The session's stored authority still decides
+what it may do, so a missing allowance for a tracker action is reported as pending or blocked,
+never handed to another session. Consumption and adoption are separate facts; a file edit alone
+proves neither. The final report must not claim that a running session has adopted the change
+unless it observed the consumption or the replaced body. Do not restart OpenCode, switch running
 sessions, or replace stored instructions to force adoption. Actual deployment, service
 operations, and other separately controlled live actions keep their own distinct approval.
 The current stored implementation manager does not launch the canonical leaves merely to
