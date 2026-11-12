@@ -138,7 +138,7 @@ Map each manager return as follows:
 
 ### Waiting disposition and continuity nonce
 
-On each waiting return, generate a fresh opaque continuity nonce, retain it in your existing session context, and report it. Repeated waiting requires a new nonce. Cancellation or terminal failure discards it. The nonce is session correlation state, not a credential and not durable state.
+On each waiting return, generate a fresh opaque continuity nonce, retain it in your existing session context, and report it. Repeated waiting, including a re-entry return, requires a new nonce. Cancellation or terminal failure discards it. The nonce is session correlation state, not a credential and not durable state.
 
 ```text
 Disposition: WAITING_FOR_IMPLEMENTATION_LOCK
@@ -163,9 +163,9 @@ Coordinator action: retain this nonce with the exact fixer task ID; when you are
 The coordinator resumes you with two calls that use the same exact task ID and your own subagent identity, `issue-fixer`.
 
 - **Call 1, challenge.** The coordinator's prompt does not include the expected nonce and forbids tools, edits, commands, and every mutation. Reply with only the issue identity, the plan path, the prior `WAITING_FOR_IMPLEMENTATION_LOCK` disposition, and the nonce retained in your session context. Use no tools. If any value is unavailable, return `BLOCKED` without tools.
-- **Call 2, authorization.** Before using any tool, confirm from your own context that the immediately preceding challenge succeeded for the retained waiting episode. If that context is absent, return `BLOCKED` without tools. Otherwise perform the read-only freshness gate and, only if the plan is still approved, invoke the manager. Successful authorization consumes the nonce; discard it.
+- **Call 2, authorization.** The coordinator's prompt includes the nonce that its verified Call 1 reply reported. Before using any tool, confirm from your own context that all of these hold: your immediately preceding turn is the successful Call 1 challenge for the retained waiting episode; the nonce in this call equals the nonce that challenge reported and that you still retain; and the issue and plan match. If any condition fails, or that context is absent, return `BLOCKED` without tools, discard the nonce, and clear the episode. Otherwise perform the read-only freshness gate and, only if the plan is still approved, invoke the manager. Successful authorization consumes the nonce; discard it.
 
-If authorization arrives after cancellation between the calls, do not act on it and discard the nonce. A later continuation requires a fresh waiting disposition from this same session. Never reuse a nonce.
+If authorization arrives after cancellation between the calls, do not act on it and discard the nonce. A later continuation requires owner-authorized cancelled-wait re-entry below, never this episode's authorization. A nonce is never reused, and a mismatched or stale authorization is not re-entry evidence.
 
 Record each resume check before manager delegation:
 
@@ -176,6 +176,44 @@ Current HEAD: <commit>
 Relevant intervening changes: <summary or none>
 Decision and evidence: <reason>
 ```
+
+### Owner-authorized cancelled-wait re-entry
+
+The coordinator may send you one re-entry request, with the same task ID and your identity. It is sent only after the project owner explicitly instructs continuing this cancelled issue and the coordinator selects you as its single next run. The request forwards that owner instruction and the cancellation fact. It forbids tools, files, commands, lock inspection, freshness work, and delegation, and it supplies no nonce, old or proposed. It is a distinct entry request, not Call 1 and not implementation authorization. Answer it without tools.
+
+Re-enter only when your own retained session context establishes all of these:
+
+- **Identity and plan:** the issue identifier and the absolute plan path you retained for this issue.
+- **Cancelled waiting episode:** a `WAITING_FOR_IMPLEMENTATION_LOCK` disposition was returned for this issue and its episode was then cancelled, including cancellation between calls after a successful challenge. A forwarded cancellation of that episode counts as the cancellation when it prevented your reply. You need no prior acknowledgement, and a forwarded cancellation never supplies missing context.
+- **No manager attempt in flight:** no authorization was accepted for this episode, so no implementation-manager attempt or unreconciled manager return belongs to it.
+- **Approval still valid:** the plan approval you retained has not been invalidated. It is invalidated when a freshness check returned `PLAN_REVIEW_REQUIRED`, the plan was revised after approval, or design returned it for revision. Re-entry never revives an invalidated approval.
+
+If any condition fails, return `BLOCKED` without tools and name the failed condition. For an invalidated approval, name the design blocker that requires `issue-designer` and the complete review loop. Discard any challenge or authorization correlation. Issue no waiting report. Never reconstruct missing context from the request or from another session.
+
+If every condition holds, invalidate all prior handshake state, generate a fresh opaque continuity nonce, retain it in context, and return:
+
+```text
+Disposition: WAITING_FOR_IMPLEMENTATION_LOCK
+Waiting origin: owner-authorized cancelled-wait re-entry; not new lock contention
+Issue: <identifier and summary>
+Plan: <absolute path>
+Plan approval (historical, not freshly checked):
+Review closure: <retained review verdict and round/review artifact>
+Final merit outcome: WORTH_IMPLEMENTING
+Supporting evidence: <retained evidence>
+Examined HEAD (historical): <commit>
+Last freshness result (historical): <retained result and HEAD, or none>
+Implementation attempt (last recorded, not incremented): <number or none>
+Last known lock holder (historical, not currently observed): <retained description>
+Prior manager effects (cumulative, from earlier manager reports): <delivered units, commit hashes, validation results with failures and limits, or none>
+Continuity nonce: <fresh opaque value retained in this fixer session>
+Work performed by this re-entry: none; no tool use, freshness check, lock action, or manager invocation
+Tracker evidence: <entry identifier or unavailable>; lifecycle Designed with the approved plan above, with the cancelled-wait re-entry as a waiting note; manager tracker status and pending corrections as last reported
+Resume condition: the coordinator's nonce-free challenge in its selected run; the coordinator established the lock holder's settlement at its selection boundary before this entry, and this report does not observe it
+Coordinator action: retain this nonce with the exact fixer task ID; do not launch a replacement
+```
+
+This report does not show that the issue has no prior effects. It is not a fresh approval, freshness check, lock observation, or contention attempt. Carry every historical fact in later reports as historical. A re-entered episode that is cancelled again follows these same rules: each re-entry issues a fresh nonce, and the historical facts keep their origin.
 
 ### Acquired-lock return: read-only reconciliation
 
@@ -211,9 +249,10 @@ Every disposition report also includes a `Tracker evidence` line: the entry iden
 
 ## Cancellation and errors
 
-- **Cancelled while waiting:** `CANCELLED`. Discard the nonce, make no handshake call, and do not touch the lock.
+- **Cancelled while waiting:** `CANCELLED`. Discard the nonce and any challenge or authorization correlation, make no handshake call, and do not touch the lock. Retain the issue identity, plan path, and last known facts, including cumulative prior manager effects, so that owner-authorized cancelled-wait re-entry can be evaluated later. Cancellation alone never resumes the issue.
 - **Challenge mismatch, absence, or tool use:** `BLOCKED`. Discard the nonce and make no authorization call. Never adopt a replacement session.
-- **Authorization ID or context mismatch:** `BLOCKED` before any freshness or implementation tool use. Never delegate from replacement-session output.
+- **Authorization ID, nonce, or context mismatch:** `BLOCKED` before any freshness or implementation tool use. Discard the nonce and clear the episode. Never delegate from replacement-session output.
+- **Re-entry request that fails its conditions:** `BLOCKED` without tools, as described under owner-authorized cancelled-wait re-entry.
 - **Design, review, or Task problem before implementation:** `BLOCKED` for unavailable required tooling; `FAILED` for an actual issue-local failure.
 - **Unresumable task ID:** `BLOCKED`. Do not launch a replacement fixer.
 - **Design abandoned on merit:** `ABANDONED`, an intentional terminal decision, before implementation or for a remainder after stabilized partial delivery. Report any delivered scope with it. No resume or replacement.

@@ -598,13 +598,17 @@ Advance only on evidenced settlement:
 
 At each eligible boundary the coordinator selects exactly one next run: either one new issue,
 or one recorded waiting fixer whose known lock holder has returned, released its lock, and
-reported a stable committed state. It never selects two. The protocol sets no priority
-between new issues and waiting fixers. A selected waiter resumes through the two-call
-handshake in [Lock contention and event-driven resume](#lock-contention-and-event-driven-resume),
-and the coordinator then awaits that entire run. Every other waiter stays dormant, with its
-exact task ID, identity, and nonce episode unchanged, until a later eligible boundary. If the
-selected waiter's freshness check requires design review, its own design and review loop
-continues, and no other waiter is selected in its place. Waiters never race for the lock.
+reported a stable committed state, or one cancelled waiter for owner-authorized re-entry, as
+described in [Owner-authorized cancelled-wait re-entry](#owner-authorized-cancelled-wait-re-entry).
+It never selects two. The protocol sets no priority between new issues, waiting fixers, and
+cancelled waiters. A selected waiter resumes through the two-call handshake in
+[Lock contention and event-driven resume](#lock-contention-and-event-driven-resume). A selected
+cancelled waiter first completes its re-entry entry within the same run, and then the handshake.
+The coordinator then awaits that entire run. Every other waiter, cancelled waiters included,
+stays dormant, with its exact task ID, identity, and retained nonce or cancelled-wait facts
+unchanged, until a later eligible boundary. If the selected waiter's freshness check requires
+design review, its own design and review loop continues, and no other waiter is selected in its
+place. Waiters never race for the lock.
 
 ### Tracker lifecycle ownership
 
@@ -867,10 +871,10 @@ Coordinator sequencing prevents most contention, but unexpected contention can s
 for example from a run outside the coordinator's sequence. The lock therefore remains the
 only safety boundary, and every contender follows this section.
 
-The coordinator selects a waiting fixer only at an eligible boundary: the known holder has
-returned, released its lock, and reported a stable committed state, and no other run is
-selected. It selects one waiter. Waiters are not resumed optimistically as a group, because
-the losers would only wait again. Selection creates no queue, scheduler, fairness promise,
+The coordinator selects a waiting fixer, or a cancelled waiter for owner-authorized re-entry,
+only at an eligible boundary: the known holder has returned, released its lock, and reported a
+stable committed state, and no other run is selected. It selects one waiter. Waiters are not
+resumed optimistically as a group, because the losers would only wait again. Selection creates no queue, scheduler, fairness promise,
 timer, watcher, or additional lock. A resumed fixer that loses contention again waits with a
 fresh nonce, and the coordinator selects again only at a later eligible boundary.
 
@@ -881,7 +885,8 @@ retains it in its existing session context, and reports it. The coordinator reco
 with the exact returned task ID and replaces any prior nonce for that issue. The nonce is
 session correlation state, not a credential or durable state. Successful authorization
 consumes it. Repeated waiting requires a new nonce. Cancellation or terminal failure
-discards it.
+discards it. An owner-authorized re-entry return is a waiting return and receives a fresh nonce
+under the same rules; see [Owner-authorized cancelled-wait re-entry](#owner-authorized-cancelled-wait-re-entry).
 
 ### Mandatory two-call resume handshake
 
@@ -908,11 +913,96 @@ issue `BLOCKED`. Make no Call 2. An invalid ID may create a new session, but tha
 cannot know the undisclosed nonce, and its output is never adopted.
 
 **Call 2, authorization.** Only after Call 1 passes, invoke the same exact task ID again.
-Authorize the read-only freshness gate and, only if the plan is still approved, manager
-delegation. Before using any tool, the issue fixer confirms from its own context that the
-immediately preceding handshake succeeded for the retained waiting episode. If that
-context is absent, the result is `BLOCKED` without tools. The coordinator again verifies
-the exact returned task ID. Successful authorization consumes the nonce.
+The prompt includes the nonce that the verified Call 1 reply reported and states that this
+authorization applies only to that challenged episode. It authorizes the read-only freshness
+gate and, only if the plan is still approved, manager delegation. Before using any tool, the
+issue fixer confirms from its own context that all of these hold: its immediately preceding
+turn is the successful Call 1 challenge for the retained waiting episode; the nonce in this
+call equals the nonce that challenge reported and that it still retains; and the issue and plan
+match. If any condition fails, or that context is absent, the result is `BLOCKED` without tools,
+and the fixer discards the nonce and clears the episode. The coordinator again verifies the exact
+returned task ID. Successful authorization consumes the nonce. A mismatched or stale
+authorization, including one from an earlier episode sent after a fresh challenge, is never
+delegated from and is not re-entry evidence.
+
+### Owner-authorized cancelled-wait re-entry
+
+Cancellation is effective at once. A cancelled waiter discards its nonce and any challenge or
+authorization correlation, makes no handshake call, stops launches and resumes, and does not
+touch the lock. It keeps its exact task ID, issue identity, plan path, and last known facts,
+including the retained approval, freshness, attempt, and lock-holder facts and the cumulative
+prior manager effects. Cancellation alone never schedules re-entry. Re-entry requires an explicit
+project-owner instruction to continue this cancelled issue. An earlier implementation
+authorization does not satisfy it.
+
+Re-entry is a selected run and needs the same evidence as any waiter: every earlier call has
+settled, the shared worktree is safe and stable, the manager lock is released, and the known lock
+holder has returned, released its lock, and reported a stable committed state. A holder
+settlement that occurred during the cancellation satisfies this, so no new contention or holder
+event is needed. The owner instruction bypasses none of these conditions. If any condition is
+unknown, the entry is blocked. Do not poll, probe, or send a speculative manager call to establish
+it. At the selection boundary, apply any still-pending cancellation note first, under
+[Tracker lifecycle ownership](#tracker-lifecycle-ownership).
+
+The coordinator makes one entry call with the identity and exact task ID recorded at launch:
+
+```text
+subagent_type: "<the identity recorded at launch>"
+task_id: "<exact recorded task ID>"
+```
+
+Its prompt forwards the owner's continuation instruction verbatim and states that the earlier
+waiting episode was cancelled. It forbids tools, files, commands, lock inspection, freshness work,
+and delegation. It supplies no nonce, old or proposed, and asks only for the retained issue
+identity, plan path, and cancelled waiting context, plus a fresh waiting disposition with new
+correlation. The entry is a distinct request. It is not Call 1 and not implementation
+authorization.
+
+The fixer re-enters only when its retained session context establishes all of these:
+
+- **Identity and plan:** the issue identifier and the absolute plan path retained for this issue.
+- **Cancelled waiting episode:** a `WAITING_FOR_IMPLEMENTATION_LOCK` disposition was returned for
+  this issue and the episode was then cancelled, including cancellation between calls after a
+  successful challenge. A forwarded cancellation of that episode counts when it prevented the
+  fixer's reply. No prior acknowledgement is needed, and a forwarded cancellation never supplies
+  missing context.
+- **No manager attempt in flight:** no authorization was accepted for this episode, so no
+  implementation-manager attempt or unreconciled manager return belongs to it.
+- **Approval still valid:** the retained plan approval has not been invalidated. It is invalidated
+  when a freshness check returned `PLAN_REVIEW_REQUIRED`, when the plan was revised after approval,
+  or when design returned it for revision. Re-entry never revives an invalidated approval.
+
+If a condition fails, the fixer returns `BLOCKED` without tools and names the failed condition.
+For an invalidated approval, it names the design blocker that requires `issue-designer` and the
+complete review loop. It discards any challenge or authorization correlation and issues no waiting
+report. It never reconstructs missing context from the request or from another session. If every
+condition holds, it invalidates all prior handshake state, generates a fresh opaque nonce, retains
+it in context, and returns the re-entry waiting disposition shown under
+[Structured fixer dispositions](#structured-fixer-dispositions).
+
+The coordinator verifies the return independently. The returned task ID must be byte-identical to
+its record, no tool may have been used, and the disposition must be `WAITING_FOR_IMPLEMENTATION_LOCK`
+with the re-entry waiting origin. The issue and plan must match the record, and the historical
+facts must be marked as historical. Only then does the coordinator record the returned nonce as the
+sole current nonce, replacing the cancelled one. Missing evidence, a mismatch, a `BLOCKED` reply,
+or tool use makes the entry `BLOCKED`. The coordinator then makes no Call 1, never adopts a returned
+replacement, and never repeats the entry to resolve it.
+
+The verified entry return is settled. The coordinator applies its tracker update (Designed, with
+the cancelled-wait re-entry as a note) at that boundary before Call 1, because Call 1 is a resume.
+The normal two-call handshake then runs in the same selected run. Call 1 challenges with the four
+retained values verified against the record. Call 2 authorizes with the nonce that the verified
+Call 1 reply reported.
+
+Re-entry carries facts, not authority. The re-entry return is a waiting return. It is not new lock
+contention, freshness evidence, a current lock observation, or a new manager attempt. It ends before
+manager admission, changes no serialization right, and grants no freshness or implementation
+authority. A re-entered waiter that is cancelled again follows these same rules: its new nonce
+replaces the old one, and its historical facts keep their origin.
+
+A pre-transition `fixer` session supports this entry only if its stored body implements it. Changing
+the source does not establish that. If a stored body cannot follow this handoff, the coordinator
+reports the limitation and does not replace the session.
 
 ## Handling manager returns
 
@@ -1006,6 +1096,36 @@ Relevant intervening changes: <summary or none>
 Decision and evidence: <reason>
 ```
 
+A cancelled-wait re-entry return is also a `WAITING_FOR_IMPLEMENTATION_LOCK` disposition, but its
+origin is stated and its retained facts are marked historical. It uses this block, which carries the
+cumulative prior manager effects and issues a fresh nonce:
+
+```text
+Disposition: WAITING_FOR_IMPLEMENTATION_LOCK
+Waiting origin: owner-authorized cancelled-wait re-entry; not new lock contention
+Issue: <identifier and summary>
+Plan: <absolute path>
+Plan approval (historical, not freshly checked):
+Review closure: <retained review verdict and round/review artifact>
+Final merit outcome: WORTH_IMPLEMENTING
+Supporting evidence: <retained evidence>
+Examined HEAD (historical): <commit>
+Last freshness result (historical): <retained result and HEAD, or none>
+Implementation attempt (last recorded, not incremented): <number or none>
+Last known lock holder (historical, not currently observed): <retained description>
+Prior manager effects (cumulative, from earlier manager reports): <delivered units, commit hashes, validation results with failures and limits, or none>
+Continuity nonce: <fresh opaque value retained in this fixer session>
+Work performed by this re-entry: none; no tool use, freshness check, lock action, or manager invocation
+Tracker evidence: <entry identifier or unavailable>; lifecycle Designed with the approved plan above, with the cancelled-wait re-entry as a waiting note; manager tracker status and pending corrections as last reported
+Resume condition: the coordinator's nonce-free challenge in its selected run; the coordinator established the lock holder's settlement at its selection boundary before this entry, and this report does not observe it
+Coordinator action: retain this nonce with the exact fixer task ID; do not launch a replacement
+```
+
+This report does not show that the issue has no prior effects. It is not a fresh approval, freshness
+check, lock observation, or contention attempt. Its historical facts stay historical in every later
+report, and the re-entry origin stays with them. The `Designed` evidence holds only because the entry
+requires the retained approval to remain valid.
+
 A completed report includes the issue identity, the plan path, the unchanged successful
 plan-approval block, files changed, manager-supplied validation results, commit hashes,
 remaining work or divergence, and repository stability.
@@ -1034,14 +1154,25 @@ The coordinator uses that line at its next safe boundary.
 ## Cancellation and error handling
 
 - **Waiting fixer cancelled:** mark `CANCELLED`, discard its nonce, make no handshake
-  call, and do not touch the lock. Other issues continue unless directed otherwise.
+  call, and do not touch the lock. Retain the issue identity, plan path, and last known facts,
+  including cumulative prior manager effects, for possible owner-authorized cancelled-wait
+  re-entry. Cancellation alone never resumes the issue. Other issues continue unless directed
+  otherwise.
 - **Call 1 mismatch, absence, or tool use:** mark `BLOCKED`, discard the nonce, and make
   no Call 2. Never adopt a replacement session.
 - **Cancellation between calls:** discard the authorization and make no Call 2. Never
-  reuse the nonce. Later continuation requires a fresh waiting disposition from the
-  original session.
-- **Call 2 ID or context mismatch:** mark `BLOCKED` before any freshness or
-  implementation tool use, and never delegate from replacement-session output.
+  reuse the nonce. Later continuation requires owner-authorized cancelled-wait re-entry from
+  the original session, which issues a new nonce and never reuses this episode's nonce or
+  authorization.
+- **Call 2 ID, nonce, or context mismatch:** mark `BLOCKED` before any freshness or
+  implementation tool use, discard the nonce, clear the episode, and never delegate from
+  replacement-session output. A stale authorization from an earlier episode, including one sent
+  after a fresh challenge, is handled the same way.
+- **Re-entry entry that fails its conditions or verification:** mark `BLOCKED` without tools.
+  The fixer names the failed condition, or for an invalidated approval the design blocker. The
+  coordinator makes no Call 1, never adopts a returned replacement, and never repeats the entry
+  to resolve it. The fixer issues no waiting report, and the coordinator resolves the named
+  cause first.
 - **Design, review, or Task problem before implementation:** use `BLOCKED` for unavailable
   required tooling and `FAILED` for an actual issue-local failure. Other fixers may
   continue if the shared worktree is safe.
@@ -1145,7 +1276,11 @@ limits) and the abandoned remainder separately. Never imply whole-issue completi
 omit partial delivery that the reports show. When a session used a retained profile
 rather than a canonical identity, say so. The coordinator also reports each selected run in
 order, the boundary evidence used before each launch or resume, and each dormant waiter by
-identifier only.
+identifier only. For each owner-authorized cancelled-wait re-entry, it also reports the owner
+instruction received, the cancellation evidence, the entry result, and the historical facts the
+entry carried. These are reported as historical, never as new lock contention or fresh freshness
+evidence. Task IDs, nonces, and handshake records remain session context and are not written to
+tracker or repository files.
 
 Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
 fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles

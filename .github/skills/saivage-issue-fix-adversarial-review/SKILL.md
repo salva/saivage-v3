@@ -38,9 +38,9 @@ Each fixer return starts with exactly one disposition: `COMPLETED`, `ABANDONED`,
 
 - **`COMPLETED`:** record it. Check that the report includes the unchanged plan-approval block, files changed, manager validation results, commit hashes, and repository stability.
 - **`ABANDONED`:** an intentional terminal merit decision not to implement further issue scope. It may come before any implementation or after stabilized partial delivery. Record the delivered scope (units, commit hashes, validation with its failures and limits) and the abandoned remainder separately, and check that the report supports both claims. Do not resume it, replace it, or relaunch it automatically.
-- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's fresh continuity nonce with its exact task ID and identity, replacing any earlier nonce for that issue. Do not launch a replacement. Keep it dormant until the coordinator selects it as the single next run. Resume it only through the two-call handshake below, and only after the known lock holder has returned, released its lock, and reported a stable committed state.
+- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's fresh continuity nonce with its exact task ID and identity, replacing any earlier nonce for that issue. Do not launch a replacement. Keep it dormant until the coordinator selects it as the single next run. Resume it only through the two-call handshake below, and only after the known lock holder has returned, released its lock, and reported a stable committed state. A re-entry waiting return, whose origin is owner-authorized cancelled-wait re-entry, is recorded the same way and keeps its historical facts marked as historical.
 - **`BLOCKED` or `FAILED`:** record the stated cause. Do not launch a replacement fixer. Resolve the named cause first.
-- **`CANCELLED`:** discard any nonce. Do not touch the lock.
+- **`CANCELLED`:** discard any nonce and any challenge or authorization correlation. Do not touch the lock. Keep the task ID, identity, plan path, and last known facts as a dormant cancelled waiter, eligible only for owner-authorized re-entry below.
 
 ## Select one run at a time
 
@@ -52,7 +52,7 @@ Advance only on evidenced settlement:
 - Unknown settlement, a retained lock, a timeout, a missing result, or an unsafe worktree blocks every further implementation-capable launch and resume.
 - Do not use lock inspection, polling, sleeps, speculative manager calls, or new approval ceremonies to establish eligibility.
 
-At each eligible boundary, select exactly one next run: either one new issue, or one recorded waiting fixer whose known lock holder has returned, released its lock, and reported a stable committed state. Never select two. A selected waiter resumes through the two-call handshake, then you await that entire run. Leave every other recorded waiter dormant, with its task ID, identity, and nonce episode unchanged, until a later eligible boundary. Waiters never race for the lock. If the selected waiter's freshness check requires design review, its own design and review loop continues; no other waiter is selected in its place. Do not create a queue, timer, poller, watcher, or extra lock.
+At each eligible boundary, select exactly one next run: either one new issue, one recorded waiting fixer whose known lock holder has returned, released its lock, and reported a stable committed state, or one cancelled waiter under owner-authorized re-entry (below). Never select two. A selected waiter resumes through the two-call handshake, or through the re-entry entry followed by that handshake; then you await that entire run. Leave every other recorded waiter, cancelled waiters included, dormant, with its task ID, identity, and nonce episode unchanged, until a later eligible boundary. Waiters never race for the lock. If the selected waiter's freshness check requires design review, its own design and review loop continues; no other waiter is selected in its place. Do not create a queue, timer, poller, watcher, or extra lock.
 
 ## Tracker lifecycle at safe boundaries
 
@@ -94,9 +94,30 @@ Retained nonce from session context: <opaque value or unavailable>
 
 `CONFIRMED` requires no tool use or mutation, all four retained values matching, and identical requested and returned IDs. Any mismatch, absence, task-ID mismatch, or tool use makes the issue `BLOCKED`. Discard the nonce and make no Call 2. An invalid ID may create a new session, but its output is never adopted and it cannot know the undisclosed nonce.
 
-**Call 2, authorization.** Only after `CONFIRMED`, invoke the same exact task ID again with the same identity. The prompt authorizes the read-only freshness gate and, only if the plan is still approved, manager delegation. Independently verify the returned ID again. The fixer confirms that the handshake succeeded before any tool use. If it reports missing context, treat the result as `BLOCKED` and never delegate from its output. Successful authorization consumes the nonce.
+**Call 2, authorization.** Only after `CONFIRMED`, invoke the same exact task ID again with the same identity. Include the nonce that the verified Call 1 reply reported, and state that this authorization applies only to that challenged episode. The prompt authorizes the read-only freshness gate and, only if the plan is still approved, manager delegation. Independently verify the returned ID again. The fixer confirms, against its own record, that the immediately preceding challenge succeeded and that the nonce matches before any tool use. If it reports missing context or a mismatch, treat the result as `BLOCKED` and never delegate from its output. Successful authorization consumes the nonce. Never send or accept an authorization from an earlier episode.
 
-**Cancellation between calls.** Discard the authorization and make no Call 2. The nonce is never reused. A later continuation needs a fresh waiting disposition from the original session.
+**Cancellation between calls.** Discard the authorization and make no Call 2. The nonce is never reused. A later continuation requires owner-authorized re-entry from the original session, below; it never reuses this episode's nonce or authorization.
+
+## Owner-authorized cancelled-wait re-entry
+
+A cancelled waiter stays dormant. Keep its exact task ID, identity, plan path, last approval, freshness, attempt and lock-holder facts, cumulative prior manager effects, and the cancellation in session context only. It re-enters only when the project owner explicitly instructs continuing this cancelled issue. An earlier implementation authorization is not enough, and cancellation never schedules re-entry.
+
+Re-entry is a selected run and requires the same evidence as any waiter: every prior call settled, the shared worktree safe and stable, the manager lock released, and the known holder's return, release, and stable report. A holder settlement that occurred during the cancellation satisfies this, so no new holder event is required. Owner continuation bypasses none of these conditions. If any of them is unknown, block the entry. Do not poll, probe, or send a speculative manager call. At that selection boundary, apply any still-pending cancellation note first under the tracker rules above.
+
+The entry is one call with the identity and exact task ID recorded at launch:
+
+```text
+subagent_type: "<the identity recorded at launch>"
+task_id: "<exact recorded task ID>"
+```
+
+Its prompt forwards the owner's continuation instruction verbatim and states that the earlier waiting episode was cancelled. It forbids tools, files, commands, lock inspection, freshness work, and delegation. It supplies no nonce, old or proposed. It asks only for the retained issue identity, plan path, and cancelled waiting context, plus a fresh waiting disposition with new correlation. It is a distinct entry request, not Call 1 and not implementation authorization.
+
+Verify the return independently. The returned task ID must be byte-identical to your record, no tool may have been used, and the disposition must be `WAITING_FOR_IMPLEMENTATION_LOCK` with re-entry origin. The issue and plan must match your record, and the historical facts must be marked as historical. Then record the returned nonce as the only current nonce, replacing the cancelled one. Anything else, including missing evidence, a mismatch, a `BLOCKED` reply, or tool use, is `BLOCKED`. Make no Call 1, never adopt a returned replacement, never repeat the entry to resolve it, and resolve the named cause first.
+
+The entry's waiting return is then settled. Apply its tracker update (Designed, with the cancelled-wait re-entry as a note) at that boundary before Call 1, because Call 1 is a resume. Then run the normal two-call handshake in the same selected run: Call 1 challenges with the four retained values verified against your record, and Call 2 authorizes with the nonce verified from Call 1. The re-entry report contains historical facts. Treat it as a waiting return, not as new contention, freshness evidence, a current lock observation, or a new manager attempt.
+
+Repeated cancellation of a re-entered waiter follows these rules again. Its new nonce replaces the old one, and its historical facts keep their origin.
 
 ## Manager returns, stray locks and owner authorizations
 
@@ -125,10 +146,10 @@ Aggregate checks are harmless: they never stage, commit, repair, or start an imp
 
 ## Cancellation
 
-Stop further launches and resumes. Cancel children only when explicitly requested and supported. Report every issue's last disposition, identity, and any active lock holder. Never remove another session's lock.
+Stop further launches and resumes. Cancel children only when explicitly requested and supported. Report every issue's last disposition, identity, and any active lock holder. Never remove another session's lock. Cancelled waiters keep their task ID, identity, and last facts for owner-authorized re-entry only.
 
 ## Reporting
 
-Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. Also report each selected run in order, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. When an issue used a retained profile rather than a canonical identity, say so. For an abandoned or partly delivered issue, report the delivered scope and the abandoned remainder factually. Never imply whole-issue completion, and never omit partial delivery the reports show. Do not commit `docs/working/` artifacts.
+Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. Also report each selected run in order, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. For each cancelled-wait re-entry, report the owner instruction received, the cancellation evidence, the entry result, and the historical facts it carried, never as new contention or fresh freshness evidence. When an issue used a retained profile rather than a canonical identity, say so. For an abandoned or partly delivered issue, report the delivered scope and the abandoned remainder factually. Never imply whole-issue completion, and never omit partial delivery the reports show. Do not commit `docs/working/` artifacts.
 
 A running session keeps the stored instructions of its agent body. Shared skills and instruction files may be consumed by sessions that load them after this change; consumption is not proof of effective authority or adoption. Do not restart OpenCode or rewrite stored sessions to adopt this change, do not claim that a running session discovered a changed file, and report any effective instruction conflict as a blocker rather than patching the session.
