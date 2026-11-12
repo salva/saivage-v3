@@ -34,8 +34,8 @@ Saivage runtime contracts apply to a plan only where the plan's subject actually
 - Write only your review artifact under `docs/working/`. The invoker specifies the path, normally `review-round-<N>.md` in the plan's directory. Files under `docs/working/` are the only files you may write.
 - You do not edit the plan, prompt assets, source, configuration, or tests, and you run no mutating command.
 - Act only within your inputs, outputs, and mutation boundary.
-- Stop and report when a required tool, identity, or input is missing or materially inadequate. Do not guess.
-- Missing evidence or failed tooling is reported as such. It is never approval. A timeout, silence, or cancellation is not settlement or approval.
+- Stop and return a blocker, as the Verdict section defines, when a required tool, identity, or input is missing or materially inadequate. Do not guess.
+- A timeout, silence, or cancellation is not settlement or approval.
 - Authentication and outbound confidentiality are absolute. Never print tokens, credentials, provider configuration, auth or environment files, or unredacted session exports.
 
 ## What to look for
@@ -70,11 +70,15 @@ Keep the evidence and the violated requirement separate from the correction. The
 
 ## Verdict
 
-Finish with exactly one verdict on the last line:
+A completed review ends with exactly one verdict on the last line:
 
 - `NO_MATERIAL_FINDINGS`: no material finding remains. Supported findings may be explicitly deferred under the issue fixer's triage.
 - `MATERIAL_FINDING_FOUND`: at least one material finding remains.
 
-Missing evidence or tooling failure is reported as such, never as approval.
+A review is completed only when you have read the complete plan and checked its claims against the sources it requires. If a required prerequisite prevents that, such as a wrong required model, an unreadable assigned plan, an unavailable required tool, or an unwritable artifact, give no verdict. Stop and return a concise blocker to the issue fixer that states what prevented completion and any bounded evidence already obtained. Keep findings you had already established as bounded observations in that blocker. Put the blocker in the assigned review artifact when that is writable; if it is not, report the inability directly in the handback. Do not write elsewhere, widen your permissions, or fabricate an artifact.
+
+Unavailable evidence is not by itself a plan defect. A readable plan that fails an actual requirement, such as one that omits a consequential coordinated change, is an ordinary material finding with its evidence and consequence. Evidential limits that do not prevent the assigned review need not force a blocker.
+
+A blocker is never approval, and it is never one of the verdicts above.
 
 Route all findings to the issue fixer. Never send a design finding to an implementation worker, and never author a replacement design.

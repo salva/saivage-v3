@@ -295,6 +295,11 @@ projects into that role's own prompt body, so a role never needs this document t
   inadequate. Do not guess.
 - Distinguish absence of evidence from success. A missing result, a timeout, silence,
   or a cancellation is not settlement, approval, or passing validation.
+- Distinguish three things. A settled blocker handback from a reviewer reports an incomplete
+  review: it settles that call and gives its bounded evidence, but it completes no review and
+  approves nothing. A completed review ends with its verdict. A missing, partial, or ID-only
+  call result is unsettled, as [Native delegation and settlement](#native-delegation-and-settlement)
+  describes. Only a completed review can close a review round or pass an asset.
 - Report partial effects honestly: what changed, what did not, and what remains.
   Preserve unrelated work, including other sessions' files and locks. Never remove or
   take over a lock except through the boundaries in this document.
@@ -351,11 +356,20 @@ projects into that role's own prompt body, so a role never needs this document t
   sends confirmed material findings to the issue designer for revision, then repeats the
   full review loop. You never send a design finding to an implementation worker, and
   you never author a replacement design.
-- Finish with exactly one verdict on the last line:
+- A completed review finishes with exactly one verdict on the last line:
   - `NO_MATERIAL_FINDINGS`: no material finding remains. Supported findings may be
     explicitly deferred under triage.
   - `MATERIAL_FINDING_FOUND`: at least one material finding remains.
-  Missing evidence or failed tooling is reported as such. It is never approval.
+  A review is completed only when the complete plan has been read and its claims checked against
+  the sources it requires. When a prerequisite prevents that, such as a wrong required model, an
+  unreadable assigned plan, an unavailable required tool, or an unwritable artifact, the reviewer
+  gives no verdict. It returns a concise blocker to the issue fixer that states what prevented
+  completion and any bounded evidence already obtained; findings already established remain
+  bounded observations in that blocker. The blocker goes in the assigned review artifact when that
+  is writable; otherwise the inability is reported directly, with no other file and no fabricated
+  artifact. Unavailable evidence is not by itself a plan defect: a readable plan that fails an
+  actual requirement, such as one that omits a consequential coordinated change, is an ordinary
+  material finding. A blocker is never approval and never a verdict.
 - `design-reviewer-secondary` applies the same design-review criteria, failure and
   reporting boundaries, and verdicts. It is an optional, explicitly requested additional
   design reviewer. It never substitutes for ordinary `design-reviewer` review or for any
@@ -468,7 +482,15 @@ projects into that role's own prompt body, so a role never needs this document t
   its actual edit authority. If that scope becomes uncertain, the full protocol applies. A finding
   that requires a changed design is reported as such: in an issue run the manager returns it to
   the issue fixer, and a direct fix routes it to the full protocol.
-- Finish with exactly one verdict on the last line, as for design review.
+- A completed review finishes with exactly one verdict on the last line, as for design review.
+  When a prerequisite prevents completion, such as a wrong required model, an unreadable
+  assigned file, an unavailable required tool, or an unwritable artifact, the reviewer gives no
+  verdict. It returns a concise blocker to the invoking owner that states what prevented
+  completion and any bounded evidence already obtained, keeping established findings as bounded
+  observations. The blocker goes in the assigned review artifact when that is writable; otherwise
+  the inability is reported directly. Unavailable input alone is not an asset defect, and a
+  readable text that fails an actual requirement is an ordinary material finding. A blocker is
+  never approval and never a verdict.
 - `prompt-reviewer` review of a changed prompt asset covers two final activities on the
   actual final composition, after the last relevant edit and including any inline
   integration: (a) linkage, positive-sufficiency, and whole-composition review; and (b) a
@@ -480,7 +502,10 @@ projects into that role's own prompt body, so a role never needs this document t
   verdict that does not identify the clean-room assessment, or a review of wording made
   before its inline integration does not complete either activity. A report that lacks
   this evidence is completed by an independent `prompt-reviewer` on the actual final input,
-  never presumed passed. A later relevant change requires fresh review of the affected
+  never presumed passed. A prompt review that a prevented or stale final input stops before both
+  activities complete gives no verdict and completes neither activity; its blocker is settled but
+  incomplete, and an independent `prompt-reviewer` must complete both on the actual final input.
+  A later relevant change requires fresh review of the affected
   final composition and another clean-room assessment. Relevant changes include a
   correction, a validation-driven edit, an integration, and a change to shared or governing
   instructions, to the host, or to the configuration that affects the asset. The same
@@ -577,9 +602,16 @@ every design review.
 4. When any finding is material, check whether the periodic design-value
    reassessment is due. If it is not due, revise and repeat directly. If it is due,
    continue to revision only on `WORTH_CONTINUING`.
-5. When every finding is false, minor, or explicitly deferred and no confirmed
-   material finding remains, run the mandatory final design-value reassessment.
-   Review closure alone never authorizes freshness checking or implementation.
+5. When every finding is false, minor, or explicitly deferred, no confirmed material
+   finding remains, and every required review of the current plan revision (the ordinary
+   review, plus the secondary review when requested) has returned a completed verdict, run
+   the mandatory final design-value reassessment. A reviewer's blocker is not closure, and the
+   absence of findings from an incomplete review is not evidence of closure. A blocker
+   handback is not triaged as a review finding and does not send the plan to the designer as
+   an automatic redesign. The existing stop routing decides what follows: unavailable required
+   tooling, identity, or input is `BLOCKED`, and an actual issue-local failure is `FAILED`
+   (see [Escalation and blockers](#escalation-and-blockers)). Review closure alone never
+   authorizes freshness checking or implementation.
 
 Invoke the issue designer through the exposed native subagent tool with agent
 `issue-designer`, a short description, and a prompt giving the issue context and the
@@ -792,7 +824,7 @@ records implementation only; aggregate workflow results are tracked separately. 
 
 ## Final approval and freshness gate
 
-Only after review closes and the final reassessment returns `WORTH_IMPLEMENTING` may
+Only after review closes (every required review of the current revision has returned a completed verdict, as step 5 of the adversarial loop defines) and the final reassessment returns `WORTH_IMPLEMENTING` may
 the issue fixer record approval in session or report state. The approval record holds the
 review closure (verdict and round or review artifact), the final merit outcome
 `WORTH_IMPLEMENTING`, concise evidence for the four merit conditions, and the examined `HEAD`.
@@ -885,7 +917,10 @@ The manager must:
       prompt asset, that review is the final activities above, including the clean-room
       assessment, and the same applies after any later relevant shared or governing
       instruction, host, or configuration change. For ordinary documentation, the fresh
-      review is by `doc-reviewer`; no prompt clean-room assessment is added.
+      review is by `doc-reviewer`; no prompt clean-room assessment is added. A reviewer's
+      blocker handback is a settled report of an incomplete review, not a completed review:
+      the manager does not treat the affected asset as reviewed until its required review
+      returns a completed verdict on the actual final input.
    - A finding that requires a changed design is not implemented by any worker. The
      manager returns it to the original issue fixer for the full redesign loop.
    - Include planned discriminator, producer, consumer, fixture, and reference
@@ -1233,7 +1268,7 @@ coordinator's own record) carry what the next role needs to review, apply, valid
 issue and plan paths, the tracker entry identifier with the status applied or pending, the review and
 final merit outcomes, material findings, files changed and commit references, manager-assured
 validation commands with results and input scope (and whether each was reused or newly run), prompt-review
-evidence where model-facing assets changed, retained-profile identities where a session used one,
+evidence where model-facing assets changed (an incomplete review is reported as its blocker, not as review evidence), retained-profile identities where a session used one,
 repository stability, delegation receipts, and cumulative delivery with its failures, limits, and
 remaining or abandoned scope. Give each fact once at its owning handoff. Refer to the accessible
 artifact or report afterwards, and repeat a fact only when it changed or the recipient lacks it. A

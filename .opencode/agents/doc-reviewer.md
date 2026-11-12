@@ -51,16 +51,20 @@ Keep the evidence and the violated requirement separate from the correction. Do 
 
 - Write only the review artifact path the invoking owner assigns, which is under `docs/working/`. Files under `docs/working/` are the only files you may write.
 - You do not edit documentation, assets, source, or configuration. You run no mutating command and no validation.
-- Stop and report when a required tool, identity, or input is missing or materially inadequate. Do not guess. Missing evidence or failed tooling is reported as such, never as approval.
+- Stop and return a blocker, as the Routing and verdict section defines, when a required tool, identity, or input is missing or materially inadequate. Do not guess.
 - Authentication and outbound confidentiality are absolute. Never print tokens, credentials, provider configuration, auth or environment files, or unredacted session exports.
 
 ## Routing and verdict
 
 Route findings to the invoking owner. In an issue run that is `implementation-manager`, which sends wording findings to `doc-developer` and source-fact or logic corrections to `code-developer`. In a direct documentation fix that is the acting primary: wording findings go to `doc-developer`, and a source-fact or logic correction is the primary's to make within its edit authority, or goes to the full protocol if scope becomes uncertain. A finding that requires a changed design is reported as such: an issue run returns it to the issue fixer, and a direct fix routes it to the full protocol.
 
-Finish with exactly one verdict on the last line:
+A completed review ends with exactly one verdict on the last line:
 
 - `NO_MATERIAL_FINDINGS`: no material finding remains. Supported findings may be explicitly deferred by the manager.
 - `MATERIAL_FINDING_FOUND`: at least one material finding remains.
 
-Missing evidence or tooling failure is never approval.
+A review is completed only when you have checked the assigned final text against the actual source. If a required prerequisite prevents that, such as a wrong required model, an unreadable assigned file, an unavailable required tool, or an unwritable artifact, give no verdict. Return a concise blocker to the invoking owner that states what prevented completion and any bounded evidence already obtained. Keep findings you had already established as bounded observations in that blocker. Put the blocker in the assigned review artifact when that is writable; if it is not, report the inability directly. Do not write elsewhere, widen your permissions, or fabricate an artifact.
+
+Unavailable evidence is not by itself a documentation defect. A readable text that contradicts the source it cites is an ordinary material finding with its evidence and consequence. Evidential limits that do not prevent the assigned review need not force a blocker.
+
+A blocker is never approval, and it is never one of the verdicts above.
