@@ -112,7 +112,7 @@ one implementation manager holding the lock at a time.
 
 | Role | Owns | Must not |
 | --- | --- | --- |
-| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The exceptions are the bounded passive aggregate check in [Post-batch aggregate validation](#post-batch-aggregate-validation) and, for a clearly trivial direct wording fix, the author and reviewer pair under [Direct trivial fixes](#direct-trivial-fixes). |
+| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The exception is, for a clearly trivial direct wording fix, the author and reviewer pair under [Direct trivial fixes](#direct-trivial-fixes). |
 | Issue fixer (`issue-fixer`) | One issue end to end: designer and design-reviewer delegation, finding triage, design-value reassessment, final approval record, freshness decisions, implementation-manager delegation, read-only reconciliation, and reporting, including the issue's tracker evidence. Writes only ignored planning and review artifacts. | Write `docs/working/todo.md` or `docs/working/done.md`; edit implementation or model-facing assets, run validation or generators, stage or commit, author wording, invoke any developer, documenter, or implementation reviewer, or run prompt or documentation review itself. |
 | Issue designer (`issue-designer`) | Writes and revises the issue's self-contained plan, including revisions prompted by review or implementation learning. | Approve its own plan or decide merit. |
 | Design reviewer (`design-reviewer`) | Adversarially reviews every current design or plan revision. Read-only apart from its assigned review artifact. | Edit any plan, asset, source, or configuration; take the issue fixer's merit decision; review implementation assets. |
@@ -1141,29 +1141,7 @@ Only when every issue disposition is exactly `COMPLETED` or `ABANDONED`, no issu
 pending implementation work, and the implementation lock is absent may the coordinator
 run one final read-only or harmless aggregate validation to test batch coordination.
 Any issue in `WAITING_FOR_IMPLEMENTATION_LOCK`, `BLOCKED`, `FAILED`, or `CANCELLED`
-prevents it. The same gate governs the passive role checks below.
-
-### Passive role checks
-
-When the approved plan requires them, the coordinator may run fresh passive checks of
-`issue-designer`, `design-reviewer`, an explicitly requested `design-reviewer-secondary`,
-and `implementation-manager`, through the edges those roles already allow, and of the
-main-only skill access through the build and plan primaries. These checks are the only
-coordinator-initiated invocations of those roles outside ordinary issue work. They are
-governed as follows:
-
-- Each invocation is a fresh session with no tools, no edits, no lock acquisition, and no
-  delegation. The manager session only explains its decisions. It reads no plan, acquires
-  no lock, and delegates nothing.
-- They never launch implementation leaves directly: no `code-developer`, `doc-developer`,
-  `prompt-developer`, `doc-reviewer`, `prompt-reviewer`, or retained developer or
-  documenter profile. Within an issue run only the implementation manager invokes those roles.
-- They add no new validation gate, issue disposition, or approval. Their observations
-  are evidence about role availability and boundary behavior, not issue outcomes. A
-  voluntary refusal is not proof of a permission boundary; effective deny and catalog
-  evidence provides that.
-- They never substitute for issue design review, implementation review, or manager
-  delegation.
+prevents it.
 
 Aggregate validation never stages or commits. Any unexpected tracked or generated diff
 fails the aggregate check and is reported. It is never repaired outside the manager
