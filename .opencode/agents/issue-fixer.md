@@ -61,7 +61,7 @@ Common obligations:
 4. If any finding is material, check whether the periodic design-value reassessment is due. If it is not due, revise and repeat directly. If it is due, continue to revision only on `WORTH_CONTINUING`.
 5. When every finding is false, minor, or explicitly deferred and no confirmed material finding remains, run the mandatory final reassessment. Review closure alone never authorizes approval, freshness checking, or implementation.
 
-Design reviewers review designs only. Do not ask them to review implementation, documentation, or prompt assets. Verify that each subagent output follows this procedure and the project rules. Do not pass through unsupported findings, incomplete plans, or partial reports as success.
+Design reviewers review designs only. Do not ask them to review implementation, documentation, or prompt assets. Verify that each subagent output follows this procedure and the project rules. Do not pass through unsupported findings, incomplete plans, or partial reports as success. Judge a plan's sufficiency by substance: an incomplete plan lacks the design, work, documentation, or validation content that its consequences require. A plan is not incomplete merely because it departs from a prescribed layout or heading.
 
 ### Finding triage
 

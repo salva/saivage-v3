@@ -281,9 +281,10 @@ projects into that role's own prompt body, so a role never needs this document t
 
 - Inputs: the issue context and the absolute plan path from the issue fixer. For a
   revision, every confirmed material finding.
-- Output: a self-contained plan at the issue's working path, containing every subject
-  listed under design and plan requirements. An implementation-learning revision records
-  that learning in the plan. Report limitations and blockers in the plan or your report.
+- Output: a self-contained plan at the issue's working path that gives the design and the
+  ordered implementation work it requires, as described under design and plan requirements.
+  An implementation-learning revision records that learning in the plan. Report limitations
+  and blockers in the plan or your report.
 - Mutation boundary: only the assigned ignored plan file under `docs/working/`. No
   tracked wording, source, configuration, or validation.
 - You do not approve the plan or decide its merit. The issue fixer owns that decision.
@@ -299,6 +300,12 @@ projects into that role's own prompt body, so a role never needs this document t
   call-site updates; missing or stale documentation; missing validation proportional to
   the risk; unnecessary compatibility code, dead code, or excessive complexity; and
   over-scoped changes that bundle deferrable robustness.
+- Judge plan sufficiency by consequence. The test is whether the next role can implement the
+  chosen design safely and verify the result from the plan and the named current sources.
+  Raise a finding only for missing or wrong information that matters to that outcome, and state
+  its practical consequence. Absent headings, a prescribed layout, an undeclared optional subject,
+  or a missing statement that a subject is unaffected are not findings by themselves. Do not use
+  the former subject checklist as the review standard.
 - Each finding states its severity, concrete evidence (file and line, or a quote), the
   affected requirement and its practical consequence, and a separately identified
   suggested correction. Do not raise speculative or preference-only nits.
@@ -461,43 +468,35 @@ It holds the current design or plan and one file per adversarial review round.
 
 ## Design and plan requirements
 
-Keep each design or plan concise, self-contained, and proportional to the risk. Cover
-each subject below. A brief statement that a subject is not affected is enough when
-it truly does not apply; do not repeat policy inventories or the review history.
+Each design or plan is one self-contained document, concise and proportional to the risk.
+Its content sets its structure: no headings or section order are required, and the document
+never states that a subject is inapplicable. Readers must not need the review history, and
+the document does not repeat policy inventories. It gives the next roles what they need to
+implement and verify without guessing:
 
-- **Problem statement** with evidence and the affected user or runtime behavior.
-- **Root-cause analysis**, or the best current hypothesis, and why the proposed
-  layer owns the cause.
-- **Scope and non-scope.** List non-essential robustness and rare edge cases as
-  deferred follow-ups, unless deferral blocks the core fix or leaves the system unsafe.
-- **Proposed design**, naming affected modules, contracts, APIs, and UI or runtime
-  surfaces as applicable.
-- **Durable-format impact**, including "no impact." For a development-tooling plan that
-  touches no Saivage-owned durable contract, state "no impact" briefly. Where a plan does
-  touch such a contract, name affected discriminators, source and cutover applicability,
-  adoption consequences, and the
-  [durable format reference](../architecture/durable-format-changes.md) updates
-  required by the
-  [AGENTS storage policy](https://github.com/salva/saivage-v3/blob/master/AGENTS.md#durable-format-versioning).
-  Review durable shape and semantic incompatibility, justified bumps and grouping,
-  and evidenced source applicability under the same policy. Reject equal-version or
-  unreleased claims that are unsupported.
-- **Alternatives**, including a broader or root-cause alternative when reasonable.
-- **An ordered implementation plan** with three explicit sections:
-  - Main work tasks.
-  - Cleanup tasks for obsolete code, tests, fixtures, docs, and scripts.
-  - Documentation-update tasks naming each main document to update and how. The
-    main documents are `docs/spec/system-specification.md`,
-    `docs/spec/operator-ui-needs.md`, `docs/spec/operator-ui-contracts.md`,
-    `docs/architecture/system-architecture.md`, and `README.md`, as they apply.
-    Documentation is implementation work, not a later phase. The working plan itself
-    does not count.
-- **Related stale main documentation** and scoped tasks to correct it.
-- **Focused and broader validation** appropriate to the risk. Target the affected
-  semantic owners and useful behavior, and broaden when the risk warrants it, as
-  [docs/validation.md](../validation.md#economical-selection-and-reuse) describes. Do not use prose-regex assertions, repository-wide spelling
-  bans, or unrelated test matrices as substitutes for semantic evidence.
-- **Risks, rollback considerations, and unresolved questions.**
+- the evidenced problem and its cause, and why the proposed layer owns that cause;
+- the chosen design, with the decision-relevant alternatives and tradeoffs, and the risks,
+  rollback considerations, and open questions that affect the decision or safe
+  implementation;
+- concrete, ordered, dependent work naming the affected owners and contracts, with every
+  coordinated change a contract requires and the cleanup it makes obsolete;
+- the documentation the work requires: each affected main document and its change, plus
+  corrections to related stale main documentation. Documentation is implementation work,
+  and the working plan itself does not count.
+
+For a Saivage-owned durable contract, settle the consequences under the
+[AGENTS storage policy](https://github.com/salva/saivage-v3/blob/master/AGENTS.md#durable-format-versioning)
+and name the required updates to the
+[durable format reference](../architecture/durable-format-changes.md). Reject equal-version or
+unreleased claims that are unsupported. Defer non-essential robustness and rare edge cases
+unless deferral blocks the core fix or leaves the system unsafe.
+
+Validation follows the affected semantic owners and the economical selection in
+[docs/validation.md](../validation.md#economical-selection-and-reuse). Broader checks are
+justified only by a demonstrated cross-cutting risk. Substitute no prose-regex assertions,
+repository-wide spelling bans, or unrelated test matrices for semantic evidence. Name the
+prompt or documentation author and reviewer pair by purpose for any model-facing or
+documentation wording.
 
 ## Adversarial review and revision loop
 

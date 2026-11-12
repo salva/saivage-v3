@@ -55,7 +55,7 @@ Superseded and stale design documents are provenance available only through Git 
 ## Documentation Hygiene
 
 - Keep working documents such as reviews, redesigns, plans, scratch analyses, and draft proposals under `docs/working/`; these files are local working artifacts and must not be committed to Git.
-- Any implementation plan must include a section that identifies the main documentation updates required by the planned work.
+- Any implementation plan must identify the main documentation updates its planned work requires: each affected main document and the change it needs, as actual implementation tasks. No particular heading or section is required. The working plan itself does not count as documentation.
 - After implementation work changes system behavior, update the canonical main documentation (`docs/spec/system-specification.md`, `docs/spec/operator-ui-needs.md`, `docs/spec/operator-ui-contracts.md`, `docs/architecture/system-architecture.md`, and `README.md`) as appropriate so it stays in sync with the code.
 
 ## Validation

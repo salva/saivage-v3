@@ -19,7 +19,7 @@ Main batch coordinator → `issue-fixer` (owns the issue, triage, merit, and fre
 
 This body is your complete procedure. Do not load the issue-fix coordination skill or the protocol document to act. `AGENTS.md` governs and takes precedence over this body. Apply it throughout: clean architecture; no backward compatibility, bridges, shims, migrations, dual paths, or legacy-normalization code in Saivage core or packaged utilities; no over-engineering; fail fast; singular contracts; documentation sync. Its explicitly requested external-migration boundary is part of the rules.
 
-Saivage runtime contracts (cards, records, conversations, garbage collection, provider and API behavior, and persistence publication) apply to the plan only when its subject actually touches them. State briefly when they do not apply. Do not paste their inventories into a development plan.
+Saivage runtime contracts (cards, records, conversations, garbage collection, provider and API behavior, and persistence publication) apply to the plan only where its subject actually touches them. Name the ones it touches and the rules they impose on the change; do not paste their inventories into a development plan.
 
 ## Boundaries
 
@@ -34,21 +34,17 @@ Saivage runtime contracts (cards, records, conversations, garbage collection, pr
 
 ## Plan contents
 
-Keep the plan concise, self-contained, and proportional to the risk. Readers must not need earlier revisions. Cover every subject below. A brief statement that a subject is not affected is enough when it truly does not apply. Do not repeat policy inventories or review history.
+Write one self-contained plan that is both the design and the executable work plan for the fix. Its content sets its structure: no headings, section order, or template is required, and the plan never states that a subject is inapplicable. Keep it concise and proportional to the risk. Readers must not need earlier revisions. Do not repeat policy inventories or review history.
 
-- **Problem statement** with evidence and the affected user or workflow behavior.
-- **Root-cause analysis**, or the best current hypothesis, and why the proposed layer owns the cause.
-- **Scope and non-scope.** List non-essential robustness and rare edge cases as deferred follow-ups, unless deferral blocks the core fix or leaves the system unsafe.
-- **Proposed design**, naming the affected files, contracts, roles, APIs, or runtime surfaces, as applicable.
-- **Durable-format impact**, including "no impact." Name affected Saivage-owned discriminators, source and cutover applicability, and the updates required by the durable format reference under the AGENTS storage policy, only when the plan touches such a contract. Development-tooling plans that touch no Saivage-owned durable contract say "no impact" briefly. Do not claim an equal-version or unreleased status without evidence.
-- **Alternatives**, including a broader or root-cause alternative when reasonable.
-- **An ordered implementation plan** with three explicit sections:
-  - Main work tasks.
-  - Cleanup tasks for obsolete code, tests, fixtures, documentation, agent files, and scripts.
-  - Documentation-update tasks naming each main document to update and how. Name the main documents that apply, such as `docs/spec/system-specification.md`, `docs/spec/operator-ui-needs.md`, `docs/spec/operator-ui-contracts.md`, `docs/architecture/system-architecture.md`, and `README.md`, when they are affected. Documentation is implementation work, not a later phase. The working plan itself does not count.
-- **Related stale documentation**, with scoped tasks to correct it.
-- **Focused and broader validation** appropriate to the risk. Target the affected semantic owners and useful behavior, and broaden only for demonstrated cross-cutting risk. Do not use prose-regex assertions, repository-wide spelling bans, or unrelated test matrices as substitutes for semantic evidence. For model-facing assets, name the separate prompt author and prompt reviewer pair the manager will use, and for ordinary documentation the documentation pair, by purpose. Do not add automatic double review.
-- **Risks, rollback considerations, and unresolved questions.**
+Give the next roles what they need to implement and verify without guessing:
+
+- the evidenced problem and its cause, and why the proposed layer owns that cause;
+- the chosen design, with the decision-relevant alternatives and tradeoffs, and the risks, rollback considerations, and open questions that affect the decision or safe implementation;
+- concrete, ordered, dependent work naming the affected owners and contracts, with every coordinated change a contract requires and the cleanup it makes obsolete;
+- the documentation the work requires: each affected main document and its change, plus corrections to related stale documentation. Documentation is implementation work, and the working plan itself does not count;
+- the proportionate checks that establish correctness, and the prompt or documentation author and reviewer pair for any wording.
+
+For a Saivage-owned durable contract, settle the consequences under the AGENTS storage policy and say which durable reference updates it requires. Do not claim an equal-version or unreleased status without evidence. Defer non-essential robustness and rare edge cases unless deferral blocks the core fix or leaves the system unsafe. Do not add automatic double review.
 
 ## Design rules
 

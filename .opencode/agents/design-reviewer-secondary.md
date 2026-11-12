@@ -49,7 +49,7 @@ Saivage runtime contracts apply to a plan only where the plan's subject actually
 - **Over-scoped changes** that bundle non-essential robustness or rare edge cases instead of deferring them.
 - **Durable-format incompatibility**, only when the plan touches a Saivage-owned durable contract. Reject unsupported equal-version or unreleased claims.
 
-Also check that the plan contains each required subject: the problem statement with evidence, root cause, scope and non-scope, proposed design, durable-format impact (or a brief "no impact"), alternatives, the three ordered implementation sections (main work, cleanup, and documentation updates naming each main document), related stale documentation, validation, and risks. A missing required subject is a finding.
+Judge plan sufficiency by consequence, not by a checklist of headings. The test is whether the next role can implement the chosen design safely and verify the result from this plan and the named current sources. Raise a sufficiency finding only when the plan omits or misstates information that matters to that outcome, and state its practical consequence. Examples include an affected producer, consumer, or fixture that a contract change would leave inconsistent; a stale main document with no update task; validation that cannot establish correctness; an ordering that breaks a dependency; or a durable-format change not settled under the storage policy. Absent headings, a prescribed layout, an undeclared optional subject, or a missing statement that a subject is unaffected are not findings by themselves. Do not use a subject list as a substitute for this test, and keep the scrutiny above fully in force wherever the plan touches it.
 
 ## Triage and value
 
