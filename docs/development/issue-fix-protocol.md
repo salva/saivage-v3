@@ -72,6 +72,39 @@ primaries. This document grants no other direct subagent authority, so a direct 
 configuration change is made by the primary itself. Within a full issue run, the implementation
 manager alone dispatches the authors and reviewers.
 
+Inline model-facing wording inside an executable host follows the same author and reviewer pair.
+Inline location alone does not make a change an issue run or a direct fix; the triviality test above
+still decides it. The author returns the exact replacement text, and a distinct reviewer reviews that
+text. A capable acting primary then applies the reviewed text verbatim, within its actual edit
+authority. It does not reword the text, reformat it for meaning, or invent a replacement. The direct
+route invokes no `code-developer`, and neither the author nor the reviewer edits the host.
+
+Triviality does not widen edit authority. A `plan` primary does not gain permission to edit an
+executable host because the fix is trivial. Where the acting primary lacks actual edit authority for
+the host, it does not work around that restriction. It uses task-appropriate build or invocation
+authority where that is available, or it reports the actual limitation and stops the application. This
+section grants no permission, adds no workaround tool, and creates no categorical exclusion of inline
+assets.
+
+If the reviewed text conflicts with a host constraint or does not fit the host, the primary does not
+silently rewrite it. It reports the mismatch and returns the wording through its own invocation to the
+matching author, `doc-developer` or `prompt-developer`, for revised exact text. That revised text is
+reviewed again before application.
+
+Corrections keep their owners in a direct fix. A source-fact or logic finding is the acting primary's to
+correct within its edit authority. A wording finding returns through the primary to the matching author,
+and the primary applies the revised text verbatim. If a correction needs a changed design, or its scope
+becomes uncertain, the full protocol applies. Each changed final input receives its affected validation
+and a fresh review of the actual final input.
+
+Review of a replacement before it is applied is not review of its final composition. After the primary
+integrates the text, the reviewer reviews the actual final result, including the applied host. For a
+prompt asset, that final review is described under
+[Documentation reviewer and prompt reviewer](#documentation-reviewer-and-prompt-reviewer): linkage,
+positive sufficiency and whole-composition review, and a separately identified, unconditional clean-room
+assessment. One invocation in a distinct session may perform both sequentially on the same final input
+when its report identifies each activity.
+
 ## Team and ownership
 
 Every issue has one issue fixer, one designer and design-reviewer loop, and at most
@@ -392,15 +425,17 @@ projects into that role's own prompt body, so a role never needs this document t
   model-facing instructions, prompts, templates and fragments, agent bodies and
   descriptions, skills, and AGENTS wording. Technical documentation about prompts is
   `doc-developer` work. See [Choosing the author and reviewer pair](#choosing-the-author-and-reviewer-pair).
-- Inputs: the assigned facts, the plan, and the exact sections or files the manager
-  names. Read the actual source to confirm each fact before wording it. For instructions,
+- Inputs: the assigned facts, the plan or direct assignment, and the exact sections or files the
+  invoking owner names (the implementation manager in an issue run, or the acting primary in a
+  direct fix). Read the actual source to confirm each fact before wording it. For instructions,
   check the composition the text will join, not the text alone.
 - Output: when the author edits the assigned file in place, the report names the files and
   sections changed, the sources read, the facts confirmed and not obtained, the links not
   verified, the selfchecks, and any text that belongs to the other pair. The file is the
   artifact, so the text is not echoed back. When the text must be applied elsewhere, such as
-  an inline host that `code-developer` applies verbatim, the author returns the exact
-  replacement text with the same report. Selfchecks are author checks, not independent review.
+  an inline host, the author returns the exact replacement text with the same report. The
+  route's mechanical applicator applies it verbatim: `code-developer` in an issue run, or the
+  acting primary in a direct fix that has actual edit authority for the host. Selfchecks are author checks, not independent review.
 - Report partial wording and any facts you could not obtain. Await the invoking owner. Route
   source gaps back through that owner.
 - Mutation boundary: the assigned documentation or model-facing assets only. No source
@@ -427,10 +462,12 @@ projects into that role's own prompt body, so a role never needs this document t
 - Write only the assigned review artifact. You do not edit assets, source, or
   configuration, generate tests, or run mutating commands.
 - Findings go to the invoking owner. In an issue run, the manager routes wording findings to
-  the matching author and logic findings in executable source or configuration to
-  `code-developer`. In a direct fix, the acting primary sends wording findings back to the
-  author. A finding that requires a changed design is reported as such, and in an issue run
-  the manager returns it to the issue fixer.
+  the matching author and source-fact or logic findings in executable source or configuration to
+  `code-developer`. In a direct fix, the acting primary routes wording findings back through
+  itself to the matching author, and it makes any source-fact or logic correction itself within
+  its actual edit authority. If that scope becomes uncertain, the full protocol applies. A finding
+  that requires a changed design is reported as such: in an issue run the manager returns it to
+  the issue fixer, and a direct fix routes it to the full protocol.
 - Finish with exactly one verdict on the last line, as for design review.
 - `prompt-reviewer` review of a changed prompt asset covers two final activities on the
   actual final composition, after the last relevant edit and including any inline

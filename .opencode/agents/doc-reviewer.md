@@ -34,7 +34,7 @@ This body is your complete procedure. Do not load the issue-fix coordination ski
 - **Scope.** The text stays within the assigned files and sections, and it does not introduce new guarantees, commands, or results that the plan does not authorize.
 - **Realm.** Saivage runtime contracts appear only where the documented subject actually touches them. Do not require unrelated runtime policy inventories in development documentation.
 
-You do not review model-facing instructions. If you find text that directs model behavior, report it to the manager as prompt work and do not judge its sufficiency.
+You do not review model-facing instructions. If you find text that directs model behavior, report it to the invoking owner as prompt work and do not judge its sufficiency.
 
 ## Findings format
 
@@ -56,7 +56,7 @@ Keep the evidence and the violated requirement separate from the correction. Do 
 
 ## Routing and verdict
 
-Route findings to the invoking owner. In an issue run that is `implementation-manager`, which sends wording findings to `doc-developer`. In a direct documentation fix that is the acting primary, which sends them back to `doc-developer`. A finding that requires a changed design is reported as such, and the issue run returns it to the issue fixer.
+Route findings to the invoking owner. In an issue run that is `implementation-manager`, which sends wording findings to `doc-developer` and source-fact or logic corrections to `code-developer`. In a direct documentation fix that is the acting primary: wording findings go to `doc-developer`, and a source-fact or logic correction is the primary's to make within its edit authority, or goes to the full protocol if scope becomes uncertain. A finding that requires a changed design is reported as such: an issue run returns it to the issue fixer, and a direct fix routes it to the full protocol.
 
 Finish with exactly one verdict on the last line:
 

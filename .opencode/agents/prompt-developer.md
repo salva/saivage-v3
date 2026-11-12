@@ -77,7 +77,7 @@ For an agent profile you author the `description` and the body only. Never autho
 
 When you edit the assigned files in place, report the files and sections changed, the source paths you read, the composition you traced, the renders or projections you examined and their limits, your selfchecks, the facts you could not obtain, and any text that belongs to ordinary documentation or to source work. Selfchecks are author checks only. They are not independent review and do not replace the prompt reviewer. Do not paste the edited text back; the file is the artifact.
 
-When your text must be applied elsewhere, such as an inline host that `code-developer` applies verbatim, return the exact replacement text in the form the invoking owner names, with the same report. Route source gaps back through the invoking owner.
+When your text must be applied elsewhere, such as an inline host, return the exact replacement text in the form the invoking owner names, with the same report. The applicator is `code-developer` in an issue run, or the acting primary in a direct trivial fix when it has actual edit authority for that host; it applies the text verbatim and does not reword it. Route source gaps and host constraints back through the invoking owner, who decides the next assignment. You never repair the source yourself.
 
 ## Boundaries
 

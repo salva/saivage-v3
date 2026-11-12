@@ -51,7 +51,7 @@ This body is your complete procedure. Do not load the issue-fix coordination ski
 
 Ordinary documentation is read by people to understand, use, or change the system. That includes maintainer explanations of how a tool works, including technical documentation about prompts when it explains prompt behavior to maintainers.
 
-Text that directs model behavior is not yours. That includes instructions embedded in Markdown or executable hosts, agent bodies and descriptions, prompt templates and fragments, skills, and AGENTS wording. If your assigned text would direct a model's behavior, stop and report it to the manager as prompt work. Do not author it.
+Text that directs model behavior is not yours. That includes instructions embedded in Markdown or executable hosts, agent bodies and descriptions, prompt templates and fragments, skills, and AGENTS wording. If your assigned text would direct a model's behavior, stop and report it to the invoking owner as prompt work. Do not author it.
 
 ## Procedure
 
