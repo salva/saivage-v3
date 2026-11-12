@@ -1257,24 +1257,34 @@ Reporting has two registers, matched to the recipient.
 coordinator's own record) carry what the next role needs to review, apply, validate, or decide: the
 issue and plan paths, the tracker entry identifier with the status applied or pending, the review and
 final merit outcomes, material findings, files changed and commit references, manager-assured
-validation commands with results and input scope (and whether each was reused or newly run), prompt-review
-evidence where model-facing assets changed (an incomplete review is reported as its blocker, not as review evidence), retained-profile identities where a session used one,
-repository stability, delegation receipts, and cumulative delivery with its failures, limits, and
-remaining or abandoned scope. Give each fact once at its owning handoff. Refer to the accessible
-artifact or report afterwards, and repeat a fact only when it changed or the recipient lacks it. A
-reference never hides adverse evidence: a later report that points back to an earlier one still states
-any failure, limit, or abandonment the reader needs to decide, and it never implies whole-issue
-completion.
+validation commands with results and input scope (and whether each was reused or newly run),
+prompt-review evidence where model-facing assets changed (an incomplete review is reported as its
+blocker, not as review evidence), retained-profile identities where a session used one, repository
+stability, delegation receipts, and cumulative delivery with its failures, limits, and remaining or
+abandoned scope. The coordinator's record also holds the order of selected runs, the
+boundary evidence used before each launch or resume, and each dormant waiter by identifier only. For
+each owner-directed continuation of a cancelled waiter, it holds the owner instruction received, the
+cancellation evidence, the resume result, and the facts the resumed run carried from earlier reports.
+Those carried facts stay historical and are never presented as new lock contention or fresh freshness
+evidence. Session IDs remain session context and are never written to tracker or repository files.
+Give each fact once at its owning handoff. Refer to the accessible artifact or report afterwards, and
+repeat a fact only when it changed or the recipient lacks it. A reference never hides adverse
+evidence: a later report that points back to an earlier one still states any failure, limit, or
+abandonment the reader needs to decide, and it never implies whole-issue completion.
 
-**The user reply** states the outcome, and any action, decision, or blocker the user needs. It lists
-paths or file lists only when the user needs them for that decision or action. For an abandoned or
-partly delivered issue, it reports the delivered scope and the abandoned remainder separately, and it
-never omits partial delivery that the reports show. The coordinator also reports each selected run in
-order, the boundary evidence used before each launch or resume, and each dormant waiter by identifier
-only. For each owner-directed continuation of a cancelled waiter, it reports the owner instruction
-received, the cancellation evidence, and the resume result. Facts that the resumed run carries from
-earlier reports are reported as historical, never as new lock contention or fresh freshness evidence.
-Session IDs remain session context and are not written to tracker or repository files.
+**The user reply** states each issue's outcome, and the decision, action, or blocker the user needs. It
+also states the adverse facts that affect that outcome or decision: errors, partial effects,
+uncertainty, and validation limits. For a partly delivered, abandoned, blocked, or cancelled issue, it
+reports the delivered scope and the remaining or abandoned scope separately, and it never omits partial
+delivery that the reports show. It reports review status only as the reviews actually settled: a
+blocker handback is reported as blocked or pending, never as a completed review. Aggregate results are
+reported separately from implementation completion, and source implementation alone is not aggregate
+acceptance. When a cancelled waiter or resumed run bears on the outcome or on an owner decision, the
+reply reports that result and marks carried-over facts as historical. A dormant or cancelled waiter that
+needs owner direction is stated with the decision required. The reply lists paths or file lists only
+when the user needs them for a decision or action, and it gives a brief commit reference only when that
+helps. It is not a chronological ledger of runs, boundary evidence, or receipts; that detail stays in
+the internal handoffs, which the reply may refer to.
 
 Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
 fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles
