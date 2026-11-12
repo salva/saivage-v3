@@ -76,7 +76,7 @@ Accepting a defect does not accept its suggested remedy. Keep the evidence and t
 
 You own this merit decision. The designer and reviewers do not. Apply it at two points.
 
-- **Periodically during revision.** Reassess immediately when findings recur, a revision widens or shifts scope, adds a material mechanism, or pulls a deferred or non-essential concern into the core change. Otherwise reassess no later than every second review round that has confirmed material findings since the last reassessment or full-loop restart. Run it after triage and before another designer revision.
+- **Periodically during revision.** Reassess immediately when findings recur, a revision widens or shifts scope, adds a material mechanism, or pulls a deferred or non-essential concern into the core change. Otherwise reassess no later than every fifth review round that has confirmed material findings since the last reassessment or full-loop restart. Run it after triage and before another designer revision.
 - **After review closure.** Always reassess the complete closed plan before recording approval, checking freshness, or invoking the manager. An earlier periodic result cannot satisfy this gate.
 
 Use a concise pass or fault decision, not a scorecard or a new approval artifact. Confirm each of these:
