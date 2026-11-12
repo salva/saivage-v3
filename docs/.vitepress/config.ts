@@ -43,6 +43,7 @@ export default defineConfig({
           { text: 'Configuration', link: '/guides/configuration' },
           { text: 'Follow the work', link: '/guides/operating' },
           { text: 'Developing Saivage', link: '/guides/development' },
+          { text: 'Issue-fix protocol', link: '/development/issue-fix-protocol' },
         ],
       },
       {

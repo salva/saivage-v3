@@ -1,5 +1,24 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "permissions": [
+    { "action": "skill", "resource": "saivage-issue-fix-adversarial-review", "effect": "deny" }
+  ],
+  "agents": {
+    "build": {
+      "permissions": [
+        { "action": "skill", "resource": "saivage-issue-fix-adversarial-review", "effect": "allow" },
+        { "action": "subagent", "resource": "developer", "effect": "deny" },
+        { "action": "subagent", "resource": "documenter", "effect": "deny" }
+      ]
+    },
+    "plan": {
+      "permissions": [
+        { "action": "skill", "resource": "saivage-issue-fix-adversarial-review", "effect": "allow" },
+        { "action": "subagent", "resource": "developer", "effect": "deny" },
+        { "action": "subagent", "resource": "documenter", "effect": "deny" }
+      ]
+    }
+  },
   "instructions": [
     "/home/salva/g/ml/AGENTS.md",
     "/home/salva/g/ml/saivage-v3/AGENTS.md",

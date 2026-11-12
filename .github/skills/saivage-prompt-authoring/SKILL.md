@@ -10,8 +10,9 @@ this workflow. The paths in the description are examples, not an allowlist;
 inline/generated prompt text and other instruction files also qualify. Project
 overrides require existing authorization. Follow `AGENTS.md` and higher-priority
 instructions: this skill waives no review, validation, or safety obligation. Also
-use `opencode-skill-authoring` for skill changes and
-`saivage-issue-fix-adversarial-review` for issue/workflow fixes. Keep ordinary notes
+use `opencode-skill-authoring` for skill changes. Issue-team agents
+do not load the issue-fix coordination skill; the main batch coordinator alone uses
+it, and its maintainer reference is `docs/development/issue-fix-protocol.md`. Keep ordinary notes
 concise in the normal report; required issue plans remain under `docs/working/`.
 This is a development workflow, not registration or automatic selection in
 Saivage's runtime skill catalog.

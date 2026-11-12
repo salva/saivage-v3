@@ -88,6 +88,7 @@ completeness verdict or an indexing chore.
 | Understand autonomous development | [Overview](docs/overview.md) — delegation, configured review, correction and evidence-qualified completion |
 | Follow work and assess outcomes | [Work tour](docs/guides/operating.md) — objective, results and evidence; [runbook decision map](docs/runbook/index.md) when control or diagnosis is needed |
 | Develop Saivage | [Developer guide](docs/guides/development.md) — trace owners, extend contracts and select checks |
+| Change how development agents fix issues | [Issue-fix protocol](docs/development/issue-fix-protocol.md) — maintainer workflow for development agents, not runtime operator behavior |
 | Retrieve an exact fact | [Reference map](docs/reference/index.md) and [agent navigation](docs/reference/agent-navigation.md) — requirements, procedures and source owners |
 
 Read the [documentation site](https://salva.github.io/saivage-v3/) or the same

@@ -235,6 +235,15 @@ affected by the edit, then perform the skill's distinct final clean-room pass
 after all changes. Keep runtime prompt selection separate from OpenCode/Copilot
 development instruction loading; do not assume one reads the other's docs.
 
+## Fix issues through the development-agent workflow
+
+Issues in this repository are fixed by development agents, not by the runtime. The
+complete maintainer protocol, including team ownership, adversarial design review,
+freshness, the single implementation lock and aggregate checks, is the
+[issue-fix protocol](../development/issue-fix-protocol.md). Each development role
+carries its own procedure in its agent body. Read the protocol to understand or
+change that workflow. It is contributor material, not runtime Saivage behavior.
+
 ## Choose validation and deliver the documentation
 
 For a small change, run focused owning tests first; broaden by actual risk:

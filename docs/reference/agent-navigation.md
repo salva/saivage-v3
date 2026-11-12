@@ -16,6 +16,7 @@ or permission to operate a project.
 | [Architecture](../architecture/system-architecture.md), source/schema | Ownership and exact implementation contract | A replacement for an unmet requirement |
 | [Durable format reference](../architecture/durable-format-changes.md) | Current source baseline and bounded dated change evidence | Installation inventory, supported old reader or permission to normalize |
 | [Guides](../guides/getting-started.md), [overview](../overview.md), field lookup | Learning/tasks/explanation/current lookup | A competing normative policy |
+| [Issue-fix protocol](../development/issue-fix-protocol.md) | Maintainer workflow that development agents follow when fixing issues in this repository | Runtime Saivage behavior, product instruction or an installed prompt |
 | `docs/working/` | Local task plan/review/provenance, when assigned | Published authority or completed implementation |
 
 ## Autonomous work and completion
