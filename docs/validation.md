@@ -250,7 +250,7 @@ cadence contract; required coverage and fail-propagating composition are.
 
 | Changed owner | Focused check / follow-through |
 | --- | --- |
-| Backend behavior | `npm run test:direct -- --runInBand --runTestsByPath <test-file>` or `npm run test:parallel -- <Jest arguments>`, then appropriate broader profile |
+| Backend behavior | `npm run test:direct -- --runInBand --runTestsByPath <test-file>` or `npm run test:parallel -- <Jest arguments>`; broaden as [economical selection and reuse](#economical-selection-and-reuse) judges the risk warrants |
 | Backend E2E | `npm run test:e2e` (separate from ordinary Jest) |
 | Real terminal child | `npm run test:terminal-child`, independently when investigating cleanup/runner changes |
 | Export or backend boundary | Semantic export test, export CLI, `npm run test:import-boundaries`, full `npm test`; routine alone is insufficient |
@@ -265,6 +265,28 @@ Use finite external bounds for experiments; if a tool adds an outer deadline, gi
 it room beyond the inner timeout and kill grace. Never force-exit, suppress failures,
 weaken assertions or retry until green. Required candidate failure still blocks
 acceptance if baseline fails too.
+
+## Economical selection and reuse
+
+Select the focused check that covers the changed semantic owners and their risk. That
+focused check is the minimum, not a ceiling. Full profiles, such as `validate:routine`,
+`validate:release` and the complete `npm test`, ordinarily follow substantial accumulated
+work. A model may run a broader set sooner when the risk or a safer preference warrants it.
+No approval, cadence or justification is required for that choice.
+
+A successful focused check run by a developer or author worker may satisfy the same check
+for the integrated result when its relevant inputs are unchanged in that result. The role
+that integrates the result, which is the implementation manager in an issue run, judges
+that against the final state. It reruns each check whose inputs changed or whose
+applicability it cannot establish, and it adds an integration check where separately
+changed owners interact. Reuse concerns executed checks only. It is not a cache, an
+evidence registry, or a replacement for a distinct prompt or documentation review.
+
+Record each command, its result, its input scope, and whether it was reused or newly run.
+Unknown applicability is not a pass. Keep failures and timeouts reported even when a later
+corrected run passes. Named profile and CI requirements, and subject-specific security,
+authentication and persistence checks, keep their meanings. A focused pass never claims
+full-release validation.
 
 ## Backend execution and terminal ownership
 

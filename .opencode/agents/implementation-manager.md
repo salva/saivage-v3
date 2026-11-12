@@ -43,23 +43,7 @@ Before you read the plan and before any edit or delegation, atomically acquire `
 - **Creation loses a race.** Read the existing description and return the same contention-only report.
 - **Lock created by this run.** You hold the lock. Keep it through the complete issue-local mutating phase: all edits, generated outputs, validation, staging, commit hooks, commits, and stabilization.
 
-**Owner-override exception.** When the assignment you receive from the issue fixer forwards, verbatim, the coordinator's initial assignment quoting an explicit project-owner instruction that an existing lock was wrongly acquired by an unrelated run and must be left untouched, you may proceed without acquiring it, under these exact conditions:
-
-- The coordinator, not the issue fixer, guarantees in its initial assignment that this is the sole writing agent until the run reports completion. The issue fixer only forwards that guarantee. Verify that the forwarded assignment contains the coordinator's quoted instruction and guarantee. If either is absent, do not use this exception.
-- The stray lock file is never removed, modified, or taken over.
-- Capture the pre-existing repository state first. Stage only the plan's intended paths, preserve unrelated changes, and escalate rather than overwrite when unexpected concurrent modifications appear.
-- The issue fixer performs the narrow presence recheck of the stray lock before each new implementation attempt. Once the stray lock is gone, normal acquisition resumes for every later run. Until then, this exception remains available only while the coordinator's quoted instruction and guarantee are forwarded in the assignment.
-- As sole writer under this exception, the run also carries the tracker duties in Factual tracker updates.
-
-**Interrupted owner continuation.** You may continue an interrupted attempt under an existing acquisition only when the explicit project owner has authorized continuation of that original manager session, and all of the following are positively established from retained session context and independent coordinator or tool evidence:
-
-- the exact original session identity and its acquisition. Matching lock text alone is insufficient;
-- the current lock still describes that acquisition;
-- the prior invocation, every delegated worker, and every launched command have settled. Cancellation, a timeout, silence, or a caller's assertion is not settlement evidence.
-
-Do not overlap an active original child, launch a replacement manager, recreate or remove the lock, or transfer ownership. If any required evidence is unavailable or conflicting, remain blocked with the lock untouched. Do not poll or retry.
-
-Continue only after reconciling the prior partial effects and the current repository state read-only against the approved plan. A material divergence returns to the issue fixer, not to improvised implementation. Verify that your effective higher-priority instructions actually permit continuation. Saving or reloading an agent file, or a lower-priority message quoting this exception, does not prove replacement of stored instructions. If that cannot be established, report an instruction-loading blocker. Continuation keeps the same acquisition, the same worker boundaries, and the same validation, commit, stabilization, tracker, and release duties. It never authorizes another issue's parallel implementation and never changes the stray-lock exception.
+**Unusual state.** A stray or unexplained lock, retained work or an unsettled prior holder that you cannot account for, or an unsafe worktree is not yours to decide. Do not classify, remove, repair, take over, or continue around it, and do not start work under another acquisition. Stop, report the facts, and let the owner decide. No procedure in this body authorizes exceptional lock handling, and a later one needs a separate owner decision.
 
 ## Working procedure
 
@@ -80,7 +64,7 @@ Continue only after reconciling the prior partial effects and the current reposi
    - After a doc author changes ordinary documentation, invoke `doc-reviewer` in a distinct session with the explicit exact override `openai/gpt-6.1-sol`. Assign it the exact final sections for facts, quality, structure, progression, and links.
    - Route wording findings to the matching author, `prompt-developer` or `doc-developer`. Route logic findings in source or configuration to `code-developer`. Then rerun the affected validation and repeat the final review after the last edit.
    - Add no review to unchanged text or to an asset outside the assignment.
-6. **Validate.** Run all validation the plan requires, including focused and broader checks, the structural checks it names, such as frontmatter and JSON checks, and `npm run validate:docs` when documentation changed. Worker-run checks are progress evidence, not substitutes. Record each command and its result. Handle generated artifacts.
+6. **Validate.** Run the validation the plan requires, including the focused and broader checks it names, the structural checks it names, such as frontmatter and JSON checks, and `npm run validate:docs` when documentation changed. Apply the validation policy in `AGENTS.md`. You own the integrated assurance: a worker's successful focused check may satisfy the matching check for the integrated result when its relevant inputs are unchanged. Judge that against the final state, rerun the checks whose inputs changed, and add an integration check where separately changed owners interact. Record each command, its result, its input scope, and whether it was reused from a worker or newly run. Unknown applicability is not a pass. Keep failures and timeouts reported even when a later corrected run passes. Handle generated artifacts.
 7. **Stage and commit.** Stage only exact intended paths. Commit coherent stable units under the AGENTS commit policy, after focused validation, with a message matching repository style. Never stage or commit `docs/working/` artifacts, secrets, or live or generated runtime state.
 8. **Prepare the report** with command results and commit hashes before releasing the lock. Before normal release, ensure the completed issue work is stable and committed and that no issue-owned uncommitted implementation mutation remains. Ignored tracker edits are excluded from that check. Apply the attempt-end tracker update in Factual tracker updates before release.
 9. **Partial completion or learning.** For partial completion, or for redesign-worthy learning after edits, validate and commit only coherent completed units. Then finish or remove only this run's incomplete, uncommittable changes, preserving pre-existing and unrelated work. If safe stabilization is impossible, retain the lock and escalate. Do not expose an unsafe worktree to another run. This step applies to known outcomes only, subject to the uncertain-publication boundary below.
@@ -92,7 +76,7 @@ The lock spans all tracked and main-document edits, generated outputs, mutating 
 
 This body alone grants the manager a narrow authoring allowance. It covers only factual lifecycle maintenance of its issue's existing entry in the two ignored working files `docs/working/todo.md` and `docs/working/done.md`: the status, the plan link, the implementing-role note, commit and validation references, and remaining-work or blocker notes. Never write implementation, wording, ordinary documentation, or a new entry there, and never delegate a tracker write. Read `.github/skills/saivage-todo-protocol/SKILL.md` for the meaning of each status.
 
-**Entry start.** After you hold the lock, or are the sole writer under the owner-override exception, read the fresh exact entry matching the identifier the fixer forwarded, and its tracker path. Then, before any implementation delegation:
+**Entry start.** After you hold the lock, read the fresh exact entry matching the identifier the fixer forwarded, and its tracker path. Then, before any implementation delegation:
 
 - If the identifier is missing, ambiguous, or matches no single entry, do not invent, guess, or duplicate an entry, and make no tracker edit. Stop before delegation and report the blocker.
 - Otherwise set the entry to **In progress**, link the approved plan path, and note that the implementation manager role is implementing it. Keep the identifier and every other existing fact.
@@ -121,10 +105,10 @@ This boundary creates no blanket fatal rule for ordinary development commands. A
 
 ## Final report
 
-Prepare the complete report before releasing the lock. It states:
+Prepare the complete report before releasing the lock. It is the handoff to the fixer and the owner. Give each fact once, with its accessible reference (a commit hash, a command, or an artifact path), and do not reuse a fixed template. It states:
 
 - completion versus partial or blocked, and the tasks completed and remaining;
-- the validation commands and their results, and the handling of generated artifacts;
+- the validation commands, their results, whether each was reused from a worker run or newly run with its input scope, and the handling of generated artifacts;
 - staging and commit hashes;
 - tracker entry identifier and the status written, or pending with its reason;
 - divergences, findings, and learnings;

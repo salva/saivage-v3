@@ -48,6 +48,30 @@ The Saivage-core prohibition on compatibility code does not forbid the owner's
 explicitly requested retention of independently registered OpenCode role profiles.
 Those profiles are development configuration, not product code, shims, or loaders.
 
+### Direct trivial fixes
+
+Issue fixes go through this protocol, except a genuinely simple, clearly understood fix that
+the acting `build` or `plan` primary does directly, without the protocol. The primary judges
+triviality from the fix itself. A direct fix needs no plan, approval, score, threshold,
+checklist, tracker entry, report, or protocol run. In case of doubt about triviality, impact,
+remedy, or scope, use the full protocol. If a presumed trivial fix turns out to be uncertain
+during direct work, stop direct implementation and continue under the full protocol. Report the
+effects that already occurred, and do not invent an exemption record.
+
+No content category is excluded by rule. The judgment rests on the actual impact, remedy, and
+scope. A direct fix keeps focused validation, scoped commits, authentication and secret
+protection, unrelated-work preservation, subject-specific rules, and the exact-model
+author and reviewer pair for any model-facing or documentation wording. Direct work is not an
+issue-team lifecycle.
+
+For a clearly trivial direct wording fix, the acting primary assigns the appropriate author
+and a distinct reviewer itself. The root OpenCode configuration explicitly allows `build` and
+`plan` to invoke four subagents: `doc-developer`, `doc-reviewer`, `prompt-developer`, and
+`prompt-reviewer`. It explicitly denies `code-developer`, `developer`, and `documenter` to both
+primaries. This document grants no other direct subagent authority, so a direct source or
+configuration change is made by the primary itself. Within a full issue run, the implementation
+manager alone dispatches the authors and reviewers.
+
 ## Team and ownership
 
 Every issue has one issue fixer, one designer and design-reviewer loop, and at most
@@ -55,23 +79,24 @@ one implementation manager holding the lock at a time.
 
 | Role | Owns | Must not |
 | --- | --- | --- |
-| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The only exception is the bounded passive aggregate check in [Post-batch aggregate validation](#post-batch-aggregate-validation). |
+| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned task IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The exceptions are the bounded passive aggregate check in [Post-batch aggregate validation](#post-batch-aggregate-validation) and, for a clearly trivial direct wording fix, the author and reviewer pair under [Direct trivial fixes](#direct-trivial-fixes). |
 | Issue fixer (`issue-fixer`) | One issue end to end: designer and design-reviewer delegation, finding triage, design-value reassessment, final approval record, freshness decisions, implementation-manager delegation, read-only reconciliation, and reporting, including the issue's tracker evidence. Writes only ignored planning and review artifacts. | Write `docs/working/todo.md` or `docs/working/done.md`; edit implementation or model-facing assets, run validation or generators, stage or commit, author wording, invoke any developer, documenter, or implementation reviewer, or run prompt or documentation review itself. |
 | Issue designer (`issue-designer`) | Writes and revises the issue's self-contained plan, including revisions prompted by review or implementation learning. | Approve its own plan or decide merit. |
 | Design reviewer (`design-reviewer`) | Adversarially reviews every current design or plan revision. Read-only apart from its assigned review artifact. | Edit any plan, asset, source, or configuration; take the issue fixer's merit decision; review implementation assets. |
 | Optional secondary design reviewer (`design-reviewer-secondary`) | Only when a requester explicitly asks for it: the same design-review criteria, failure and reporting boundaries, and verdicts as `design-reviewer`. | Substitute for ordinary design review, or for any documentation or prompt review. |
 | Implementation manager (`implementation-manager`) | The sole implementation orchestrator and the only agent that invokes implementation authors and reviewers. Holds the one lock covering all implementation mutation, validation, generated artifacts, staging, commits and stabilization. Under that lock it keeps only its own issue's existing factual tracker entry current, and never moves an entry to Done. | Author implementation or model-facing wording directly; write any tracker entry other than its own issue's factual status; delegate a tracker write. |
 | Code developer (`code-developer`) | Leaf implementer of manager-assigned runtime, source, configuration, tooling, tests, fixtures, and navigation work. Supplies source facts. Mechanically applies reviewed inline wording. | Author documentation or model-facing wording, delegate, acquire or release locks, stage, or commit. |
-| Documentation developer (`doc-developer`) | Manager-assigned ordinary documentation: facts, structure, clear progression, explanation, and reader usefulness. | Author model-facing instructions, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
-| Documentation reviewer (`doc-reviewer`) | Manager-assigned independent review of ordinary documentation for facts, quality, structure, and progression. Read-only apart from its assigned review artifact. | Edit any asset; review model-facing instructions; take the author's role. |
-| Prompt developer (`prompt-developer`) | Manager-assigned model-facing wording: instructions, prompts, templates and fragments, agent bodies and descriptions, skills, and AGENTS wording. | Author ordinary documentation, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
-| Prompt reviewer (`prompt-reviewer`) | Manager-assigned independent review of model-facing assets as one composed result, including the unconditional final clean-room pass. Read-only apart from its assigned review artifact. | Edit any asset; review ordinary documentation as its only purpose; take the author's role. |
+| Documentation developer (`doc-developer`) | Ordinary documentation assigned by the implementation manager, or by the acting primary for a clearly trivial direct fix: facts, structure, clear progression, explanation, and reader usefulness. | Author model-facing instructions, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
+| Documentation reviewer (`doc-reviewer`) | Independent review of ordinary documentation for facts, quality, structure, and progression, invoked by the implementation manager or, for a direct fix, the acting primary. Read-only apart from its assigned review artifact. | Edit any asset; review model-facing instructions; take the author's role. |
+| Prompt developer (`prompt-developer`) | Model-facing wording assigned by the implementation manager, or by the acting primary for a clearly trivial direct fix: instructions, prompts, templates and fragments, agent bodies and descriptions, skills, and AGENTS wording. | Author ordinary documentation, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
+| Prompt reviewer (`prompt-reviewer`) | Independent review of model-facing assets as one composed result, including the unconditional final clean-room pass, invoked by the implementation manager or, for a direct fix, the acting primary. Read-only apart from its assigned review artifact. | Edit any asset; review ordinary documentation as its only purpose; take the author's role. |
 
 Model-facing assets are never authored by the same agent that reviews them. Ordinary
 documentation is written by `doc-developer` and checked by `doc-reviewer`. Model-facing
 instructions, prompts, templates, fragments, agent bodies, skills, and AGENTS wording
-are written by `prompt-developer` and checked by `prompt-reviewer`, which the manager
-invokes with the explicit exact override `openai/gpt-6.1-sol`. Skills carry no model
+are written by `prompt-developer` and checked by `prompt-reviewer`, which the implementation
+manager invokes with the explicit exact override `openai/gpt-6.1-sol`. For a clearly trivial
+direct fix, the acting primary invokes the same pair the same way. Skills carry no model
 frontmatter; model selection stays in agent configuration.
 
 Each issue completes its own design and review loop, but the batch coordinator selects
@@ -97,10 +122,10 @@ registered profile with its own complete body.
 | `design-reviewer-secondary` | `nvidia/z-ai/glm-5.2` | `issue-fixer`, only when explicitly requested | Optional extra design review. |
 | `implementation-manager` | Unchanged | `issue-fixer` | Sole lock holder and implementation orchestrator. |
 | `code-developer` | `openai/gpt-6.1-sol` | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
-| `doc-developer` | `opencode-go/claude-haiku-5-5`, no variant | `implementation-manager` | Ordinary documentation. |
-| `doc-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager` | Ordinary documentation review. |
-| `prompt-developer` | `opencode-go/claude-haiku-5-5`, no variant | `implementation-manager` | Model-facing instruction and prompt assets. |
-| `prompt-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager` | Model-facing composition and clean-room review. |
+| `doc-developer` | `opencode-go/claude-haiku-5-5`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
+| `doc-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
+| `prompt-developer` | `opencode-go/claude-haiku-5-5`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
+| `prompt-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
 
 Only the primary batch coordinator may load the coordination skill. No other role loads
 it or this document to act. Every leaf denies delegation, staging, commits, and lock
@@ -115,7 +140,7 @@ through any fallback.
 
 | Retained profile | Purpose now | Canonical successor for new work |
 | --- | --- | --- |
-| `fixer` | Pre-transition issue sessions keep their exact returned IDs and nonce state. | `issue-fixer` |
+| `fixer` | Pre-transition issue sessions keep their exact returned IDs and their stored procedure. | `issue-fixer` |
 | `designer` | Pre-transition design revisions. | `issue-designer` |
 | `reviewer` | Pre-transition design review, and bootstrap prompt or documentation review. | `design-reviewer`, `doc-reviewer`, `prompt-reviewer` |
 | `reviewer-2` | Pre-transition optional design review. | `design-reviewer-secondary` |
@@ -129,11 +154,18 @@ old allowances are retained authorization, not a fallback path in the new body.
 
 Operational rules for the transition:
 
-- Existing issue sessions keep their exact original IDs and nonce state. Never replace a
-  running fixer or designer to normalize its name.
-- Changing an agent file does not replace the instructions stored in a running session.
-  The new bodies describe fresh-session behavior. A catalog reload does not prove that a
-  stored body was replaced.
+- Existing issue sessions keep their exact original IDs. Never replace a running fixer or
+  designer to normalize its name.
+- A changed agent file does not replace the body stored in a running session, and a catalog
+  reload does not prove that a stored body was replaced. The new bodies describe fresh-session
+  behavior. A shared file, such as `AGENTS.md` or a skill, can be read later by a session that
+  loads it, so it can affect that session after the change. Neither an edit nor a read proves
+  adoption.
+- A retained session whose stored procedure still carries a superseded mechanism (the
+  continuity nonce, its challenge and authorization, cancelled-wait re-entry, or an exceptional
+  lock recipe) continues only through an ordinary resume that forwards the owner's superseding
+  direction, as described under [Ordinary resume](#ordinary-resume). Its stored body is not
+  replaced. A conflict that the forwarded direction does not settle is reported as a blocker.
 - Old-ID prescriptions are removed only from updated canonical guidance. Preserved role
   bodies and historical reports keep their original identities. Nothing claims the old
   identities were removed or automatically redirected.
@@ -232,6 +264,12 @@ projects into that role's own prompt body, so a role never needs this document t
 - Authentication and outbound confidentiality are absolute. Never print tokens,
   credentials, provider configuration, auth or environment files, or unredacted
   session exports.
+- Reports serve their recipient. A user reply gives the outcome and any action, decision, or
+  blocker the user needs, and it lists paths only when the user needs them. An internal handoff
+  gives the artifacts, the exact text when it must be applied elsewhere, review and validation
+  evidence, commit references, effects, uncertainty, and the settlement facts the next role needs.
+  State each fact once at its owning handoff, refer to the accessible artifact afterwards, and
+  repeat a fact only when it changed or the recipient lacks it. Do not repeat fixed formal blocks.
 - Uncertain publication of Saivage-owned state is governed by the boundary in
   [Uncertain publication boundary](#uncertain-publication-boundary).
 
@@ -305,8 +343,10 @@ projects into that role's own prompt body, so a role never needs this document t
 - A source gap the plan did not assign goes back to the manager for a separate developer
   assignment. Do not absorb it silently.
 - Focused checks: run the focused checks needed to verify your own source changes, then
-  report each command and its result. These checks inform progress. They never replace
-  the manager-run required validation.
+  report each command, its result, and the input scope it covered. The manager owns the
+  integrated assurance. It may reuse your successful check when its relevant inputs are
+  unchanged in the final result, or it may rerun the check, as
+  [economical selection and reuse](../validation.md#economical-selection-and-reuse) directs.
 - Generation: do not run build or generated-artifact generation unless your assignment
   names it.
 - Concurrency: develop concurrently only when the manager has assigned source-only work
@@ -331,10 +371,12 @@ projects into that role's own prompt body, so a role never needs this document t
 
 ### Documentation developer and prompt developer
 
-- Invocation: only by the implementation manager, with exact model
+- Invocation: the implementation manager invokes them within an issue run. The acting
+  `build` or `plan` primary invokes them only for a clearly trivial direct wording assignment,
+  under [Direct trivial fixes](#direct-trivial-fixes). Both use exact model
   `opencode-go/claude-haiku-5-5` and no variant. A coordinator, issue fixer, designer,
-  reviewer, or other author never invokes them. An author never invokes a reviewer
-  itself. The manager does.
+  reviewer, or other author never invokes them. An author never invokes a reviewer itself;
+  the invoking owner does.
 - Choice: `doc-developer` writes ordinary documentation. `prompt-developer` writes
   model-facing instructions, prompts, templates and fragments, agent bodies and
   descriptions, skills, and AGENTS wording. Technical documentation about prompts is
@@ -342,10 +384,14 @@ projects into that role's own prompt body, so a role never needs this document t
 - Inputs: the assigned facts, the plan, and the exact sections or files the manager
   names. Read the actual source to confirm each fact before wording it. For instructions,
   check the composition the text will join, not the text alone.
-- Output: the exact replacement documentation or model-facing wording, with its
-  selfchecks. Selfchecks are author checks, not independent review.
-- Report partial wording and any facts you could not obtain. Await the manager. Route
-  source gaps back through the manager.
+- Output: when the author edits the assigned file in place, the report names the files and
+  sections changed, the sources read, the facts confirmed and not obtained, the links not
+  verified, the selfchecks, and any text that belongs to the other pair. The file is the
+  artifact, so the text is not echoed back. When the text must be applied elsewhere, such as
+  an inline host that `code-developer` applies verbatim, the author returns the exact
+  replacement text with the same report. Selfchecks are author checks, not independent review.
+- Report partial wording and any facts you could not obtain. Await the invoking owner. Route
+  source gaps back through that owner.
 - Mutation boundary: the assigned documentation or model-facing assets only. No source
   repair, delegation, shell, Lua, or execute use, builds, validation, staging, or commit.
 
@@ -353,8 +399,8 @@ projects into that role's own prompt body, so a role never needs this document t
 
 - Inputs: the exact final assets or sections, the assignment, and, for prompt review,
   the root configuration, governing and shared instructions, and the relevant unchanged
-  roles as one composed result. The manager names the explicit model override when one is
-  required.
+  roles as one composed result. The invoking owner (the implementation manager, or the acting
+  primary for a direct fix) names the explicit model override.
 - Documentation review checks facts against the actual source, quality, structure, clear
   progression, reader usefulness, and link correctness. It does not review model-facing
   instruction sufficiency.
@@ -369,10 +415,11 @@ projects into that role's own prompt body, so a role never needs this document t
   suggested correction. Do not raise speculative or preference-only nits.
 - Write only the assigned review artifact. You do not edit assets, source, or
   configuration, generate tests, or run mutating commands.
-- Wording findings go to the manager, which routes them to the matching author. Logic
-  findings in executable source or configuration go to the manager, which routes them to
-  `code-developer`. A finding that requires a changed design is reported as such, and the
-  manager returns it to the issue fixer.
+- Findings go to the invoking owner. In an issue run, the manager routes wording findings to
+  the matching author and logic findings in executable source or configuration to
+  `code-developer`. In a direct fix, the acting primary sends wording findings back to the
+  author. A finding that requires a changed design is reported as such, and in an issue run
+  the manager returns it to the issue fixer.
 - Finish with exactly one verdict on the last line, as for design review.
 - `prompt-reviewer` always performs an unconditional final clean-room review after the
   last relevant prompt edit, against the actual final composition.
@@ -428,8 +475,8 @@ it truly does not apply; do not repeat policy inventories or the review history.
     does not count.
 - **Related stale main documentation** and scoped tasks to correct it.
 - **Focused and broader validation** appropriate to the risk. Target the affected
-  semantic owners and useful behavior, and broaden only for demonstrated
-  cross-cutting risk. Do not use prose-regex assertions, repository-wide spelling
+  semantic owners and useful behavior, and broaden when the risk warrants it, as
+  [docs/validation.md](../validation.md#economical-selection-and-reuse) describes. Do not use prose-regex assertions, repository-wide spelling
   bans, or unrelated test matrices as substitutes for semantic evidence.
 - **Risks, rollback considerations, and unresolved questions.**
 
@@ -569,8 +616,7 @@ For a batch, the coordinator must:
 3. Record task-continuity state only in coordinator session context, never in a repository
    file or registry: issue identity and summary, exact returned fixer task ID and its
    identity, plan path, latest disposition, known implementation-lock ownership, and any
-   tracker facts still pending. Task IDs, nonces, and handshake records are never tracker
-   fields.
+   tracker facts still pending. Task IDs are routing state and are never tracker fields.
 4. Handle each return before selecting the next run. One issue's failure or cancellation
    does not cancel the others unless explicitly requested, and it does not make other work
    eligible while settlement or shared-worktree safety is unknown.
@@ -584,7 +630,7 @@ workflow as blocked. Do not silently weaken it.
 
 Advance only on evidenced settlement:
 
-- A `COMPLETED` issue advances only with its full evidence: the approval block, manager
+- A `COMPLETED` issue advances only with its full evidence: the approval facts, manager
   validation, commit hashes, and stable read-only reconciliation.
 - A partial or redesign return that continues the same fixer's design loop keeps that fixer
   selected until it returns.
@@ -598,17 +644,16 @@ Advance only on evidenced settlement:
 
 At each eligible boundary the coordinator selects exactly one next run: either one new issue,
 or one recorded waiting fixer whose known lock holder has returned, released its lock, and
-reported a stable committed state, or one cancelled waiter for owner-authorized re-entry, as
-described in [Owner-authorized cancelled-wait re-entry](#owner-authorized-cancelled-wait-re-entry).
+reported a stable committed state, or one cancelled waiter whose owner has directed its
+continuation, as described in
+[Owner-directed continuation of a cancelled waiter](#owner-directed-continuation-of-a-cancelled-waiter).
 It never selects two. The protocol sets no priority between new issues, waiting fixers, and
-cancelled waiters. A selected waiter resumes through the two-call handshake in
-[Lock contention and event-driven resume](#lock-contention-and-event-driven-resume). A selected
-cancelled waiter first completes its re-entry entry within the same run, and then the handshake.
-The coordinator then awaits that entire run. Every other waiter, cancelled waiters included,
-stays dormant, with its exact task ID, identity, and retained nonce or cancelled-wait facts
-unchanged, until a later eligible boundary. If the selected waiter's freshness check requires
-design review, its own design and review loop continues, and no other waiter is selected in its
-place. Waiters never race for the lock.
+cancelled waiters. The selected fixer is resumed by one ordinary call, as described in
+[Ordinary resume](#ordinary-resume), and the coordinator then awaits that entire run. Every other
+waiter, cancelled waiters included, stays dormant, with its exact task ID and identity unchanged,
+until a later eligible boundary. If the selected waiter's freshness check requires design review,
+its own design and review loop continues, and no other waiter is selected in its place. Waiters
+never race for the lock.
 
 ### Tracker lifecycle ownership
 
@@ -653,21 +698,15 @@ terminal ABANDONED note giving the merit reason and the abandoned scope. If no i
 occurred, the note says so. After partial delivery, the entry retains the delivered units,
 validation and commit references, and it identifies the abandoned remainder, which is terminal
 rather than pending work. Such an entry never claims whole-issue completion. Completion
-records implementation only; aggregate workflow results are tracked separately. Task IDs, nonces, and handshake records remain session context and are
-never tracker fields.
+records implementation only; aggregate workflow results are tracked separately. Task IDs remain session context and are never tracker fields.
 
 ## Final approval and freshness gate
 
 Only after review closes and the final reassessment returns `WORTH_IMPLEMENTING` may
-the issue fixer record this approval in session or report state:
-
-```text
-Plan approval:
-Review closure: <review verdict and round/review artifact>
-Final merit outcome: WORTH_IMPLEMENTING
-Supporting evidence: <concise evidence covering the four merit conditions>
-Examined HEAD: <commit>
-```
+the issue fixer record approval in session or report state. The approval record holds the
+review closure (verdict and round or review artifact), the final merit outcome
+`WORTH_IMPLEMENTING`, concise evidence for the four merit conditions, and the examined `HEAD`.
+Later reports refer to it when it is unchanged.
 
 Immediately before every implementation-manager attempt, including every attempt
 after lock waiting, the issue fixer performs a read-only semantic freshness check against:
@@ -696,7 +735,7 @@ certify deployment.
 A freshness-driven return to design invalidates the prior approval. A newly closed
 revision needs a new final `WORTH_IMPLEMENTING` decision and approval record. A
 successful check reserves nothing. The manager must still acquire the sole lock. If it
-loses contention, the issue fixer waits and repeats freshness after its verified resume.
+loses contention, the issue fixer waits and repeats freshness after its ordinary resume.
 
 ## Singular complete implementation boundary
 
@@ -711,21 +750,8 @@ The manager must:
    delegating any implementation mutation. On contention, it edits and delegates
    nothing and returns the existing lock description.
 
-   **Owner-override exception.** When the coordinator's initial assignment quotes an
-   explicit project-owner instruction that an existing lock was wrongly acquired by an
-   unrelated run and must be left untouched, the manager may proceed without acquiring
-   it, under these exact conditions:
-   - The coordinator guarantees that this is the sole writing agent until the run
-     reports completion.
-   - The stray lock file is never removed, modified, or taken over.
-   - The manager captures pre-existing repository state first, stages only its plan's
-     intended paths, preserves unrelated changes, and escalates rather than overwrites
-     when unexpected concurrent modifications appear.
-   - Before each new implementation attempt, the responsible issue fixer re-checks whether
-     the stray lock was released. Once it is gone, normal acquisition resumes for
-     every later run.
-    - As sole writer under this exception, the run also carries the factual tracker duties
-      in this section.
+   A stray or unexplained lock, or any other unusual lock state, is not handled here. See
+   [Unusual lock and settlement states](#unusual-lock-and-settlement-states).
 
 2. Capture pre-existing Git status and diff sufficiently to preserve unrelated work and
    to avoid staging or removing it. This includes any existing tracker-file changes, which
@@ -767,8 +793,10 @@ The manager must:
      adding another gate or coordination mechanism.
 5. Run all validation required by the plan, including focused and broad checks. Handle
    generated artifacts. Selectively stage only intended paths. Commit coherent stable
-   units under AGENTS. Developer checks may inform progress, but they do not replace
-   manager-run required validation.
+   units under AGENTS. Developer checks inform progress. The manager owns integrated assurance:
+   it may reuse a successful developer check whose relevant inputs are unchanged in the final
+   result, and it reruns or adds checks as [economical selection and reuse](../validation.md#economical-selection-and-reuse)
+   directs.
 6. Prepare its final report with command results and commit hashes. Before normal
    release, ensure the completed issue work is stable and committed, and that no
    issue-owned uncommitted mutation remains. Ignored tracker edits are excluded from that check.
@@ -825,39 +853,18 @@ read-only inspection. Escalate to the owner or operator only when that uncertain
 cannot be resolved safely this way, or when safe stabilization cannot be established.
 Do not perform any inspection after the AGENTS fatal boundary above applies.
 
-### Interrupted owner continuation
+### Unusual lock and settlement states
 
-An explicit project-owner authorization may permit the original implementation-manager
-session to continue its interrupted attempt under its own still-held acquisition.
+A stray or unexplained lock, a retained lock whose holder cannot be accounted for, an unsettled
+prior call, or an unsafe worktree is not an ordinary state. No role classifies it, removes or
+modifies the lock, takes it over, repairs the worktree, continues an interrupted attempt, or
+starts another manager around it. This includes a manager that could not stabilize and kept the
+lock. Stop, report the facts as they are known, and ask the owner or operator. Do not poll or
+retry.
 
-Before any continuation work, positively establish from retained session context and
-independent coordinator or tool evidence:
-
-- the exact original session identity and its acquisition. Matching lock text alone is
-  insufficient;
-- that the current lock still describes that acquisition;
-- that the prior invocation, every delegated worker, and every launched command have
-  settled. Cancellation, a timeout, silence, or a caller's assertion alone is not
-  settlement evidence.
-
-Do not overlap an active original child, launch a replacement manager, recreate or
-remove the lock, or transfer ownership. If any required evidence is unavailable or
-conflicting, remain `BLOCKED` with the lock untouched. Do not poll or retry.
-
-Resume only that exact original manager session, and only after these conditions hold.
-Reconcile the prior partial effects and the current repository state read-only against
-the approved plan before any further delegation. A material divergence returns to the
-issue designer and design reviewer, not to improvised implementation.
-
-Verify that the session's effective higher-priority instructions actually permit
-continuation. Saving or reloading an agent file, or quoting this exception in a
-lower-priority message, does not prove replacement of stored instructions. If that
-cannot be established, report the instruction-loading blocker. Continuation then runs
-under the same acquisition and the manager-assigned author and developer boundary,
-with unchanged validation, stable-unit commit, stabilization, and final-release duties.
-
-This exception neither authorizes another issue's parallel implementation nor changes
-the stray-lock exception above.
+No procedure in this protocol authorizes exceptional lock handling. A later exceptional operation
+needs a separately scoped owner decision, and it is a different subject from this protocol's
+normal acquisition, waiting, and release.
 
 ## Lock contention and event-driven resume
 
@@ -871,138 +878,69 @@ Coordinator sequencing prevents most contention, but unexpected contention can s
 for example from a run outside the coordinator's sequence. The lock therefore remains the
 only safety boundary, and every contender follows this section.
 
-The coordinator selects a waiting fixer, or a cancelled waiter for owner-authorized re-entry,
-only at an eligible boundary: the known holder has returned, released its lock, and reported a
-stable committed state, and no other run is selected. It selects one waiter. Waiters are not
-resumed optimistically as a group, because the losers would only wait again. Selection creates no queue, scheduler, fairness promise,
-timer, watcher, or additional lock. A resumed fixer that loses contention again waits with a
-fresh nonce, and the coordinator selects again only at a later eligible boundary.
+The coordinator selects a waiting fixer, or a cancelled waiter whose owner has directed its
+continuation, only at an eligible boundary: the known holder has returned, released its lock, and
+reported a stable committed state, and no other run is selected. It selects one waiter. Waiters
+are not resumed optimistically as a group, because the losers would only wait again. Selection
+creates no queue, scheduler, fairness promise, timer, watcher, or additional lock. A resumed
+fixer that loses contention again returns another waiting disposition, and the coordinator
+selects again only at a later eligible boundary.
 
-### Waiting nonce
+### Ordinary resume
 
-On each waiting return, the issue fixer generates a fresh opaque continuity nonce,
-retains it in its existing session context, and reports it. The coordinator records it
-with the exact returned task ID and replaces any prior nonce for that issue. The nonce is
-session correlation state, not a credential or durable state. Successful authorization
-consumes it. Repeated waiting requires a new nonce. Cancellation or terminal failure
-discards it. An owner-authorized re-entry return is a waiting return and receives a fresh nonce
-under the same rules; see [Owner-authorized cancelled-wait re-entry](#owner-authorized-cancelled-wait-re-entry).
-
-### Mandatory two-call resume handshake
-
-Both calls use the exact recorded task ID and the subagent identity of that same
-session, which is `issue-fixer` for a new issue or the retained `fixer` for a
-pre-transition session:
-
-```text
-subagent_type: "<the session's own identity>"
-task_id: "<exact recorded task ID>"
-```
-
-**Call 1, challenge.** The coordinator does not include the expected nonce. Its prompt
-unconditionally forbids tools, edits, commands, and every mutation. It asks only for the
-issue identity, the plan path, the prior `WAITING_FOR_IMPLEMENTATION_LOCK` disposition,
-and the nonce retained in session context. If any value is unavailable, the issue fixer
-returns `BLOCKED` without tools.
-
-The coordinator independently verifies that the Task result's returned task ID is
-byte-for-byte identical and that all retained values exactly match its record.
-
-Any missing or mismatched value, task-ID mismatch, or tool use or mutation makes the
-issue `BLOCKED`. Make no Call 2. An invalid ID may create a new session, but that session
-cannot know the undisclosed nonce, and its output is never adopted.
-
-**Call 2, authorization.** Only after Call 1 passes, invoke the same exact task ID again.
-The prompt includes the nonce that the verified Call 1 reply reported and states that this
-authorization applies only to that challenged episode. It authorizes the read-only freshness
-gate and, only if the plan is still approved, manager delegation. Before using any tool, the
-issue fixer confirms from its own context that all of these hold: its immediately preceding
-turn is the successful Call 1 challenge for the retained waiting episode; the nonce in this
-call equals the nonce that challenge reported and that it still retains; and the issue and plan
-match. If any condition fails, or that context is absent, the result is `BLOCKED` without tools,
-and the fixer discards the nonce and clears the episode. The coordinator again verifies the exact
-returned task ID. Successful authorization consumes the nonce. A mismatched or stale
-authorization, including one from an earlier episode sent after a fresh challenge, is never
-delegated from and is not re-entry evidence.
-
-### Owner-authorized cancelled-wait re-entry
-
-Cancellation is effective at once. A cancelled waiter discards its nonce and any challenge or
-authorization correlation, makes no handshake call, stops launches and resumes, and does not
-touch the lock. It keeps its exact task ID, issue identity, plan path, and last known facts,
-including the retained approval, freshness, attempt, and lock-holder facts and the cumulative
-prior manager effects. Cancellation alone never schedules re-entry. Re-entry requires an explicit
-project-owner instruction to continue this cancelled issue. An earlier implementation
-authorization does not satisfy it.
-
-Re-entry is a selected run and needs the same evidence as any waiter: every earlier call has
-settled, the shared worktree is safe and stable, the manager lock is released, and the known lock
-holder has returned, released its lock, and reported a stable committed state. A holder
-settlement that occurred during the cancellation satisfies this, so no new contention or holder
-event is needed. The owner instruction bypasses none of these conditions. If any condition is
-unknown, the entry is blocked. Do not poll, probe, or send a speculative manager call to establish
-it. At the selection boundary, apply any still-pending cancellation note first, under
-[Tracker lifecycle ownership](#tracker-lifecycle-ownership).
-
-The coordinator makes one entry call with the identity and exact task ID recorded at launch:
+The coordinator resumes the selected fixer with one ordinary call that uses the identity recorded
+at launch and the exact recorded task ID:
 
 ```text
 subagent_type: "<the identity recorded at launch>"
 task_id: "<exact recorded task ID>"
 ```
 
-Its prompt forwards the owner's continuation instruction verbatim and states that the earlier
-waiting episode was cancelled. It forbids tools, files, commands, lock inspection, freshness work,
-and delegation. It supplies no nonce, old or proposed, and asks only for the retained issue
-identity, plan path, and cancelled waiting context, plus a fresh waiting disposition with new
-correlation. The entry is a distinct request. It is not Call 1 and not implementation
-authorization.
+The prompt asks the fixer to continue the named issue from its plan at the recorded absolute
+path, and gives the tracker entry identifier and paths. For a cancelled waiter, it also states
+that the earlier waiting episode was cancelled and forwards the owner's continuation instruction
+verbatim. It supplies no freshness conclusion and no approval.
 
-The fixer re-enters only when its retained session context establishes all of these:
+The resume is not a challenge, an identity proof, or an entry call. The coordinator does not
+compare the returned task ID or any value with a record, and it does not verify that the reply is
+the original fixer's own report. The recorded task ID is ordinary tool routing, and this protocol
+claims no wrong-session containment from it. A tool or host failure, or an unusable task ID, is an
+ordinary blocker: report it, guess no IDs, and launch no replacement fixer.
 
-- **Identity and plan:** the issue identifier and the absolute plan path retained for this issue.
-- **Cancelled waiting episode:** a `WAITING_FOR_IMPLEMENTATION_LOCK` disposition was returned for
-  this issue and the episode was then cancelled, including cancellation between calls after a
-  successful challenge. A forwarded cancellation of that episode counts when it prevented the
-  fixer's reply. No prior acknowledgement is needed, and a forwarded cancellation never supplies
-  missing context.
-- **No manager attempt in flight:** no authorization was accepted for this episode, so no
-  implementation-manager attempt or unreconciled manager return belongs to it.
-- **Approval still valid:** the retained plan approval has not been invalidated. It is invalidated
-  when a freshness check returned `PLAN_REVIEW_REQUIRED`, when the plan was revised after approval,
-  or when design returned it for revision. Re-entry never revives an invalidated approval.
+A retained session whose stored procedure still carries a superseded mechanism (the continuity
+nonce, its challenge and authorization, cancelled-wait re-entry, or an exceptional lock recipe)
+also needs the owner's superseding direction in the same resume message. The coordinator quotes
+that direction verbatim from its session context. This delivers existing owner authority; it is
+not a new proof, and the session's stored body is not changed. If the owner's direction is not
+in session context verbatim, the coordinator does not resume that session and asks the owner.
 
-If a condition fails, the fixer returns `BLOCKED` without tools and names the failed condition.
-For an invalidated approval, it names the design blocker that requires `issue-designer` and the
-complete review loop. It discards any challenge or authorization correlation and issues no waiting
-report. It never reconstructs missing context from the request or from another session. If every
-condition holds, it invalidates all prior handshake state, generates a fresh opaque nonce, retains
-it in context, and returns the re-entry waiting disposition shown under
-[Structured fixer dispositions](#structured-fixer-dispositions).
+The fixer runs its own freshness gate before any manager attempt, under
+[Final approval and freshness gate](#final-approval-and-freshness-gate). A resume approves nothing
+and turns no old evidence into current evidence.
 
-The coordinator verifies the return independently. The returned task ID must be byte-identical to
-its record, no tool may have been used, and the disposition must be `WAITING_FOR_IMPLEMENTATION_LOCK`
-with the re-entry waiting origin. The issue and plan must match the record, and the historical
-facts must be marked as historical. Only then does the coordinator record the returned nonce as the
-sole current nonce, replacing the cancelled one. Missing evidence, a mismatch, a `BLOCKED` reply,
-or tool use makes the entry `BLOCKED`. The coordinator then makes no Call 1, never adopts a returned
-replacement, and never repeats the entry to resolve it.
+### Owner-directed continuation of a cancelled waiter
 
-The verified entry return is settled. The coordinator applies its tracker update (Designed, with
-the cancelled-wait re-entry as a note) at that boundary before Call 1, because Call 1 is a resume.
-The normal two-call handshake then runs in the same selected run. Call 1 challenges with the four
-retained values verified against the record. Call 2 authorizes with the nonce that the verified
-Call 1 reply reported.
+Cancellation is effective at once. A cancelled waiter makes no manager call, stops launches and
+resumes, and does not touch the lock. It keeps its exact task ID, issue identity, plan path, and
+last known facts, including the approval facts and the cumulative prior manager effects. Cancellation
+alone never resumes the issue.
 
-Re-entry carries facts, not authority. The re-entry return is a waiting return. It is not new lock
-contention, freshness evidence, a current lock observation, or a new manager attempt. It ends before
-manager admission, changes no serialization right, and grants no freshness or implementation
-authority. A re-entered waiter that is cancelled again follows these same rules: its new nonce
-replaces the old one, and its historical facts keep their origin.
+Continuation requires an explicit project-owner instruction to continue this cancelled issue. An
+earlier implementation authorization does not satisfy it. The selected run needs the same evidence
+as any waiter: every earlier call has settled, the shared worktree is safe and stable, the manager
+lock is released, and the known lock holder has returned and reported a stable committed state. A
+holder settlement that occurred during the cancellation satisfies this, so no new contention or
+holder event is needed. The owner instruction bypasses none of these conditions. If any condition is
+unknown, the entry is blocked. Do not poll, probe, or send a speculative manager call to establish
+it. At the selection boundary, apply any still-pending cancellation note first, under
+[Tracker lifecycle ownership](#tracker-lifecycle-ownership).
 
-A pre-transition `fixer` session supports this entry only if its stored body implements it. Changing
-the source does not establish that. If a stored body cannot follow this handoff, the coordinator
-reports the limitation and does not replace the session.
+The selected cancelled waiter then receives the [ordinary resume](#ordinary-resume), with the
+owner's instruction forwarded verbatim and the cancelled episode stated. It is not a separate entry
+call, a preparatory call, or a waiting report. Its freshness gate runs before any manager attempt. The
+earlier approval is historical: a plan revised after approval, or one sent back to design, needs a
+new approval under the complete loop. Prior manager effects remain in the fixer's reports, and the
+resumed run's reports add to them.
 
 ## Handling manager returns
 
@@ -1010,8 +948,8 @@ reports the limitation and does not replace the session.
 
 Map a manager return that acquired no lock, edited nothing, and delegated nothing to
 `WAITING_FOR_IMPLEMENTATION_LOCK`. Do not revise or re-review solely because of
-contention. Return control to the coordinator with a fresh nonce, and wait for the
-event-driven resume.
+contention. Return a waiting disposition. The coordinator resumes the fixer with an ordinary call
+at a later eligible boundary.
 
 ### Acquired-lock return
 
@@ -1032,10 +970,9 @@ governs. Such a report is `BLOCKED`, and it is not a basis for further mutation.
   manager to issue fixer, then the designer and design reviewer loop. It never becomes a
   reviewer-authored redesign or an improvised implementation.
 - If the manager could not stabilize and retained the lock, report `BLOCKED`. No issue
-  implementation resumes until explicit owner or operator verification and repair. The
-  original interrupted holder may continue only through **Interrupted owner
-  continuation**, not through the contention-only waiting handshake or a new manager
-  attempt.
+  implementation resumes until explicit owner or operator verification and repair. No waiting
+  resume, new manager attempt, or interrupted-holder continuation proceeds around that lock. Stop
+  and ask, under [Unusual lock and settlement states](#unusual-lock-and-settlement-states).
 
 ## Structured fixer dispositions
 
@@ -1048,45 +985,24 @@ Every issue fixer return to a coordinator starts with exactly one of these dispo
 - `FAILED`
 - `CANCELLED`
 
-A waiting return includes:
+A waiting return reports, once and without a fixed template:
 
-```text
-Disposition: WAITING_FOR_IMPLEMENTATION_LOCK
-Issue: <identifier and summary>
-Plan: <absolute path>
-Plan approval:
-Review closure: <review verdict and round/review artifact>
-Final merit outcome: WORTH_IMPLEMENTING
-Supporting evidence: <concise evidence covering the four merit conditions>
-Examined HEAD: <commit>
-Implementation attempt: <number>
-Lock holder: <verbatim or concise faithful existing lock description>
-Continuity nonce: <fresh opaque value retained in this fixer session>
-Work performed in this attempt: none
-Tracker evidence: <entry identifier or unavailable>; lifecycle Designed with the approved plan above
-Resume condition: known lock-holder run has returned, released its lock, and reported stable committed state; the coordinator then selects this fixer as its single next run
-Coordinator action: retain this nonce with the exact fixer task ID; when selected as the single next run, use the two-call handshake; do not launch a replacement
-```
+- the issue identifier and summary, and the plan path;
+- the approval facts (in full, or by reference to the earlier report of this run when unchanged),
+  and the implementation attempt number;
+- the lock holder as the manager described it, verbatim or faithfully concise;
+- `Work performed in this attempt: none`;
+- the cumulative prior manager effects, with their delivered units, commit hashes, validation
+  results with failures and limits, and remaining scope, or `none`;
+- the tracker evidence: the entry identifier or `unavailable`, with the lifecycle `Designed` for the
+  approved plan. Waiting is a note on that entry, not a separate status;
+- the resume condition: the known lock holder has returned, released its lock, and reported stable
+  committed state, after which the coordinator may select this fixer for an ordinary resume.
 
-The waiting return's tracker evidence is `Designed` only because it carries the approval block
-above. Waiting itself is a note on the entry, not a separate status. The coordinator records the
-Call 1 result as:
+The return carries no challenge result, nonce, or other continuity value. The coordinator keeps the
+fixer's task ID in its session context as routing state.
 
-```text
-Requested task ID: <exact recorded ID>
-Returned task ID: <Task result ID>
-Continuity: CONFIRMED | BLOCKED
-Prior issue from session context: <identifier or unavailable>
-Prior plan from session context: <path or unavailable>
-Prior disposition from session context: <WAITING_FOR_IMPLEMENTATION_LOCK or unavailable>
-Retained nonce from session context: <opaque value or unavailable>
-```
-
-`CONFIRMED` requires no tool use or mutation, all four retained values matching, and
-identical requested and returned IDs. It only makes Call 2 eligible. It does not
-authorize freshness work by itself.
-
-Before manager delegation after Call 2, record:
+Before any manager delegation, record the resume check:
 
 ```text
 Resume check: PLAN_STILL_VALID | PLAN_REVIEW_REQUIRED | BLOCKED
@@ -1096,39 +1012,9 @@ Relevant intervening changes: <summary or none>
 Decision and evidence: <reason>
 ```
 
-A cancelled-wait re-entry return is also a `WAITING_FOR_IMPLEMENTATION_LOCK` disposition, but its
-origin is stated and its retained facts are marked historical. It uses this block, which carries the
-cumulative prior manager effects and issues a fresh nonce:
-
-```text
-Disposition: WAITING_FOR_IMPLEMENTATION_LOCK
-Waiting origin: owner-authorized cancelled-wait re-entry; not new lock contention
-Issue: <identifier and summary>
-Plan: <absolute path>
-Plan approval (historical, not freshly checked):
-Review closure: <retained review verdict and round/review artifact>
-Final merit outcome: WORTH_IMPLEMENTING
-Supporting evidence: <retained evidence>
-Examined HEAD (historical): <commit>
-Last freshness result (historical): <retained result and HEAD, or none>
-Implementation attempt (last recorded, not incremented): <number or none>
-Last known lock holder (historical, not currently observed): <retained description>
-Prior manager effects (cumulative, from earlier manager reports): <delivered units, commit hashes, validation results with failures and limits, or none>
-Continuity nonce: <fresh opaque value retained in this fixer session>
-Work performed by this re-entry: none; no tool use, freshness check, lock action, or manager invocation
-Tracker evidence: <entry identifier or unavailable>; lifecycle Designed with the approved plan above, with the cancelled-wait re-entry as a waiting note; manager tracker status and pending corrections as last reported
-Resume condition: the coordinator's nonce-free challenge in its selected run; the coordinator established the lock holder's settlement at its selection boundary before this entry, and this report does not observe it
-Coordinator action: retain this nonce with the exact fixer task ID; do not launch a replacement
-```
-
-This report does not show that the issue has no prior effects. It is not a fresh approval, freshness
-check, lock observation, or contention attempt. Its historical facts stay historical in every later
-report, and the re-entry origin stays with them. The `Designed` evidence holds only because the entry
-requires the retained approval to remain valid.
-
-A completed report includes the issue identity, the plan path, the unchanged successful
-plan-approval block, files changed, manager-supplied validation results, commit hashes,
-remaining work or divergence, and repository stability.
+A completed report includes the issue identity, the plan path, the approval facts (in full, or by
+reference to the earlier report of this run when unchanged), files changed, manager-supplied
+validation results, commit hashes, remaining work or divergence, and repository stability.
 
 An `ABANDONED` report instead includes the issue identity and plan path, the review outcome,
 the merit evidence, the failed conditions, why redesign cannot make the remaining scope
@@ -1153,26 +1039,12 @@ The coordinator uses that line at its next safe boundary.
 
 ## Cancellation and error handling
 
-- **Waiting fixer cancelled:** mark `CANCELLED`, discard its nonce, make no handshake
-  call, and do not touch the lock. Retain the issue identity, plan path, and last known facts,
-  including cumulative prior manager effects, for possible owner-authorized cancelled-wait
-  re-entry. Cancellation alone never resumes the issue. Other issues continue unless directed
-  otherwise.
-- **Call 1 mismatch, absence, or tool use:** mark `BLOCKED`, discard the nonce, and make
-  no Call 2. Never adopt a replacement session.
-- **Cancellation between calls:** discard the authorization and make no Call 2. Never
-  reuse the nonce. Later continuation requires owner-authorized cancelled-wait re-entry from
-  the original session, which issues a new nonce and never reuses this episode's nonce or
-  authorization.
-- **Call 2 ID, nonce, or context mismatch:** mark `BLOCKED` before any freshness or
-  implementation tool use, discard the nonce, clear the episode, and never delegate from
-  replacement-session output. A stale authorization from an earlier episode, including one sent
-  after a fresh challenge, is handled the same way.
-- **Re-entry entry that fails its conditions or verification:** mark `BLOCKED` without tools.
-  The fixer names the failed condition, or for an invalidated approval the design blocker. The
-  coordinator makes no Call 1, never adopts a returned replacement, and never repeats the entry
-  to resolve it. The fixer issues no waiting report, and the coordinator resolves the named
-  cause first.
+- **Waiting fixer cancelled:** mark `CANCELLED` and do not touch the lock. Retain the issue
+  identity, plan path, and last known facts, including cumulative prior manager effects, so that
+  an owner-directed ordinary resume has them. Cancellation alone never resumes the issue. Other
+  issues continue unless directed otherwise.
+- **Resume without usable context or task:** mark `BLOCKED`. Name the missing fact, guess no IDs,
+  adopt no other session's output, and launch no replacement fixer.
 - **Design, review, or Task problem before implementation:** use `BLOCKED` for unavailable
   required tooling and `FAILED` for an actual issue-local failure. Other fixers may
   continue if the shared worktree is safe.
@@ -1190,12 +1062,13 @@ The coordinator uses that line at its next safe boundary.
   repository state are all safe.
 - **Manager cannot stabilize or terminates abnormally:** leave the lock in place. No
   contender removes or takes it over. Report a batch-level blocker that requires
-  explicit owner or operator action. Only **Interrupted owner continuation** permits the
-  same acquiring session to continue its interrupted attempt.
+  explicit owner or operator action. Stop and ask under
+  [Unusual lock and settlement states](#unusual-lock-and-settlement-states); no role continues
+  the interrupted attempt.
 - **Coordinator cancellation:** stop launches and resumes. Cancel children only when
   explicitly requested and supported. Report all last dispositions and any active
   holder. Never remove another session's lock.
-- **Unresumable task ID:** a Task error or failed challenge is `BLOCKED`. Do not
+- **Unresumable task ID:** a Task error or failed ordinary resume is `BLOCKED`. Do not
   automatically launch a replacement fixer.
 
 ## Post-batch aggregate validation
@@ -1220,7 +1093,7 @@ governed as follows:
   no lock, and delegates nothing.
 - They never launch implementation leaves directly: no `code-developer`, `doc-developer`,
   `prompt-developer`, `doc-reviewer`, `prompt-reviewer`, or retained developer or
-  documenter profile. Only the implementation manager invokes those roles.
+  documenter profile. Within an issue run only the implementation manager invokes those roles.
 - They add no new validation gate, issue disposition, or approval. Their observations
   are evidence about role availability and boundary behavior, not issue outcomes. A
   voluntary refusal is not proof of a permission boundary; effective deny and catalog
@@ -1232,12 +1105,12 @@ Aggregate validation never stages or commits. Any unexpected tracked or generate
 fails the aggregate check and is reported. It is never repaired outside the manager
 boundary.
 
-For workflow changes that require Task continuity validation, run the plan's harmless
-live smoke exactly as written. It uses concurrent synthetic issue-fixer sessions,
-exact-ID recording, a nonce-free and tool-free Call 1, and a verified same-ID Call 2, and
-it checks for a mismatch safely. Its synthetic episodes acquire no lock, invoke no manager, and implement nothing. Their concurrency is the approved validation requirement, not live issue fanout, and the smoke runs only at this aggregate gate. If Task concurrency, IDs, resume, nonce retention, or
-tool-free evidence is unavailable, report workflow validation as `BLOCKED`. Do not
-substitute a sequential, one-call, or text-only imitation.
+Scenario evidence is reported separately from implementation completion. The plan's offline
+waiting, resume, cancellation, and freshness scenarios, and the source validation, are reported as
+what they are. Static scenario evidence does not establish live Task behavior, host adoption, or
+lock contention, and unavailable live evidence is reported as unavailable, never certified by
+silence. No Task smoke, real cancellation, lock contention, or manager call is run merely to test
+the wording.
 
 ## Prohibited mechanisms
 
@@ -1247,40 +1120,51 @@ Do not introduce any of the following:
 - concurrent initial launch or optimistic resume of several issue fixers, or resumption of a
   waiting fixer while the selected run can still launch a manager;
 - multiple lock-holding managers;
-- direct primary-agent or issue-fixer implementation;
+- implementation by a primary agent within a full issue run. A clearly trivial direct fix outside
+  the protocol is the separate route under [Direct trivial fixes](#direct-trivial-fixes);
+- implementation by an issue fixer, in any circumstance;
 - extra locks, lock takeover, or stale-lock classification;
+- lock-bypass, sole-writer, or presence-recheck recipes for a stray lock or an interrupted holder;
+- a nonce, challenge, or returned-ID comparison gate on resuming a fixer;
 - polling, sleeps, retry timers, watchers, queues, or schedulers;
 - registries, replacement fixers, aliases, dispatch fallbacks, loaders, or branches,
   worktrees, clones, or merge orchestration.
 
 Permitted concurrency is narrow: a manager's positively nonconflicting source-only
-`code-developer` group, and the harmless synthetic continuity smoke at the aggregate gate.
-Neither is live issue fanout. Do not run documentation or prompt authoring concurrently with
-any other worker. Do not
-run concurrent developer assignments that overlap in files, contracts, outputs,
-validation side effects, or ordering. Do not invoke `code-developer`, `doc-developer`,
-`prompt-developer`, `doc-reviewer`, `prompt-reviewer`, or a retained developer or
-documenter profile directly from a primary agent, issue fixer, or designer. Only the
-implementation manager invokes them.
+`code-developer` group. It is not live issue fanout. Do not run documentation or prompt authoring
+concurrently with any other worker. Do not run concurrent developer assignments that overlap in
+files, contracts, outputs, validation side effects, or ordering. Do not invoke `code-developer`,
+`doc-developer`, `prompt-developer`, `doc-reviewer`, `prompt-reviewer`, or a retained developer or
+documenter profile from an issue fixer or designer. Within an issue run only the implementation
+manager invokes them. The acting `build` or `plan` primary may invoke only the four wording roles,
+and only for a clearly trivial direct wording fix.
 
 ## Final reporting
 
-Report the issue or issues, the core design choice, the plan path or paths, the tracker entry
-identifiers with the lifecycle applied or pending, the adversarial review and final merit
-outcomes, material findings, the main documents and files changed, the author and reviewer identities used for documentation and model-facing
-assets, prompt-review evidence where model-facing assets changed, manager-run validation
-commands and results, commit hashes, repository stability, residual risks and follow-ups,
-and any abandoned, blocked, or cancelled issues. For an abandoned or partly delivered issue,
-report the delivered scope (units, files, commit hashes, and validation with its failures and
-limits) and the abandoned remainder separately. Never imply whole-issue completion, and never
-omit partial delivery that the reports show. When a session used a retained profile
-rather than a canonical identity, say so. The coordinator also reports each selected run in
-order, the boundary evidence used before each launch or resume, and each dormant waiter by
-identifier only. For each owner-authorized cancelled-wait re-entry, it also reports the owner
-instruction received, the cancellation evidence, the entry result, and the historical facts the
-entry carried. These are reported as historical, never as new lock contention or fresh freshness
-evidence. Task IDs, nonces, and handshake records remain session context and are not written to
-tracker or repository files.
+Reporting has two registers, matched to the recipient.
+
+**Internal evidence handoffs** (worker to manager, manager to fixer, fixer to coordinator, and the
+coordinator's own record) carry what the next role needs to review, apply, validate, or decide: the
+issue and plan paths, the tracker entry identifier with the status applied or pending, the review and
+final merit outcomes, material findings, files changed and commit references, manager-assured
+validation commands with results and input scope (and whether each was reused or newly run), prompt-review
+evidence where model-facing assets changed, retained-profile identities where a session used one,
+repository stability, delegation receipts, and cumulative delivery with its failures, limits, and
+remaining or abandoned scope. Give each fact once at its owning handoff. Refer to the accessible
+artifact or report afterwards, and repeat a fact only when it changed or the recipient lacks it. A
+reference never hides adverse evidence: a later report that points back to an earlier one still states
+any failure, limit, or abandonment the reader needs to decide, and it never implies whole-issue
+completion.
+
+**The user reply** states the outcome, and any action, decision, or blocker the user needs. It lists
+paths or file lists only when the user needs them for that decision or action. For an abandoned or
+partly delivered issue, it reports the delivered scope and the abandoned remainder separately, and it
+never omits partial delivery that the reports show. The coordinator also reports each selected run in
+order, the boundary evidence used before each launch or resume, and each dormant waiter by identifier
+only. For each owner-directed continuation of a cancelled waiter, it reports the owner instruction
+received, the cancellation evidence, and the resume result. Facts that the resumed run carries from
+earlier reports are reported as historical, never as new lock contention or fresh freshness evidence.
+Task IDs remain session context and are not written to tracker or repository files.
 
 Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
 fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles

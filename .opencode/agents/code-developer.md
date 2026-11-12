@@ -52,8 +52,8 @@ For an approved owner-local discriminator change, synchronize the producers, con
 
 ## Checks and commands
 
-- Run the focused checks needed to verify your own source changes. Report each command and its result.
-- Focused checks inform progress. They never replace the manager-run required validation.
+- Run the focused checks needed to verify your own source changes. Report each command, its result, and the input scope it covered.
+- The manager owns the integrated assurance. It may reuse your successful focused check when that check's relevant inputs are unchanged in the final result, or it may rerun the check. Do not claim the integrated or manager-level validation yourself.
 - Run no build or generated-artifact generation unless your assignment names it.
 - Develop concurrently only when the manager has assigned source-only work it has determined does not conflict.
 - Settle every command you launched before reporting. A command with a known failed result is a known partial outcome to report. A command whose effect is indeterminate is reported as uncertain, never as success.

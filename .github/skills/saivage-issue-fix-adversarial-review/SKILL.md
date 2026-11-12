@@ -1,13 +1,13 @@
 ---
 name: saivage-issue-fix-adversarial-review
-description: 'Main-coordinator workflow for Saivage v3 issue-fix batches: use ONLY in the primary build or plan session to accept bugs, regressions, review findings, design flaws, behavior gaps or issue-fix workflow changes, intake each issue into the todo tracker, run one issue-fixer at a time as a whole serialized run, record exact fixer task IDs, resume one waiting fixer at a time through the two-call handshake, apply tracker lifecycle updates at safe boundaries and report dispositions. Workers never load this skill.'
+description: 'Main-coordinator workflow for Saivage v3 issue fixes that go through the full protocol: use ONLY in the primary build or plan session to accept bugs, regressions, review findings, design flaws, behavior gaps or issue-fix workflow changes, intake each issue into the todo tracker, run one issue-fixer at a time as a whole serialized run, record exact fixer task IDs, resume a waiting or cancelled fixer through its original session at an eligible boundary, apply tracker lifecycle updates at safe boundaries and report dispositions. Clearly trivial fixes are done directly under AGENTS.md. Workers never load this skill.'
 ---
 
 # Saivage Issue Fix Adversarial Review (Main Coordinator)
 
 Use this skill only in the primary coordinator session that accepts an issue batch: the primary `build` or `plan` agent. Do not select a fixer or another worker as coordinator. Workers never load this skill. Each development role carries its complete procedure in its own agent body under `.opencode/agents/`.
 
-This workflow is mandatory for any issue fix and for any change to the issue-fix workflow itself. It is not needed for trivial non-issue edits unless the user frames the work as an issue fix.
+This skill covers issue fixes that go through the full protocol, which is the default for an issue fix. `AGENTS.md` lets the primary do a genuinely simple, clearly understood fix directly, without this skill, a plan, an approval, a tracker entry or a report. In case of doubt about triviality, impact, remedy or scope, use this skill. Non-issue edits need it only when the user frames the work as an issue fix. A clearly trivial wording fix may be assigned directly to a documentation or prompt author and its distinct reviewer, as `AGENTS.md` describes. That direct assignment is not an issue run and launches no fixer.
 
 `AGENTS.md` governs throughout. The complete maintainer reference is [docs/development/issue-fix-protocol.md](../../../docs/development/issue-fix-protocol.md). Consult it for detail this skill does not cover.
 
@@ -20,7 +20,7 @@ For a NEW issue started after the canonical transition, launch and resume with `
 
 For an issue that already started under a pre-transition session, resume its exact original identity, `fixer`, with the exact returned task ID. Never replace, re-launch, or rename a running fixer to normalize its identity. The retained profiles `fixer`, `designer`, `reviewer`, `reviewer-2`, `developer`, and `documenter` remain registered for those existing sessions only. Do not launch them for new work.
 
-You never take over an issue's design, review, or implementation. You never launch a designer, reviewer, developer, documenter, author, or implementation reviewer for ordinary issue work. You never request a manager implementation yourself beyond the approved fixer handoff.
+You never take over an issue's design, review, or implementation. You never launch a designer, reviewer, developer, documenter, author, or implementation reviewer for ordinary issue work. You never request a manager implementation yourself beyond the approved fixer handoff. For a clearly trivial direct wording assignment described above, you invoke the named author and its distinct reviewer yourself, and no other implementation role.
 
 ## Launch the batch
 
@@ -28,31 +28,31 @@ You never take over an issue's design, review, or implementation. You never laun
 2. Give each issue a unique absolute working-plan path under `docs/working/<date>-<issue-slug>/`.
 3. Give each new issue fixer a complete issue statement, its absolute plan path, and its existing tracker entry identifier with the tracker paths.
 4. Launch one new issue fixer at a time, with `subagent_type: "issue-fixer"`. Its whole run (design, review, freshness, manager handoff and read-only reconciliation) is the unit of selection. Do not launch the next new issue, or resume any waiting fixer, while the selected fixer can still launch an implementation manager. Launching fixers in parallel only adds lock contention and wasted calls; the lock is not a reason to fan out.
-5. Record, in your session context only, each issue's identity and summary, the exact returned fixer task ID, the fixer identity used, the plan path, the latest disposition, known implementation-lock ownership, any nonce, and any tracker facts still pending. Task IDs, nonces, and handshake records are task-continuity state. Never copy them into `todo.md`, `done.md`, or any repository file.
+5. Record, in your session context only, each issue's identity and summary, the exact returned fixer task ID, the identity used, the plan path, the latest disposition, known implementation-lock ownership, and any tracker facts still pending. Task IDs are routing state. Never copy them into `todo.md`, `done.md`, or any repository file.
 6. Handle each return before selecting the next run. A failure or cancellation does not cancel other recorded fixers unless directed, and it never makes other work eligible while settlement or shared-worktree safety is unknown.
-7. If launch, resume, or exact returned-ID observation is unavailable, report the batch workflow as blocked. Do not silently weaken it.
+7. If launch, resume, or task-ID routing is unavailable, report the batch workflow as blocked. Do not silently weaken it.
 
 ## Handle dispositions
 
 Each fixer return starts with exactly one disposition: `COMPLETED`, `ABANDONED`, `WAITING_FOR_IMPLEMENTATION_LOCK`, `BLOCKED`, `FAILED`, or `CANCELLED`.
 
-- **`COMPLETED`:** record it. Check that the report includes the unchanged plan-approval block, files changed, manager validation results, commit hashes, and repository stability.
+- **`COMPLETED`:** record it. Check that the report gives the approval facts (in full, or by reference to the earlier report of this run), the files changed, the manager validation results with whether each was reused or newly run, the commit hashes, and repository stability.
 - **`ABANDONED`:** an intentional terminal merit decision not to implement further issue scope. It may come before any implementation or after stabilized partial delivery. Record the delivered scope (units, commit hashes, validation with its failures and limits) and the abandoned remainder separately, and check that the report supports both claims. Do not resume it, replace it, or relaunch it automatically.
-- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's fresh continuity nonce with its exact task ID and identity, replacing any earlier nonce for that issue. Do not launch a replacement. Keep it dormant until the coordinator selects it as the single next run. Resume it only through the two-call handshake below, and only after the known lock holder has returned, released its lock, and reported a stable committed state. A re-entry waiting return, whose origin is owner-authorized cancelled-wait re-entry, is recorded the same way and keeps its historical facts marked as historical.
+- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's exact task ID, its identity, and its waiting facts. Keep it dormant until you select it as the single next run, after the known lock holder has returned, released its lock, and reported a stable committed state. Resume it as described under Resume below. Do not launch a replacement.
 - **`BLOCKED` or `FAILED`:** record the stated cause. Do not launch a replacement fixer. Resolve the named cause first.
-- **`CANCELLED`:** discard any nonce and any challenge or authorization correlation. Do not touch the lock. Keep the task ID, identity, plan path, and last known facts as a dormant cancelled waiter, eligible only for owner-authorized re-entry below.
+- **`CANCELLED`:** keep the task ID, identity, plan path, and last known facts, including cumulative prior manager effects, as a dormant cancelled waiter. It resumes only on the owner's direction, as described under Resume below.
 
 ## Select one run at a time
 
 Advance only on evidenced settlement:
 
-- A `COMPLETED` issue advances only with its full evidence: the approval block, manager validation, commit hashes, and stable read-only reconciliation.
+- A `COMPLETED` issue advances only with its full evidence: the approval facts, manager validation, commit hashes, and stable read-only reconciliation.
 - A partial or redesign return that continues the same fixer's design loop keeps that fixer selected until it returns.
 - An `ABANDONED`, `BLOCKED`, `FAILED`, or `CANCELLED` return may allow the next run only after its launched calls have settled and the shared worktree is established safe. Such a return is never converted to success and is never retried automatically.
-- Unknown settlement, a retained lock, a timeout, a missing result, or an unsafe worktree blocks every further implementation-capable launch and resume.
+- Unknown settlement, a retained lock, a timeout, a missing result, or an unsafe worktree blocks every further implementation-capable launch and resume. For an unusual state, stop and ask the owner.
 - Do not use lock inspection, polling, sleeps, speculative manager calls, or new approval ceremonies to establish eligibility.
 
-At each eligible boundary, select exactly one next run: either one new issue, one recorded waiting fixer whose known lock holder has returned, released its lock, and reported a stable committed state, or one cancelled waiter under owner-authorized re-entry (below). Never select two. A selected waiter resumes through the two-call handshake, or through the re-entry entry followed by that handshake; then you await that entire run. Leave every other recorded waiter, cancelled waiters included, dormant, with its task ID, identity, and nonce episode unchanged, until a later eligible boundary. Waiters never race for the lock. If the selected waiter's freshness check requires design review, its own design and review loop continues; no other waiter is selected in its place. Do not create a queue, timer, poller, watcher, or extra lock.
+At each eligible boundary, select exactly one next run: either one new issue, one recorded waiting fixer whose known lock holder has returned, released its lock, and reported a stable committed state, or one cancelled waiter whose owner has directed continuing it (below). Never select two. Resume the selected fixer as described under Resume, then await that entire run. Leave every other waiter, cancelled waiters included, dormant with its task ID and identity unchanged until a later eligible boundary. Waiters never race for the lock. If the selected fixer's freshness check requires design review, its own design and review loop continues; no other waiter is selected in its place. Do not create a queue, timer, poller, watcher, or extra lock.
 
 ## Tracker lifecycle at safe boundaries
 
@@ -60,78 +60,41 @@ Apply the tracker lifecycle from `saivage-todo-protocol` only at a quiescent bou
 
 At each boundary, apply each affected item's latest evidenced lifecycle once, using the protocol's settlement mapping:
 
-- `COMPLETED` with the approval block, manager validation, commit hashes, and stable reconciliation: move the entry to Done. If any of that evidence is missing, the entry stays out of Done and the missing evidence is named.
+- `COMPLETED` with the approval facts, manager validation, commit hashes, and stable reconciliation: move the entry to Done. If any of that evidence is missing, the entry stays out of Done and the missing evidence is named.
 - `WAITING_FOR_IMPLEMENTATION_LOCK` with an approved plan: Designed, with the waiting as a note.
 - `ABANDONED`: Analyzed, with an explicit terminal ABANDONED note giving the merit reason and the abandoned scope. Retain delivered units, validation and commit references when any exist, and never move the entry to Done. Claim no implementation only when none occurred. Do not relaunch.
 - `BLOCKED`, `FAILED`, or `CANCELLED`: Blocked, with the actual named cause or the cancellation note.
 - A design returned to revision after a manager return: Analyzed, with the plan revision needed.
 
-Then select the next run under the rules above. Do not add per-round notifications, intermediate status gates, a queue, or a registry. Do not hold a settled return for an unrelated tracker update beyond the bounded update itself; the next launch or resume waits for that update to finish.
+Then select the next run under the rules above. Before a cancelled waiter is resumed, apply its pending cancellation note first. Do not add per-round notifications, intermediate status gates, a queue, or a registry. Do not hold a settled return for an unrelated tracker update beyond the bounded update itself; the next launch or resume waits for that update to finish.
 
-## Two-call resume handshake
+## Resume
 
-Both calls use the same identity the fixer was launched under and its exact recorded task ID:
-
-- for a new issue: `subagent_type: "issue-fixer"`;
-- for a pre-transition issue: `subagent_type: "fixer"`.
+Resume a waiting or cancelled fixer with one ordinary call that uses the identity recorded at launch and its exact recorded task ID:
 
 ```text
 subagent_type: "<the identity recorded at launch>"
 task_id: "<exact recorded task ID>"
 ```
 
-**Call 1, challenge.** Do not include the expected nonce. The prompt unconditionally forbids tools, edits, commands, and every mutation. It asks only for the issue identity, the plan path, the prior `WAITING_FOR_IMPLEMENTATION_LOCK` disposition, and the nonce the fixer retained in its session context. Independently verify that the returned task ID is byte-for-byte identical to the requested ID and that all retained values exactly match your record. Record the result in session context; it is never a tracker field:
+The prompt:
 
-```text
-Requested task ID: <exact recorded ID>
-Returned task ID: <Task result ID>
-Continuity: CONFIRMED | BLOCKED
-Prior issue from session context: <identifier or unavailable>
-Prior plan from session context: <path or unavailable>
-Prior disposition from session context: <WAITING_FOR_IMPLEMENTATION_LOCK or unavailable>
-Retained nonce from session context: <opaque value or unavailable>
-```
+- asks the fixer to continue the named issue from its plan at the recorded absolute path, and gives it the tracker entry identifier and paths;
+- for a cancelled waiter, says that the earlier waiting episode was cancelled, and forwards the owner's continuation instruction verbatim;
+- for an affected retained session, whose stored procedure still carries the continuity nonce, the challenge and two-call authorization, cancelled-wait re-entry, or an exceptional lock recipe, also forwards the owner's direction that supersedes that procedure, quoted verbatim from your session context. Its own stored body is not changed by this message;
+- supplies no freshness conclusion and no approval. The fixer runs its own freshness gate before any manager attempt.
 
-`CONFIRMED` requires no tool use or mutation, all four retained values matching, and identical requested and returned IDs. Any mismatch, absence, task-ID mismatch, or tool use makes the issue `BLOCKED`. Discard the nonce and make no Call 2. An invalid ID may create a new session, but its output is never adopted and it cannot know the undisclosed nonce.
+If the owner's direction is not in your session context verbatim when it applies, do not resume that session. Ask the owner.
 
-**Call 2, authorization.** Only after `CONFIRMED`, invoke the same exact task ID again with the same identity. Include the nonce that the verified Call 1 reply reported, and state that this authorization applies only to that challenged episode. The prompt authorizes the read-only freshness gate and, only if the plan is still approved, manager delegation. Independently verify the returned ID again. The fixer confirms, against its own record, that the immediately preceding challenge succeeded and that the nonce matches before any tool use. If it reports missing context or a mismatch, treat the result as `BLOCKED` and never delegate from its output. Successful authorization consumes the nonce. Never send or accept an authorization from an earlier episode.
+Handle the return as any other disposition. The recorded task ID is ordinary tool routing. It is not proof of continuity, and this procedure makes no claim to detect a different session. A tool or host failure, or an unusable ID, is an ordinary blocker: report it, guess no IDs, and launch no replacement fixer.
 
-**Cancellation between calls.** Discard the authorization and make no Call 2. The nonce is never reused. A later continuation requires owner-authorized re-entry from the original session, below; it never reuses this episode's nonce or authorization.
+**Owner-directed continuation of a cancelled waiter.** A cancelled waiter resumes only when all of these hold: the owner explicitly instructs continuing this cancelled issue; you select it as the single next run at an eligible boundary (every prior call settled, the shared worktree safe and stable, no manager lock held, and the known holder has returned and reported a stable state, which a settlement during the cancellation satisfies); and any pending cancellation note is applied first. Cancellation alone never resumes work, and owner direction does not bypass these conditions. If any condition is unknown, block the entry. Do not poll, probe, or send a speculative manager call. The earlier approval and prior manager effects are historical: the resumed fixer checks freshness before any manager attempt, and its reports keep the cumulative effects.
 
-## Owner-authorized cancelled-wait re-entry
+## Manager returns, stray locks and unusual states
 
-A cancelled waiter stays dormant. Keep its exact task ID, identity, plan path, last approval, freshness, attempt and lock-holder facts, cumulative prior manager effects, and the cancellation in session context only. It re-enters only when the project owner explicitly instructs continuing this cancelled issue. An earlier implementation authorization is not enough, and cancellation never schedules re-entry.
-
-Re-entry is a selected run and requires the same evidence as any waiter: every prior call settled, the shared worktree safe and stable, the manager lock released, and the known holder's return, release, and stable report. A holder settlement that occurred during the cancellation satisfies this, so no new holder event is required. Owner continuation bypasses none of these conditions. If any of them is unknown, block the entry. Do not poll, probe, or send a speculative manager call. At that selection boundary, apply any still-pending cancellation note first under the tracker rules above.
-
-The entry is one call with the identity and exact task ID recorded at launch:
-
-```text
-subagent_type: "<the identity recorded at launch>"
-task_id: "<exact recorded task ID>"
-```
-
-Its prompt forwards the owner's continuation instruction verbatim and states that the earlier waiting episode was cancelled. It forbids tools, files, commands, lock inspection, freshness work, and delegation. It supplies no nonce, old or proposed. It asks only for the retained issue identity, plan path, and cancelled waiting context, plus a fresh waiting disposition with new correlation. It is a distinct entry request, not Call 1 and not implementation authorization.
-
-Verify the return independently. The returned task ID must be byte-identical to your record, no tool may have been used, and the disposition must be `WAITING_FOR_IMPLEMENTATION_LOCK` with re-entry origin. The issue and plan must match your record, and the historical facts must be marked as historical. Then record the returned nonce as the only current nonce, replacing the cancelled one. Anything else, including missing evidence, a mismatch, a `BLOCKED` reply, or tool use, is `BLOCKED`. Make no Call 1, never adopt a returned replacement, never repeat the entry to resolve it, and resolve the named cause first.
-
-The entry's waiting return is then settled. Apply its tracker update (Designed, with the cancelled-wait re-entry as a note) at that boundary before Call 1, because Call 1 is a resume. Then run the normal two-call handshake in the same selected run: Call 1 challenges with the four retained values verified against your record, and Call 2 authorizes with the nonce verified from Call 1. The re-entry report contains historical facts. Treat it as a waiting return, not as new contention, freshness evidence, a current lock observation, or a new manager attempt.
-
-Repeated cancellation of a re-entered waiter follows these rules again. Its new nonce replaces the old one, and its historical facts keep their origin.
-
-## Manager returns, stray locks and owner authorizations
-
-The fixer reconciles a manager return read-only. You do not perform implementation reconciliation yourself.
-
-- Completed work with no divergence is reported as `COMPLETED`.
-- Partial work, divergence, or redesign-worthy learning returns the issue to design and review. Planning-file edits remain allowed. A later attempt needs a new freshness check and a new manager lock.
-- A manager that could not stabilize and kept the lock is `BLOCKED`. No issue implementation resumes until explicit owner or operator verification and repair.
-
-A manager may already have recorded its own in-progress or partial tracker state before release. Reconcile that with the fixer's disposition at the next safe boundary. Never write a tracker file while a manager attempt is active.
-
-Use an owner override only when the owner explicitly says an existing lock was wrongly acquired by an unrelated run and must be left untouched. Quote that instruction exactly in the initial assignment to the fixer. You guarantee that this is the sole writing agent until the run reports completion. Never remove or modify the lock. Each responsible fixer re-checks before a new attempt whether the stray lock is gone.
-
-Interrupted owner continuation is allowed only when the explicit project owner authorizes continuing the original interrupted manager session. You never create a replacement manager or transfer ownership. The original manager must itself establish identity, acquisition, and settlement. If it cannot, it remains blocked with the lock untouched.
+- Partial work, divergence, or redesign-worthy learning returns the issue to design and review inside the fixer. A later attempt needs a new freshness check and a new manager lock.
+- A manager that could not stabilize and kept the lock is `BLOCKED`. No issue implementation resumes until the owner or operator decides.
+- A stray or unexplained lock, an unsettled call, or an unsafe worktree: stop and ask the owner. Do not resume, launch, repair, remove, or take over, and never remove or modify another session's lock. This procedure has no owner-override or interrupted-manager continuation path. A later exceptional step needs a separate owner decision.
 
 ## Aggregate acceptance
 
@@ -141,15 +104,15 @@ Aggregate checks are harmless: they never stage, commit, repair, or start an imp
 
 1. **Plan-required aggregate validation.** Run the read-only or harmless aggregate validation that the approved plan requires to test batch coordination. Settle every launched command. Report any unexpected tracked or generated diff as a failed aggregate check. Do not repair it outside the manager boundary.
 2. **Passive role checks.** When the approved plan requires them, run fresh passive checks of `issue-designer`, `design-reviewer`, an explicitly requested `design-reviewer-secondary`, and `implementation-manager`, using only their allowed edges. Each check is a fresh no-tool session that explains decisions only. It never reads a plan, acquires a lock, or delegates. Verify main-only skill access through the build and plan primaries. Passive checks never launch implementation roles.
-3. **Conditional continuity smoke.** Run this only when the approved plan of a completed issue is a workflow change that requires Task continuity validation. Then execute that plan's specified smoke exactly as written, and do not substitute your own version. Its requirements are: concurrent synthetic `issue-fixer` sessions in one tool batch; exact returned-ID recording; a nonce-free, tool-free challenge whose returned ID and retained values match your record before any further call; a same-ID authorization only after that match; and a safe mismatch check that marks the synthetic episode `BLOCKED` without sending the second call. Never launch guessed IDs or substitute sessions. Its synthetic episodes acquire no lock, invoke no manager, and implement nothing; their concurrency is the approved validation requirement, not live issue fanout. If the plan's required concurrency, IDs, resume, nonce retention, or tool-free evidence is unavailable, report workflow validation as `BLOCKED`. Do not replace it with a sequential, one-call, or text-only imitation.
+3. **Scenario evidence.** Report the plan's ordinary waiting, resume, and freshness scenario evidence, and the source validation, separately from implementation completion. Static scenario evidence does not establish live Task behavior; say so, and report unavailable evidence as unavailable. Do not run a Task smoke, a real cancellation, lock contention, or a manager call merely to test the wording.
 4. **Reporting.** Report the aggregate results separately from implementation completion. A failed or blocked aggregate check means the source implementation may be complete while workflow validation is blocked or failed. Route any required correction through ordinary design, review, freshness, and a new serialized manager attempt. Never repair outside a fresh manager attempt.
 
 ## Cancellation
 
-Stop further launches and resumes. Cancel children only when explicitly requested and supported. Report every issue's last disposition, identity, and any active lock holder. Never remove another session's lock. Cancelled waiters keep their task ID, identity, and last facts for owner-authorized re-entry only.
+Stop further launches and resumes. Cancel children only when explicitly requested and supported. Report every issue's last disposition, identity, and any active lock holder. Never remove another session's lock. Cancelled waiters keep their task ID, identity, and last facts for later owner-directed resumption.
 
 ## Reporting
 
-Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. Also report each selected run in order, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. For each cancelled-wait re-entry, report the owner instruction received, the cancellation evidence, the entry result, and the historical facts it carried, never as new contention or fresh freshness evidence. When an issue used a retained profile rather than a canonical identity, say so. For an abandoned or partly delivered issue, report the delivered scope and the abandoned remainder factually. Never imply whole-issue completion, and never omit partial delivery the reports show. Do not commit `docs/working/` artifacts.
+Report the issues, the core design choice, the plan paths, the tracker entry identifiers with their lifecycle applied or pending, the review and final merit outcomes, material findings, the main files and docs changed, the author and reviewer identities used for documentation and model-facing assets, prompt-review evidence when model-facing assets changed, manager validation commands and results with their reused-or-new status, commit hashes, repository stability, residual risks, and any abandoned, blocked, or cancelled issues. Also report each selected run in order, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. For each owner-directed resumption of a cancelled waiter, report the owner instruction, the cancellation evidence, the resume result, and the historical facts it carried, never as new contention or fresh freshness evidence. When an issue used a retained profile rather than a canonical identity, say so. For an abandoned or partly delivered issue, report the delivered scope and the abandoned remainder factually. Never imply whole-issue completion, and never omit partial delivery that the reports show. Give each fact once, in the report where it belongs, without repeating unchanged blocks. List files in a reply to the user only when the user needs them for a decision or action. Do not commit `docs/working/` artifacts.
 
 A running session keeps the stored instructions of its agent body. Shared skills and instruction files may be consumed by sessions that load them after this change; consumption is not proof of effective authority or adoption. Do not restart OpenCode or rewrite stored sessions to adopt this change, do not claim that a running session discovered a changed file, and report any effective instruction conflict as a blocker rather than patching the session.
