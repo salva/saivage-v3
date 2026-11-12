@@ -87,7 +87,7 @@ Status may lag while the selected issue run is in progress. At the boundary, the
 
 ### Implementation manager updates
 
-After it acquires the lock, or under the sole-writer exception its instructions grant, the manager reads this protocol and the fresh exact entry:
+After it acquires the lock, the manager reads this protocol and the fresh exact entry:
 
 - A missing, ambiguous, or unmatched identifier is a blocker. Do not invent, guess, or duplicate an entry; make no tracker edit.
 - Before implementation delegation, the manager sets the entry to **In progress**, links the approved plan, and notes the implementing manager role.
@@ -116,7 +116,7 @@ Move an entry to `done.md` only with all of: the unchanged approved-plan record,
 
 Completion records issue implementation only. Aggregate workflow results stay separate. A later aggregate defect is a new item routed through the normal fix workflow; never erase it silently or describe it as already fixed.
 
-Task IDs, continuity nonces, and handshake records remain session context. They are never tracker fields.
+Task and session IDs remain useful session context. They are never tracker fields.
 
 ## Relationship to the adversarial review skill
 

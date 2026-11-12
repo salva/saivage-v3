@@ -175,12 +175,12 @@ through any fallback.
 | --- | --- | --- |
 | `fixer` | Pre-transition issue sessions keep their exact returned IDs and their stored procedure. | `issue-fixer` |
 | `designer` | Pre-transition design revisions. | `issue-designer` |
-| `reviewer` | Pre-transition design review, and bootstrap prompt or documentation review. | `design-reviewer`, `doc-reviewer`, `prompt-reviewer` |
+| `reviewer` | Pre-transition design review. The role-introduction source also assigned it exact-Sol prompt and documentation review during the bootstrap, as described under [Finite bootstrap](#finite-bootstrap-for-the-refinement-that-introduces-these-roles). | `design-reviewer`, `doc-reviewer`, `prompt-reviewer` |
 | `reviewer-2` | Pre-transition optional design review. | `design-reviewer-secondary` |
-| `developer` | Pre-transition and bootstrap source work. | `code-developer` |
-| `documenter` | Pre-transition and bootstrap documentation and prompt authoring. | `doc-developer`, `prompt-developer` |
+| `developer` | Pre-transition source work. The role-introduction source also assigned it source, configuration, and frontmatter work during the bootstrap. | `code-developer` |
+| `documenter` | Pre-transition documentation and prompt authoring. The role-introduction source also assigned it documentation and prompt authoring for that refinement during the bootstrap. | `doc-developer`, `prompt-developer` |
 
-`implementation-manager` keeps its ID. Its future body selects the canonical children
+`implementation-manager` keeps its ID. Its current body selects only the canonical children
 above. Its effective permissions keep its existing child allowances (`developer`,
 `documenter`, and `reviewer`) and add the five canonical implementation children. Those
 old allowances are retained authorization, not a fallback path in the new body.
@@ -212,27 +212,17 @@ Operational rules for the transition:
 
 ### Finite bootstrap for the refinement that introduces these roles
 
-The refinement that adds the canonical identities is itself implemented with the current
-stored identities. That sequencing is a documented, finite bootstrap, not a permanent
-alternative workflow:
-
-- The `documenter` (exact `opencode-go/claude-haiku-5-5`, no variant) authors both
-  ordinary documentation and model-facing assets, each under a separate, explicit
-  assignment. Sections are sequential; no two authors edit a moving file.
-- The `reviewer` supplies distinct exact-Sol review, using `openai/gpt-6.1-sol` in a
-  session separate from the author, within the scope the manager assigns. It is reported
-  as the `reviewer` identity, not as `doc-reviewer` or `prompt-reviewer`. This
-  implementation-review authority belongs to the retained profile only for this bootstrap.
-  It is not carried into `design-reviewer`, whose canonical procedure is design-only.
-- The `developer` applies source, configuration, and native frontmatter changes.
-- The current `implementation-manager` runs under its stored body and its existing child
-  allowances.
-- A target role need not exist to author the document that defines it.
-
-The current bootstrap manager cannot launch the new canonical leaves merely to test them.
-Their live invocation is unobserved until a later, genuinely approved assignment runs
-under a fresh manager. That adoption limitation is disclosed rather than hidden by a
-synthetic lockless manager or a permanent bootstrap fallback.
+The refinement that adds the canonical identities was specified to proceed with the stored
+identities that existed before it. That sequencing is recorded as a historical, finite
+bootstrap, not a permanent alternative workflow and not the procedure later runs follow. The
+role-introduction source assigned the then-stored `documenter` documentation and prompt
+authoring, the then-stored `reviewer` an exact-Sol review of prompt and documentation text
+limited to that bootstrap, and the then-stored `developer` source, configuration, and
+frontmatter work, with the then-stored `implementation-manager` body and its allowances as
+its configuration. These are assignments in that source. This text does not record that those
+roles performed them, and it does not record adoption. The evidence recorded for that
+refinement did not include a live invocation of the canonical leaves by the then-stored
+manager. That is a limit of the recorded evidence, not a current status.
 
 ### Delivery evidence
 
@@ -1309,6 +1299,7 @@ switch running sessions, or replace stored instructions to force adoption. An ef
 conflict is reported as a blocker; it is not repaired by restarting or altering a session. Actual
 deployment, service operations, and other separately controlled live actions keep their own
 distinct approval.
-The current stored implementation manager does not launch the canonical leaves merely to
-manufacture execution evidence, so their live invocation remains untested and must be
-disclosed as such.
+The evidence recorded for the role-introduction refinement did not include a live invocation
+of the canonical leaves by the then-stored implementation manager. That is a limit of that
+evidence, not a standing status. Whether a given run exercised the canonical leaves is shown
+by that run's own delegation receipts.
