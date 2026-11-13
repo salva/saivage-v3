@@ -16,7 +16,7 @@ This skill covers issue fixes that go through the full protocol, which is the de
 - **`issue-fixer`** (`openai/gpt-6.1-sol`): launch and continue this agent for each NEW issue. It owns one issue end to end: design and review, merit, freshness, the manager handoff and its disposition. It launches `issue-designer`, `design-reviewer`, `design-reviewer-secondary` only when a requester explicitly asks, and `implementation-manager`.
 - **`implementation-manager`** (unchanged): the only lock holder. It alone invokes `code-developer`, `doc-developer`, `doc-reviewer`, `prompt-developer` and `prompt-reviewer`.
 
-An issue that already started under a pre-transition session continues in that exact original session, whose identity is `fixer`, using its recorded session ID. Never replace, re-launch, or rename a running fixer. The retained profiles `fixer`, `designer`, `reviewer`, `reviewer-2`, `developer` and `documenter` serve only those existing sessions; do not launch them for new work.
+An issue launched under a pre-transition identity keeps that recorded identity and session ID as historical fact. Never replace, re-launch, rename, or automatically convert a recorded fixer to a canonical identity, and launch no retired profile for new work.
 
 You never take over an issue's design, review, or implementation, and you never request a manager implementation beyond the approved fixer handoff. For a clearly trivial direct wording assignment, you invoke the named author and its distinct reviewer yourself, and no other implementation role.
 
@@ -93,7 +93,7 @@ Continue a waiting or cancelled fixer with one ordinary continuation call to the
 
 - asks the fixer to continue the named issue from its plan at the recorded absolute path, and gives it the tracker entry identifier and paths;
 - for a cancelled waiter, says that the earlier waiting episode was cancelled, and forwards the owner's continuation instruction verbatim;
-- for an affected retained session whose stored procedure still carries a continuity nonce, a challenge and two-call authorization, a cancelled-wait re-entry, or an exceptional lock recipe, also forwards the owner's direction that supersedes that procedure, quoted verbatim from your session context. The stored body is not changed by this message;
+- for a session whose stored procedure still carries a continuity nonce, a challenge and two-call authorization, a cancelled-wait re-entry, or an exceptional lock recipe, also forwards the owner's direction that supersedes that procedure, quoted verbatim from your session context. The stored body is not changed by this message;
 - supplies no freshness conclusion and no approval. The fixer runs its own freshness gate before any manager attempt.
 
 If the owner's direction is not in your session context verbatim when it applies, do not resume that session. Ask the owner.
@@ -112,7 +112,7 @@ Handle the return as any other disposition once its substantive report has retur
 
 Run aggregate acceptance only when every issue disposition is exactly `COMPLETED` or `ABANDONED`, no fixer has pending implementation work, and the implementation lock is absent. Any `WAITING_FOR_IMPLEMENTATION_LOCK`, `BLOCKED`, `FAILED`, or `CANCELLED` issue prevents it.
 
-Aggregate checks are harmless: they never stage, commit, repair, or start an implementation attempt. Use only your allowed launch edges. Do not launch an author, an implementation reviewer, a developer, or a retained profile, and do not request a real manager implementation or delegation.
+Aggregate checks are harmless: they never stage, commit, repair, or start an implementation attempt. Use only your allowed launch edges. Do not launch an author, an implementation reviewer, or a developer, and do not request a real manager implementation or delegation.
 
 1. **Plan-required aggregate validation.** Run the read-only or harmless aggregate validation that the approved plan requires to test batch coordination. Settle every launched command. Report any unexpected tracked or generated diff as a failed aggregate check. Do not repair it outside the manager boundary.
 2. **Scenario evidence.** Report the plan's ordinary waiting, resume, and freshness scenario evidence, and the source validation, separately from implementation completion. Static scenario evidence does not establish live native delegation behavior; say so, and report unavailable evidence as unavailable. Do not run a delegation smoke test, a real cancellation, lock contention, or a manager call merely to test the wording.
@@ -126,7 +126,7 @@ Stop further launches and resumes. Cancel children only when explicitly requeste
 
 Reporting has two recipients, and each receives the facts it needs to act.
 
-**Internal evidence.** Keep the evidence that a later decision, resume, or review depends on, in session context or in accessible reports that already exist. No separate report file is required, and a reference to an existing report can carry an unchanged fact. For each issue this covers: the issue and plan paths; the tracker entry identifier with its lifecycle applied or pending; the review and final merit outcomes; material findings; the main files and docs changed; the author and reviewer identities used for documentation and model-facing assets; prompt-review evidence when model-facing assets changed; manager validation commands and results, each marked reused or newly run; commit hashes; the delivered and remaining or abandoned scope, with their failures and limits; repository stability; residual risks; and any retained profile the issue used. It also covers the order of selected runs, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. For each owner-directed resumption of a cancelled waiter, keep the owner instruction, the cancellation evidence, the resume result, and the historical facts the run carried; those facts stay historical and are never presented as new contention or fresh freshness evidence. Session IDs stay in session context and never go into tracker or repository files.
+**Internal evidence.** Keep the evidence that a later decision, resume, or review depends on, in session context or in accessible reports that already exist. No separate report file is required, and a reference to an existing report can carry an unchanged fact. For each issue this covers: the issue and plan paths; the tracker entry identifier with its lifecycle applied or pending; the review and final merit outcomes; material findings; the main files and docs changed; the author and reviewer identities used for documentation and model-facing assets; prompt-review evidence when model-facing assets changed; manager validation commands and results, each marked reused or newly run; commit hashes; the delivered and remaining or abandoned scope, with their failures and limits; repository stability; residual risks; and any pre-transition identity the issue used. It also covers the order of selected runs, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. For each owner-directed resumption of a cancelled waiter, keep the owner instruction, the cancellation evidence, the resume result, and the historical facts the run carried; those facts stay historical and are never presented as new contention or fresh freshness evidence. Session IDs stay in session context and never go into tracker or repository files.
 
 **The user reply.** State each issue's outcome and any decision or action the user needs. Include:
 
@@ -134,7 +134,7 @@ Reporting has two recipients, and each receives the facts it needs to act.
 - errors, partial effects, uncertainty, blockers, and validation limits that affect the outcome or the user's decision, even when the detailed evidence is only referenced;
 - review status as the reviews actually settled. An incomplete review or a blocker handback is reported as blocked or pending, never as a completed review;
 - aggregate results, reported separately from implementation completion. Source implementation alone does not establish aggregate acceptance;
-- that an issue ran under a retained profile rather than a canonical identity, when that bears on the outcome or the decision;
+- that an issue ran under a pre-transition identity rather than a canonical identity, when that bears on the outcome or the decision;
 - the result of any owner-directed resumption of a cancelled waiter, marked as historical carry-over where it applies, and any cancelled or dormant waiter that needs owner direction;
 - residual risks the user must weigh.
 

@@ -7,8 +7,6 @@
     "build": {
       "permissions": [
         { "action": "skill", "resource": "saivage-issue-fix-adversarial-review", "effect": "allow" },
-        { "action": "subagent", "resource": "developer", "effect": "deny" },
-        { "action": "subagent", "resource": "documenter", "effect": "deny" },
         { "action": "subagent", "resource": "code-developer", "effect": "deny" },
         { "action": "subagent", "resource": "doc-developer", "effect": "allow" },
         { "action": "subagent", "resource": "doc-reviewer", "effect": "allow" },
@@ -19,8 +17,6 @@
     "plan": {
       "permissions": [
         { "action": "skill", "resource": "saivage-issue-fix-adversarial-review", "effect": "allow" },
-        { "action": "subagent", "resource": "developer", "effect": "deny" },
-        { "action": "subagent", "resource": "documenter", "effect": "deny" },
         { "action": "subagent", "resource": "code-developer", "effect": "deny" },
         { "action": "subagent", "resource": "doc-developer", "effect": "allow" },
         { "action": "subagent", "resource": "doc-reviewer", "effect": "allow" },

@@ -27,8 +27,8 @@ credential change.
   skill together. Independent composition review manages drift between them.
 - Reading this document as an explicitly assigned authoring or review asset is
   normal work. It is not evidence that a worker was independent of it.
-- Canonical identities for new work are described below. Sessions and profiles that
-  predate them are described under [Canonical roles and transition](#canonical-roles-and-transition).
+- Canonical identities for new work are described below. Sessions that predate them, and
+  the profiles they used, are described under [Canonical roles and transition](#canonical-roles-and-transition).
 
 ## Applicability in this development realm
 
@@ -46,9 +46,10 @@ checks for every development role, and an ordinary inspectable Git or tooling fa
 is not governed by the Saivage persistence boundary. AGENTS states the rules; this
 document does not paste their inventories into each role.
 
-The Saivage-core prohibition on compatibility code does not forbid the owner's
-explicitly requested retention of independently registered OpenCode role profiles.
-Those profiles are development configuration, not product code, shims, or loaders.
+The Saivage-core prohibition on compatibility code governs product code. OpenCode role
+profiles are development configuration, not product code, shims, or loaders. The former
+pre-transition profiles were removed by an owner-requested retirement change, and no alias
+or fallback remains for them (see [Former profiles](#former-profiles)).
 
 ### Direct trivial fixes
 
@@ -69,8 +70,8 @@ issue-team lifecycle.
 For a clearly trivial direct wording fix, the acting primary assigns the appropriate author
 and a distinct reviewer itself. The root OpenCode configuration explicitly allows `build` and
 `plan` to invoke four subagents: `doc-developer`, `doc-reviewer`, `prompt-developer`, and
-`prompt-reviewer`. It explicitly denies `code-developer`, `developer`, and `documenter` to both
-primaries. This document grants no other direct subagent authority, so a direct source or
+`prompt-reviewer`. It explicitly denies `code-developer` to both primaries. This document
+grants no other direct subagent authority, so a direct source or
 configuration change is made by the primary itself. Within a full issue run, the implementation
 manager alone dispatches the authors and reviewers.
 
@@ -146,8 +147,8 @@ primary agent is the one-item coordinator and drives the same specialist workflo
 
 ### Canonical identities for new work
 
-Issues started after this revision use the identities below. Each is an independently
-registered profile with its own complete body.
+Issues started after this revision use the identities below. Each is a separate
+profile with its own complete body.
 
 | ID | Model | Invoked by | Purpose |
 | --- | --- | --- | --- |
@@ -166,26 +167,25 @@ Only the primary batch coordinator may load the coordination skill. No other rol
 it or this document to act. Every leaf denies delegation, staging, commits, and lock
 ownership.
 
-### Retained profiles
+### Former profiles
 
-The following profiles remain registered, byte-for-byte, with their bodies, frontmatter,
-permissions, and effective paths unchanged. They are retained because running sessions
-and in-flight issues depend on them. They are not aliases and are not dispatched
-through any fallback.
+The six profiles below were the pre-transition identities. An owner-requested retirement
+change removed their profile files and the root and manager permissions that named them.
+The table records what each identity was used for and the canonical identity that handles
+new work. These identities are historical only. They are not aliases, and no fallback
+dispatches them.
 
-| Retained profile | Purpose now | Canonical successor for new work |
+| Former profile | Pre-transition purpose | Canonical successor for new work |
 | --- | --- | --- |
-| `fixer` | Pre-transition issue sessions keep their exact returned IDs and their stored procedure. | `issue-fixer` |
+| `fixer` | Pre-transition issue sessions. | `issue-fixer` |
 | `designer` | Pre-transition design revisions. | `issue-designer` |
 | `reviewer` | Pre-transition design review. The role-introduction source also assigned it exact-Sol prompt and documentation review during the bootstrap, as described under [Finite bootstrap](#finite-bootstrap-for-the-refinement-that-introduces-these-roles). | `design-reviewer`, `doc-reviewer`, `prompt-reviewer` |
 | `reviewer-2` | Pre-transition optional design review. | `design-reviewer-secondary` |
 | `developer` | Pre-transition source work. The role-introduction source also assigned it source, configuration, and frontmatter work during the bootstrap. | `code-developer` |
 | `documenter` | Pre-transition documentation and prompt authoring. The role-introduction source also assigned it documentation and prompt authoring for that refinement during the bootstrap. | `doc-developer`, `prompt-developer` |
 
-`implementation-manager` keeps its ID. Its current body selects only the canonical children
-above. Its effective permissions keep its existing child allowances (`developer`,
-`documenter`, and `reviewer`) and add the five canonical implementation children. Those
-old allowances are retained authorization, not a fallback path in the new body.
+`implementation-manager` keeps its ID. Its child allowances are the five canonical
+implementation roles above; every other child is denied.
 
 Operational rules for the transition:
 
@@ -200,17 +200,18 @@ Operational rules for the transition:
   loaded keeps its earlier text, and a later permitted load can read the changed file. Neither an
   edit nor a read proves adoption, and a read grants no authority that the reader's effective
   instructions do not already give.
-- A retained session whose stored procedure still carries a superseded mechanism (the
+- A session whose stored procedure still carries a superseded mechanism (the
   continuity nonce, its challenge and authorization, cancelled-wait re-entry, or an exceptional
   lock recipe) continues only through an ordinary resume that forwards the owner's superseding
   direction, as described under [Ordinary resume](#ordinary-resume). Its stored body is not
   replaced. A conflict that the forwarded direction does not settle is reported as a blocker.
-- Old-ID prescriptions are removed only from updated canonical guidance. Preserved role
-  bodies and historical reports keep their original identities. Nothing claims the old
-  identities were removed or automatically redirected.
-- Retirement of retained profiles is a later, owner-controlled decision made after
-  active-session dependency evidence and explicit approval. There is no automatic cleanup,
-  sunset timer, or inference from this revision that retirement is authorized.
+- Current guidance names canonical identities only. Historical reports and records keep the
+  identities that were actually used.
+- The former profiles were removed by an owner-requested retirement change. That change does
+  not migrate, rewrite, or cancel stored sessions, and it is not a sunset timer. No alias or
+  fallback routes a removed identity to its successor. A stored session that still names a
+  removed profile may be unable to run with the removed shared assets. This document does not
+  promise that an archived session can resume.
 
 ### Finite bootstrap for the refinement that introduces these roles
 
@@ -224,7 +225,8 @@ frontmatter work, with the then-stored `implementation-manager` body and its all
 its configuration. These are assignments in that source. This text does not record that those
 roles performed them, and it does not record adoption. The evidence recorded for that
 refinement did not include a live invocation of the canonical leaves by the then-stored
-manager. That is a limit of the recorded evidence, not a current status.
+manager. That is a limit of the recorded evidence, not a current status. The profiles named
+by that bootstrap were removed later; see [Former profiles](#former-profiles).
 
 ### Delivery evidence
 
@@ -487,7 +489,7 @@ projects into that role's own prompt body, so a role never needs this document t
   standing procedure; that clutter, duplicated policy, and inventories are absent where
   the role does not need them; that names, paths, IDs, and links resolve; that author and
   reviewer roles stay separate; that no obsolete or contradictory instruction remains;
-  and that retained or stored sessions are not stranded. A synthetic future composition
+  and that no recorded session still in use loses its ordinary resume route. A synthetic future composition
   must be labeled synthetic. It is not evidence of delivered behavior.
 - Each finding states its severity, concrete evidence (file and line, or a quote), the
   affected requirement and its practical consequence, and a separately identified
@@ -641,9 +643,9 @@ Invoke the issue designer through the exposed native subagent tool with agent
 absolute plan path. Invoke the design reviewer with agent `design-reviewer` and a prompt
 giving the absolute current plan path. Triage begins only after that round's substantive
 report has returned, as [Native delegation and settlement](#native-delegation-and-settlement)
-requires. Save or summarize each review in the issue's working directory. Pre-transition
-sessions use their retained identities and recorded session IDs as described under
-[Retained profiles](#retained-profiles).
+requires. Save or summarize each review in the issue's working directory. New invocations
+use only the canonical identities above; a recorded pre-transition session is continued only
+by its own recorded session ID under the existing-session rules.
 
 ### Finding triage
 
@@ -1074,7 +1076,7 @@ claims no wrong-session containment from it. The continuation's substantive repo
 ID, is its result. A tool or host failure, or an unusable session ID, is an ordinary blocker: report
 it, guess no IDs, and launch no replacement fixer.
 
-A retained session whose stored procedure still carries a superseded mechanism (the continuity
+A session whose stored procedure still carries a superseded mechanism (the continuity
 nonce, its challenge and authorization, cancelled-wait re-entry, or an exceptional lock recipe)
 also needs the owner's superseding direction in the same resume message. The coordinator quotes
 that direction verbatim from its session context. This delivers existing owner authority; it is
@@ -1282,8 +1284,7 @@ Permitted concurrency is narrow: a manager's positively nonconflicting source-on
 `code-developer` group. It is not live issue fanout. Do not run documentation or prompt authoring
 concurrently with any other worker. Do not run concurrent developer assignments that overlap in
 files, contracts, outputs, validation side effects, or ordering. Do not invoke `code-developer`,
-`doc-developer`, `prompt-developer`, `doc-reviewer`, `prompt-reviewer`, or a retained developer or
-documenter profile from an issue fixer or designer. Within an issue run only the implementation
+`doc-developer`, `prompt-developer`, `doc-reviewer`, `prompt-reviewer` from an issue fixer or designer. Within an issue run only the implementation
 manager invokes them. The acting `build` or `plan` primary may invoke only the four wording roles,
 and only for a clearly trivial direct wording fix.
 
@@ -1297,7 +1298,7 @@ issue and plan paths, the tracker entry identifier with the status applied or pe
 final merit outcomes, material findings, files changed and commit references, manager-assured
 validation commands with results and input scope (and whether each was reused or newly run),
 prompt-review evidence where model-facing assets changed (an incomplete review is reported as its
-blocker, not as review evidence), retained-profile identities where a session used one, repository
+blocker, not as review evidence), pre-transition profile identities where a session used one, repository
 stability, delegation receipts, and cumulative delivery with its failures, limits, and remaining or
 abandoned scope. The coordinator's record also holds the order of selected runs, the
 boundary evidence used before each launch or resume, and each dormant waiter by identifier only. For

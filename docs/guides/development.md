@@ -252,8 +252,8 @@ Development assignments follow purpose. Ordinary documentation has its own autho
 reviewer. Model-facing instructions, prompts, agent bodies, skills, and AGENTS wording
 have a separate prompt author and reviewer. Design review stays separate from both. The
 [canonical roles and transition](../development/issue-fix-protocol.md#canonical-roles-and-transition)
-section names the identities for new work and the retained older profiles that running
-sessions still use. Do not rename or delete a retained profile to normalize an in-flight issue.
+section names the canonical identities for new work and records the former pre-transition
+profiles, which have been removed. Do not rename an in-flight session to normalize its identity.
 
 ## Choose validation and deliver the documentation
 

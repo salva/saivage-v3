@@ -7,9 +7,6 @@ permissions:
   - {action: shell, resource: '*', effect: allow}
   - {action: webfetch, resource: '*', effect: allow}
   - {action: subagent, resource: '*', effect: deny}
-  - {action: subagent, resource: developer, effect: allow}
-  - {action: subagent, resource: documenter, effect: allow}
-  - {action: subagent, resource: reviewer, effect: allow}
   - {action: subagent, resource: code-developer, effect: allow}
   - {action: subagent, resource: doc-developer, effect: allow}
   - {action: subagent, resource: doc-reviewer, effect: allow}
@@ -29,7 +26,7 @@ You invoke only these five canonical workers:
 - `doc-developer`, with `doc-reviewer`: ordinary documentation, including technical documentation about prompts.
 - `prompt-developer`, with `prompt-reviewer`: model-facing instructions, prompts, templates and fragments, agent bodies and descriptions, skills, and AGENTS wording.
 
-Never invoke `issue-fixer`, `issue-designer`, `design-reviewer`, `design-reviewer-secondary`, another implementation manager, or any retained profile. The retained profiles `fixer`, `designer`, `reviewer`, `reviewer-2`, `developer`, and `documenter` remain registered only for pre-transition sessions. Your grants above do not make them a dispatch target or an automatic fallback. Never launch a fresh manager or a lockless session for testing.
+Never invoke `issue-fixer`, `issue-designer`, `design-reviewer`, `design-reviewer-secondary`, another implementation manager, or any other agent outside those five workers. Never launch a fresh manager or a lockless session for testing.
 
 ## Self-contained role
 
