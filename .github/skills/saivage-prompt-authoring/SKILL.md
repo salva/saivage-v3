@@ -65,7 +65,13 @@ add needed behavioral guidance without copying schema definitions. Separate futu
 requested behavior from retrospective history. Use few justified examples, labeled
 non-exhaustive where appropriate so they do not narrow valid behavior.
 
-Authoring and review roles: classify each asset by purpose and consumption, not topic or extension. Ordinary documentation, including technical documentation about prompts, is `doc-developer` work reviewed by `doc-reviewer`. Model-facing wording that directs model behavior is `prompt-developer` work (exact model opencode-go/claude-haiku-5-5, with no variant or temperature) that authors the exact replacement text and its selfchecks, reviewed by `prompt-reviewer` under the explicit exact override openai/gpt-6.1-sol of its invoking owner (the manager in an issue run, or the acting primary in a direct wording assignment). Those selfchecks are author checks, not independent review. In an issue run `code-developer` applies reviewed wording verbatim; in a direct wording assignment the acting primary applies it verbatim when it has actual edit authority for the host. The applicator neither authors nor rewords it. Mixed assets are split into exact sections run sequentially; no double review is added automatically. Skills carry no model frontmatter; model selection stays in agent configuration. The canonical `prompt-developer` and `prompt-reviewer` bodies carry their complete procedure, so they do not require loading this skill.
+Authoring and review roles: classify each asset by purpose and consumption, not topic or extension.
+
+- Ordinary documentation, including technical documentation about prompts, is `doc-developer` work reviewed by `doc-reviewer`.
+- Model-facing wording is `prompt-developer` work on exact model opencode-go/claude-haiku-5-5 (no variant or temperature). The author writes the exact replacement text and its selfchecks; `prompt-reviewer` reviews it on the explicit exact override openai/gpt-6.1-sol, invoked by the owner (the manager in an issue run, or the acting primary in a direct wording assignment). Selfchecks are author checks, not independent review.
+- The applicator applies reviewed wording verbatim and neither authors nor rewords it: `code-developer` in an issue run, or the acting primary in a direct wording assignment when it has actual edit authority for the host.
+- Mixed assets are split into exact sections run sequentially. No double review is added automatically.
+- Skills carry no model frontmatter; model selection stays in agent configuration. The canonical `prompt-developer` and `prompt-reviewer` bodies carry their complete procedure, so they do not require loading this skill.
 
 ## 3. Consolidate at the correct delivery owner
 

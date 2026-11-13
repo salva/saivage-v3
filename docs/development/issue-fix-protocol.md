@@ -18,7 +18,9 @@ credential change.
 - This document is the design source for the development roles. Each role's own prompt
   body carries the procedure that role needs to act. A role does not need to load this
   document or the coordination skill to know its next step; a role-local body is a
-  projection of the corresponding section here.
+  projection of the corresponding section here. A projection may be shorter than the section
+  it comes from. This reference stays complete for maintainers and auditors without being
+  reproduced wholesale in every role.
 - The coordination skill is the main coordinator's entry point. It is concise and
   points here for detail.
 - Changes to the protocol must update the affected role bodies and the coordination
@@ -263,11 +265,23 @@ design review as a substitute for either pair.
 The pair reviews for different purposes:
 
 - `doc-reviewer` checks ordinary-documentation facts against actual source, quality,
-  structure, clear progression, reader usefulness, and link correctness.
+  structure, reader usefulness, and link correctness. Order and form are judged by audience
+  and document kind, not by a fixed progression.
 - `prompt-reviewer` checks positive sufficiency for the role's standing procedure,
   clutter, linkage, whole-composition consistency, current contracts, and retention or
-  re-entry in stored sessions. After the last relevant prompt edit it always performs an
+  re-entry in stored sessions. After the last relevant prompt edit, on the actual final
+  composition including any inline integration, it performs two activities that one
+  invocation may complete: composition and sufficiency review, and a separately identified,
   unconditional final clean-room review.
+
+Each pair runs in order for an asset. The author settles before its reviewer starts. No author
+runs concurrently with another author, a source worker, or a reviewer of the same moving asset.
+Authors run on `opencode-go/claude-haiku-5-5` with no variant. Reviewers run on
+`openai/gpt-6.1-sol`, invoked with that explicit override. For inline model-facing wording in an
+executable host, the author writes the exact text, the prompt reviewer reviews that text, the
+mechanical applicator applies it verbatim (`code-developer` in an issue run, or the acting primary
+in a direct fix that has actual edit authority for the host), and then the prompt reviewer reviews
+the integrated composition.
 
 ## Role execution contracts
 
@@ -285,10 +299,10 @@ projects into that role's own prompt body, so a role never needs this document t
   inadequate. Do not guess.
 - Distinguish absence of evidence from success. A missing result, a timeout, silence,
   or a cancellation is not settlement, approval, or passing validation.
-- Distinguish three things. A settled blocker handback from a reviewer reports an incomplete
-  review: it settles that call and gives its bounded evidence, but it completes no review and
-  approves nothing. A completed review ends with its verdict. A missing, partial, or ID-only
-  call result is unsettled, as [Native delegation and settlement](#native-delegation-and-settlement)
+- Keep three states apart. A settled blocker handback from a reviewer settles that call and
+  reports an incomplete review with its bounded evidence; it completes no review and approves
+  nothing. A completed review ends with its verdict. A missing, partial, or ID-only call result
+  is unsettled, as [Native delegation and settlement](#native-delegation-and-settlement)
   describes. Only a completed review can close a review round or pass an asset.
 - Report partial effects honestly: what changed, what did not, and what remains.
   Preserve unrelated work, including other sessions' files and locks. Never remove or
@@ -312,7 +326,8 @@ projects into that role's own prompt body, so a role never needs this document t
 - Output: a self-contained plan at the issue's working path that gives the design and the
   ordered implementation work it requires, as described under design and plan requirements.
   An implementation-learning revision records that learning in the plan. Report limitations
-  and blockers in the plan or your report.
+  and blockers in the plan or your report. A brief statement that clears a real risk for the
+  next role is useful and allowed; no inventory of unaffected subjects is required.
 - Mutation boundary: only the assigned ignored plan file under `docs/working/`. No
   tracked wording, source, configuration, or validation.
 - You do not approve the plan or decide its merit. The issue fixer owns that decision.
@@ -428,22 +443,30 @@ projects into that role's own prompt body, so a role never needs this document t
   under [Direct trivial fixes](#direct-trivial-fixes). Both use exact model
   `opencode-go/claude-haiku-5-5` and no variant. A coordinator, issue fixer, designer,
   reviewer, or other author never invokes them. An author never invokes a reviewer itself;
-  the invoking owner does.
+  the invoking owner does, only after the author has settled.
 - Choice: `doc-developer` writes ordinary documentation. `prompt-developer` writes
   model-facing instructions, prompts, templates and fragments, agent bodies and
   descriptions, skills, and AGENTS wording. Technical documentation about prompts is
   `doc-developer` work. See [Choosing the author and reviewer pair](#choosing-the-author-and-reviewer-pair).
 - Inputs: the assigned facts, the plan or direct assignment, and the exact sections or files the
   invoking owner names (the implementation manager in an issue run, or the acting primary in a
-  direct fix). Read the actual source to confirm each fact before wording it. For instructions,
-  check the composition the text will join, not the text alone.
+  direct fix). Read the actual source to confirm each fact before wording it.
+- Documentation form (`doc-developer`): choose order and structure by the reader's need and the
+  document's kind. State the purpose and the immediate action where the reader needs them, and use
+  paragraphs, lists, or tables as the content warrants. No fixed paragraph or section progression
+  is required.
+- Prompt composition (`prompt-developer`): read the relevant composition the text joins: the root
+  configuration and governing instructions, the callers and consumers that receive the text, and
+  any template or fragment that delivers it. Read an unchanged sibling role only where it receives,
+  consumes, or conflicts with the text. Do not judge the text alone.
 - Output: when the author edits the assigned file in place, the report names the files and
   sections changed, the sources read, the facts confirmed and not obtained, the links not
   verified, the selfchecks, and any text that belongs to the other pair. The file is the
   artifact, so the text is not echoed back. When the text must be applied elsewhere, such as
   an inline host, the author returns the exact replacement text with the same report. The
   route's mechanical applicator applies it verbatim: `code-developer` in an issue run, or the
-  acting primary in a direct fix that has actual edit authority for the host. Selfchecks are author checks, not independent review.
+  acting primary in a direct fix that has actual edit authority for the host. Selfchecks are author
+  checks, not independent review.
 - Report partial wording and any facts you could not obtain. Await the invoking owner. Route
   source gaps back through that owner.
 - Mutation boundary: the assigned documentation or model-facing assets only. No source
@@ -455,9 +478,11 @@ projects into that role's own prompt body, so a role never needs this document t
   the root configuration, governing and shared instructions, and the relevant unchanged
   roles as one composed result. The invoking owner (the implementation manager, or the acting
   primary for a direct fix) names the explicit model override.
-- Documentation review checks facts against the actual source, quality, structure, clear
-  progression, reader usefulness, and link correctness. It does not review model-facing
-  instruction sufficiency.
+- Documentation review checks facts against the actual source, quality, structure, reader
+  usefulness, and link correctness. Judge order and form by audience and document kind, and
+  not by a fixed progression or paragraph pattern. Check that each prerequisite, safety
+  condition, and uncertainty the subject needs is stated, without requiring the same items
+  everywhere. It does not review model-facing instruction sufficiency.
 - Prompt review checks that each prompt gives useful, positive direction for its
   standing procedure; that clutter, duplicated policy, and inventories are absent where
   the role does not need them; that names, paths, IDs, and links resolve; that author and
@@ -525,8 +550,9 @@ It holds the current design or plan and one file per adversarial review round.
 ## Design and plan requirements
 
 Each design or plan is one self-contained document, concise and proportional to the risk.
-Its content sets its structure: no headings or section order are required, and the document
-never states that a subject is inapplicable. Readers must not need the review history, and
+Its content sets its structure: no headings or section order are required. The document avoids
+mandatory inventories of unaffected subjects; a brief statement that clears a real risk for the
+next role is useful and allowed. Readers must not need the review history, and
 the document does not repeat policy inventories. It gives the next roles what they need to
 implement and verify without guessing:
 
@@ -556,7 +582,7 @@ may run broader checks sooner when the risk or a safer preference warrants it, w
 requiring prior approval or a demonstrated cross-cutting risk. Substitute no prose-regex assertions,
 repository-wide spelling bans, or unrelated test matrices for semantic evidence. Name the
 prompt or documentation author and reviewer pair by purpose for any model-facing or
-documentation wording.
+documentation wording. Do not add automatic double review.
 
 ## Native delegation and settlement
 
@@ -893,6 +919,7 @@ The manager must:
    - A documentation or prompt author (`doc-developer` or `prompt-developer`) runs
      sequentially. Never run one concurrently with another author or with any source
      worker. Never overlap authoring with independent review of the same moving assets.
+      A review of an asset starts only after its author has settled.
    - A concurrent `code-developer` group may launch only when every assignment is
      source-only and the manager has positively determined that the assignments do not
      conflict in files, contracts, generated outputs, validation side effects, or
@@ -926,8 +953,9 @@ The manager must:
      synchronization in this reconciliation and in the completion report, without
      adding another gate or coordination mechanism.
 5. Run all validation required by the plan, including focused and broad checks. Handle
-   generated artifacts. Selectively stage only intended paths. Commit coherent stable
-   units under AGENTS. Developer checks inform progress. The manager owns integrated assurance:
+   generated artifacts. Selectively stage only intended paths. If unrelated entries are
+   already staged, commit with a path-scoped operation that excludes them and leaves them staged.
+   Commit coherent stable units under AGENTS. Developer checks inform progress. The manager owns integrated assurance:
    it may reuse a successful developer check whose relevant inputs are unchanged in the final
    result, and it reruns or adds checks as [economical selection and reuse](../validation.md#economical-selection-and-reuse)
    directs.
@@ -950,7 +978,8 @@ status in its own issue's existing entry, and only that entry. Full implementati
 and awaiting fixer reconciliation stays **In progress**, with the note "implementation complete;
 fixer reconciliation pending" and the commit and validation references. A known partial attempt
 that returns to design becomes **Analyzed**, with the remaining work and the plan revision
-needed. A prerequisite or unsafe settled outcome becomes **Blocked**, with its named cause. An
+needed. A prerequisite, a failure needing resolution, or an unsafe settled outcome becomes **Blocked**,
+with its named cause. An
 unknown outcome is recorded as **Blocked** only where the uncertain publication boundary still
 permits a write; otherwise the update is pending. Never write a Done move, and never claim
 validation or completion that was not observed. A contention-only attempt edits nothing. Tracker

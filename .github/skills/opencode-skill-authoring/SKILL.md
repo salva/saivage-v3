@@ -25,7 +25,7 @@ Project skills live under `.github/skills/` in this repository because root `ope
 
 ## Frontmatter
 
-Every `SKILL.md` must start with YAML frontmatter:
+Every `SKILL.md` starts with YAML frontmatter:
 
 ```markdown
 ---
@@ -34,13 +34,20 @@ description: 'Concrete trigger-focused description. Use when ...'
 ---
 ```
 
-Rules:
+Project conventions, checked by the validation snippet below and by review:
 
-- `name` is required and must match the containing directory name.
-- `name` must match `^[a-z0-9]+(-[a-z0-9]+)*$` and be at most 64 characters.
-- `description` is required, 1-1024 characters, and should front-load user-visible triggers and filenames.
-- Use single quotes around descriptions when they contain punctuation that may confuse YAML.
-- Recognized optional fields are `license`, `compatibility`, and `metadata`; avoid them unless needed.
+- `name` equals the containing directory and matches `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 characters.
+- `description` is present, front-loads user-visible triggers and filenames, and stays within 1024 characters.
+- Single-quote a description that contains punctuation that could confuse YAML.
+- Leave `license`, `compatibility`, and `metadata` out unless a need exists.
+
+Documented host behavior, from the official OpenCode V2 skills documentation (`https://opencode.ai/docs/skills/`, read 2026-11-13):
+
+- The skill ID comes from the file path. For `<dir>/SKILL.md` it is the directory name. The frontmatter `name` is only a display label. IDs are case-sensitive.
+- A skill without `description` is not advertised to the model.
+- `metadata.opencode/autoinvoke: false` (or `disable-model-invocation: true`) hides a skill from the model's list. It still loads by its exact ID.
+- Loading is governed by the selected agent's `skill` permission, set in agent or root configuration, not in `SKILL.md`.
+- V2 does not enforce the name pattern, the 64-character limit, the directory match, or a description length limit. The conventions above are project rules, not runtime rejections.
 
 ## Description Quality
 
@@ -73,7 +80,7 @@ Keep skills focused. Split a broad skill into separate skills if one description
 
 ## Validation
 
-Before committing a skill change:
+Before committing a skill change, run the snippet below. It checks the project conventions above: frontmatter presence, directory-name match, name pattern and length, and description presence. It does not test OpenCode discovery or loading.
 
 ```bash
 node - <<'NODE'
