@@ -131,6 +131,13 @@ interface DesiredServer {
   shouldRun: boolean;
 }
 
+interface DefinitionSelection {
+  configs: Record<string, McpServerConfig>;
+  sources: Map<string, 'operator' | 'agent'>;
+  dynamic: Record<string, McpServerDefinition>;
+}
+type DecisionPaths = (cardId: string) => readonly string[];
+
 function revisionOf(config: McpServerConfig): string {
   const { policy: _policy, format_version: _format, ...connection } = config;
   return canonicalValueSha256(connection);
@@ -138,6 +145,7 @@ function revisionOf(config: McpServerConfig): string {
 
 export class McpManager implements McpReconciliationPort {
   private readonly policyAdmission: McpAdmission;
+  private readonly readCanonicalLivePath: (cardId: string) => readonly string[];
   private readonly nativeGit: boolean;
   private readonly outboundHttp?: OutboundHttpEmitter;
   readonly #processRunner: ProcessRunner;
@@ -159,7 +167,8 @@ export class McpManager implements McpReconciliationPort {
     eventLogger,
     outboundHttp,
   }: McpManagerOptions) {
-    this.policyAdmission = new McpAdmission(readCanonicalLivePath);
+    this.policyAdmission = new McpAdmission();
+    this.readCanonicalLivePath = readCanonicalLivePath;
     this.nativeGit = nativeGit;
     this.configAuthority = configAuthority;
     this.outboundHttp = outboundHttp;
@@ -250,48 +259,68 @@ export class McpManager implements McpReconciliationPort {
 
   getStatus(caller: McpCaller): McpServerStatus[] {
     this.policyAdmission.requireGrant(caller, 'mcp_servers');
-    const { configs, sources } = this.loadDefinitions();
-    const names = new Set([...Object.keys(configs), ...this.#runtimes.keys()]);
+    const selection = this.loadDefinitions();
+    const paths = this.decisionPaths();
+    const names = new Set([...Object.keys(selection.configs), ...this.#runtimes.keys()]);
     return [...names].flatMap((name) => {
-      const runtime = this.#runtimes.get(name);
-      const policy = configs[name]?.policy ?? runtime!.policy;
-      const exposed = !!configs[name] && this.policyAdmission.exposed(caller, policy);
-      const availableActions = MCP_MANAGEMENT_OPERATIONS.filter(
-        (operation) =>
-          caller.operations.includes(operation) &&
-          !(
-            this.nativeGit &&
-            ['mcp_server_replace', 'mcp_catalog_refresh', 'mcp_server_set_scope'].includes(
-              operation,
-            )
-          ) &&
-          this.canManage(caller, name, operation),
-      );
-      if (!exposed && !availableActions.length) return [];
-      const status = runtime
-        ? { ...runtime.getStatus(), definitionSource: sources.get(name) ?? null }
-        : {
-            name,
-            transport: configs[name]!.transport,
-            status: 'stopped' as const,
-            bindingId: null,
-            definitionSource: sources.get(name)!,
-            ready: false,
-            containment: 'not_started' as const,
-            failureReason: null,
-            containmentBoundary:
-              configs[name]!.transport === 'stdio'
-                ? ('local_process_group' as const)
-                : ('local_connection' as const),
-            processId: null,
-            tools_count: 0,
-          };
-      const { tools_count, ...safeStatus } = status;
-      return [{ ...safeStatus, policy, availableActions, ...(exposed ? { tools_count } : {}) }];
+      const status = this.projectStatus(caller, name, selection, this.#runtimes.get(name), paths);
+      return status ? [status] : [];
     });
   }
+
+  private projectStatus(
+    caller: McpCaller,
+    name: string,
+    { configs, sources }: DefinitionSelection,
+    runtime: McpServerRuntime | undefined,
+    paths: DecisionPaths,
+  ): McpServerStatus | undefined {
+    const config = configs[name];
+    if (!config && !runtime) return undefined;
+    const policy = config?.policy ?? runtime!.policy;
+    const exposed = !!config && this.exposed(caller, policy, paths);
+    const availableActions = MCP_MANAGEMENT_OPERATIONS.filter(
+      (operation) =>
+        caller.operations.includes(operation) &&
+        !(
+          this.nativeGit &&
+          ['mcp_server_replace', 'mcp_catalog_refresh', 'mcp_server_set_scope'].includes(operation)
+        ) &&
+        this.canManage(operation, config, sources.get(name), runtime) &&
+        this.policyAdmission.manages(caller, paths(policy.controllerCardId)),
+    );
+    if (!exposed && !availableActions.length) return undefined;
+    const status = runtime
+      ? { ...runtime.getStatus(), definitionSource: sources.get(name) ?? null }
+      : {
+          name,
+          transport: config!.transport,
+          status: 'stopped' as const,
+          bindingId: null,
+          definitionSource: sources.get(name)!,
+          ready: false,
+          containment: 'not_started' as const,
+          failureReason: null,
+          containmentBoundary:
+            config!.transport === 'stdio'
+              ? ('local_process_group' as const)
+              : ('local_connection' as const),
+          processId: null,
+          tools_count: 0,
+        };
+    const { tools_count, ...safeStatus } = status;
+    return { ...safeStatus, policy, availableActions, ...(exposed ? { tools_count } : {}) };
+  }
+
   getServerStatus(caller: McpCaller, name: string): McpServerStatus | undefined {
-    return this.getStatus(caller).find((status) => status.name === name);
+    this.policyAdmission.requireGrant(caller, 'mcp_servers');
+    return this.projectStatus(
+      caller,
+      name,
+      this.loadDefinitions(name),
+      this.#runtimes.get(name),
+      this.decisionPaths(),
+    );
   }
   getServerCatalog(caller: McpCaller, name: string): McpCatalogSnapshot | undefined {
     this.authorize(caller, name, 'mcp_tools');
@@ -306,11 +335,10 @@ export class McpManager implements McpReconciliationPort {
     bindingId: string,
     options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
   ): Promise<McpCatalogRefreshResult> {
-    this.authorize(caller, name, 'mcp_catalog_refresh');
+    const { configs } = this.authorize(caller, name, 'mcp_catalog_refresh');
     this.assertNativeSourceCapability();
     options?.signal?.throwIfAborted();
     this.assertAdmission();
-    const { configs } = this.loadDefinitions(name);
     const config = configs[name];
     if (!config) throw new McpLifecycleError(`Unknown configured MCP server '${name}'.`, 404);
     if (config.disabled) throw new McpLifecycleError(`MCP server '${name}' is disabled.`, 409);
@@ -333,7 +361,7 @@ export class McpManager implements McpReconciliationPort {
         return {
           ...selection,
           ...(caller.principal.kind !== 'card' ||
-          (policy && this.policyAdmission.exposed(caller, policy))
+          (policy && this.exposed(caller, policy, this.decisionPaths()))
             ? { toolCount }
             : {}),
         };
@@ -345,17 +373,13 @@ export class McpManager implements McpReconciliationPort {
     name: string,
     options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
   ): Promise<McpLifecycleResult> {
-    this.authorize(caller, name, 'mcp_server_control', true);
+    const { configs, sources } = this.authorize(caller, name, 'mcp_server_control', true);
     this.assertNativeSourceCapability();
     const signal = options?.signal;
     signal?.throwIfAborted();
     this.assertAdmission();
-    const dynamic = readMcpServerDefinitions(this.#processRunner.projectRoot);
-    const operator = this.configAuthority.loadMcpServer(name);
-    if (operator && Object.hasOwn(dynamic, name))
-      throw new McpLifecycleError(`MCP server '${name}' has conflicting definition sources.`, 409);
-    const isDynamic = Object.hasOwn(dynamic, name);
-    const config = operator ?? (isDynamic ? this.dynamicConfig(dynamic[name]!) : undefined);
+    const isDynamic = sources.get(name) === 'agent';
+    const config = configs[name];
     if (!config) throw new McpLifecycleError(`Unknown configured MCP server '${name}'.`, 404);
     if (config.disabled) throw new McpLifecycleError(`MCP server '${name}' is disabled.`, 409);
     const revision = revisionOf(config);
@@ -378,7 +402,7 @@ export class McpManager implements McpReconciliationPort {
         throw new McpLifecycleError(`MCP server '${name}' is busy or requires containment.`, 409);
     }
     if (!runtime || runtime.isContained()) {
-      runtime = this.createRuntime({ name, config, revision, shouldRun: true });
+      runtime = this.createRuntime({ name, config, revision, shouldRun: true }, sources.get(name)!);
       this.#runtimes.set(name, runtime);
     }
     const selected = runtime;
@@ -433,7 +457,11 @@ export class McpManager implements McpReconciliationPort {
         : this.policyAdmission.unavailable());
     const parsedPolicy = mcpAccessPolicySchema.safeParse(selectedPolicy);
     if (!parsedPolicy.success) throw new McpLifecycleError('Invalid MCP policy.', 409);
-    this.policyAdmission.destination(caller, parsedPolicy.data);
+    this.policyAdmission.destination(
+      caller,
+      parsedPolicy.data,
+      this.decisionPaths()(parsedPolicy.data.controllerCardId),
+    );
     this.assertNativeSourceCapability();
     this.assertAdmission();
     if (!name.length) throw new McpLifecycleError('MCP server name must be nonempty.', 409);
@@ -461,18 +489,12 @@ export class McpManager implements McpReconciliationPort {
     name: string,
     connection: McpConnection,
   ): { serverName: string; replaced: true; status: 'stopped' } {
-    this.authorize(caller, name, 'mcp_server_replace');
+    const { dynamic } = this.authorize(caller, name, 'mcp_server_replace');
     this.assertNativeSourceCapability();
     this.assertAdmission();
     if (!name.length) throw new McpLifecycleError('MCP server name must be nonempty.', 409);
     const parsed = mcpConnectionSchema.safeParse(connection);
     if (!parsed.success) throw new McpLifecycleError('Invalid MCP connection.', 409);
-    const dynamic = readMcpServerDefinitions(this.#processRunner.projectRoot);
-    if (this.configAuthority.loadMcpServer(name) || !Object.hasOwn(dynamic, name))
-      throw new McpLifecycleError(
-        `MCP server '${name}' is not an exclusively agent-owned definition.`,
-        409,
-      );
     const runtime = this.#runtimes.get(name);
     if (runtime && !runtime.canReplaceDefinition())
       throw new McpLifecycleError(`MCP server '${name}' requires completed containment.`, 409);
@@ -491,14 +513,8 @@ export class McpManager implements McpReconciliationPort {
     caller: McpCaller,
     name: string,
   ): Promise<{ serverName: string; unregistered: true; status: 'stopped' }> {
-    this.authorize(caller, name, 'mcp_server_unregister');
+    const { dynamic } = this.authorize(caller, name, 'mcp_server_unregister');
     this.assertAdmission();
-    const dynamic = readMcpServerDefinitions(this.#processRunner.projectRoot);
-    if (this.configAuthority.loadMcpServer(name) || !Object.hasOwn(dynamic, name))
-      throw new McpLifecycleError(
-        `MCP server '${name}' is not an exclusively agent-owned definition.`,
-        409,
-      );
     const runtime = this.#runtimes.get(name);
     const policy = dynamic[name]!.policy;
     delete dynamic[name];
@@ -558,11 +574,11 @@ export class McpManager implements McpReconciliationPort {
   } {
     this.assertAdmission();
     this.assertNativeSourceCapability();
-    this.authorize(caller, name, 'mcp_server_set_scope');
+    const paths = this.decisionPaths();
+    const { dynamic } = this.authorize(caller, name, 'mcp_server_set_scope', false, paths);
     const parsed = mcpAccessPolicySchema.safeParse(policy);
     if (!parsed.success) throw new McpLifecycleError('Invalid MCP policy.', 409);
-    this.policyAdmission.destination(caller, parsed.data);
-    const dynamic = readMcpServerDefinitions(this.#processRunner.projectRoot);
+    this.policyAdmission.destination(caller, parsed.data, paths(parsed.data.controllerCardId));
     dynamic[name] = { ...dynamic[name]!, policy: parsed.data };
     replaceMcpServerDefinitions(this.#processRunner.projectRoot, dynamic);
     const runtime = this.#runtimes.get(name);
@@ -570,17 +586,19 @@ export class McpManager implements McpReconciliationPort {
     return { serverName: name, policy: parsed.data, updated: true };
   }
 
-  private canManage(caller: McpCaller, name: string, operation: McpOperation): boolean {
-    const { configs, sources } = this.loadDefinitions(name);
-    const config = configs[name];
-    const runtime = this.#runtimes.get(name);
+  private canManage(
+    operation: McpOperation,
+    config: McpServerConfig | undefined,
+    source: 'operator' | 'agent' | undefined,
+    runtime: McpServerRuntime | undefined,
+  ): boolean {
     if (!config && (!runtime || operation !== 'mcp_server_control')) return false;
     if (
       ['mcp_server_replace', 'mcp_server_unregister', 'mcp_server_set_scope'].includes(operation) &&
-      sources.get(name) !== 'agent'
+      source !== 'agent'
     )
       return false;
-    return this.policyAdmission.manages(caller, config?.policy ?? runtime!.policy);
+    return true;
   }
 
   private startedResult(
@@ -593,26 +611,42 @@ export class McpManager implements McpReconciliationPort {
       serverName: name,
       status: 'running',
       ...(caller.principal.kind !== 'card' ||
-      (policy && this.policyAdmission.exposed(caller, policy))
+      (policy && this.exposed(caller, policy, this.decisionPaths()))
         ? { toolCount: runtime.getTools()!.length }
         : {}),
     };
   }
 
-  private authorize(caller: McpCaller, name: string, operation: McpOperation, live = false): void {
+  private authorize(
+    caller: McpCaller,
+    name: string,
+    operation: McpOperation,
+    live = false,
+    paths = this.decisionPaths(),
+  ): DefinitionSelection {
     this.policyAdmission.requireGrant(caller, operation);
-    const { configs } = this.loadDefinitions(name);
+    const selection = this.loadDefinitions(name);
+    const { configs, sources } = selection;
     const config = configs[name];
     if (operation === 'mcp_tools' || operation === 'mcp_tool_call') {
-      if (!config || !this.policyAdmission.exposed(caller, config.policy))
+      if (!config || !this.exposed(caller, config.policy, paths))
         this.policyAdmission.unavailable();
     } else {
-      if (!this.canManage(caller, name, operation)) this.policyAdmission.unavailable();
+      const runtime = this.#runtimes.get(name);
+      if (
+        !this.canManage(operation, config, sources.get(name), runtime) ||
+        !this.policyAdmission.manages(
+          caller,
+          paths((config?.policy ?? runtime!.policy).controllerCardId),
+        )
+      )
+        this.policyAdmission.unavailable();
       if (live || operation === 'mcp_catalog_refresh') {
         if (!config) this.policyAdmission.unavailable();
-        this.policyAdmission.liveAnchor(config.policy);
+        this.policyAdmission.liveAnchor(config.policy, paths(config.policy.controllerCardId));
       }
     }
+    return selection;
   }
 
   private assertSelected(
@@ -623,8 +657,7 @@ export class McpManager implements McpReconciliationPort {
     live = false,
   ): void {
     this.assertAdmission();
-    this.authorize(caller, name, operation, live);
-    const config = this.loadDefinitions(name).configs[name];
+    const config = this.authorize(caller, name, operation, live).configs[name];
     if (
       !config ||
       config.disabled ||
@@ -702,7 +735,10 @@ export class McpManager implements McpReconciliationPort {
       let startOperation: 'add' | 'replace' | 'start' = 'start';
       if (!runtime) {
         this.assertAdmission();
-        runtime = this.createRuntime(target);
+        runtime = this.createRuntime(
+          target,
+          this.loadDefinitions(target.name).sources.get(target.name)!,
+        );
         this.#runtimes.set(target.name, runtime);
         startOperation = replacedNames.has(target.name) ? 'replace' : 'add';
       }
@@ -724,7 +760,10 @@ export class McpManager implements McpReconciliationPort {
       if (runtime.isReady()) continue;
       if (runtime.isContained()) {
         this.assertAdmission();
-        runtime = this.createRuntime(target);
+        runtime = this.createRuntime(
+          target,
+          this.loadDefinitions(target.name).sources.get(target.name)!,
+        );
         this.#runtimes.set(target.name, runtime);
       } else if (runtime.isRunning()) {
         pending.push({
@@ -747,7 +786,10 @@ export class McpManager implements McpReconciliationPort {
             revisionOf(current) !== selected.revision
           )
             this.policyAdmission.unavailable();
-          this.policyAdmission.liveAnchor(current.policy);
+          this.policyAdmission.liveAnchor(
+            current.policy,
+            this.decisionPaths()(current.policy.controllerCardId),
+          );
         };
         assertDispatchAllowed();
         await runtime.start({ assertDispatchAllowed });
@@ -786,9 +828,9 @@ export class McpManager implements McpReconciliationPort {
     return report;
   }
 
-  private createRuntime(target: DesiredServer): McpServerRuntime {
+  private createRuntime(target: DesiredServer, source: 'operator' | 'agent'): McpServerRuntime {
     return new McpServerRuntime({
-      source: this.loadDefinitions(target.name).sources.get(target.name)!,
+      source,
       outboundHttp: this.outboundHttp,
       name: target.name,
       config: target.config,
@@ -819,10 +861,27 @@ export class McpManager implements McpReconciliationPort {
     };
   }
 
-  private loadDefinitions(selectedName?: string): {
-    configs: Record<string, McpServerConfig>;
-    sources: Map<string, 'operator' | 'agent'>;
-  } {
+  private decisionPaths(): DecisionPaths {
+    const paths = new Map<string, readonly string[]>();
+    return (id) => {
+      if (!paths.has(id)) paths.set(id, this.readCanonicalLivePath(id));
+      return paths.get(id)!;
+    };
+  }
+
+  private exposed(caller: McpCaller, policy: McpAccessPolicy, paths: DecisionPaths): boolean {
+    const anchor = paths(policy.controllerCardId);
+    const callerPath =
+      anchor.at(-1) === policy.controllerCardId &&
+      caller.principal.kind === 'card' &&
+      caller.principal.cardId !== policy.controllerCardId &&
+      policy.exposure === 'subtree'
+        ? paths(caller.principal.cardId)
+        : [];
+    return this.policyAdmission.exposed(caller, policy, anchor, callerPath);
+  }
+
+  private loadDefinitions(selectedName?: string): DefinitionSelection {
     const selectedOperator =
       selectedName === undefined ? undefined : this.configAuthority.loadMcpServer(selectedName);
     const operator =
@@ -849,6 +908,6 @@ export class McpManager implements McpReconciliationPort {
       });
       sources.set(name, 'agent');
     }
-    return { configs, sources };
+    return { configs, sources, dynamic };
   }
 }

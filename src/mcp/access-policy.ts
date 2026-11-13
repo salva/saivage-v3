@@ -29,38 +29,37 @@ export const MCP_MANAGEMENT_OPERATIONS: readonly McpOperation[] = [
   'mcp_server_set_scope',
 ];
 
-/** The injected owner reads one exact committed path, returning only its live prefix. */
+/** Relationship predicates consume exact committed paths containing only live prefixes. */
 export class McpAdmission {
-  constructor(private readonly readPath: (cardId: string) => readonly string[]) {}
-
   requireGrant(caller: McpCaller, operation: McpOperation): void {
     if (!caller.operations.includes(operation)) this.unavailable();
   }
   unavailable(): never {
     throw new McpLifecycleError('MCP server unavailable.', 404);
   }
-  destination(caller: McpCaller, policy: McpAccessPolicy): void {
-    const path = this.readPath(policy.controllerCardId);
+  destination(caller: McpCaller, policy: McpAccessPolicy, path: readonly string[]): void {
     if (path.at(-1) !== policy.controllerCardId) this.unavailable();
     if (caller.principal.kind === 'card' && !path.includes(caller.principal.cardId))
       this.unavailable();
   }
-  exposed(caller: McpCaller, policy: McpAccessPolicy): boolean {
-    const anchor = this.readPath(policy.controllerCardId);
+  exposed(
+    caller: McpCaller,
+    policy: McpAccessPolicy,
+    anchor: readonly string[],
+    callerPath: readonly string[],
+  ): boolean {
     if (anchor.at(-1) !== policy.controllerCardId) return false;
     if (caller.principal.kind !== 'card') return true;
     const id = caller.principal.cardId;
     if (id === policy.controllerCardId) return true;
     if (policy.exposure !== 'subtree') return false;
-    const path = this.readPath(id);
-    return path.at(-1) === id && path.includes(policy.controllerCardId);
+    return callerPath.at(-1) === id && callerPath.includes(policy.controllerCardId);
   }
-  manages(caller: McpCaller, policy: McpAccessPolicy): boolean {
-    const path = this.readPath(policy.controllerCardId);
+  manages(caller: McpCaller, path: readonly string[]): boolean {
     return caller.principal.kind !== 'card' || path.includes(caller.principal.cardId);
   }
-  liveAnchor(policy: McpAccessPolicy): void {
-    if (this.readPath(policy.controllerCardId).at(-1) !== policy.controllerCardId)
+  liveAnchor(policy: McpAccessPolicy, path: readonly string[]): void {
+    if (path.at(-1) !== policy.controllerCardId)
       this.unavailable();
   }
 }

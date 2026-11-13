@@ -1474,6 +1474,18 @@ Reached live ancestors can contain/reanchor an unreachable anchor, without readi
 below a tombstone. Global/operator admitted operations have project reach but cannot
 invoke an unreachable anchor. Ancestor-only observations omit catalog/statistics.
 
+Each synchronous manager decision consumes a fresh, decision-local definition selection:
+the operator YAML source (the named entry for an exact lookup, the mapping for a
+collection), the complete strict format-2 dynamic file, and retained runtime metadata.
+A decision-local lazy map supplies canonical live paths keyed by exact card ID through
+the injected reader; each distinct ID is read at most once within that synchronous call,
+and only when a predicate needs it. Relationship predicates for exposure, management,
+destination and live anchor are pure over those supplied paths. The selection and path
+map are not a cache, epoch, registry or remembered authorization; they are discarded when
+the call returns. Queued stdio dispatch, pre-dispatch HTTP checks and post-await callbacks
+each create their own fresh decision, and an earlier selection is never reused as later
+dispatch or write authority.
+
 Runtime owner-local metadata retains last established policy/source after definition
 removal, for safe observation/stop only. Dynamic scope publication updates it
 synchronously without reconciliation. Connection revision hashing excludes policy;

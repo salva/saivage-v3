@@ -2762,6 +2762,18 @@ Definition-less retained owners permit only management observation/stop.
 Ancestor-only observations contain no catalogs, tool counts or invocation statistics;
 hidden exact requests are indistinguishable from unknown names.
 
+Each synchronous MCP decision (grant check, admission, registration or publication,
+status projection and exact observation) consumes a fresh definition selection and reads
+each needed canonical controller or caller path at most once per distinct card ID within
+that decision; no selection or path survives the call. Listing projects all configured
+and retained services. An unknown name reads no service path. An existing exact service,
+including one hidden from the caller, consumes only its selected authority paths as needed
+to decide visibility and management eligibility: its controller path, and the calling
+card's own path only when a live subtree exposure requires it. The dynamic definition file
+is always validated as a whole strict format-2 document, even for an exact name. The YAML document is parsed, and only the selected entry is schema-validated;
+other operator entries receive no schema validation in that observation. Grants,
+management and effects are unchanged.
+
 `mcp_server_set_scope({serverName,policy})` is an independent optional grant. It
 requires management over the current dynamic anchor and a permissible live
 destination. Publication changes only policy, preserving connection/process,

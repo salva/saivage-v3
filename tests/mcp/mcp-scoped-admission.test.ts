@@ -10,7 +10,7 @@ import { CardService, initProjectTree, testConfigAuthority } from '../helpers/ca
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
-import { readMcpServerDefinitions, mcpServerDefinitionsPath } from '../../src/mcp/server-definitions.js';
+import { readMcpServerDefinitions, replaceMcpServerDefinitions, mcpServerDefinitionsPath } from '../../src/mcp/server-definitions.js';
 import { agentCapabilitiesSchema, mcpServerEntrySchema } from '../../src/schemas/index.js';
 import { deferred } from '../../src/runtime/actors/deferred.js';
 import { createServer, listen, closeServer, readJsonRequest } from '../helpers/production-composition-e2e.js';
@@ -112,7 +112,7 @@ describe('scoped MCP production admission', () => {
       expect(ingress.hasActiveLifecycleCall()).toBe(false);
     } finally { await server.close(); }
   });
-  it('fences HTTP pagination publication and post-stop restart continuation against fresh policy', async () => {
+  it.each(['next page', 'publication'] as const)('fences HTTP %s and post-stop restart continuation against fresh policy', async boundary => {
     const { manager, runner, a, b } = setup();
     let listing = 0, calls = 0;
     const pageEntered = deferred<void>(), pageRelease = deferred<void>();
@@ -123,7 +123,7 @@ describe('scoped MCP production admission', () => {
       if (rpc.method === 'tools/list' && ++listing === 2) { pageEntered.resolve(); await pageRelease.promise; }
       if (rpc.method === 'tools/call') { calls++; callEntered.resolve(); await callRelease.promise; }
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: rpc.method === 'initialize' ? { protocolVersion: '2025-06-18' } : rpc.method === 'tools/list' ? { tools: [{ name: 'count', inputSchema: { type: 'object' } }] } : { content: [{ type: 'text', text: String(calls) }] } }));
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: rpc.method === 'initialize' ? { protocolVersion: '2025-06-18' } : rpc.method === 'tools/list' ? { tools: [{ name: 'count', inputSchema: { type: 'object' } }], ...(listing === 2 && boundary === 'next page' ? { nextCursor: 'revoked-page' } : {}) } : { content: [{ type: 'text', text: String(calls) }] } }));
     });
     const port = await listen(peer);
     const global: McpCaller = { principal: { kind: 'global' }, operations: MCP_OPERATIONS };
@@ -218,7 +218,7 @@ describe('scoped MCP production admission', () => {
     expect(await call(child.id, 'mcp_server_set_scope', { serverName: 'peer', policy: { controllerCardId: child.id, exposure: 'card' } }, ['mcp_tools'])).toMatchObject({ kind: 'failed' });
   });
 
-  it('fences a queued call on fresh policy without cancelling dispatched work or changing binding/catalog', async () => {
+  it.each(['policy', 'removed definition', 'replaced connection'] as const)('fences a queued call on fresh %s without cancelling dispatched work or changing binding/catalog', async mode => {
     const { root, manager, a, child } = setup();
     manager.registerServer(cardCaller(a.id), 'peer', connection);
     await manager.startServer(cardCaller(a.id), 'peer');
@@ -234,13 +234,52 @@ describe('scoped MCP production admission', () => {
       await observed;
       const second = manager.invokeTool(cardCaller(child.id), 'peer', catalog.bindingId, catalog.catalogId, 'count', {});
       const rejected = expect(second).rejects.toThrow('unavailable');
-      manager.setServerScope(cardCaller(a.id), 'peer', { controllerCardId: a.id, exposure: 'card' });
+      const definitions = readMcpServerDefinitions(root);
+      if (mode === 'policy') manager.setServerScope(cardCaller(a.id), 'peer', { controllerCardId: a.id, exposure: 'card' });
+      else if (mode === 'removed definition') replaceMcpServerDefinitions(root, {});
+      else replaceMcpServerDefinitions(root, { peer: { ...definitions.peer!, connection: { ...connection, args: ['-e', peer, 'changed'] } } });
       writeFileSync(release, 'go');
       expect(await first).toMatchObject({ content: [{ text: '1' }] });
       await rejected;
+      if (mode !== 'policy') replaceMcpServerDefinitions(root, definitions);
       expect(await manager.invokeTool(cardCaller(a.id), 'peer', catalog.bindingId, catalog.catalogId, 'count', {})).toMatchObject({ content: [{ text: '2' }] });
       expect(manager.getServerCatalog(cardCaller(a.id), 'peer')!.catalogId).toBe(catalog.catalogId);
     } finally { watcher.close(); }
+  });
+
+  it('projects start and refresh counts from fresh post-await exposure', async () => {
+    const { manager, a, child } = setup();
+    let entered = deferred<void>(), release = deferred<void>();
+    const server = createServer(async (req, res) => {
+      const rpc = await readJsonRequest(req);
+      if (rpc.method === 'notifications/initialized') { res.statusCode = 202; res.end(); return; }
+      if (rpc.method === 'tools/list') { entered.resolve(); await release.promise; }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: rpc.method === 'initialize'
+        ? { protocolVersion: '2025-06-18' }
+        : { tools: [{ name: 'ping', inputSchema: { type: 'object' } }] } }));
+    });
+    const port = await listen(server);
+    try {
+      manager.registerServer(cardCaller(a.id), 'peer', { transport: 'streamable-http', url: `http://127.0.0.1:${port}` });
+      const starting = manager.startServer(cardCaller(a.id), 'peer');
+      await entered.promise;
+      // The caller remains a manager, but is no longer in the exposure audience.
+      manager.setServerScope(cardCaller(a.id), 'peer', { controllerCardId: child.id, exposure: 'card' });
+      release.resolve();
+      expect(await starting).toEqual({ serverName: 'peer', status: 'running' });
+      const catalog = manager.getServerCatalog(cardCaller(child.id), 'peer')!;
+      manager.setServerScope(cardCaller(a.id), 'peer', { controllerCardId: a.id, exposure: 'subtree' });
+      entered = deferred<void>(); release = deferred<void>();
+      const refreshing = manager.refreshServerCatalog(cardCaller(a.id), 'peer', catalog.bindingId);
+      await entered.promise;
+      manager.setServerScope(cardCaller(a.id), 'peer', { controllerCardId: child.id, exposure: 'card' });
+      release.resolve();
+      const result = await refreshing;
+      expect(result).not.toHaveProperty('toolCount');
+      expect(result.catalogId).not.toBe(catalog.catalogId);
+      expect(manager.getServerCatalog(cardCaller(child.id), 'peer')!.catalogId).toBe(result.catalogId);
+    } finally { release.resolve(); await closeServer(server); }
   });
 
   it('revokes queued stdio management refresh without stopping the prior dispatched call or publishing a catalog', async () => {
