@@ -143,13 +143,38 @@ function inspection(ctx: ResultPresenterContext): ResultPresenterResult {
   const depthOmitted = Array.isArray(nodes) && nodes.some((node) => asRecord(node)?.depth_omitted === true);
   return observed(catalogKey ? count(r?.[String(catalogKey)], String(catalogKey)) : '', [fields('Selected card / immutable history', r, ['card_id', 'root_id', 'depth', 'section', 'head_id', ['version_seq', 'Current mutation revision'], ['version', 'Immutable history version'], 'entry_id', 'published_at', 'artifact_kind', 'artifact_sha256', 'observation_sha256', 'from_version', 'to_version', 'from_artifact', 'to_artifact', 'record_name', 'version_url', 'content_source', 'content_sha256', 'total_bytes', 'notification_recipient', 'planning_target', 'permitted_child_types', 'current_process_position']), fields('Recorded card summary', asRecord(r?.card), ['id', 'type', 'status', 'title', 'parent', 'created_at', 'updated_at', 'status_text']), ...(catalogKey ? page(String(catalogKey), r?.[String(catalogKey)], catalogKey === 'versions' ? ['entry_id', ['version', 'Immutable history version'], 'published_at', 'artifact_kind', 'change'] : cardFields) : []), ...(asRecord(r?.content)?.items ? page(`Selected ${str(r?.section)} (returned order)`, r?.content, r?.section === 'records' ? recordFields : cardFields) : content('Selected content', r?.content)), ...content('Recorded diff (text slice)', r?.diff)], 'Observation recorded' + coverage + (depthOmitted ? ' · Depth omitted' : ''), cardPart(r?.card_id ?? r?.root_id ?? asRecord(r?.card)?.id));
 }
+function agentSession(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  if (ctx.envelope.success === false) return observed('', r && (Object.hasOwn(r, 'segment_id') || Object.hasOwn(r, 'segment_version')) ? [fields('Recorded segment locator', r, ['segment_id', 'segment_version'])] : []);
+  const section = r?.section;
+  const selected = typeof section === 'string' && ['messages', 'context', 'diagnostics', 'message'].includes(section) ? asRecord(r?.[section]) : null;
+  const position = asRecord(selected?.position);
+  const next = asRecord(selected?.next);
+  if (!selected || !Array.isArray(selected.items) || typeof selected.total !== 'number' || typeof selected.returned !== 'number'
+    || typeof position?.item_index !== 'number' || typeof position.item_byte_offset !== 'number'
+    || selected.next !== null && (typeof next?.item_index !== 'number' || typeof next.item_byte_offset !== 'number')) return observed('', [], 'Presentation unavailable');
+  const metadata = fields('Recorded observation (not a live monitor)', r, ['session', 'ownership', 'segment_version', 'segment_id', 'section', 'has_segment_context', ['total_visible_entries', 'Full visible message count']]);
+  const title = `Selected ${section}`;
+  const sections = section === 'diagnostics' || section === 'message'
+    ? [fields(`${title} — recorded coverage`, selected, ['total', 'position', 'returned', 'next']), { title, items: selected.items.map((item, index) => {
+      const row = asRecord(item);
+      return typeof row?.content_hex === 'string'
+        ? { ...fields(`Partial JSON item ${index + 1} (not a complete observation)`, row, ['utf8_bytes', 'offset_bytes', 'next_offset_bytes', 'total_bytes']), content: row.content_hex }
+        : content(`${title} ${index + 1}`, item)[0]!;
+    }) }]
+    : page(title, selected, section === 'context' ? ['kind', 'source_version', 'covered_through_message_id', 'summary_text', 'protected_prompts', 'required_model_facts', 'continuation'] : ['id', 'role', 'kind', 'timestamp', 'content', 'tool', 'tool_call_id', 'context_policy', 'round_id', 'message_index', 'block_index', 'links']);
+  const diagnosticCoverage = section === 'diagnostics' ? [fields('Diagnostic selection scope (separate from page coverage)', r, ['scope', 'total_diagnostic_entries', 'selected_diagnostic_entries', 'omitted_earlier_diagnostic_entries', 'first_message_id', 'last_message_id', 'first_timestamp', 'last_timestamp', 'historical_segments_included', 'inherited_notices_included'])] : [];
+  const origin = section === 'message' ? [fields(r?.entry_origin === 'carried_synthesized_notice' ? 'Carried synthesized notice — not original event metadata' : 'Exact entry origin', r, ['entry_origin', 'original_event_metadata'])] : [];
+  const omissions = section === 'diagnostics' && typeof r?.omitted_earlier_diagnostic_entries === 'number' && r.omitted_earlier_diagnostic_entries > 0 ? ` · ${r.omitted_earlier_diagnostic_entries} earlier diagnostics omitted` : '';
+  const previews = section === 'diagnostics' && selected.items.some((item) => asRecord(item)?.preview_complete === false) ? ' · Incomplete previews' : '';
+  return observed(count(selected, String(section)), [metadata, ...diagnosticCoverage, ...origin, ...sections], 'Observation recorded' + collectionCoverage(selected) + omissions + previews);
+}
 function observation(ctx: ResultPresenterContext): ResultPresenterResult {
   const r = ctx.dataRecord;
-  const key = ({ list_processes_tool: 'processes', list_agent_sessions: 'sessions', read_agent_session: r?.section === 'context' ? 'context' : 'messages', read_runtime_events: 'events', read_runtime_errors: 'errors', read_control_actions: 'actions' } as Facts)[ctx.name];
+  const key = ({ list_processes_tool: 'processes', list_agent_sessions: 'sessions', read_runtime_events: 'events', read_runtime_errors: 'errors', read_control_actions: 'actions' } as Facts)[ctx.name];
   const keys: readonly Field[] = ctx.name === 'list_processes_tool' ? ['id', 'status', 'evidence', 'command', 'cwd', 'exit_code', 'timed_out', 'started_at', 'ended_at', 'owner_kind', 'owner_id', 'card_id', 'session_id', 'logs']
     : ctx.name === 'list_agent_sessions' ? ['id', 'agent_name', 'session_scope', 'card_id', 'started_at', 'status', 'activity', 'compaction']
-      : ctx.name === 'read_agent_session' ? r?.section === 'context' ? ['kind', 'source_version', 'covered_through_message_id', 'summary_text', 'protected_prompts', 'required_model_facts', 'continuation'] : ['id', 'role', 'kind', 'timestamp', 'content', 'tool', 'tool_call_id', 'context_policy', 'round_id', 'message_index', 'block_index', 'links']
-        : ctx.name === 'read_control_actions' ? ['id', 'actor', 'surface', 'action', 'target_kind', 'target_id', 'params_summary', 'safety_class', 'outcome', 'outcome_summary', 'error', 'created_at']
+      : ctx.name === 'read_control_actions' ? ['id', 'actor', 'surface', 'action', 'target_kind', 'target_id', 'params_summary', 'safety_class', 'outcome', 'outcome_summary', 'error', 'created_at']
           : ['id', 'timestamp', 'kind', 'goal_id', 'card_id', 'phase', 'error_message', 'actionable_error', 'server', 'tool', 'success', 'duration_ms', 'error', 'actor', 'surface', 'result'];
   const items = asRecord(r?.[String(key)])?.items;
   const first = Array.isArray(items) ? asRecord(items[0]) : null;
@@ -291,7 +316,7 @@ export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
   get_status: { action: 'Observe status', call: request('status', [], () => textPart('Project / runtime')), result: observation },
   list_processes_tool: { action: 'Observe processes', call: request('process query', queryKeys, () => textPart('Processes')), result: observation },
   list_agent_sessions: { action: 'Observe sessions', call: request('session query', queryKeys, () => textPart('Agent sessions')), result: observation },
-  read_agent_session: { action: 'Read selected session', call: request('session section', queryKeys, (a) => textPart(a.session_id)), result: observation },
+  read_agent_session: { action: 'Read selected session', call: request('session section', [...queryKeys, 'message_id'], (a) => textPart(a.session_id)), result: agentSession },
   read_runtime_events: { action: 'Read event tail', call: request('selected newest events', queryKeys, () => textPart('Runtime events')), result: observation },
   read_runtime_errors: { action: 'Read error tail', call: request('selected newest errors', queryKeys, () => textPart('Runtime errors')), result: observation },
   read_control_actions: { action: 'Read control audit tail', call: request('selected control actions', queryKeys, () => textPart('Control actions')), result: observation },

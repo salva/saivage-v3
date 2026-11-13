@@ -898,6 +898,37 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   server-filtered independently of execution outcome, including rejected calls and
   calls with no recorded result. These are not unsanitized execution arguments;
   strict valid record selections and exact evidence/source identities remain usable.
+- `read_agent_session` has a dedicated Result projection for its four returned
+  sections. Request names only the supplied `session_id`, `section`, `last_n`,
+  `position`, `response_bytes` and, for exact lookup, the complete supplied
+  `message_id`; an omitted section is not displayed as a fabricated default. Result
+  shows the received section only: `messages` and `context` as byte-packed pages with
+  the segment metadata, `diagnostics` as a whole-item page, and `message` as one
+  exact entry. Unknown successful section names, or a selected collection that is not
+  a page of the expected shape, show **Presentation unavailable**; no alternate
+  payload is normalized. Common metadata is labelled **Recorded observation (not a
+  live monitor)** and shows session, ownership, segment identity (`segment_id`,
+  `segment_version`), section, `has_segment_context` and **Full visible message count**.
+  Diagnostics keep three scopes visibly separate. The **Diagnostic selection scope
+  (separate from page coverage)** section shows the supplied `scope`, pre-tail
+  `total_diagnostic_entries`, selected and omitted counts, selected endpoints and
+  scope flags verbatim; null endpoints, false flags and zero counts stay visible. The
+  page **recorded coverage** (`total`, `position`, `returned`, `next`) covers only the
+  selected tail transport page. Each diagnostic item is complete JSON; a preview
+  is a redacted UTF-8-safe prefix whose `preview_complete` may be false. The outcome
+  adds **N earlier diagnostics omitted** when the supplied omitted count is positive
+  and **Incomplete previews** when a shown preview is incomplete, even when `next` is
+  null. `next:null` exhausts only the selected tail, and an empty selection means zero
+  selected diagnostic rows, not absence of earlier failure. Exact message detail shows
+  `entry_origin` and `original_event_metadata` outside the entry body, including for a
+  sliced entry. A carried synthesized notice is headed **Carried synthesized notice —
+  not original event metadata** with `original_event_metadata: not_available`; its
+  epoch, round and ordering values are placeholders, not original facts. A sliced
+  entry shows the existing partial-JSON-item disclosure, not a decoded complete
+  observation. Failed envelopes show no affirmative observation outcome and no page
+  summary; an exact-message not-found failure shows only the supplied segment locator,
+  and other failures keep the shared error rendering. Safe original request and result
+  stay the complete received public strings.
 - Tool summaries in the exact-session reader and Analyst panel keep the target on one
   visual line with meaningful abbreviation and width-dependent ellipsis, not wrapping
   long commands, paths or queries into a payload-sized block. Ordinary action/target/outcome

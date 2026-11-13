@@ -1891,9 +1891,14 @@ tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_ba
 ```
 <!-- saivage:value-contract:tool-identities:end -->
 
-Presentation uses one immutable descriptor record in
-`web/src/utils/tool-presenters/index.ts`: action/read-only group/target/outcome,
-then Request/Result semantic sections and complete safe originals. Null result is
+Presentation uses one immutable descriptor record, `TOOL_PRESENTERS` in
+`web/src/utils/tool-presenters/presenters.ts`, read through `getToolPresenter` by the
+`present.ts` projection; `web/src/utils/tool-presenters/index.ts` re-exports the
+`presentToolCall`/`presentToolResult` entry points. Each descriptor gives
+action/read-only group/target/outcome, then Request/Result semantic sections and
+complete safe originals. `read_agent_session` has a dedicated Result projection in that
+record for its four returned sections (`messages`, `context`, `diagnostics`, `message`);
+generic observation rendering no longer carries its branch. Null result is
 No result recorded; unknown shape is unavailable, not alternate normalized success.
 Domain refusal/partial effects remain distinct from envelope success. Image actions
 use typed occurrences even without optional workspace metadata. Presentation policy

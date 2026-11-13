@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
+import { AgentOperatorReadModelService, AgentCurrentStateUnavailableError } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import { STRUCTURAL_ROW_POLICY, MODEL_RECOVERY_NOTICE_TEXT, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import { readCurrentConversationSegment } from '../../src/persistence/index.js';
@@ -26,6 +26,7 @@ import { publishThreeGenerationCompactedConversation, requireCompacted } from '.
 import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { settledSuccessBytes } from '../../src/contracts/index.js';
+import * as presentation from '../../web/src/__tests__/tool-presenters/agent-session-fixtures.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-18T00:00:00.000Z';
@@ -141,6 +142,59 @@ function resultRow(session: ConversationSessionId, tool: string, callId: string,
 }
 
 describe('global agent-session observation tools', () => {
+  it('pins the UI public fixtures to production bound execution, including failure locators', async () => {
+    const root = setup();
+    const invoke = async (args: Record<string, unknown>) => {
+      const outcome = await invokeAgentObservation(root, 'read_agent_session', { session_id: presentation.sessionId, ...args });
+      const envelope = outcome.kind === 'succeeded' ? { success: true, data: outcome.data } : { success: false, error: outcome.error, data: outcome.data };
+      const data = envelope.data as any;
+      if (data?.segment_id) data.segment_id = presentation.segmentId;
+      if (data?.session) data.session.started_at = timestamp;
+      return envelope;
+    };
+    expect(await invoke({})).toEqual(presentation.emptySession);
+    expect(await invoke({ session_id: 'agent:executor:card-z' })).toEqual(presentation.missingSession);
+    appendConversationBatch({ projectRoot: root }, [rows()[0]!, rows()[1]!, callRow('agent:planner:project', 'webfetch', 'call-1', timestamp, {}), resultRow('agent:planner:project', 'webfetch', 'call-1', timestamp, { success: false, error: '<img src=x onerror=alert(1)> token=synthetic-only final-Z' }, 'execution_failed')]);
+    expect(await invoke({ section: 'diagnostics' })).toEqual({ success: true, data: presentation.diagnostics });
+    expect(await invoke({ section: 'context' })).toEqual({ success: true, data: presentation.context });
+    expect(await invoke({ last_n: 1 })).toEqual({ success: true, data: presentation.messages });
+    expect(await invoke({ section: 'message', message_id: presentation.messageId })).toEqual({ success: true, data: presentation.message });
+    expect(await invoke({ section: 'message', message_id: presentation.messageId, position: presentation.slicedMessage.message.position })).toEqual({ success: true, data: presentation.slicedMessage });
+    expect(await invoke({ section: 'message', message_id: 'missing' })).toEqual(presentation.missingMessage);
+    expect(await invoke({ section: 'diagnostics', last_n: 1 })).toEqual({ success: true, data: presentation.tailDiagnostics });
+    const cap = Buffer.byteLength(settledSuccessBytes(presentation.partialDiagnostics));
+    expect(await invoke({ section: 'diagnostics', response_bytes: cap })).toEqual({ success: true, data: presentation.partialDiagnostics });
+    // Inject the typed read-model refusal; production binder still owns the
+    // public failed envelope. No filesystem failure behavior is claimed here.
+    const refused = jest.spyOn(AgentOperatorReadModelService.prototype, 'readCurrentSegmentTail').mockImplementationOnce(() => {
+      throw new AgentCurrentStateUnavailableError('conversation', presentation.sessionId, { cause: Object.assign(new Error('synthetic read failure'), { code: 'EIO' }) });
+    });
+    try { expect(await invoke({})).toEqual(presentation.unavailable); } finally { refused.mockRestore(); }
+  });
+  it('pins prepared, successful, incomplete and empty diagnostic fixture rows', async () => {
+    const root = setup();
+    const session = 'agent:planner:project';
+    appendConversationBatch({ projectRoot: root }, [preparedActivation(session, sourceInputId, timestamp, 'project'), callRow(session, 'webfetch', 'call-1', timestamp, {}), resultRow(session, 'webfetch', 'call-1', timestamp, { success: true, data: { activated: true } })]);
+    const data = await diagnosticData(root, session);
+    expect(data.diagnostics.items[0]).toEqual(presentation.preparedDiagnostic);
+    expect(data.diagnostics.items[2]).toEqual(presentation.successfulDiagnostic);
+    data.segment_id = presentation.segmentId;
+    data.session.started_at = timestamp;
+    expect(data).toEqual(presentation.preparedDiagnostics);
+    const other = setup();
+    appendConversationBatch({ projectRoot: other }, [rows()[1]!]);
+    const empty = await diagnosticData(other, session);
+    empty.segment_id = presentation.segmentId;
+    empty.session.started_at = timestamp;
+    expect(empty).toEqual(presentation.emptyDiagnostics);
+    const longRoot = setup();
+    appendConversationBatch({ projectRoot: longRoot }, [rows()[0]!, callRow(session, 'webfetch', 'call-1', timestamp, {}), resultRow(session, 'webfetch', 'call-1', timestamp, { success: false, error: 'x'.repeat(900) }, 'execution_failed')]);
+    expect((await diagnosticData(longRoot, session)).diagnostics.items[2]).toEqual(presentation.incompleteDiagnostic);
+    const tail = await diagnosticData(longRoot, session, { last_n: 1 });
+    tail.segment_id = presentation.segmentId;
+    tail.session.started_at = timestamp;
+    expect(tail).toEqual(presentation.tailIncompleteDiagnostics);
+  });
   it('keeps non-activation activity ordinary and exposes canonical refusal kind without invented activation', async () => {
     const root = setup();
     const refusal = buildContentPolicyRefusalMessage({ sessionId: 'agent:planner:project', sourceInputId, candidate: { provider: 'test', account: null, model: 'test' }, providerResponse: 'Refused token=synthetic-refusal-secret' });
@@ -291,6 +345,14 @@ describe('global agent-session observation tools', () => {
     const carried = visible.filter((row: any) => !actualIds.has(row.id));
     expect(carried).toHaveLength(2);
     const diagnostic = await diagnosticData(root, session, { last_n: 1000 });
+    const compactedContext = await invokeAgentObservation(root, 'read_agent_session', { session_id: session, section: 'context' });
+    if (compactedContext.kind !== 'succeeded') throw new Error(compactedContext.error);
+    const contextData = compactedContext.data as any;
+    contextData.segment_id = presentation.segmentId;
+    contextData.session.started_at = timestamp;
+    expect(contextData.context.items[0].required_model_facts.latestContentPolicyRefusal.markerId).toMatch(/^[0-9a-f-]{36}$/);
+    contextData.context.items[0].required_model_facts.latestContentPolicyRefusal.markerId = presentation.compactedContextRow.required_model_facts.latestContentPolicyRefusal.markerId;
+    expect(contextData).toEqual(presentation.compactedContext);
     expect(diagnostic.total_visible_entries).toBe(visible.length);
     expect(diagnostic.inherited_notices_included).toBe(false);
     expect(diagnostic.total_diagnostic_entries).toBe(diagnostic.diagnostics.items.length);
@@ -298,6 +360,18 @@ describe('global agent-session observation tools', () => {
     for (const notice of carried) {
       const detail = await invokeAgentObservation(root, 'read_agent_session', { session_id: session, section: 'message', message_id: notice.id });
       expect(detail).toMatchObject({ kind: 'succeeded', data: { entry_origin: 'carried_synthesized_notice', original_event_metadata: 'not_available', message: { items: [notice] } } });
+      if (notice.id === presentation.carriedEntry.id) {
+        const data = (detail as any).data;
+        data.segment_id = presentation.segmentId;
+        data.session.started_at = timestamp;
+        expect(data).toEqual(presentation.carriedMessage);
+        const sliced = await invokeAgentObservation(root, 'read_agent_session', { session_id: session, section: 'message', message_id: notice.id, position: presentation.slicedCarriedMessage.message.position });
+        if (sliced.kind !== 'succeeded') throw new Error(sliced.error);
+        const slicedData = sliced.data as any;
+        slicedData.segment_id = presentation.segmentId;
+        slicedData.session.started_at = timestamp;
+        expect(slicedData).toEqual(presentation.slicedCarriedMessage);
+      }
     }
     appendConversationBatch({ projectRoot: root }, [{ ...rows()[1]!, id: 'long-post-compaction-text', content: 'context '.repeat(4000) }]);
     await requireCompacted(root, 'local_exact_admission', 'all source rows summarized', 0);
