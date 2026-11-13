@@ -338,9 +338,17 @@ export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
     return observed('', [fields('Recorded MCP catalog refresh (not live readiness)', r, ['serverName', 'bindingId', 'catalogId', 'toolCount'])], known ? 'Refresh recorded' : undefined);
   } },
   mcp_servers: { action: 'Observe MCP servers', call: request('MCP observation', ['serverName'], (a) => textPart(str(a.serverName))), result: (ctx) => observed('', [...list('MCP owners', ctx.dataRecord?.servers, ['name', 'transport', 'status', 'definitionSource', 'policy', 'ready', 'containment', 'failureReason', 'containmentBoundary', 'availableActions', 'processId', 'bindingId', 'toolCount'])], 'Observation recorded') },
-  mcp_server_register: { action: 'Register MCP connection', call: request('MCP registration', ['serverName'], (a) => textPart(str(a.serverName)), [['connection', 'Safe connection definition'], ['policy', 'Explicit access policy']]), result: (ctx) => observed('', [fields('Definition publication', ctx.dataRecord, ['serverName', 'registered'])], 'Definition recorded · not launched') },
+  mcp_server_register: { action: 'Register MCP connection', call: request('MCP registration', ['serverName'], (a) => textPart(str(a.serverName)), [['connection', 'Safe connection definition'], ['policy', 'Explicit access policy']]), result: (ctx) => {
+    const r = ctx.dataRecord;
+    const recorded = typeof r?.serverName === 'string' && r.serverName.length > 0 && r.registered === true;
+    return observed('', [fields('Definition publication', r, ['serverName', 'registered'])], recorded ? ctx.envelope.success === true && r.outcome_unknown !== true ? 'Definition recorded · not launched' : 'Definition recorded' : undefined);
+  } },
   mcp_server_replace: { action: 'Replace MCP connection', call: request('MCP replacement', ['serverName'], (a) => textPart(str(a.serverName)), [['connection', 'Safe connection definition']]), result: (ctx) => observed('', [fields('Definition replacement', ctx.dataRecord, ['serverName', 'replaced', 'status'])], ctx.envelope.success === true && ctx.dataRecord?.outcome_unknown !== true && typeof ctx.dataRecord?.serverName === 'string' && ctx.dataRecord.serverName.length > 0 && ctx.dataRecord.replaced === true && ctx.dataRecord.status === 'stopped' ? 'Definition replaced · not launched' : undefined) },
-  mcp_server_unregister: { action: 'Unregister MCP connection', call: request('MCP removal', ['serverName'], (a) => textPart(str(a.serverName))), result: (ctx) => observed('', [fields('Definition removal', ctx.dataRecord, ['serverName', 'unregistered', 'status'])], 'Removal recorded') },
+  mcp_server_unregister: { action: 'Unregister MCP connection', call: request('MCP removal', ['serverName'], (a) => textPart(str(a.serverName))), result: (ctx) => {
+    const r = ctx.dataRecord;
+    const recorded = typeof r?.serverName === 'string' && r.serverName.length > 0 && r.unregistered === true;
+    return observed('', [fields('Definition removal', r, ['serverName', 'unregistered', 'status'])], recorded ? 'Removal recorded' : undefined);
+  } },
   mcp_server_set_scope: { action: 'Set MCP scope', call: request('MCP scope', ['serverName', 'policy'], (a) => textPart(str(a.serverName)), [['policy', 'Access policy']]), result: (ctx) => observed('', [fields('Scope publication', ctx.dataRecord, ['serverName', 'policy', 'updated'])], ctx.envelope.success === true && ctx.dataRecord?.outcome_unknown !== true && ctx.dataRecord?.updated === true && typeof ctx.dataRecord.serverName === 'string' && ctx.dataRecord.serverName.length > 0 && mcpAccessPolicySchema.safeParse(ctx.dataRecord.policy).success ? 'Scope updated · connection preserved' : undefined) },
 };
 export function getToolPresenter(name: string): ToolPresenter | undefined {

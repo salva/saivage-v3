@@ -13,6 +13,43 @@ async function mounted(row: TimelineRow, expanded = true) {
 }
 afterEach(() => { vi.restoreAllMocks(); Reflect.deleteProperty(navigator, 'clipboard'); });
 describe('semantic ToolChip', () => {
+  it.each([
+    { tool: 'mcp_server_register', data: undefined, outcome: 'Failed' },
+    { tool: 'mcp_server_unregister', data: undefined, outcome: 'Failed' },
+    // Synthetic reported partial/uncertain facts, not current MCP binder output.
+    { tool: 'mcp_server_unregister', data: { serverName: 'returned-server', unregistered: true, status: 'containment_failed' }, outcome: 'Failed · Removal recorded' },
+    { tool: 'mcp_server_unregister', data: { serverName: 'returned-server', unregistered: true, outcome_unknown: true }, outcome: 'Effects uncertain · Removal recorded' },
+  ])('keeps MCP settlement, reported facts and exact safe inspection without actions: $outcome', async ({ tool, data, outcome }) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected network action'));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const error = `MCP operation did not complete. ${'safe diagnostic '.repeat(100)}FINAL-MCP-ERROR`;
+    const c = call(tool, { serverName: 'request-only-server' });
+    const r = result(tool, {}, { content: ` ${JSON.stringify({ success: false, error, data })}\n` });
+    const wrapper = await mounted({ entry: c, mate: r }, false);
+    const status = wrapper.get('.tool-chip-status');
+    expect(status.text()).toContain(outcome);
+    expect(status.attributes('data-tone')).toBe('error');
+    expect(status.text()).not.toMatch(/Definition recorded|not launched|Server stopped/);
+    if (!data) expect(status.text()).not.toContain('Removal recorded');
+    await wrapper.setProps({ expanded: true });
+    expect(wrapper.get('.tool-result').text()).toContain(error);
+    if (data) {
+      const semantic = wrapper.findAll('.tool-result .semantic-section').map(section => section.text()).join(' ');
+      expect(semantic).toContain('returned-server');
+      expect(semantic).toContain('unregistered');
+      expect(semantic).toContain('true');
+      if ('status' in data) expect(semantic).toContain('containment_failed');
+    }
+    const raw = wrapper.get('.tool-result .safe-original');
+    expect(raw.get('code').element.textContent).toBe(r.content);
+    await raw.get('button.code-block__copy').trigger('click');
+    expect(writeText).toHaveBeenLastCalledWith(r.content);
+    expect(wrapper.findAll('a')).toHaveLength(0);
+    expect(wrapper.findAll('button').every(button => button.classes().includes('tool-chip-toggle') || button.classes().includes('code-block__copy'))).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
   it('keeps opaque old card ranking fields only in exact safe-original disclosures', async () => {
     const old = { title: 'Recorded old card', type: 'code', priority: 42, urgency: 'high' };
     const c = call('create_card', old);

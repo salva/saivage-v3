@@ -216,8 +216,33 @@ default role grants are added. MCP observations show
 and safe `processId` (null after retirement or for HTTP). A null source with
 containment failure is a removed retained blocker, not an available definition.
 Starting exposes no ready tools. Process association grants no wait/kill authority
-and promises no captured protocol output. Registration/removal presenters show
-recorded publication/containment facts; no topology controls are added.
+and promises no captured protocol output. Registration and removal presenters show
+only recorded definition facts, and no topology controls are added. Each reads the returned nonempty string `serverName`
+and an exact boolean disposition: `registered:true` for registration or
+`unregistered:true` for removal. Request arguments never supply that identity, and
+truthy strings or error prose never establish it. A complete, non-uncertain
+registration success with those facts shows **Definition recorded · not launched**.
+A failed or uncertain envelope that reports those facts shows the narrower
+**Definition recorded** beside its **Failed** or **Effects uncertain** prefix, without
+the not-launched qualifier; registration never launches a server, and the label
+claims no connection state. A removal with its identity and `unregistered:true`
+shows **Removal recorded** whether the overall result succeeded, failed or is
+uncertain. Removal is independent of settlement and containment: the presenter
+does not gate it on `status`, and a returned `status` (for example `stopped`) is
+shown only as a returned field. Neither fact proves successful containment, stopped
+processes, remote termination or the absence of other effects. Missing, empty,
+wrong-typed, absent or `false` disposition facts yield no definition-effect label;
+the shared **Failed**, **Effects uncertain** or **Tool returned success** outcome
+applies as relevant, and missing or non-object successful data keeps the shared
+unavailable handling. Returned fields stay inspectable even when incomplete or
+inconsistent. Error-only results, including grant, policy, collision and ownership
+refusals and containment failures, show their error and no definition effect,
+because the result alone does not establish whether earlier work occurred. Current
+MCP binders report caught lifecycle errors this way; they do not emit structured
+partial-removal facts, and such facts appear only when a result explicitly reports
+them. Removal publishes the definition removal before awaiting containment, so a
+result that explicitly reports `unregistered:true` with a containment failure shows
+**Failed · Removal recorded**, with the error, and never success.
 The `mcp_server_replace` presenter shows the requested server and safely projected
 connection, then recorded `serverName`, `replaced` and `status`: **Definition replaced ·
 not launched** is a definition-publication fact, not readiness or target termination.
