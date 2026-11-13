@@ -1,4 +1,5 @@
 import { expect, it } from '@jest/globals';
+import { mcpInvocationStatsKey } from '../../src/mcp/invocation-stats.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -168,7 +169,7 @@ it('uses ordinary opted-in card refresh with frozen gateways, retained observati
       { toolCallId: 'denied-call', result: { success: false, error: "Unsupported reviewer tool call 'mcp_tool_call'." } },
     ]);
     expect(new EventQueryService(root).queryEvents({ kind: 'mcp_tool_invocation' }).events).toHaveLength(2);
-    expect(app.server.mcpManager.getInvocationStats()['local:echo']).toMatchObject({ total: 2, success: 2, error: 0 });
+    expect(app.server.mcpManager.getInvocationStats()[mcpInvocationStatsKey('local', 'echo')]).toMatchObject({ total: 2, success: 2, error: 0 });
   } finally {
     try { await app?.stop(); }
     finally { try { await closeServer(provider); } finally { await closeServer(mcp); rmSync(root, { recursive: true }); } }

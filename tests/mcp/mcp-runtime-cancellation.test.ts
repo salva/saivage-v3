@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { PassThrough } from 'node:stream';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 import { MCP_OPERATOR_CALLER as mcpCaller } from '../../src/mcp/manager-api.js';
-import { McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
+import { mcpInvocationStatsKey, McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
 import { TimeoutError, TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
@@ -277,7 +277,7 @@ describe('active stdio cancellation ownership', () => {
     expect(f.terminate).not.toHaveBeenCalled();
     expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
     expect(f.calls).toHaveLength(1);
-    expect(f.stats.snapshot()['one:pending']).toMatchObject({ total: 1, success: isError ? 0 : 1, error: isError ? 1 : 0 });
+    expect(f.stats.snapshot()[mcpInvocationStatsKey('one', 'pending')]).toMatchObject({ total: 1, success: isError ? 0 : 1, error: isError ? 1 : 0 });
     expect(f.events.appendEventPrepared.mock.calls[0][0]()).toMatchObject({ success: !isError });
     // Mock-only streams: no real process owner needs follow-up containment.
   });
@@ -293,7 +293,7 @@ describe('active stdio cancellation ownership', () => {
     const execution = await result;
     const settled = settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult;
     expect(settled).toMatchObject({ success: false, error: 'Invalid or oversized image; generate a smaller valid source.' });
-    expect(f.stats.snapshot()['one:pending']).toMatchObject({ total: 1, success: 1, error: 0 });
+    expect(f.stats.snapshot()[mcpInvocationStatsKey('one', 'pending')]).toMatchObject({ total: 1, success: 1, error: 0 });
     expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
     expect(f.events.appendEventPrepared.mock.calls[0][0]()).toMatchObject({ success: true });
     expect(f.calls).toHaveLength(1);
@@ -313,7 +313,7 @@ describe('active stdio cancellation ownership', () => {
     await f.entered.promise;
     f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, ...response }) + '\n');
     expect(await observed).toMatchObject({ code });
-    expect(f.stats.snapshot()['one:pending']).toMatchObject({ total: 1, success: 0, error: 1 });
+    expect(f.stats.snapshot()[mcpInvocationStatsKey('one', 'pending')]).toMatchObject({ total: 1, success: 0, error: 1 });
     expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
     expect(f.events.appendEventPrepared.mock.calls[0][0]()).toMatchObject({ success: false, error: expect.any(String) });
     expect(f.calls).toHaveLength(1);

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { mcpInvocationStatsKey } from '../../src/mcp/invocation-stats.js';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -239,7 +240,7 @@ describe('MCP schema validation at runtime use', () => {
               manager.getServerStatus('one')!.bindingId!, manager.getServerCatalog('one')!.catalogId, official.name, {})).rejects.toMatchObject({ data: { reason: inputSchema.$schema ? 'schema_unsupported' : 'schema_compile_error' } });
         }
         expect(calls()).toHaveLength(4);
-        expect(manager.getInvocationStats()[`one:${official.name}`]).toMatchObject({ total: 4, success: 4, error: 0 });
+        expect(manager.getInvocationStats()[mcpInvocationStatsKey('one', official.name)]).toMatchObject({ total: 4, success: 4, error: 0 });
         expect(events.appendEventPrepared).toHaveBeenCalledTimes(4);
       } finally {
         // Remove only after actual owning containment succeeded.

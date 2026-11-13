@@ -1,6 +1,6 @@
 import type { McpServerConfig, McpServerHandle } from './server-registry.js';
 import type { McpServerStatus as RuntimeMcpServerStatus, McpToolDefinition } from './protocol.js';
-import type { McpInvocationStat } from './invocation-stats.js';
+import { mcpInvocationStatsKey, type McpInvocationStat } from './invocation-stats.js';
 
 export interface InternalMcpToolsReadModel {
   servers: Array<{
@@ -106,7 +106,7 @@ export function buildMcpToolsReadModel(input: {
   const serverDetails = input.statuses.map((status) => {
     const toolDefs = input.getServerTools(status.name) ?? [];
     const toolList = toolDefs.map((td) => {
-      const statsKey = `${status.name}:${td.name}`;
+      const statsKey = mcpInvocationStatsKey(status.name, td.name);
       const stats = input.invocationStats[statsKey] ?? { total: 0, success: 0, error: 0 };
       return { ...td, stats };
     });

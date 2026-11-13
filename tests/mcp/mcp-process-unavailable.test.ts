@@ -7,7 +7,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 import { createRootCardMcpFixture } from '../helpers/mcp-fixture.js';
-import { McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
+import { mcpInvocationStatsKey, McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
 import { TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -250,7 +250,7 @@ describe('real process authority loss in current stdio lifetime owner', () => {
         kind: 'mcp_tool_invocation',
         success: !isError,
       });
-      expect(f.stats.snapshot()['one:ping']).toMatchObject({
+      expect(f.stats.snapshot()[mcpInvocationStatsKey('one', 'ping')]).toMatchObject({
         total: 1,
         success: isError ? 0 : 1,
         error: isError ? 1 : 0,

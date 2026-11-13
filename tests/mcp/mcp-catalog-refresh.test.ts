@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import { mcpInvocationStatsKey } from '../../src/mcp/invocation-stats.js';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -429,7 +430,7 @@ describe('explicit catalog refresh through real local peers', () => {
       for (const [name, args] of [['removed', {}], ['common', { value: 'wrong' }]] as const)
         await expect(f.manager.invokeTool('one', b.bindingId, b.catalogId, name, args)).rejects.toThrow();
       expect(peer.calls().filter(r => r.method === 'tools/call')).toHaveLength(before);
-      expect(f.manager.getInvocationStats()['one:common']).toMatchObject({ total: 1, success: 1, error: 0 });
+      expect(f.manager.getInvocationStats()[mcpInvocationStatsKey('one', 'common')]).toMatchObject({ total: 1, success: 1, error: 0 });
       expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
       await f.manager.invokeTool('one', b.bindingId, b.catalogId, 'common', { value: 2 });
       const same = await f.manager.refreshServerCatalog('one', b.bindingId);
@@ -486,7 +487,7 @@ describe('explicit catalog refresh through real local peers', () => {
       await f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'after' });
       await expect(f.manager.refreshServerCatalog('one', a.bindingId)).resolves.toMatchObject({ bindingId: a.bindingId });
       expect(peer.calls().filter(r => r.method === 'tools/call')).toHaveLength(2);
-      expect(f.manager.getInvocationStats()['one:common']).toMatchObject({ total: 2, error: 0 });
+      expect(f.manager.getInvocationStats()[mcpInvocationStatsKey('one', 'common')]).toMatchObject({ total: 2, error: 0 });
     } finally { jest.useRealTimers(); await f.close(); }
   }, 20_000);
 
@@ -538,7 +539,7 @@ describe('explicit catalog refresh through real local peers', () => {
       expect(b.catalogId).not.toBe(a.catalogId); expect(f.manager.getServerCatalog('one')!.tools).toEqual(B);
       finishCall!(); await expect(active).resolves.toMatchObject({ content: [{ text: 'original-A-outcome' }] });
       await expect(f.manager.invokeTool('one', a.bindingId, a.catalogId, 'common', { value: 'old' })).rejects.toThrow('Stale MCP catalog');
-      expect(f.manager.getInvocationStats()['one:common']).toMatchObject({ total: 1, success: 1, error: 0 });
+      expect(f.manager.getInvocationStats()[mcpInvocationStatsKey('one', 'common')]).toMatchObject({ total: 1, success: 1, error: 0 });
       mode = 'hold'; const caller = new AbortController(); const reason = new Error('cancel HTTP list');
       const refresh = f.manager.refreshServerCatalog('one', a.bindingId, { signal: caller.signal }).catch(error => error);
       await waitFor(() => heldList, 'held HTTP list body'); caller.abort(reason);

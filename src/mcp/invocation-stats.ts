@@ -7,13 +7,17 @@ export interface McpInvocationStat {
   lastInvokedAt?: string;
 }
 
+export function mcpInvocationStatsKey(serverName: string, toolName: string): string {
+  return JSON.stringify([serverName, toolName]);
+}
+
 export class McpInvocationStatsRecorder {
   private readonly stats = new Map<string, McpInvocationStat>();
 
   constructor(private readonly eventLogger: EventLog) {}
 
   record(serverName: string, toolName: string, success: boolean): void {
-    const key = `${serverName}:${toolName}`;
+    const key = mcpInvocationStatsKey(serverName, toolName);
     const current = this.stats.get(key) ?? { total: 0, success: 0, error: 0 };
     current.total++;
     if (success) current.success++;

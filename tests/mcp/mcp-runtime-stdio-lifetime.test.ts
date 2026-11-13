@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { PassThrough } from 'node:stream';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
-import { McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
+import { mcpInvocationStatsKey, McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
 import { TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { MCP_WIRE_RESPONSE_LIMIT_BYTES } from '../../src/mcp/protocol.js';
@@ -177,7 +177,7 @@ describe('runtime lifetime receiver ordering', () => {
       else expect(known).toEqual({ content: [{ type: 'text', text: 'known result' }], ...(nativeError ? { isError: true } : {}) });
       expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
       const succeeded = !nativeError && mode !== 'mapped-error';
-      expect(f.stats.snapshot()['one:mutate']).toMatchObject({ total: 1, success: succeeded ? 1 : 0, error: succeeded ? 0 : 1 });
+      expect(f.stats.snapshot()[mcpInvocationStatsKey('one', 'mutate')]).toMatchObject({ total: 1, success: succeeded ? 1 : 0, error: succeeded ? 0 : 1 });
       const event = f.events.appendEventPrepared.mock.calls[0][0]();
       expect(event).toMatchObject({ kind: 'mcp_tool_invocation', success: succeeded });
       if (nativeError) expect(event).not.toHaveProperty('error');

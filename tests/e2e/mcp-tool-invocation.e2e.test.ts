@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { mcpInvocationStatsKey } from '../../src/mcp/invocation-stats.js';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -824,7 +825,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       expect(JSON.stringify(events)).not.toContain(MARKER);
       expect(JSON.stringify(events)).not.toContain('synthetic-peer');
       const stats = { total: 1, success: isError === true ? 0 : 1, error: isError === true ? 1 : 0 };
-      expect(app.server.mcpManager.getInvocationStats()[`${SERVER_NAME}:echo_marker`]).toMatchObject(stats);
+      expect(app.server.mcpManager.getInvocationStats()[mcpInvocationStatsKey(SERVER_NAME, 'echo_marker')]).toMatchObject(stats);
       expect(app.server.mcpManager.getToolsReadModel(caller).servers).toEqual([
         expect.objectContaining({ name: SERVER_NAME, tools: [expect.objectContaining({ name: 'echo_marker', stats: expect.objectContaining(stats) })] }),
       ]);
