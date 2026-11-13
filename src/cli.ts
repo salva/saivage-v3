@@ -109,7 +109,7 @@ Usage:
       explicitly include .git and .saivage. Existing policy must match exactly.
       Explicit --profile must match existing template selection; omitted profile
       preserves existing configuration rather than selecting a new default.
-  saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>] [--analyst-mode internal|external|both] [--analyst-mcp-port <port>] [--analyst-mcp-principal <id>] [--analyst-mcp-tools <names>]
+  saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>] [--analyst-mode internal|external|both] [--analyst-mcp-host <ip>] [--analyst-mcp-port <port>] [--analyst-mcp-principal <id>] [--analyst-mcp-tools <names>]
   saivage status
   saivage pause
   saivage resume
@@ -311,6 +311,7 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
       'create-runtime': { type: 'boolean' },
       'failed-provider-diagnostics': { type: 'string' },
       'analyst-mode': { type: 'string' },
+      'analyst-mcp-host': { type: 'string' },
       'analyst-mcp-port': { type: 'string' },
       'analyst-mcp-principal': { type: 'string' },
       'analyst-mcp-tools': { type: 'string' },
@@ -327,6 +328,7 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
         createRuntime: values['create-runtime'] === true,
         failedProviderDiagnostics: values['failed-provider-diagnostics'] as string | undefined,
         analystMode: values['analyst-mode'] as string | undefined,
+        analystMcpHost: values['analyst-mcp-host'] as string | undefined,
         analystMcpPort: values['analyst-mcp-port'] as string | undefined,
         analystMcpPrincipal: values['analyst-mcp-principal'] as string | undefined,
         analystMcpTools: values['analyst-mcp-tools'] as string | undefined,

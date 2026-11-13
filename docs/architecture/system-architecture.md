@@ -847,9 +847,12 @@ Best-effort propagation failure retains principal success/audit ok with partial
 report; no-op reorder has none. Audit coverage excludes shell/patch/nonrecord
 Webfetch effects and is not every filesystem change.
 
-`config/analyst-mode.ts` freezes internal(default), external or both startup choice.
-External uses a separately authenticated loopback project-digest endpoint in
-`server/analyst-mcp-server.ts` with request-local stateless SDK transports. The
+`config/analyst-mode.ts` freezes internal(default), external or both startup choice and,
+for external/both, the concrete MCP host (default `127.0.0.1`). External uses a separately
+authenticated project-digest endpoint in `server/analyst-mcp-server.ts`, bound to that
+resolved host and its independent MCP port, never to the operator host. The same resolved
+host and port derive the printed endpoint and exact accepted Host authority. Request-local
+stateless SDK transports serve each call. The
 application external-operation owner holds in-flight joins and an app-lifetime
 direct process scope across calls, not request-socket lifetime. Disconnect does not
 cancel/replay; project Stop leaves listener alive, App close contains it. Both

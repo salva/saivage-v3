@@ -1,6 +1,6 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { createServer, request as httpRequest } from 'node:http';
@@ -19,9 +19,12 @@ import { productionTestConfig, writeProductionConfig, initializeProject, listen,
 const apps:App[]=[]; const roots:string[]=[]; const clients:Client[]=[];
 afterEach(async()=>{for(const client of clients.splice(0))await client.close();for(const app of apps.splice(0))await app.stop();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 
-async function fixture(mode:'external'|'both'='external',providerPort=1, customize?: Parameters<typeof productionTestConfig>[1],mainHost='127.0.0.1') {
+async function fixture(mode:'external'|'both'='external',providerPort=1, customize?: Parameters<typeof productionTestConfig>[1],mainHost='127.0.0.1',analystMcpHost?:string,analystMcpPort?:number) {
   const root=mkdtempSync(join(tmpdir(),'external-mcp-'));roots.push(root);
-  const reservation=createServer();const port=await listen(reservation);await closeServer(reservation);
+  let port=analystMcpPort;
+  if(port===undefined) {
+    const reservation=createServer();port=await listen(reservation);await closeServer(reservation);
+  }
   const config=productionTestConfig(providerPort,config=>{
     if(mode==='external') {
       config.models.routes[config.agents[config.analyst_agent]!.model_route]!.candidates=['unavailable-analyst-model'];
@@ -32,7 +35,7 @@ async function fixture(mode:'external'|'both'='external',providerPort=1, customi
   writeProductionConfig(root,config);initializeProject(root);
   const index=globalAgentConversationVersionIndexFile(root,config.analyst_agent);
   const before=readFileSync(index);
-  const app=await startApp({projectRoot:root,createRuntime:false,analystMode:mode,analystMcpPort:String(port),
+  const app=await startApp({projectRoot:root,createRuntime:false,analystMode:mode,analystMcpHost,analystMcpPort:String(port),
     analystMcpPrincipal:'test-operator',analystMcpTools:'read,get_card,get_tree,get_status,write,webfetch,queue_notification,start_project,pause_runtime,resume_runtime,stop_project,restart_server,run_command,wait_process,kill_process,mcp_tools,mcp_tool_call,list_observed_collections,query_observed_collections'+(mode==='external'?',view_image,mcp_catalog_refresh':''),
     env:{NODE_ENV:'test',LOG_LEVEL:'silent',SAIVAGE_HOST:mainHost,SAIVAGE_PORT:'0',SAIVAGE_API_TOKEN:'rest-synthetic-secret',SAIVAGE_ANALYST_MCP_TOKEN:'mcp-synthetic-secret'}});
   apps.push(app);
@@ -43,8 +46,88 @@ async function fixture(mode:'external'|'both'='external',providerPort=1, customi
   return {root,app,client,endpoint,index,before};
 }
 
+async function reserveAddress(host:string) {
+  const server=createServer();
+  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,host,()=>resolve());});
+  const address=server.address();
+  if(!address || typeof address==='string')throw new Error('Expected TCP address');
+  return {server,port:address.port};
+}
+
+it.each(['external','both'] as const)('serves a real SDK at an explicitly selected nonloopback IPv4 and independent MCP port in %s mode',async mode=>{
+  const host=Object.values(networkInterfaces()).flat().find(address=>address?.family==='IPv4' && !address.internal)?.address;
+  if(!host)throw new Error('Unmet integration prerequisite: non-internal local IPv4 address');
+  const reserved=await reserveAddress(host);
+  const port=reserved.port;
+  await closeServer(reserved.server);
+  expect(port).not.toBe(80);expect(port).not.toBe(8080);
+  const f=await fixture(mode,1,undefined,host,host,port);
+  const url=new URL(f.endpoint);
+  expect(url.origin).toBe(`http://${host}:${port}`);
+  expect(f.app.boundListener.host).toBe(host);
+  expect(f.app.boundListener.port).not.toBe(port);
+  expect((await f.client.listTools()).tools.map(tool=>tool.name)).toContain('get_status');
+  expect((await f.client.listResources()).resources.map(resource=>resource.uri)).toContain('saivage://analyst/context');
+  const context=await f.client.readResource({uri:'saivage://analyst/context'});
+  expect(JSON.parse((context.contents[0] as {text:string}).text)).toMatchObject({mode});
+  expect(await f.client.callTool({name:'get_status',arguments:{}})).toMatchObject({isError:false});
+  const operations=f.app.server.runtimeApplication.externalAnalystOperations!;
+  const invoke=jest.spyOn(operations,'invoke');
+  try {
+    const request=async(headers:Record<string,string>={},endpoint=f.endpoint)=>{
+      const response=await fetch(endpoint,{method:'POST',headers:{authorization:'Bearer mcp-synthetic-secret','content-type':'application/json',accept:'application/json, text/event-stream','mcp-protocol-version':'2025-11-25',...headers},body:JSON.stringify({jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'get_status',arguments:{}}})});
+      await response.text();return response.status;
+    };
+    for(const authorization of ['', 'Bearer wrong-synthetic', 'Bearer rest-synthetic-secret'])
+      expect(await request({authorization})).toBe(401);
+    const missing=await fetch(f.endpoint,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    await missing.text();expect(missing.status).toBe(401);
+    expect(await request({authorization:'',host:'wrong.example',origin:'null','mcp-protocol-version':'wrong'})).toBe(401);
+    for(const origin of [url.origin,'null','http://example.test'])expect(await request({origin})).toBe(403);
+    for(const hostHeader of [`127.0.0.1:${port}`,`${host}:${port===65535?port-1:port+1}`,host]) {
+      const status=await new Promise<number>((resolve,reject)=>{
+        const request=httpRequest(f.endpoint,{method:'POST',headers:{host:hostHeader,authorization:'Bearer mcp-synthetic-secret','content-type':'application/json'}},response=>{response.resume();response.on('end',()=>resolve(response.statusCode!));});
+        request.on('error',reject);request.end('{}');
+      });
+      expect(status).toBe(403);
+    }
+    expect(await request({'mcp-protocol-version':'2024-11-05'})).toBe(400);
+    expect(await request({},f.endpoint.replace(/[^/]+$/u,'wrong-digest'))).toBe(404);
+    expect(invoke).not.toHaveBeenCalled();
+    const denied=await fetch(`http://${host}:${f.app.boundListener.port}/api/state`,{headers:{authorization:'Bearer mcp-synthetic-secret'}});
+    await denied.text();expect(denied.status).toBe(401);
+  } finally {invoke.mockRestore();}
+},60_000);
+
+it('serves native IPv6 over real TCP with bracketed URL authority and exact Host',async()=>{
+  let reserved:Awaited<ReturnType<typeof reserveAddress>>;
+  try {reserved=await reserveAddress('::1');}
+  catch(error) {throw new Error('Unmet integration prerequisite: native IPv6 ::1 binding',{cause:error});}
+  await closeServer(reserved.server);
+  const f=await fixture('external',1,undefined,'127.0.0.1','::1',reserved.port);
+  expect(new URL(f.endpoint).host).toBe(`[::1]:${reserved.port}`);
+  expect((await f.client.listTools()).tools.map(tool=>tool.name)).toContain('get_status');
+  expect(await f.client.callTool({name:'get_status',arguments:{}})).toMatchObject({isError:false});
+  const status=await new Promise<number>((resolve,reject)=>{
+    const request=httpRequest(f.endpoint,{method:'POST',headers:{host:`[0:0:0:0:0:0:0:1]:${reserved.port}`,authorization:'Bearer mcp-synthetic-secret'}},response=>{response.resume();response.on('end',()=>resolve(response.statusCode!));});
+    request.on('error',reject);request.end();
+  });
+  expect(status).toBe(403);
+},60_000);
+
+it('fails an occupied configured MCP port without fallback and releases startup ownership',async()=>{
+  const reserved=await reserveAddress('127.0.0.1');
+  try {
+    await expect(fixture('external',1,undefined,'127.0.0.1','127.0.0.1',reserved.port)).rejects.toMatchObject({code:'EADDRINUSE'});
+    expect(existsSync(join(roots.at(-1)!,'.saivage','locks','runtime.lock'))).toBe(false);
+  } finally {await closeServer(reserved.server);}
+  const f=await fixture('external',1,undefined,'127.0.0.1','127.0.0.1',reserved.port);
+  expect(new URL(f.endpoint).port).toBe(String(reserved.port));
+},60_000);
+
 it('serves the real SDK client without an internal Analyst route, preserving history and direct attribution',async()=>{
   const f=await fixture();
+  expect(new URL(f.endpoint).hostname).toBe('127.0.0.1');
   const initialized=await fetch(f.endpoint,{method:'POST',headers:{authorization:'Bearer mcp-synthetic-secret','content-type':'application/json',accept:'application/json, text/event-stream'},
     body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'untrusted-client',version:'1'},_meta:{principal:'forged-client',model:'forged-model'}}})});
   const initialization=await initialized.json() as {result:{_meta:{saivage:{principal:string;project_identity_digest:string}}}};

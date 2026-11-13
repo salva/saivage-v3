@@ -830,18 +830,24 @@ owns that separate contract.
 | Input | Default/constraint |
 | --- | --- |
 | `--analyst-mode` | internal default; internal/external/both |
-| `--analyst-mcp-port` | Required external/both; decimal integer1..65535 |
+| `--analyst-mcp-host` | Optional external/both only; default `127.0.0.1`; one concrete unbracketed IPv4 dotted-decimal address or native unscoped IPv6 literal (canonicalized). Internal rejects any explicit value. Rejected: wildcards `0.0.0.0`/`::` (including expanded spellings), DNS names including `localhost`, URLs/schemes, brackets, ports, paths, zone identifiers, whitespace/empty values and IPv4-mapped IPv6. Startup-only; not `--host`, `SAIVAGE_HOST` or YAML `server.host` |
+| `--analyst-mcp-port` | Required external/both; decimal integer1..65535; independent of `--port` and of the MCP host |
 | `--analyst-mcp-principal` | Required external/both; letter-led lowercase letters/digits/hyphens≤64; credential-holder label, not verified identity |
 | `--analyst-mcp-tools` | Required nonempty unique comma-separated exact subset of configured Analyst canonical tools; no wildcard/role inference |
 | SAIVAGE_ANALYST_MCP_TOKEN | Required external/both, nonblank/unpadded, different from operator REST token |
 
-There are **no mode/port/principal/tools environment aliases**. Internal mode
-rejects unused external settings/token. Selected startup settings are immutable.
-External-only disables internal submissions before ingress/provider, not internal
-history inspection. Both exposes concurrent operations, not shared chat/lease.
+There are **no mode/host/port/principal/tools environment aliases**, and no YAML
+or operator-host inheritance for the MCP host. Internal mode rejects unused external
+settings/token. Selected startup settings are immutable. External-only disables internal
+submissions before ingress/provider, not internal history inspection. Both exposes
+concurrent operations, not shared chat/lease.
 
-The listener is `127.0.0.1` at a project-digest-bound path announced on startup;
-do not construct a guessed URL. The full
+The listener binds `--analyst-mcp-host` (default `127.0.0.1`) on `--analyst-mcp-port`,
+at a project-digest-bound path. Startup prints the exact `Analyst MCP:` URL; use that
+URL and do not construct a guessed one. The printed URL's authority is the configured
+address, with IPv6 bracketed and port 80 omitted. An operator wildcard `--host` does not
+change this listener. Synthetic example: `--analyst-mcp-host 192.0.2.7 --analyst-mcp-port 8082`
+prints an endpoint on `192.0.2.7:8082`; that is not a deployed address. The full
 [inbound procedure](../runbook/mcp.md#external-client-to-analyst) owns protocol2025-11-25,
 initialize/context/discovery, mandatory JSON+event-stream Accept/header requirements,
 separate bearer, no Origin/query/session/batch/GET stream, and calls surviving

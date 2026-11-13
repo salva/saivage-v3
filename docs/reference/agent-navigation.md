@@ -54,8 +54,8 @@ to find the actual host instead of assuming the shipped text was delivered.
 | Pause versus Resume versus Run/Stop/close/restart? | [Choose the control](../runbook/runtime-control.md#choose-the-control) | [`supervisor-runtime-api.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/actors/supervisor-runtime-api.ts), [`boot/app.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/boot/app.ts), [`restart-port.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/boot/restart-port.ts) |
 | Which lock observation allows CLI delegation? | [Five ownership outcomes](../runbook/runtime-control.md#five-ownership-outcomes) | [`readRuntimeLockStatus`](https://github.com/salva/saivage-v3/blob/HEAD/src/runtime/lock.ts), [`cli.ts`](https://github.com/salva/saivage-v3/blob/HEAD/src/cli.ts) |
 
-The inbound procedure is the source for separate bearer/loopback/project-digest
-binding, protocol2025-11-25, both Accept types and prohibited Origin/query/session/
+The inbound procedure is the source for separate bearer/startup-selected MCP
+address (default loopback)/project-digest binding, protocol2025-11-25, both Accept types and prohibited Origin/query/session/
 batch/GET-stream. Do not turn its SDK example into a generic remote deployment
 recipe. The outbound pinned browser recipe is a different task and is not a live
 launch instruction merely because a reader found it.

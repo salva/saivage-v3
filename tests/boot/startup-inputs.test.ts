@@ -30,6 +30,30 @@ afterEach(() => {
 });
 
 describe('typed startup input precedence', () => {
+  const external = {analystMode:'external', analystMcpPort:'18090', analystMcpPrincipal:'test-client', analystMcpTools:'read'};
+  it('resolves MCP host independently of CLI, environment and YAML operator host', async () => {
+    const root = rootWithConfig('config.example');
+    for (const [operator, env, expected] of [
+      [{host:'0.0.0.0'}, {SAIVAGE_HOST:'env.example'}, '0.0.0.0'],
+      [{}, {SAIVAGE_HOST:'env.example'}, 'env.example'],
+      [{}, {}, 'config.example'],
+    ] as const) {
+      for (const analystMcpHost of [undefined, '192.0.2.7', '::1']) {
+        await expect(loadEnvironment(inputs(root, {...external, ...operator, analystMcpHost}), {...env, SAIVAGE_ANALYST_MCP_TOKEN:'synthetic-mcp'}))
+          .resolves.toMatchObject({server:{host:expected}, analyst:{host:analystMcpHost ?? '127.0.0.1', port:18090}});
+      }
+    }
+  });
+  it('rejects invalid MCP hosts and preserves independent credentials with and without operator auth', async () => {
+    const root = rootWithConfig();
+    for (const SAIVAGE_API_TOKEN of [undefined, 'synthetic-rest']) {
+      const env = {SAIVAGE_API_TOKEN, SAIVAGE_ANALYST_MCP_TOKEN:'synthetic-mcp'};
+      await expect(loadEnvironment(inputs(root, {...external, analystMcpHost:'192.0.2.7'}), env)).resolves.toMatchObject({analyst:{host:'192.0.2.7'}});
+      await expect(loadEnvironment(inputs(root, external), {SAIVAGE_API_TOKEN})).rejects.toThrow('SAIVAGE_ANALYST_MCP_TOKEN');
+      await expect(loadEnvironment(inputs(root, {...external, analystMcpHost:'0.0.0.0'}), env)).rejects.toThrow('External Analyst host');
+    }
+    await expect(loadEnvironment(inputs(root, external), {SAIVAGE_API_TOKEN:'synthetic-mcp', SAIVAGE_ANALYST_MCP_TOKEN:'synthetic-mcp'})).rejects.toThrow('credentials must be different');
+  });
   it('pins both trial root and YAML despite conflicting inherited selectors and cwd', async () => {
     const trial = rootWithConfig('trial.example');
     const inherited = rootWithConfig('inherited.example');

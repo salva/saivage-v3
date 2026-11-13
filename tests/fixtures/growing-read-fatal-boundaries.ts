@@ -65,7 +65,7 @@ if (receiptMode) {
     directScope: processes.processRunner.createDirectScope(processes.registry.rootScope, 'external:fixture', 'operator_session'), fatalPort,
     onOwnerFailure: () => mark('followup-audit') });
   const reservation = createServer(); const port = await listen(reservation); await closeServer(reservation);
-  const listener = createAnalystMcpServer({ startup: { mode: 'external', port, principal: 'fixture', token: 'synthetic-receipt-token', tools: ['settled'] },
+  const listener = createAnalystMcpServer({ startup: { mode: 'external', host: '127.0.0.1', port, principal: 'fixture', token: 'synthetic-receipt-token', tools: ['settled'] },
     binding: { project_identity_digest: 'a'.repeat(64), project_name: 'Synthetic receipt', analyst_policy: 'analyst', principal: 'fixture' },
     operations, context: () => ({}), fatalPort, onOwnerFailure: () => mark('followup-audit') });
   await listener.listen();

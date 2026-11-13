@@ -159,7 +159,8 @@ There is **no token login, token-entry, sign-out or provider-secret console in t
 Provision a bearer browser through the procedure below; for failures use
 [diagnosis](./diagnosis.md#unauthorized-ui-or-api), not storage reset or weakened auth.
 Inbound Analyst MCP has an independent bearer
-and loopback listener; the operator credential does not grant MCP access or vice versa.
+and its own listener, on loopback by default or on the explicitly configured
+`--analyst-mcp-host` address; the operator credential does not grant MCP access or vice versa.
 
 `/docs` redirects to `/docs/`; the server serves installed `docs/.vitepress/dist`.
 Full `npm run build` includes docs; `npm run docs:build` rebuilds docs alone from

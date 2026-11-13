@@ -30,7 +30,7 @@ owners. Project policy remains in
 | Replace the server process | [Confirmed restart](./runtime-control.md#confirmed-server-restart) | Separate bearer-authenticated confirmation; acknowledgement is not boot proof |
 | Explain a startup/API/provider/context failure | [Diagnosis](./diagnosis.md) | Read exact evidence, preserve unknowns; no blind retry or reset |
 | Resolve ambiguous failed/interrupted work through Analyst | [Optional recovery procedure](./analyst-recovery.md) | Supported authorized correction or precise owner escalation; no automatic provisioning/replay |
-| Connect an external client directly to Analyst | [Inbound MCP](./mcp.md#external-client-to-analyst) | Startup flags/independent secret/project-bound loopback handshake |
+| Connect an external client directly to Analyst | [Inbound MCP](./mcp.md#external-client-to-analyst) | Startup flags (optional concrete MCP host, default loopback)/independent secret/project-bound handshake |
 | Give Saivage tools from another MCP server | [Outbound MCP](./mcp.md#saivage-tools-to-configured-mcp-servers) | YAML/dynamic connection plus separate grants/discovered identities |
 | Prepare native observation of approved source roots | [Observed collections](./observed-collections.md) | Offline prepare; separate adoption starts native watchers, no manual indexes or universal embeddings |
 | Inspect records, instructions, executions, output or images | [Evidence](./evidence.md) | Current observation, retained provenance and provider perception differ |

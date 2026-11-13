@@ -2,7 +2,7 @@
 
 | Direction | Configuration and authority |
 |---|---|
-| External client → **Saivage Analyst** | Immutable startup flags, independent bearer, project-bound loopback URL; direct selected Analyst operations |
+| External client → **Saivage Analyst** | Immutable startup flags, independent bearer, project-bound URL on the startup-selected MCP address (default loopback); direct selected Analyst operations |
 | Saivage agent tools → **another MCP server** | YAML `mcpServers` or persisted dynamic connection, explicit named-agent grants, discovered binding/catalog |
 
 These are independent listeners/clients. Adding YAML `mcpServers` does not enable
@@ -32,11 +32,49 @@ unused external settings. There are no mode/port/principal/tool environment alia
 YAML fields, token CLI flag or hot-reconfigure path. Changing mode requires a
 separately authorized server restart.
 
-Read the printed exact endpoint:
-`http://127.0.0.1:<port>/mcp/analyst/<projectIdentityDigest>`.
-It binds loopback regardless of operator HTTP host. `localhost`, a different Host
-header, another project path or an invented digest is not interchangeable. Other
-hosts/containers cannot connect directly; no tunnel/firewall change is authorized.
+Read the printed exact endpoint: `http://<authority>/mcp/analyst/<projectIdentityDigest>`.
+The example above is local only, and omitting `--analyst-mcp-host` selects loopback
+(`http://127.0.0.1:8082/...`), reachable only from the same network namespace. The MCP
+listener is independent of the operator `--host`: an operator wildcard bind does not
+expose MCP, and an MCP address does not expose the operator API.
+
+To accept clients at a specific address, pass that address to `--analyst-mcp-host`.
+This synthetic example uses a documentation address, `192.0.2.7`; it is not a deployed
+container. Obtain the real address from the deployment's own read-only verification:
+
+```bash
+saivage start --project-root /work/project --host 127.0.0.1 --port 8080 \
+  --analyst-mode external --analyst-mcp-host 192.0.2.7 --analyst-mcp-port 8082 \
+  --analyst-mcp-principal local-operator --analyst-mcp-tools get_status,get_card
+# Startup prints: Analyst MCP: http://192.0.2.7:8082/mcp/analyst/<projectIdentityDigest>
+```
+
+In the flag, IPv6 is unbracketed (for example `--analyst-mcp-host 2001:db8::7`); the
+printed URL brackets it: `http://[2001:db8::7]:8082/mcp/analyst/<projectIdentityDigest>`.
+
+Accepted host values are one IPv4 dotted-decimal address or one native unscoped IPv6
+literal. Rejected values fail startup before the endpoint is published, with no fallback
+to loopback or another address: wildcards `0.0.0.0`, `::` and their expanded spellings
+(a listen scope, not a client destination), IPv4-mapped IPv6, DNS names including
+`localhost`, URLs, brackets in the flag, ports, zone identifiers, and padded or empty
+values. The operator `--host` never feeds this value, and a `SAIVAGE_HOST` or YAML host
+is not inherited.
+
+If the configured address later becomes unavailable (for example after a container
+address changes), listen fails and startup fails; Saivage does not bind elsewhere or
+advertise another address. Recovery is a separately authorized restart with a corrected
+flag or with the flag omitted for loopback. This page authorizes no restart, network change
+or client configuration.
+
+A successful bind proves only that Saivage listens on the configured address. It does not
+prove routing, firewall or client reachability, and no live connection is claimed here.
+Use the printed URL exactly, including its Host value: for port 80 the printed URL omits
+`:80`, and a request that sends `:80` is rejected. Provision `SAIVAGE_ANALYST_MCP_TOKEN`
+privately to the client holder; never place it in a URL, source file or output. The
+endpoint is plain HTTP, so bearer authentication does not encrypt traffic. Expose it only
+on a network the operator has chosen and isolated; this is not an Internet or TLS deployment.
+Authentication is checked before Host or Origin. Any Origin header, including `null` or a
+same-address origin, is rejected.
 
 ### Initialize, inspect context and discover tools
 

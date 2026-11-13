@@ -266,6 +266,41 @@ it room beyond the inner timeout and kill grace. Never force-exit, suppress fail
 weaken assertions or retry until green. Required candidate failure still blocks
 acceptance if baseline fails too.
 
+### Inbound Analyst MCP coverage
+
+Changes to the external Analyst startup host, listener or request-authority owners use
+focused direct suites, not a full release run:
+
+```bash
+npm run test:direct -- --runInBand --runTestsByPath tests/config/analyst-mode.test.ts tests/boot/startup-inputs.test.ts tests/cli/start-command-inputs.test.ts tests/server/analyst-mcp-authority.test.ts tests/server/external-analyst-mcp.test.ts
+```
+
+* `tests/config/analyst-mode.test.ts` covers the internal default and rejection, the
+  external/both loopback default, accepted IPv4 and native IPv6 spellings, and rejected
+  hostnames, URLs, brackets, zones, wildcards, mapped IPv6 and padded values, plus unchanged
+  port, token and principal failures. It uses synthetic credentials only.
+* `tests/boot/startup-inputs.test.ts` covers environment loading: the MCP host comes only from
+  its startup flag, independent of `--host`, `SAIVAGE_HOST` and the YAML operator host, with
+  the MCP token kept separate from operator authentication.
+* `tests/cli/start-command-inputs.test.ts` covers flag parsing, forwarding and announcement of
+  the endpoint returned by a mocked start. It is not resolution or listener evidence.
+* `tests/server/analyst-mcp-authority.test.ts` injects requests into the listener's HTTP owner
+  without a privileged bind. It verifies that port 80 omits `:80` from the derived endpoint and
+  that the exact Host is accepted for IPv4 and IPv6 while `localhost` and an explicit `:80` are
+  rejected. It opens no socket.
+* `tests/server/external-analyst-mcp.test.ts` uses the real SDK over TCP: a non-loopback IPv4
+  address with an explicit independent port in external and both modes, and native `::1` with
+  bracketed URL authority and Host. It covers rejected token, Host, Origin, protocol and digest
+  requests, which do not invoke tools, and an occupied port that fails with `EADDRINUSE` without
+  fallback.
+
+Prerequisites and limits: the real-socket cases choose the first non-internal IPv4 interface
+found by the test and require native `::1`. A missing interface or IPv6 binding fails as an
+unmet integration prerequisite, not as a skip or substitute. Interface discovery exists only in
+the test, never in runtime. Loopback-only evidence is not direct host or container access
+validation. These synthetic local TCP cases do not prove a deployed container address, firewall,
+client configuration or OpenCode connectivity; those require separately authorized verification.
+
 ## Economical selection and reuse
 
 Select the focused check that covers the changed semantic owners and their risk. That

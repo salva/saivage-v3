@@ -31,7 +31,7 @@ describe('start command typed inputs', () => {
       '--host=127.0.0.1', '--port', '0', '--config=selected.yaml',
        '--project-root', '/work/project', '--create-runtime',
         '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001',
-        '--analyst-mode', 'both', '--analyst-mcp-port', '8090',
+        '--analyst-mode', 'both', '--analyst-mcp-host', '192.0.2.7', '--analyst-mcp-port', '8090',
         '--analyst-mcp-principal', 'local-client', '--analyst-mcp-tools', 'read,get_status',
     ]);
 
@@ -43,7 +43,7 @@ describe('start command typed inputs', () => {
       projectRoot: '/work/project',
       createRuntime: true,
       failedProviderDiagnostics: '00000000-0000-4000-8000-000000000001',
-      analystMode: 'both', analystMcpPort: '8090', analystMcpPrincipal: 'local-client', analystMcpTools: 'read,get_status',
+      analystMode: 'both', analystMcpHost: '192.0.2.7', analystMcpPort: '8090', analystMcpPrincipal: 'local-client', analystMcpTools: 'read,get_status',
     });
     expect(startApp.mock.calls[0]![0]).not.toHaveProperty('argv');
     expect(log).toHaveBeenCalledWith('Saivage server listening on http://127.0.0.1:49152');
@@ -70,11 +70,15 @@ describe('start command typed inputs', () => {
       projectRoot: undefined,
       createRuntime: false,
       failedProviderDiagnostics: undefined,
-      analystMode: undefined, analystMcpPort: undefined, analystMcpPrincipal: undefined, analystMcpTools: undefined,
+      analystMode: undefined, analystMcpHost: undefined, analystMcpPort: undefined, analystMcpPrincipal: undefined, analystMcpTools: undefined,
     });
     expect(withDirectMutationComposition).not.toHaveBeenCalled();
   });
   it.each([
+    ['start', '--analyst-mcp-host'],
+    ['start', '--analyst-mcp-host', '127.0.0.1', '--analyst-mcp-host', '::1'],
+    ['status', '--analyst-mcp-host', '127.0.0.1'],
+    ['init', '--analyst-mcp-host', '127.0.0.1'],
     ['start', '--failed-provider-diagnostics', 'invalid'],
     ['start', '--failed-provider-diagnostics'],
     ['start', '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001', '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000002'],
@@ -83,6 +87,13 @@ describe('start command typed inputs', () => {
   ])('rejects diagnostic option misuse before starting (%j)', async (...args) => {
     await expect(run(['node', 'saivage', ...args])).rejects.toBeDefined();
     expect(startApp).not.toHaveBeenCalled(); expect(withDirectMutationComposition).not.toHaveBeenCalled();
+  });
+  it.each(['http://192.0.2.7:18090/mcp/analyst/digest', 'http://[2001:db8::1]:18091/mcp/analyst/digest'])('announces the exact returned MCP endpoint %s independently of the operator wildcard', async (endpoint) => {
+    startApp.mockResolvedValueOnce({boundListener:{host:'0.0.0.0',port:49152},server:{analystMcpEndpoint:endpoint}});
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await run(['node','saivage','start']);
+    expect(log).toHaveBeenCalledWith(`Analyst MCP: ${endpoint}`);
+    expect(log).toHaveBeenCalledWith('Saivage server listening on http://0.0.0.0:49152 (wildcard bind; use a reachable host address to connect)');
   });
   it.each([
     ['--git-delivery-branch', 'main'],

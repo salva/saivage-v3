@@ -468,9 +468,11 @@ native ordered images/text, roots and the pinned browser recipe are in the
 [outbound MCP procedure](../runbook/mcp.md#saivage-tools-to-configured-mcp-servers).
 
 To expose **external client→Analyst**, choose immutable `start --analyst-mode`
-inputs and the separate `SAIVAGE_ANALYST_MCP_TOKEN`; these are not `mcpServers`
-fields. Use the [inbound procedure](../runbook/mcp.md#external-client-to-analyst)
-for exact subset, project-bound loopback URL, protocol handshake and headers.
+inputs, the optional startup-only `--analyst-mcp-host` (default loopback) and
+`--analyst-mcp-port`, and the separate `SAIVAGE_ANALYST_MCP_TOKEN`; these are not
+`mcpServers` fields and are not inherited from the operator host. Use the
+[inbound procedure](../runbook/mcp.md#external-client-to-analyst) for exact subset,
+the printed project-bound URL, protocol handshake and headers.
 
 ## Change stopped inputs deliberately
 

@@ -301,11 +301,25 @@ unpadded nonblank `SAIVAGE_ANALYST_MCP_TOKEN`. Internal mode rejects external
 settings. MCP and operator REST credentials must differ. These process-owned
 settings are immutable until restart, not YAML/reconfigure fields.
 
-The same application owns a dedicated `127.0.0.1` listener at
+The same application owns one dedicated project-digest listener at
 `/mcp/analyst/<projectIdentityDigest>`, published only after canonical startup,
-recovery and outbound MCP installation. SDK1.32.1 serves stateless JSON Streamable
+recovery and outbound MCP installation. Its address is the startup-only
+`--analyst-mcp-host <ip>` (external/both only; default `127.0.0.1`), and its port is
+`--analyst-mcp-port`. The operator `--host` never selects or implies it. The host is one
+concrete IPv4 dotted-decimal address or one native, unscoped IPv6 literal without brackets;
+`net.isIP` validation applies, and IPv6 is canonicalized by URL serialization. Whitespace,
+empty values, DNS names including `localhost`, URLs or schemes, brackets, ports, paths,
+zone identifiers, IPv4-mapped IPv6 and the wildcards `0.0.0.0` and `::` (including
+expanded spellings) are rejected. Internal mode rejects an explicit host, including
+`127.0.0.1`. There is no environment, YAML, token-flag or operator-host alias. The socket
+binds the canonical unbracketed host and the independent port. One URL derived from that
+host and port supplies the printed endpoint and the only accepted Host value: IPv6 is
+bracketed, and HTTP port 80 is omitted. Startup-resolution errors occur after lifecycle-lock
+acquisition and before runtime-control endpoint publication, as before. A configured address
+that cannot be bound fails startup without fallback to another address or port. A successful
+bind is not proof of routing or firewall reachability. SDK1.32.1 serves stateless JSON Streamable
 HTTP, revision2025-11-25, with no sessions, batch execution, GET stream or replay.
-Every method requires its separate bearer; exact Host/path, no query or Origin,
+Every method requires its separate bearer, checked before Host or Origin; exact Host/path, no query, no Origin header of any value (including `null`),
 both `application/json` and `text/event-stream` Accept values, and a matching
 `MCP-Protocol-Version: 2025-11-25` header after initialize are mandatory.
 Initialize must request that exact revision (and any supplied protocol header
@@ -2209,7 +2223,7 @@ The CLI performs exactly one strict token-producing option parse using command-s
 described in the [configuration guide](../guides/configuration.md); these require
 `classic-git` and are singleton/all-or-none. `start` accepts `--host`, `--port`, `--config`,
 `--project-root`, `--create-runtime`, `--failed-provider-diagnostics <UUID>`,
-`--analyst-mode`, `--analyst-mcp-port`, `--analyst-mcp-principal` and
+`--analyst-mode`, `--analyst-mcp-host`, `--analyst-mcp-port`, `--analyst-mcp-principal` and
 `--analyst-mcp-tools`. `repair` requires `--target`, `--backup`, `--report`, with
 optional `--discard-card` and `--card-type`; discard/type require a card target,
 and type requires discard. Controls, reset and help accept no options.

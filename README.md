@@ -148,6 +148,10 @@ inside the isolated deployment. It separates these decisions:
    [Closing the application](docs/runbook/runtime-control.md#project-stop-and-application-close)
    is a different operation.
 
+Optional direct access to the external Analyst MCP listener from a specific address
+(for example a container address) is a startup choice with its own bearer, not operator
+`--host`: see [inbound MCP](docs/runbook/mcp.md#configure-the-inbound-listener).
+
 For retained state, do not use fresh init, reset or repair as a default upgrade
 step. Start with [the adoption decision](docs/runbook/state-adoption.md#choose-the-operation).
 Reset is destructive; exact current-format repair is not migration; external

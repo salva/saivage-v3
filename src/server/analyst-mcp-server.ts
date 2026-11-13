@@ -65,7 +65,7 @@ function analystMcpInstructions(binding: AnalystMcpBinding): string {
   );
 }
 
-/** One application-owned loopback listener; SDK objects are request-local, work is not. */
+/** One application-owned configured listener; SDK objects are request-local, work is not. */
 export function createAnalystMcpServer(input: {
   startup: Exclude<AnalystStartup, { mode: 'internal' }>;
   binding: AnalystMcpBinding;
@@ -80,8 +80,10 @@ export function createAnalystMcpServer(input: {
     project_name: redactTextForOutbound(input.binding.project_name),
   };
   const path = `/mcp/analyst/${input.binding.project_identity_digest}`;
-  const host = `127.0.0.1:${input.startup.port}`;
-  const endpoint = `http://${host}${path}`;
+  const urlHost = input.startup.host.includes(':') ? `[${input.startup.host}]` : input.startup.host;
+  const url = new URL(`http://${urlHost}:${input.startup.port}${path}`);
+  const host = url.host;
+  const endpoint = url.href;
   let open = true;
   http.setErrorHandler((error, _request, reply) => {
     if (error instanceof PublicationOutcomeUnknownError)
@@ -237,7 +239,7 @@ export function createAnalystMcpServer(input: {
   return {
     endpoint,
     async listen(): Promise<void> {
-      await http.listen({ host: '127.0.0.1', port: input.startup.port });
+      await http.listen({ host: input.startup.host, port: input.startup.port });
     },
     closeAdmission(): void {
       open = false;
