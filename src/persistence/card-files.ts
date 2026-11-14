@@ -308,24 +308,29 @@ function readRoot(
   return decodeCurrent(projectRoot, 'project', bytes, instrumentation);
 }
 
+export type ReachedCardCheck = (cardId: string) => void;
+
 function readLinkedCard(
   projectRoot: string,
   targetId: string,
   terminalTombstone: boolean,
   instrumentation?: CanonicalReadInstrumentation,
+  checkReached?: ReachedCardCheck,
 ): CurrentCardSelection | null {
   const segments = cardIdSegments(targetId);
   let currentId = 'project';
   let current = readRoot(projectRoot, instrumentation);
   if (!current) return null;
+  if (current.tombstone && segments.length > 0) return null;
   for (const [position, segment] of segments.entries()) {
     const nextId = childCardId(currentId, segment);
     if (!current.current.card.child_membership.includes(nextId)) return null;
     current = readExactCard(projectRoot, nextId, instrumentation);
-    if (current.tombstone && !(terminalTombstone && position === segments.length - 1)) return null;
+    if (current.tombstone && position !== segments.length - 1) return null;
     currentId = nextId;
   }
-  return current;
+  checkReached?.(targetId);
+  return current.tombstone && !terminalTombstone ? null : current;
 }
 
 /** Exact committed path prefix only; never reads siblings or below an unreachable selection. */
@@ -351,10 +356,11 @@ export function readActiveCardPath(
   projectRoot: string,
   targetId: string,
   instrumentation?: CanonicalReadInstrumentation,
+  checkReached?: ReachedCardCheck,
 ): ActiveCardPathRead | null {
   cardIdSchema.parse(targetId);
   const realProjectRoot = resolve(projectRoot);
-  const target = readLinkedCard(realProjectRoot, targetId, false, instrumentation);
+  const target = readLinkedCard(realProjectRoot, targetId, false, instrumentation, checkReached);
   return target ? { canonicalProjectRoot: realProjectRoot, fold: target } : null;
 }
 
@@ -602,9 +608,10 @@ export function readCommittedCardArtifactCatalog(
   projectRoot: string,
   cardId: string,
   instrumentation?: CanonicalReadInstrumentation,
+  checkReached?: ReachedCardCheck,
 ): CardTargetRead<CommittedCardArtifactCatalog> {
   cardIdSchema.parse(cardId);
-  const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation);
+  const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached);
   const rows = fold ? readHistory(resolve(projectRoot), fold, instrumentation) : [];
   return fold
     ? {
@@ -635,21 +642,39 @@ export function readCommittedCardCurrent(
   const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation);
   return fold ? { kind: 'found', value: canonicalProjection(fold) } : { kind: 'card-not-found' };
 }
-export function readCommittedCardVersionPair(
+export function readCommittedCardDiffSelection(
   projectRoot: string,
   cardId: string,
-  pivots: { from: number; to: number },
+  pivots: { fromVersion: number; toVersion?: number | 'current' },
   instrumentation?: CanonicalReadInstrumentation,
-): CardTargetRead<{ from: CardArtifact | null; to: CardArtifact | null }> {
+  checkReached?: ReachedCardCheck,
+): CardTargetRead<{
+  current: CanonicalCardProjection;
+  from: number;
+  to: number;
+  fromArtifact: CardArtifact | null;
+  toArtifact: CardArtifact | null;
+}> | { kind: 'invalid-pivots'; from: number; to: number } {
   cardIdSchema.parse(cardId);
-  const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation);
+  const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached);
   if (!fold) return { kind: 'card-not-found' };
-  const rows = readHistory(resolve(projectRoot), fold, instrumentation, pivots.from);
+  const current = canonicalProjection(fold);
+  const from = pivots.fromVersion;
+  const to = typeof pivots.toVersion === 'number'
+    ? pivots.toVersion
+    : fold.tombstone ? fold.head.version : current.card.version_seq;
+  if (from > to) return { kind: 'invalid-pivots', from, to };
+  const rows = readHistory(resolve(projectRoot), fold, instrumentation, from);
   return {
     kind: 'found',
     value: {
-      from: rows.find((row) => row.version === pivots.from) ?? null,
-      to: rows.find((row) => row.version === pivots.to) ?? null,
+      current,
+      from,
+      to,
+      fromArtifact: rows.find((row) => row.version === from) ?? null,
+      toArtifact: typeof pivots.toVersion === 'number'
+        ? rows.find((row) => row.version === to) ?? null
+        : fold.tombstone ? fold.head : null,
     },
   };
 }
@@ -658,9 +683,10 @@ export function readCommittedCardVersion(
   cardId: string,
   version: number,
   instrumentation?: CanonicalReadInstrumentation,
+  checkReached?: ReachedCardCheck,
 ): CardTargetRead<CardArtifact | null> {
   cardIdSchema.parse(cardId);
-  const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation);
+  const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached);
   return fold
     ? {
         kind: 'found',

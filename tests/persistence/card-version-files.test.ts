@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { cardHeadFile, cardPreviousHeadFile, cardHistoryFile, cardMailboxFile } from '../../src/persistence/layout.js';
 import { cardHeadSchema } from '../../src/persistence/canonical-card-artifacts.js';
-import { inspectCardSelection, readCardRepairParent, restoreCardSelection, readCanonicalLinkedCardHistoryTree, readCommittedCardVersionPair } from '../../src/persistence/card-files.js';
+import { inspectCardSelection, readCardRepairParent, restoreCardSelection, readCanonicalLinkedCardHistoryTree, readCommittedCardDiffSelection } from '../../src/persistence/card-files.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
@@ -211,17 +211,18 @@ describe('card immutable history and pending-only mailbox', () => {
   it('selects numeric pairs with one bounded predecessor traversal and exact provenance', () => {
     const { cards, child, paths } = sparseFixture(); const reads: string[] = [];
     const result = cards.diffCardVersions(child.id, { fromVersion: 4, toVersion: 8 }, { onRead: path => reads.push(path) });
+    for (const id of ['project', child.id]) expect(reads.filter(path => path === cardHeadFile(cards.projectRoot, id))).toHaveLength(1);
     expect(result).toMatchObject({ kind: 'found', fromArtifact: { version: 4, card: { title: 'four' } }, toArtifact: { version: 8, card: { title: 'eight' } }, target: { kind: 'version', version: 8 } });
     for (const version of [4, 7]) expect(reads.filter(path => path === paths.get(version))).toHaveLength(1);
     expect(reads).not.toContain(paths.get(1));
   });
   it('consumes the selected head even for above-head pivots and no predecessor', () => {
     const { root, child, paths } = sparseFixture(); const reads: string[] = [];
-    expect(readCommittedCardVersionPair(root, child.id, { from: 9, to: 10 }, { onRead: path => reads.push(path) })).toEqual({ kind: 'found', value: { from: null, to: null } });
+    expect(readCommittedCardDiffSelection(root, child.id, { fromVersion: 9, toVersion: 10 }, { onRead: path => reads.push(path) })).toMatchObject({ kind: 'found', value: { fromArtifact: null, toArtifact: null } });
     expect(reads.filter(path => path === paths.get(8))).toHaveLength(1);
     for (const version of [1, 4, 7]) expect(reads).not.toContain(paths.get(version));
     writeFileSync(paths.get(8)!, '{broken');
-    expect(() => readCommittedCardVersionPair(root, child.id, { from: 9, to: 10 })).toThrow();
+    expect(() => readCommittedCardDiffSelection(root, child.id, { fromVersion: 9, toVersion: 10 })).toThrow();
   });
   it.each([
     [4, 4, { kind: 'found', fromArtifact: { version: 4 }, toArtifact: { version: 4 } }],

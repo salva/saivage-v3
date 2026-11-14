@@ -825,8 +825,8 @@ function sourcePathSet(paths) {
 }
 
 const PATHS = Object.freeze({
-  cardErrors: sourcePathSet(['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts']),
-  backendPivots: sourcePathSet(['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts']),
+  cardErrors: sourcePathSet(['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/persistence/card-files.ts', 'src/server/routes/operator-runtime-card-handlers.ts']),
+  backendPivots: sourcePathSet(['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/persistence/card-files.ts', 'src/server/routes/operator-runtime-card-handlers.ts']),
   analystBusy: sourcePathSet(['src/contracts/operator-api-chats.ts', 'src/server/routes/operator-chat-handlers.ts']),
   unexpected: sourcePathSet(['src/contracts/operator-api-core.ts', 'src/server/contract-runtime.ts']),
   unauthorized: sourcePathSet(['src/contracts/operator-api-core.ts']),
@@ -933,8 +933,15 @@ function selectCardNotFoundUnion(projectRoot, unionName, operation) {
   const service = 'src/cards/card-service.ts';
   const { ast: serviceAst } = sourceAst(projectRoot, service);
   requireNodeFragments(namedFunction(serviceAst, operation === 'cards.history.get' ? 'readCardVersion' : 'diffCardVersions', service), serviceAst, operation === 'cards.history.get'
-    ? ['readCommittedCardVersion(this.projectRoot, id, version, instrumentation)', "if (catalog.kind === 'card-not-found') return catalog", 'const row = catalog.value', 'row.version === version', "{ kind: 'version-not-found', version }"]
-    : ["kind: 'version-not-found' as const, version, side"], `${operation} CardService selection`);
+    ? ['readCommittedCardVersion(this.projectRoot, id, version, instrumentation, checkReached)', "if (catalog.kind === 'card-not-found') return catalog", 'const row = catalog.value', 'row.version === version', "{ kind: 'version-not-found', version }"]
+    : ['readCommittedCardDiffSelection(', 'this.projectRoot, id, pivots, instrumentation, checkReached,', "if (selection.kind !== 'found') return selection", "if (!fromArtifact) return { kind: 'version-not-found', version: from, side: 'from' }", "if (typeof pivots.toVersion === 'number' && !toArtifact)", "return { kind: 'version-not-found', version: to, side: 'to' }"], `${operation} CardService selection`);
+  const persistence = 'src/persistence/card-files.ts';
+  const { ast: persistenceAst } = sourceAst(projectRoot, persistence);
+  requireNodeFragments(namedFunction(persistenceAst, operation === 'cards.history.get' ? 'readCommittedCardVersion' : 'readCommittedCardDiffSelection', persistence), persistenceAst, [
+    'readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached)',
+    "kind: 'card-not-found'",
+    operation === 'cards.history.get' ? '(row) => row.version === version' : 'fromArtifact: rows.find((row) => row.version === from) ?? null',
+  ], `${operation} persistence selection`);
   return errorValue([card, historical]);
 }
 
@@ -1399,7 +1406,12 @@ function selectBackendPivot(projectRoot, side) {
   requireSourceFragments(projectRoot, contract, ['canonicalPositiveSafeIntegerStringSchema = z\n  .string()\n  .regex(/^[1-9][0-9]*$/)', '.superRefine((raw, ctx)', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', '.transform(Number)', "diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema])", 'CardDiffQuerySchema = z\n  .object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() })\n  .strict()'], 'backend diff query');
   requireSourceFragments(projectRoot, 'src/server/routes/operator-runtime-card-handlers.ts', ["'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query)"], 'backend diff handler');
   requireSourceFragments(projectRoot, 'src/application/read-models/cards-read-model.ts', ['diffCard(\n    id: string,\n    query:', 'fromVersion: query.from,\n      toVersion: query.to'], 'backend diff read-model mapping');
-  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ["toVersion?: number | 'current'", 'readCommittedCardCurrent(this.projectRoot, id, instrumentation)', "typeof pivots.toVersion === 'number'\n        ? pivots.toVersion", 'current.value.card.version_seq', 'readCommittedCardVersion(this.projectRoot, id, version, instrumentation)', "head_id: current.value.headId", 'history_version: current.value.artifact.version', "{ kind: 'version', version: to }"], 'backend diff service meanings');
+  const service = 'src/cards/card-service.ts';
+  const { ast: serviceAst } = sourceAst(projectRoot, service);
+  requireNodeFragments(namedFunction(serviceAst, 'diffCardVersions', service), serviceAst, ["toVersion?: number | 'current'", 'readCommittedCardDiffSelection(', 'this.projectRoot, id, pivots, instrumentation, checkReached,', "if (selection.kind !== 'found') return selection", 'const { current, from, to, fromArtifact, toArtifact } = selection.value', 'head_id: current.headId', 'history_version: current.artifact.version', "{ kind: 'version', version: to }"], 'backend diff service meanings');
+  const persistence = 'src/persistence/card-files.ts';
+  const { ast: persistenceAst } = sourceAst(projectRoot, persistence);
+  requireNodeFragments(namedFunction(persistenceAst, 'readCommittedCardDiffSelection', persistence), persistenceAst, ['readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached)', 'const current = canonicalProjection(fold)', 'const from = pivots.fromVersion', "typeof pivots.toVersion === 'number'\n    ? pivots.toVersion", 'fold.tombstone ? fold.head.version : current.card.version_seq', "if (from > to) return { kind: 'invalid-pivots', from, to }", 'readHistory(resolve(projectRoot), fold, instrumentation, from)', 'fromArtifact: rows.find((row) => row.version === from) ?? null', "toArtifact: typeof pivots.toVersion === 'number'\n        ? rows.find((row) => row.version === to) ?? null\n        : fold.tombstone ? fold.head : null"], 'backend diff persistence meanings');
   return side === 'from'
     ? { field: 'from', presence: 'required', variants: [{ kind: 'canonical-positive-safe-integer' }], mapping: 'fromVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number' }
     : { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-projection', current: 'current-projection' } };

@@ -12,7 +12,7 @@ import { effectiveRecordContent } from '../persistence/index.js';
 import type { CardService } from '../cards/store-api.js';
 type CompleteRecordReader = Pick<
   CardService,
-  'readRecordCurrent' | 'readRecordVersion' | 'listDeclaredRecordMetadata' | 'readCommittedCardHead'
+  'readRecordCurrent' | 'readRecordVersion' | 'listDeclaredRecordMetadata'
 >;
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import {

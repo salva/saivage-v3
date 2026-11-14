@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { cardRecordHeadFile } from '../../src/persistence/layout.js';
+import { cardHeadFile, cardRecordHeadFile } from '../../src/persistence/layout.js';
+import { resolveScopedPath } from '../../src/workspace/vfs.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { readProject, globProject, grepProject, writeProject, editProject, applyProjectPatch, readWorkspaceImageSource, type WorkspaceContext } from '../../src/tools/project-file-tools.js';
 import type { DirectObjectAuthority } from '../../src/tools/direct-object-authority.js';
@@ -30,6 +31,76 @@ function recordAuthority(): DirectObjectAuthority {
 }
 
 describe('workspace direct-object consumption and effects', () => {
+  it('integrates current/versioned generic reads once, preserves optional absence, and checks before protected heads', async () => {
+    const { root, cards, child } = fixture();
+    const reads: string[] = [];
+    const current = cards.readRecordCurrent.bind(cards);
+    const version = cards.readRecordVersion.bind(cards);
+    jest.spyOn(cards, 'readRecordCurrent').mockImplementation((id, name, _io, check) => current(id, name, { onRead: p => reads.push(p) }, check));
+    jest.spyOn(cards, 'readRecordVersion').mockImplementation((id, name, v, _io, check) => version(id, name, v, { onRead: p => reads.push(p) }, check));
+    const authority: DirectObjectAuthority = { anchorCardId: 'project', tools: [resolveRuntimeTool('card', 'read', [{ kind: 'record', scopes: ['children'], patterns: ['notes.md'] }])] };
+    const ctx = { projectRoot: root, agent: { cardId: 'project', agentName: 'planner' as const }, records: cards, selection: { authority, tool: 'read' }, fail: (message: string) => new Error(message) };
+    const url = `record:///notes.md?card=${child.id}`;
+    expect(resolveScopedPath(ctx, url, 'read')).toMatchObject({ kind: 'record', schema: 'authored-record.v1', format: 'markdown', state: 'absent', content: '', currentSelection: true });
+    expect(reads.filter(p => p === cardHeadFile(root, 'project'))).toHaveLength(1);
+    expect(reads.filter(p => p === cardHeadFile(root, child.id))).toHaveLength(1);
+    expect(current(child.id, 'notes.md')).toMatchObject({ kind: 'found', value: { definition: { declared: false, bootstrap: false, schema: 'authored-record.v1' }, projection: null } });
+    cards.acceptRecord(child.id, 'notes.md', 'generic exact bytes', { kind: 'agent', agent: 'planner' });
+    reads.length = 0;
+    expect(resolveScopedPath(ctx, `${url}&v=1`, 'read')).toMatchObject({ kind: 'record', content: 'generic exact bytes', currentSelection: false, acceptedVersionUrl: `${url}&v=1` });
+    for (const id of ['project', child.id]) expect(reads.filter(p => p === cardHeadFile(root, id))).toHaveLength(1);
+    const protectedPath = cardRecordHeadFile(root, child.id, { filename: 'notes.md' });
+    writeFileSync(protectedPath, '{malformed protected head');
+    const denied = { ...ctx, selection: { authority: recordAuthority(), tool: 'read' } };
+    for (const suffix of ['', '&v=1']) {
+      reads.length = 0;
+      expect(() => resolveScopedPath(denied, url + suffix, 'read')).toThrow('not authorized');
+      expect(reads).not.toContain(protectedPath);
+      expect(reads.filter(p => p === cardHeadFile(root, child.id))).toHaveLength(1);
+      expect(() => resolveScopedPath(ctx, url + suffix, 'read')).toThrow();
+      expect(reads).toContain(protectedPath);
+    }
+  });
+
+  it('applies relative scope and same-clause name matching to current and versioned VFS reads', async () => {
+    const { root, cards, child } = fixture();
+    const grandchild = cards.create({ parent: child.id, type: 'code', title: 'grandchild', bootstrap_content: 'grandchild', created_by: 'analyst', depends_on: [] });
+    for (const scopes of [['self'], ['children'], ['descendants'], ['all']] as const) {
+      const ctx: WorkspaceContext = { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, authority: { anchorCardId: 'project', tools: [resolveRuntimeTool('card', 'read', [{ kind: 'record', scopes: [...scopes], patterns: ['brief.md'] }])] } };
+      for (const id of ['project', child.id, grandchild.id]) for (const suffix of ['', '&v=1']) {
+        const permitted = scopes[0] === 'all' || (scopes[0] === 'self' && id === 'project') || (scopes[0] === 'children' && id === child.id) || (scopes[0] === 'descendants' && id !== 'project');
+        const result = readProject(ctx, { path: `record:///brief.md?card=${id}${suffix}` });
+        if (permitted) await expect(result).resolves.toHaveProperty('data');
+        else await expect(result).rejects.toThrow('not authorized');
+      }
+    }
+    const surface = new BoundAgentToolSet([resolveRuntimeTool('global', 'read', [{ kind: 'record', scopes: ['all'], patterns: ['brief.md'] }])]).bind({ scope: 'global', projectRoot: root, agentName: 'oversight', store: cards, observationToolContext: { projectRoot: root, agentName: 'oversight', store: cards } } as never);
+    for (const suffix of ['', '&v=1']) expect(await invokeTestTool(surface, 'read', { path: `record:///brief.md?card=${grandchild.id}${suffix}` })).toMatchObject({ success: true });
+    const ctx: WorkspaceContext = { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, authority: recordAuthority() };
+    for (const suffix of ['', '&v=1']) {
+      await expect(readProject(ctx, { path: `record:///status.md?card=${child.id}${suffix}` })).rejects.toThrow('not authorized');
+      await expect(readProject(ctx, { path: `record:///brief.md?card=project${suffix}` })).rejects.toThrow('not authorized');
+      await expect(readProject({ ...ctx, authority: { anchorCardId: 'project', tools: [] } }, { path: `record:///brief.md?card=${child.id}${suffix}` })).rejects.toThrow('not selected');
+    }
+  });
+
+  it('preserves selected record absence/tombstone errors and required/malformed strict failures', async () => {
+    const { root, cards, child } = fixture();
+    const authority: DirectObjectAuthority = { anchorCardId: 'project', tools: [resolveRuntimeTool('card', 'read', [{ kind: 'record', scopes: ['all'], patterns: ['*.md'] }])] };
+    const ctx: WorkspaceContext = { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, authority };
+    await expect(readProject(ctx, { path: `record:///notes.md?card=${child.id}&v=99` })).rejects.toThrow('Record not found.');
+    await expect(readProject(ctx, { path: 'record:///notes.md?card=card-z' })).rejects.toThrow("Card 'card-z' not found.");
+    await expect(readProject(ctx, { path: `record:///INVALID.md?card=${child.id}` })).rejects.toThrow();
+    unlinkSync(cardRecordHeadFile(root, child.id, { filename: 'brief.md' }));
+    await expect(readProject(ctx, { path: `record:///brief.md?card=${child.id}` })).rejects.toThrow(/Required bootstrap/);
+    // Tombstone publication consumes card state only, not the now-unavailable record.
+    cards.deleteSubtrees([child.id], () => true, 'analyst');
+    for (const suffix of ['', '&v=1']) {
+      await expect(readProject(ctx, { path: `record:///notes.md?card=${child.id}${suffix}` })).rejects.toThrow('Record not found.');
+      await expect(readProject({ ...ctx, authority: recordAuthority() }, { path: `record:///notes.md?card=${child.id}${suffix}` })).rejects.toThrow('not authorized');
+    }
+  });
+
   it('carries the actual bound global policy into observations and audited Analyst file writes/edits/patches', async () => {
     const { root, cards } = fixture(); writeFileSync(join(root, 'ordinary.txt'), 'old\n');
     const analyst = { projectRoot: root, policyAgentName: 'analyst', actor: 'analyst', surface: 'web-chat', store: cards,

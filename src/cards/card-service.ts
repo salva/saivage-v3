@@ -43,7 +43,8 @@ import {
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,
   readCommittedCardVersion,
-  readCommittedCardVersionPair,
+  readCommittedCardDiffSelection,
+  type ReachedCardCheck,
   readPendingCardNotifications,
   readActiveCardPath,
   readActiveCardSubtree,
@@ -331,8 +332,9 @@ export class CardService {
     cardId: string,
     filename: string,
     instrumentation?: CanonicalReadInstrumentation,
+    checkReached?: ReachedCardCheck,
   ) {
-    const reached = readActiveCardPath(this.projectRoot, cardId, instrumentation);
+    const reached = readActiveCardPath(this.projectRoot, cardId, instrumentation, checkReached);
     if (!reached) return null;
     const card = reached.fold.current.card;
     return { card, definition: this.recordDefinitionFor(card, filename) };
@@ -424,8 +426,9 @@ export class CardService {
     cardId: string,
     filename: string,
     instrumentation?: CanonicalReadInstrumentation,
+    checkReached?: ReachedCardCheck,
   ): CardRecordCurrentResult {
-    const admitted = this.admittedRecord(cardId, filename, instrumentation);
+    const admitted = this.admittedRecord(cardId, filename, instrumentation, checkReached);
     if (!admitted) return { kind: 'card-not-found' };
     const projection = readCurrentAuthoredRecord(
       this.projectRoot,
@@ -459,9 +462,10 @@ export class CardService {
     filename: string,
     version: number,
     instrumentation?: CanonicalReadInstrumentation,
+    checkReached?: ReachedCardCheck,
   ): CardRecordVersionResult {
     positiveSafeIntegerSchema.parse(version);
-    const admitted = this.admittedRecord(cardId, filename, instrumentation);
+    const admitted = this.admittedRecord(cardId, filename, instrumentation, checkReached);
     if (!admitted) return { kind: 'card-not-found' };
     const projection = readAuthoredRecordVersion(
       this.projectRoot,
@@ -771,8 +775,11 @@ export class CardService {
   listCardVersions(
     id: string,
     instrumentation?: CanonicalReadInstrumentation,
+    checkReached?: ReachedCardCheck,
   ): CardVersionListResult {
-    const catalog = readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation);
+    const catalog = readCommittedCardArtifactCatalog(
+      this.projectRoot, id, instrumentation, checkReached,
+    );
     return catalog.kind === 'card-not-found'
       ? catalog
       : { kind: 'found', value: clone(catalog.value.versions) };
@@ -781,9 +788,10 @@ export class CardService {
     id: string,
     version: number,
     instrumentation?: CanonicalReadInstrumentation,
+    checkReached?: ReachedCardCheck,
   ): CardVersionContentResult {
     positiveSafeIntegerSchema.parse(version);
-    const catalog = readCommittedCardVersion(this.projectRoot, id, version, instrumentation);
+    const catalog = readCommittedCardVersion(this.projectRoot, id, version, instrumentation, checkReached);
     if (catalog.kind === 'card-not-found') return catalog;
     const row = catalog.value;
     return row && row.version === version
@@ -794,46 +802,19 @@ export class CardService {
     id: string,
     pivots: { fromVersion: number; toVersion?: number | 'current' },
     instrumentation?: CanonicalReadInstrumentation,
+    checkReached?: ReachedCardCheck,
   ): CardVersionDiffResult {
     positiveSafeIntegerSchema.parse(pivots.fromVersion);
     if (pivots.toVersion !== undefined && pivots.toVersion !== 'current')
       positiveSafeIntegerSchema.parse(pivots.toVersion);
-    const current = readCommittedCardCurrent(this.projectRoot, id, instrumentation);
-    if (current.kind === 'card-not-found') return current;
-    const to =
-      typeof pivots.toVersion === 'number'
-        ? pivots.toVersion
-        : current.value.artifact.kind === 'card-tombstone'
-          ? current.value.artifact.version
-          : current.value.card.version_seq;
-    const from = pivots.fromVersion;
-    if (from > to) return { kind: 'invalid-pivots', from, to };
-    const pair =
-      typeof pivots.toVersion === 'number'
-        ? readCommittedCardVersionPair(this.projectRoot, id, { from, to }, instrumentation)
-        : null;
-    if (pair?.kind === 'card-not-found')
-      throw new Error(`Card '${id}' disappeared during synchronous diff.`);
-    const select = (version: number, side: 'from' | 'to') => {
-      const selected = pair
-        ? { kind: 'found' as const, value: pair.value[side] }
-        : readCommittedCardVersion(this.projectRoot, id, version, instrumentation);
-      if (selected.kind === 'card-not-found')
-        throw new Error(`Card '${id}' disappeared during synchronous diff.`);
-      const row = selected.value;
-      return row && row.version === version
-        ? row
-        : { kind: 'version-not-found' as const, version, side };
-    };
-    const fromArtifact = select(from, 'from');
-    if ('side' in fromArtifact) return fromArtifact;
-    const toArtifact =
-      pivots.toVersion === undefined || pivots.toVersion === 'current'
-        ? current.value.artifact.kind === 'card-tombstone'
-          ? current.value.artifact
-          : null
-        : select(to, 'to');
-    if (toArtifact && 'side' in toArtifact) return toArtifact;
+    const selection = readCommittedCardDiffSelection(
+      this.projectRoot, id, pivots, instrumentation, checkReached,
+    );
+    if (selection.kind !== 'found') return selection;
+    const { current, from, to, fromArtifact, toArtifact } = selection.value;
+    if (!fromArtifact) return { kind: 'version-not-found', version: from, side: 'from' };
+    if (typeof pivots.toVersion === 'number' && !toArtifact)
+      return { kind: 'version-not-found', version: to, side: 'to' };
     return {
       kind: 'found',
       from,
@@ -842,9 +823,9 @@ export class CardService {
         ? { kind: 'version', version: to }
         : {
             kind: 'current',
-            head_id: current.value.headId,
+            head_id: current.headId,
             version_seq: to,
-            history_version: current.value.artifact.version,
+            history_version: current.artifact.version,
           },
       fromArtifact: clone(fromArtifact),
       toArtifact: clone(toArtifact),
@@ -854,8 +835,8 @@ export class CardService {
           toArtifact
             ? cardDiffValue(toArtifact)
             : {
-                deleted: current.value.artifact.kind === 'card-tombstone',
-                card: current.value.card,
+                deleted: current.artifact.kind === 'card-tombstone',
+                card: current.card,
               },
         ),
       ),

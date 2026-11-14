@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
+import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm, llmToolDefinition, type InvocationSurface } from '../../src/tools/invocation.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
@@ -58,6 +59,23 @@ function childInput(title: string, depends_on: string[] = []) {
 }
 
 describe('card version provider', () => {
+  it('uses bound global all grants without a relative anchor and refuses an unselected history tool', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-history-global-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('global target'));
+    const references = ['list_card_versions', 'get_card_version', 'diff_card_versions'].map(name => resolveRuntimeTool('global', name, [{ kind: 'card', scopes: ['all'] }]));
+    references.push(resolveRuntimeTool('global', 'read_record_version', [{ kind: 'record', scopes: ['all'], patterns: ['brief.md'] }]));
+    const surface = new BoundAgentToolSet(references).bind({ scope: 'global', projectRoot: root, agentName: 'oversight', store: cards, observationToolContext: { projectRoot: root, agentName: 'oversight', store: cards } } as never);
+    for (const id of ['project', child.id]) {
+      expect(await invokeTestTool(surface, 'list_card_versions', { card_id: id })).toMatchObject({ success: true });
+      expect(await invokeTestTool(surface, 'get_card_version', { card_id: id, version: 1, section: 'summary' })).toMatchObject({ success: true });
+      expect(await invokeTestTool(surface, 'diff_card_versions', { card_id: id, from_version: 1, to_version: 1 })).toMatchObject({ success: true });
+      expect(await invokeTestTool(surface, 'read_record_version', { card_id: id, record_name: 'brief.md', version: 1 })).toMatchObject({ success: true });
+    }
+    const missing = buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards, authority: { anchorCardId: null, tools: [] } })]);
+    expect(await invokeTestTool(missing, 'list_card_versions', { card_id: child.id })).toMatchObject({ success: false, error: expect.stringContaining('not authorized') });
+  });
+
   it('preserves opaque old card-result facts through format12 retained history, materialization, outbound and actual OpenAI serialization', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-opaque-history-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

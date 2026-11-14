@@ -580,9 +580,20 @@ is appended separately. Exact object/schema rejection enters the shared correcti
 loop; terminal settlement parses accepted, error or pending-notification variants.
 
 Card direct-object authority comes from the selected compiled tool clauses and a
-harness-bound activation card; global actors have no relative anchor. Inspection
-and history consumers use one canonical-membership relationship predicate, filtering
-collection and related-card rows before projection and pagination. Planner parent
+harness-bound activation card; global actors have no relative anchor. Card version
+history, version, diff and declared-record consumers check the exact target at the
+canonical reader's reached boundary: after strict current membership and
+the selected current head validate that terminal card, and before any additional
+historical predecessor or record head/body is consumed. A denied target refuses there.
+A reached terminal tombstone is authorized for card history, version and diff reads,
+and for live record reads it is authorized and then unavailable. Missing, unlinked and
+below-tombstone targets are absence, not denial; reached state is local to that
+synchronous call. Inspection and collection consumers filter collection and
+related-card rows with one canonical-membership relationship predicate before
+projection and pagination; `get_card` and `get_tree` check the requested or root card
+after its canonical current read. Card diffs select current and requested pivots in one
+owner read, authorize that target once, and reject reversed pivots before historical
+reads. Planner parent
 creation/order and child metadata effects, Analyst card mutations, Supervisor child
 controls, native checkpoints and model-origin notification publication consume the
 bound capability at their owning operation. Scope never relaxes immediate-parent,
@@ -594,8 +605,10 @@ operator reads. Selected clauses are rendered beside bound tool descriptions.
 Workspace tools resolve logical record versus ordinary workspace destinations before
 content access. Record directories and searches pass the bound tool's clauses into
 the canonical declared-record reader, filtering names and reached relationships
-before selected heads/bodies, totals, cursors or metadata projection. Ordinary file
-reads, writes, edits, patches and images require that tool's workspace clause;
+before selected heads/bodies, totals, cursors or metadata projection. Exact record reads,
+current and versioned, pass the bound selection into the owning card reader, which checks
+the exact target at its reached boundary before protected record or predecessor content.
+Ordinary file reads, writes, edits, patches and images require that tool's workspace clause;
 existing path, secret, attic, native-source and tmp ownership rules still apply.
 Every patch destination is admitted before effects. Optional no-save Webfetch needs
 only tool selection; saves require both its own destination clause and the selected

@@ -23,7 +23,7 @@ function ctx(): ResolveScopedPathContext {
     projectRoot: '/tmp/saivage-workspace-resolver-test',
     agent: { cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentName: 'planner' },
     fail,
-    records:{readCommittedCardHead:()=>{throw new Error('Unexpected canonical authority read.');},readRecordCurrent:(_cardId,filename)=>({kind:'found',value:{card:{} as never,definition:testRecordDefinition(filename),projection:null}}),readRecordVersion:(_cardId,filename,version)=>({kind:'version-not-found',version})},
+    records:{readRecordCurrent:(_cardId,filename)=>({kind:'found',value:{card:{} as never,definition:testRecordDefinition(filename),projection:null}}),readRecordVersion:(_cardId,filename,version)=>({kind:'version-not-found',version})},
   };
 }
 

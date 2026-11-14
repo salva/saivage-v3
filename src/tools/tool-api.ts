@@ -23,7 +23,6 @@ export type { CompiledToolReference } from './runtime-tool-catalog.js';
 export {
   allowsReachedObject,
   assertReachedObjectAuthority,
-  assertHistoricalObjectAuthority,
 } from './direct-object-authority.js';
 export type { DirectObjectAuthority } from './direct-object-authority.js';
 export type { QueueNotificationToolInput } from './notification-tool.js';

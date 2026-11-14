@@ -921,8 +921,14 @@ direct-resource clause AND ordinary functional/runtime admission. Card/record sc
 unions are self, immediate children, strict descendants (not self) and all, evaluated
 against fresh canonical membership. Globals have no relative anchor and accept only
 all. Scope and record pattern must match within the same clause; no cross-product
-of separate clauses is allowed. Default Planner owns self status and immediate-child
-briefs; child assignment-change proposals return BLOCKED for parent acceptance or
+of separate clauses is allowed. Exact-target checks run at the consuming owner's reached
+boundary: after the canonical current selection validates the requested terminal card and
+before any additional protected history or record content is read. A denied reached target
+refuses without that read. Missing, unlinked and below-tombstone targets are absent, not
+denied. Card version history, version and diff reads support an authorized reached terminal
+tombstone as their target, while still selecting the requested version or diff pivots;
+live record reads treat that tombstone as unavailable after the grant check. Default Planner owns self
+status and immediate-child briefs; child assignment-change proposals return BLOCKED for parent acceptance or
 rejection on that same inactive child. Parent amendments cannot weaken upstream
 obligations; root decisions reach Analyst/operator. Deliberate custom grants,
 including self bootstrap drafts, remain legal.

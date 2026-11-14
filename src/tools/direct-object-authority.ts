@@ -1,5 +1,4 @@
 import { cardParentId, type CapabilityScope } from '../schemas/index.js';
-import type { CardService } from '../cards/store-api.js';
 import type { CompiledToolReference } from './runtime-tool-catalog.js';
 import { ToolArgumentValidationError } from './invocation.js';
 
@@ -64,17 +63,4 @@ export function assertReachedObjectAuthority(
     throw new ToolArgumentValidationError(
       `Tool '${tool}' is not authorized for '${target.kind === 'workspace' ? 'workspace' : `${target.cardId}${target.kind === 'record' ? `/${target.name}` : ''}`}'.`,
     );
-}
-
-/** Historical ownership is current committed membership, including supported tombstones. */
-export function assertHistoricalObjectAuthority(
-  authority: DirectObjectAuthority,
-  store: Pick<CardService, 'readCommittedCardHead'>,
-  tool: string,
-  target: Exclude<DirectObjectTarget, { kind: 'workspace' }>,
-): void {
-  const reached = store.readCommittedCardHead(target.cardId);
-  if (reached.kind !== 'found')
-    throw new ToolArgumentValidationError(`Card '${target.cardId}' not found.`);
-  assertReachedObjectAuthority(authority, tool, target);
 }

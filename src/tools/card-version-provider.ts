@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import {
-  assertHistoricalObjectAuthority,
+  assertReachedObjectAuthority,
   type DirectObjectAuthority,
 } from './direct-object-authority.js';
 import { canonicalValueSha256, sha256Hex } from '../schemas/index.js';
@@ -95,15 +95,11 @@ function listCardVersions(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof listCardVersionsInputSchema>,
 ): Promise<ToolActionOutcome> {
-  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'list_card_versions', {
-    kind: 'card',
-    cardId: params.card_id,
-  });
-  const result = ctx.store.listCardVersions(params.card_id);
+  const result = ctx.store.listCardVersions(params.card_id, undefined, (cardId) =>
+    assertReachedObjectAuthority(ctx.authority, 'list_card_versions', { kind: 'card', cardId }),
+  );
   if (result.kind === 'card-not-found')
-    return Promise.resolve(
-      failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }),
-    );
+    throw new ToolArgumentValidationError(`Card '${params.card_id}' not found.`);
   const versions = result.value;
   const observation = canonicalValueSha256({
     surface: 'list_card_versions',
@@ -145,17 +141,12 @@ function getCardVersion(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof getCardVersionInputSchema>,
 ): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
-  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'get_card_version', {
-    kind: 'card',
-    cardId: params.card_id,
-  });
-  const result = ctx.store.readCardVersion(params.card_id, params.version);
+  const result = ctx.store.readCardVersion(
+    params.card_id, params.version, undefined,
+    (cardId) => assertReachedObjectAuthority(ctx.authority, 'get_card_version', { kind: 'card', cardId }),
+  );
   if (result.kind === 'card-not-found')
-    return Promise.resolve({
-      outcome: failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }),
-      locator: '',
-      sha256: '',
-    });
+    throw new ToolArgumentValidationError(`Card '${params.card_id}' not found.`);
   if (result.kind === 'version-not-found')
     return Promise.resolve({
       outcome: failure('Card version not found.', {
@@ -215,27 +206,14 @@ function diffCardVersions(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof diffCardVersionsInputSchema>,
 ): Promise<ToolActionOutcome> {
-  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'diff_card_versions', {
-    kind: 'card',
-    cardId: params.card_id,
-  });
-  if (params.from_version > params.to_version)
-    return Promise.resolve(
-      failure('Invalid card version pivots.', {
-        code: 'invalid_card_version_pivots',
-        card_id: params.card_id,
-        from_version: params.from_version,
-        to_version: params.to_version,
-      }),
-    );
-  const result = ctx.store.diffCardVersions(params.card_id, {
-    fromVersion: params.from_version,
-    toVersion: params.to_version,
-  });
+  const result = ctx.store.diffCardVersions(
+    params.card_id,
+    { fromVersion: params.from_version, toVersion: params.to_version },
+    undefined,
+    (cardId) => assertReachedObjectAuthority(ctx.authority, 'diff_card_versions', { kind: 'card', cardId }),
+  );
   if (result.kind === 'card-not-found')
-    return Promise.resolve(
-      failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }),
-    );
+    throw new ToolArgumentValidationError(`Card '${params.card_id}' not found.`);
   if (result.kind === 'invalid-pivots')
     return Promise.resolve(
       failure('Invalid card version pivots.', {
@@ -297,12 +275,15 @@ function readRecordVersion(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof readRecordVersionInputSchema>,
 ): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
-  assertHistoricalObjectAuthority(ctx.authority, ctx.store, 'read_record_version', {
-    kind: 'record',
-    cardId: params.card_id,
-    name: params.record_name,
+  let reached = false;
+  const result = ctx.store.readRecordVersion(params.card_id, params.record_name, params.version, undefined, (cardId) => {
+    reached = true;
+    assertReachedObjectAuthority(ctx.authority, 'read_record_version', {
+      kind: 'record', cardId, name: params.record_name,
+    });
   });
-  const result = ctx.store.readRecordVersion(params.card_id, params.record_name, params.version);
+  if (result.kind === 'card-not-found' && !reached)
+    throw new ToolArgumentValidationError(`Card '${params.card_id}' not found.`);
   if (result.kind !== 'found')
     return Promise.resolve({
       outcome: failure('Record version not found.', {

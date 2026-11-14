@@ -18,7 +18,7 @@ import {
 
 const SCRIPT = join(process.cwd(), 'scripts/verify-doc-routes.js');
 jest.setTimeout(240_000);
-const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
+const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/persistence/card-files.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
 const PROCESS_PATHS = ['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
 const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/newloop2/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
 const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
@@ -43,8 +43,8 @@ const EXPECTED_CATALOG = {
   'error.unexpected-internal': ['errors', ['src/contracts/operator-api-core.ts', 'src/server/contract-runtime.ts']],
   'identity.card': ['identities', ['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']],
   'identity.conversation-session': ['identities', ['src/schemas/conversation-session-id.ts']],
-  'pivot.cards-diff-from': ['pivots', ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts']],
-  'pivot.cards-diff-to': ['pivots', ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts']],
+  'pivot.cards-diff-from': ['pivots', ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/persistence/card-files.ts', 'src/server/routes/operator-runtime-card-handlers.ts']],
+  'pivot.cards-diff-to': ['pivots', ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/persistence/card-files.ts', 'src/server/routes/operator-runtime-card-handlers.ts']],
   'pivot.ui-cards-diff-current-request': ['pivots', ['web/src/api/client.ts', 'web/src/stores/cards.ts']],
   'tools.exclusive-identities': ['tools', TOOL_RELATION_PATHS],
   'tools.projector-presenter-equality': ['tools', TOOL_RELATION_PATHS],
@@ -166,12 +166,14 @@ const SOURCE_MUTATIONS = [
   ['history handler pass-through', verifyErrorShapeDocs, 'src/server/routes/operator-runtime-card-handlers.ts', 'getHistoryEntry(params.id, params.version)'],
   ['diff handler pass-through', verifyErrorShapeDocs, 'src/server/routes/operator-runtime-card-handlers.ts', 'diffCard(params.id, query)'],
   ['historical read-model serialization', verifyErrorShapeDocs, 'src/application/read-models/cards-read-model.ts', "body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version"],
-  ['history committed predecessor selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'readCommittedCardVersion(this.projectRoot, id, version, instrumentation)'],
+  ['history committed predecessor selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'readCommittedCardVersion(this.projectRoot, id, version, instrumentation, checkReached)'],
   ['history card absence', verifyErrorShapeDocs, 'src/cards/card-service.ts', "if (catalog.kind === 'card-not-found') return catalog"],
   ['history exact sparse artifact', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'const row = catalog.value'],
   ['history exact version', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'row.version === version'],
   ['history version absence', verifyErrorShapeDocs, 'src/cards/card-service.ts', "{ kind: 'version-not-found', version }"],
-  ['diff service selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', "kind: 'version-not-found' as const, version, side"],
+  ['diff service from selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', "if (!fromArtifact) return { kind: 'version-not-found', version: from, side: 'from' }"],
+  ['diff service to selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', "return { kind: 'version-not-found', version: to, side: 'to' }"],
+  ['diff persistence from selection', verifyErrorShapeDocs, 'src/persistence/card-files.ts', 'fromArtifact: rows.find((row) => row.version === from) ?? null'],
   ['Analyst busy declaration', verifyErrorShapeDocs, 'src/contracts/operator-api-chats.ts', "error: z.literal('analyst_turn_busy')"],
   ['Analyst busy frozen constant', verifyErrorShapeDocs, 'src/contracts/operator-api-chats.ts', 'ANALYST_TURN_BUSY_ERROR = Object.freeze('],
   ['Analyst busy REST mapping', verifyErrorShapeDocs, 'src/server/routes/operator-chat-handlers.ts', 'statusCode: 409, body: ANALYST_TURN_BUSY_ERROR'],
@@ -264,9 +266,11 @@ const SOURCE_MUTATIONS = [
   ['backend numeric refinement', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success'],
   ['backend numeric transform', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', '.transform(Number)'],
   ['backend read-model mapping', verifyCardDiffPivotDocs, 'src/application/read-models/cards-read-model.ts', 'fromVersion: query.from,\n      toVersion: query.to'],
-  ['backend service numeric meaning', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "typeof pivots.toVersion === 'number'\n        ? pivots.toVersion"],
-  ['backend service current owner', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', 'readCommittedCardCurrent(this.projectRoot, id, instrumentation)'],
-  ['backend service tagged current projection', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "head_id: current.value.headId"],
+  ['backend persistence numeric meaning', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', "typeof pivots.toVersion === 'number'\n    ? pivots.toVersion"],
+  ['backend persistence current meaning', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', 'fold.tombstone ? fold.head.version : current.card.version_seq'],
+  ['backend persistence historical target', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', 'rows.find((row) => row.version === to) ?? null'],
+  ['backend persistence current owner', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', 'const current = canonicalProjection(fold)'],
+  ['backend service tagged current projection', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', 'head_id: current.headId'],
   ...[
     ['UI previous-owner abort', 'diffOwner?.controller.abort()'],
     ['UI accepted card key', 'cardHistoryDiffKey.value?.cardId === key.cardId'],

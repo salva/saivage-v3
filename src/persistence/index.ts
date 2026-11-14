@@ -57,12 +57,13 @@ export {
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,
   readCommittedCardVersion,
-  readCommittedCardVersionPair,
+  readCommittedCardDiffSelection,
   readPendingCardNotifications,
   readLinkedChildren,
   readLinkedChildrenProjection,
 } from './card-files.js';
 export type {
+  ReachedCardCheck,
   CanonicalCardFileSlot,
   CanonicalCardProjection,
   CanonicalLinkedChildrenProjection,
