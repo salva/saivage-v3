@@ -377,6 +377,13 @@ Architecture remains a leaf without descendant context. See the
 [exact newloop2 contract](../spec/system-specification.md#newloop2-explicit-review-loop).
 Its selected physical closure is independently compiled/copied/recompiled; old
 classic/PAAD/newloop config/path/byte parity checks remain separate and unchanged.
+Across these four typed profiles, code `green / still_red → green` and research
+`explore / evidence_ready → assess` are promptless authored edges; the three test
+routes into `verify` retain their shared evidence-qualification prompt. The first
+three profiles share the frozen typed config, while newloop2 declares its own
+matching leaf routes. Runtime transition facts, node preparation and record gates
+are unchanged. The removed edge hosts are absent from the selected source/package
+closures; this does not update installed materialized or custom hosts.
 [Prompt handling](./prompts.md) owns host tokens, declaration retention,
 customization and prepared-versus-historical explanation.
 

@@ -2311,19 +2311,27 @@ else throw new Error('Unknown fixture mode');
         .filter((row) => row.kind === 'text' && row.content.includes('attempts remaining'))
         .every((row) => row.instruction_origin === undefined),
     ).toBe(true);
-    expect(transitions.map((text) => text.match(/^Previous process node: ([^\n]+)/u)?.[1])).toEqual(
-      ['red', 'green', 'green'],
-    );
-    expect(transitions[0]).toMatch(/record:\/\/\/status\.md\?card=card-[a-z-]+&v=\d+/u);
-    expect(transitions[1]).toContain('Accepted outcome: still_red');
-    expect(
-      readConversation(run.root, `agent:executor:${childId}`).physicalRows.filter(
-        (row) =>
-          row.role === 'user' &&
-          row.kind === 'text' &&
-          row.content.includes('prior repair attempt remains red'),
-      ),
-    ).toHaveLength(1);
+    const acceptedVisits = [
+      { node: 'red', outcome: 'red_confirmed', summary: 'Defect reproduced.', content: 'Defect reproduced.' },
+      { node: 'green', outcome: 'still_red', summary: 'First repair remains red.', content: 'First repair remains red.' },
+      { node: 'green', outcome: 'green', summary: 'Focused check passes.', content: 'Second repair is green.' },
+    ];
+    const factualPreludes = acceptedVisits.map((visit, index) => [
+      `Previous process node: ${visit.node}`,
+      `Accepted outcome: ${visit.outcome}`,
+      `Summary: ${visit.summary}`,
+      'Records:',
+      `- record:///status.md?card=${childId}&v=${index + 1}`,
+    ]);
+    expect(transitions.map(text => text.split('\n').slice(0, 5))).toEqual(factualPreludes);
+    expect(rows.filter(row => row.role === 'user' && row.kind === 'text' && row.content.startsWith('Previous process node: '))
+      .map(row => row.content.split('\n').slice(0, 5))).toEqual(factualPreludes);
+    for (const [index, visit] of acceptedVisits.entries()) {
+      expect(run.cards.readRecordVersion(childId, 'status.md', index + 1)).toMatchObject({
+        kind: 'found',
+        value: { projection: { accepted: { source_version: index + 1, content: visit.content } } },
+      });
+    }
     expect(run.cards.read(run.child.id)!.lifecycle).toMatchObject({
       status: 'done',
       result: {

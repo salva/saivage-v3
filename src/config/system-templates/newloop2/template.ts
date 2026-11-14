@@ -149,7 +149,7 @@ function codeCardType(): CardTypeSource {
         }),
         green: executorNode('code-green', {
           green: transition('refactor', 'code-to-refactor'),
-          still_red: transition('green', 'code-green-retry'),
+          still_red: { target: { node: 'green' } },
           blocked: terminal('BLOCKED', 'status.md'),
           failed: terminal('FAILED', 'status.md'),
         }),
@@ -215,7 +215,7 @@ function researchCardType(): CardTypeSource {
       nodes: {
         'resume-assess': assessmentNode(['explore', 'assess', 'report']),
         explore: executorNode('research-explore', {
-          evidence_ready: transition('assess', 'research-to-assess'),
+          evidence_ready: { target: { node: 'assess' } },
           more_exploration: transition('explore', 'research-continue-exploration'),
           blocked: terminal('BLOCKED', 'status.md'),
           failed: terminal('FAILED', 'status.md'),

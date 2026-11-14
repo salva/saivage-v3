@@ -447,6 +447,24 @@ role that the primary invocation receives; a node does not restate it.
 Conditional record-prompt feeds may be suppressed when the observation is unchanged;
 the accepted bootstrap block is still supplied freshly at each logical operation.
 
+In `classic-typed`, `paad-typed`, `newloop` and `newloop2`, the code
+`green / still_red → green` retry and research `explore / evidence_ready → assess`
+handoff have no authored edge prompt. Their accepted-transition prelude still carries
+the source node, outcome, summary and immutable accepted-record URLs. The full current
+`code-green` or `research-assess` node owns the destination task and method; the
+prelude supplies accepted facts rather than another copy of that method. For test
+`diagnose / coverage_ready`, `add-coverage / coverage_passing` and
+`repair / tests_passing` transitions to `verify`, the retained `test-to-verify`
+edge qualifies passing focused tests as applicable author/check evidence, not
+independent approval, whether they passed at diagnosis or after coverage or repair.
+The current `test-verify` node owns the remaining acceptance work.
+
+These are source/package selections, not an update to installed or custom hosts.
+Existing authored edge occurrences remain historical; removing a future occurrence
+does not rewrite history or change retention. The primary and summary compositions
+above remain distinct: summary orientation includes the current node but not the
+primary role.
+
 The shared Planner interprets separately supplied `cardType`: project strategy
 through complete evidenced acceptance versus goal-local decomposition/repair.
 There is one role artifact, not a project/goal role classifier. Executor owns

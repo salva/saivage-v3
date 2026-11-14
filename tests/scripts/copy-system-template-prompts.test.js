@@ -60,9 +60,9 @@ const TYPED_CLOSURE = [
   ...['analyst', 'executor', 'oversight', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
   ...['common', 'planner', 'executor', 'reviewer', 'analyst', 'oversight'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   ...['correct-execution-result', 'correct-plan-result', 'correct-review-result', 'execute', 'handle-notifications', 'review-to-notifications', 'specialized-plan-to-review', 'specialized-plan', 'specialized-recover', 'specialized-review-to-plan', 'specialized-review', 'stopped-recovery'].map((id) => `process/_shared/${id}.md`),
-  ...['code-red', 'code-green', 'code-refactor', 'code-red-to-green', 'code-to-refactor', 'code-green-retry', 'code-regression-to-green'].map((id) => `process/code/${id}.md`),
+  ...['code-red', 'code-green', 'code-refactor', 'code-red-to-green', 'code-to-refactor', 'code-regression-to-green'].map((id) => `process/code/${id}.md`),
   ...['test-diagnose', 'test-add-coverage', 'test-repair', 'test-verify', 'test-to-add-coverage', 'test-to-repair', 'test-to-verify', 'test-repair-retry'].map((id) => `process/test/${id}.md`),
-  ...['research-explore', 'research-assess', 'research-report', 'research-to-assess', 'research-continue-exploration', 'research-supported-to-report', 'research-refuted-to-report', 'research-inconclusive-to-report'].map((id) => `process/research/${id}.md`),
+  ...['research-explore', 'research-assess', 'research-report', 'research-continue-exploration', 'research-supported-to-report', 'research-refuted-to-report', 'research-inconclusive-to-report'].map((id) => `process/research/${id}.md`),
   ...['data-schema', 'data-validate', 'data-implement', 'data-to-validate', 'data-to-implement', 'data-revise-schema', 'data-implementation-retry'].map((id) => `process/data/${id}.md`),
   ...['architecture-draft', 'architecture-component-review', 'architecture-system-review', 'architecture-to-component-review', 'architecture-to-system-review', 'architecture-component-revision', 'architecture-system-revision', 'architecture-notifications-to-draft'].map((id) => `process/architecture/${id}.md`),
 ].sort();
