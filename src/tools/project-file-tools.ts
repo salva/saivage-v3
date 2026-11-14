@@ -14,6 +14,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { z } from 'zod';
+import type { CardAgentRecordMutationPort } from '../application/index.js';
 
 import type { AgentName } from '../schemas/index.js';
 import type { RecordSelectionObservation } from '../schemas/index.js';
@@ -67,7 +68,7 @@ const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
 export type WorkspaceContext = {
   authority?: import('./direct-object-authority.js').DirectObjectAuthority;
-  recordMutations?: import('../application/record-mutation-service.js').CardAgentRecordMutationPort;
+  recordMutations?: CardAgentRecordMutationPort;
   projectRoot: string;
   cardId?: string;
   agentName?: AgentName;

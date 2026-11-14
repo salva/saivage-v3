@@ -1,4 +1,5 @@
 import type { CardService } from '../cards/store-api.js';
+import type { CardAgentRecordMutationPort } from '../application/index.js';
 import type { DirectObjectAuthority } from './direct-object-authority.js';
 import {
   capabilityResourceSchema,
@@ -92,7 +93,7 @@ export interface CardToolBindingContext {
   readonly processOwnerId?: string;
   readonly mcpToolInvocation: McpToolInvocationPort;
   readonly onRecordWritten?: (name: string) => void;
-  readonly recordMutations: import('../application/record-mutation-service.js').CardAgentRecordMutationPort;
+  readonly recordMutations: CardAgentRecordMutationPort;
 }
 
 export interface GlobalToolBindingContext {

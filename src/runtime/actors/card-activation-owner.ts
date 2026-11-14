@@ -5,6 +5,7 @@ import type { ChildInvocationLease } from './child-invocation-wait.js';
 import type { CardProcessActor } from './card-process-actor.js';
 import { deferred, type Deferred } from './deferred.js';
 import type { DirectObjectAuthority } from '../../tools/tool-api.js';
+import type { CardAgentRecordMutationPort } from '../../application/index.js';
 
 export interface AcceptedSource {
   readonly branch_ref: string;
@@ -26,20 +27,12 @@ export interface CardActivationInput {
   recordMutations: {
     admit(
       ordinal: number,
-      request: Parameters<
-        import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['admit']
-      >[0],
-    ): ReturnType<
-      import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['admit']
-    >;
+      request: Parameters<CardAgentRecordMutationPort['admit']>[0],
+    ): ReturnType<CardAgentRecordMutationPort['admit']>;
     mutate(
       ordinal: number,
-      request: Parameters<
-        import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['mutate']
-      >[0],
-    ): ReturnType<
-      import('../../application/record-mutation-service.js').CardAgentRecordMutationPort['mutate']
-    >;
+      request: Parameters<CardAgentRecordMutationPort['mutate']>[0],
+    ): ReturnType<CardAgentRecordMutationPort['mutate']>;
   };
   nativeSource?: {
     checkpoint(

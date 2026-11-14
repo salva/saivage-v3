@@ -36,6 +36,7 @@ import {
 import { boundedToolError } from './response-packer.js';
 import type { AgentName } from '../schemas/index.js';
 import type { CardService } from '../cards/store-api.js';
+import type { CardAgentRecordMutationPort } from '../application/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';
@@ -46,7 +47,7 @@ import { toolRecordSucceeded } from '../contracts/index.js';
 
 export interface WorkspaceProviderContext {
   readonly authority?: import('./direct-object-authority.js').DirectObjectAuthority;
-  readonly recordMutations?: import('../application/record-mutation-service.js').CardAgentRecordMutationPort;
+  readonly recordMutations?: CardAgentRecordMutationPort;
   readonly assertGlobalSourceWrite?: (absolutePath: string) => void;
   readonly projectRoot: string;
   readonly cardId?: string;
