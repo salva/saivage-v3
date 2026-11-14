@@ -20,10 +20,7 @@ export {
   surfaceToolContracts,
 } from './runtime-tool-catalog.js';
 export type { CompiledToolReference } from './runtime-tool-catalog.js';
-export {
-  allowsReachedObject,
-  assertReachedObjectAuthority,
-} from './direct-object-authority.js';
+export { allowsReachedObject, assertReachedObjectAuthority } from './direct-object-authority.js';
 export type { DirectObjectAuthority } from './direct-object-authority.js';
 export type { QueueNotificationToolInput } from './notification-tool.js';
 export { submitNotificationTool } from './notification-tool.js';

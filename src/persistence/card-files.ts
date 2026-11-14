@@ -648,21 +648,26 @@ export function readCommittedCardDiffSelection(
   pivots: { fromVersion: number; toVersion?: number | 'current' },
   instrumentation?: CanonicalReadInstrumentation,
   checkReached?: ReachedCardCheck,
-): CardTargetRead<{
-  current: CanonicalCardProjection;
-  from: number;
-  to: number;
-  fromArtifact: CardArtifact | null;
-  toArtifact: CardArtifact | null;
-}> | { kind: 'invalid-pivots'; from: number; to: number } {
+):
+  | CardTargetRead<{
+      current: CanonicalCardProjection;
+      from: number;
+      to: number;
+      fromArtifact: CardArtifact | null;
+      toArtifact: CardArtifact | null;
+    }>
+  | { kind: 'invalid-pivots'; from: number; to: number } {
   cardIdSchema.parse(cardId);
   const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached);
   if (!fold) return { kind: 'card-not-found' };
   const current = canonicalProjection(fold);
   const from = pivots.fromVersion;
-  const to = typeof pivots.toVersion === 'number'
-    ? pivots.toVersion
-    : fold.tombstone ? fold.head.version : current.card.version_seq;
+  const to =
+    typeof pivots.toVersion === 'number'
+      ? pivots.toVersion
+      : fold.tombstone
+        ? fold.head.version
+        : current.card.version_seq;
   if (from > to) return { kind: 'invalid-pivots', from, to };
   const rows = readHistory(resolve(projectRoot), fold, instrumentation, from);
   return {
@@ -672,9 +677,12 @@ export function readCommittedCardDiffSelection(
       from,
       to,
       fromArtifact: rows.find((row) => row.version === from) ?? null,
-      toArtifact: typeof pivots.toVersion === 'number'
-        ? rows.find((row) => row.version === to) ?? null
-        : fold.tombstone ? fold.head : null,
+      toArtifact:
+        typeof pivots.toVersion === 'number'
+          ? (rows.find((row) => row.version === to) ?? null)
+          : fold.tombstone
+            ? fold.head
+            : null,
     },
   };
 }

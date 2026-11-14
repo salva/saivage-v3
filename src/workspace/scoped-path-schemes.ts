@@ -3,11 +3,12 @@ import { relative, resolve } from 'node:path';
 import type { AgentName, RecordDefinition } from '../schemas/index.js';
 import type { RecordProjection } from '../persistence/index.js';
 import type { CardService } from '../cards/store-api.js';
-type CompleteRecordReader = Pick<
-  CardService,
-  'readRecordCurrent' | 'readRecordVersion'
->;
-import { assertReachedObjectAuthority, ToolArgumentValidationError, type DirectObjectAuthority } from '../tools/tool-api.js';
+type CompleteRecordReader = Pick<CardService, 'readRecordCurrent' | 'readRecordVersion'>;
+import {
+  assertReachedObjectAuthority,
+  ToolArgumentValidationError,
+  type DirectObjectAuthority,
+} from '../tools/tool-api.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import {
   buildScopedPathUrl,
@@ -139,16 +140,26 @@ export function resolveRecordReadTarget(
   }
   let reached = false;
   const selection = ctx.selection;
-  const checkReached = selection ? (cardId: string) => {
-    reached = true;
-    assertReachedObjectAuthority(selection.authority, selection.tool, {
-      kind: 'record', cardId, name: parsed.name,
-    });
-  } : undefined;
+  const checkReached = selection
+    ? (cardId: string) => {
+        reached = true;
+        assertReachedObjectAuthority(selection.authority, selection.tool, {
+          kind: 'record',
+          cardId,
+          name: parsed.name,
+        });
+      }
+    : undefined;
   const result =
     parsed.version === null
       ? ctx.records.readRecordCurrent(parsed.cardId, parsed.name, undefined, checkReached)
-      : ctx.records.readRecordVersion(parsed.cardId, parsed.name, parsed.version, undefined, checkReached);
+      : ctx.records.readRecordVersion(
+          parsed.cardId,
+          parsed.name,
+          parsed.version,
+          undefined,
+          checkReached,
+        );
   if (ctx.selection && result.kind === 'card-not-found' && !reached)
     throw new ToolArgumentValidationError(`Card '${parsed.cardId}' not found.`);
   if (result.kind !== 'found') throw ctx.fail('Record not found.');

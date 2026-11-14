@@ -141,9 +141,8 @@ function getCardVersion(
   ctx: CardVersionProviderContext,
   params: z.infer<typeof getCardVersionInputSchema>,
 ): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
-  const result = ctx.store.readCardVersion(
-    params.card_id, params.version, undefined,
-    (cardId) => assertReachedObjectAuthority(ctx.authority, 'get_card_version', { kind: 'card', cardId }),
+  const result = ctx.store.readCardVersion(params.card_id, params.version, undefined, (cardId) =>
+    assertReachedObjectAuthority(ctx.authority, 'get_card_version', { kind: 'card', cardId }),
   );
   if (result.kind === 'card-not-found')
     throw new ToolArgumentValidationError(`Card '${params.card_id}' not found.`);
@@ -210,7 +209,8 @@ function diffCardVersions(
     params.card_id,
     { fromVersion: params.from_version, toVersion: params.to_version },
     undefined,
-    (cardId) => assertReachedObjectAuthority(ctx.authority, 'diff_card_versions', { kind: 'card', cardId }),
+    (cardId) =>
+      assertReachedObjectAuthority(ctx.authority, 'diff_card_versions', { kind: 'card', cardId }),
   );
   if (result.kind === 'card-not-found')
     throw new ToolArgumentValidationError(`Card '${params.card_id}' not found.`);
@@ -276,12 +276,20 @@ function readRecordVersion(
   params: z.infer<typeof readRecordVersionInputSchema>,
 ): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
   let reached = false;
-  const result = ctx.store.readRecordVersion(params.card_id, params.record_name, params.version, undefined, (cardId) => {
-    reached = true;
-    assertReachedObjectAuthority(ctx.authority, 'read_record_version', {
-      kind: 'record', cardId, name: params.record_name,
-    });
-  });
+  const result = ctx.store.readRecordVersion(
+    params.card_id,
+    params.record_name,
+    params.version,
+    undefined,
+    (cardId) => {
+      reached = true;
+      assertReachedObjectAuthority(ctx.authority, 'read_record_version', {
+        kind: 'record',
+        cardId,
+        name: params.record_name,
+      });
+    },
+  );
   if (result.kind === 'card-not-found' && !reached)
     throw new ToolArgumentValidationError(`Card '${params.card_id}' not found.`);
   if (result.kind !== 'found')

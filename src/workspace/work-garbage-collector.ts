@@ -221,7 +221,13 @@ export async function inventoryWorkGarbage(
   if (rootStat)
     for await (const name of names(root, check, true)) await visit(join(root, name), [name], null);
   observe();
-  return { projectRoot, candidates, entries, observed_logical_bytes: bytes, opaque_entries: opaque };
+  return {
+    projectRoot,
+    candidates,
+    entries,
+    observed_logical_bytes: bytes,
+    opaque_entries: opaque,
+  };
 }
 
 type ReferenceOrigin = 'content' | 'operational';
@@ -364,8 +370,12 @@ class WorkReferences {
         }
         paths = [resolve(this.root, 'cards', card!, 'tmp', ...rest)];
       } else {
-        paths = [resolve(scheme[1] === 'system' ? '/' :
-          scheme[1] === 'work' ? this.root : this.projectRoot, tail)];
+        paths = [
+          resolve(
+            scheme[1] === 'system' ? '/' : scheme[1] === 'work' ? this.root : this.projectRoot,
+            tail,
+          ),
+        ];
       }
     } else if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(value)) {
       try {
@@ -379,8 +389,8 @@ class WorkReferences {
         this.protectAll('reference_scope_unknown', source);
         return [];
       }
-    } else paths = isAbsolute(value) ? [value] : bases.map(base => resolve(base, value));
-    return paths.flatMap(path => {
+    } else paths = isAbsolute(value) ? [value] : bases.map((base) => resolve(base, value));
+    return paths.flatMap((path) => {
       const actual = this.resolvePath(path, source);
       return actual === null ? [] : [actual];
     });
@@ -415,7 +425,8 @@ class WorkReferences {
     if (slash >= 0) {
       let prefix = pattern.slice(0, slash + 1);
       // scopes() decodes URI input, so re-encode only the already decoded literal tail.
-      if (uri) prefix = uri[0] + prefix.slice(uri[0].length).split('/').map(encodeURIComponent).join('/');
+      if (uri)
+        prefix = uri[0] + prefix.slice(uri[0].length).split('/').map(encodeURIComponent).join('/');
       scopes = await this.scopes(prefix, bases, origin, source);
       pattern = pattern.slice(slash + 1);
     }
@@ -423,8 +434,14 @@ class WorkReferences {
     const matched = new Set<string>();
     for (const entry of this.entries) {
       await this.visit();
-      if (scopes.some(scope => entry !== scope && within(scope, entry) &&
-        matcher.test(normalizeRel(relative(scope, entry))))) {
+      if (
+        scopes.some(
+          (scope) =>
+            entry !== scope &&
+            within(scope, entry) &&
+            matcher.test(normalizeRel(relative(scope, entry))),
+        )
+      ) {
         matched.add(entry);
         if (matched.size === 51) return;
       }
@@ -444,13 +461,22 @@ class WorkReferences {
     if (token.includes('${') || token.includes('$(')) {
       const prefix = token.split(/\$/u)[0]!;
       if (prefix.includes('/'))
-        await this.token(prefix.endsWith('/') ? prefix : dirname(prefix), bases, origin, source, true);
+        await this.token(
+          prefix.endsWith('/') ? prefix : dirname(prefix),
+          bases,
+          origin,
+          source,
+          true,
+        );
       else this.protectAll('reference_scope_unknown', source);
       return;
     }
-    if (!exact && (/[*?]/u.test(token) ||
-      /^(?:project|system|work|tmp|file):\/\/.*%(?:2a|3f)/iu.test(token)) &&
-      (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(token) || /^(?:project|system|work|tmp|file):/u.test(token))) {
+    if (
+      !exact &&
+      (/[*?]/u.test(token) || /^(?:project|system|work|tmp|file):\/\/.*%(?:2a|3f)/iu.test(token)) &&
+      (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(token) ||
+        /^(?:project|system|work|tmp|file):/u.test(token))
+    ) {
       await this.glob(token, bases, origin, source);
       return;
     }
@@ -533,25 +559,37 @@ class WorkReferences {
     }
     const decodeQuote = (quoted: string): string => {
       if (quoted.startsWith('"')) {
-        try { return JSON.parse(quoted) as string; } catch { /* Ordinary prose. */ }
+        try {
+          return JSON.parse(quoted) as string;
+        } catch {
+          /* Ordinary prose. */
+        }
       }
       return quoted.slice(1, -1);
     };
-    const assignment = String.raw`\b([a-zA-Z_]\w*)[ \t]*=[ \t]*("(?:\\.|[^"\\\r\n])*"|'[^'\r\n]*'|` +
-      '`[^`\\r\\n]*`' + ')';
+    const assignment =
+      String.raw`\b([a-zA-Z_]\w*)[ \t]*=[ \t]*("(?:\\.|[^"\\\r\n])*"|'[^'\r\n]*'|` +
+      '`[^`\\r\\n]*`' +
+      ')';
     const group = new RegExp(`${assignment}(?:[ \\t]*,[ \\t]*${assignment})+`, 'gu');
     for (const match of [...text.matchAll(group)]) {
       await this.visit();
       const fields = [...match[0].matchAll(new RegExp(assignment, 'gu'))];
-      const directories = fields.filter(field => field[1] === 'directory');
-      const patterns = fields.filter(field => field[1] === 'pattern');
+      const directories = fields.filter((field) => field[1] === 'directory');
+      const patterns = fields.filter((field) => field[1] === 'pattern');
       if (!patterns.length) continue;
-      const pairedScopes = directories.length === 1 && patterns.length === 1
-        ? await this.scopes(decodeQuote(directories[0]![2]!), bases, origin, source) : bases;
-      for (const field of patterns) await this.glob(decodeQuote(field[2]!), pairedScopes, origin, source);
+      const pairedScopes =
+        directories.length === 1 && patterns.length === 1
+          ? await this.scopes(decodeQuote(directories[0]![2]!), bases, origin, source)
+          : bases;
+      for (const field of patterns)
+        await this.glob(decodeQuote(field[2]!), pairedScopes, origin, source);
       // Consume only scope/pattern metadata; other assignments remain independent references.
-      const consumed = match[0].replace(new RegExp(assignment, 'gu'),
-        (span: string, name: string) => name === 'directory' || name === 'pattern' ? ' '.repeat(span.length) : span);
+      const consumed = match[0].replace(
+        new RegExp(assignment, 'gu'),
+        (span: string, name: string) =>
+          name === 'directory' || name === 'pattern' ? ' '.repeat(span.length) : span,
+      );
       text = text.slice(0, match.index) + consumed + text.slice(match.index! + match[0].length);
     }
     // Matching delimiters preserve common filenames with spaces. Native single quotes
@@ -567,7 +605,9 @@ class WorkReferences {
       )
         tokens.add(quoted);
     };
-    for (const match of [...text.matchAll(/`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|(?:\]\()([^\r\n]+?)\)/gu)]) {
+    for (const match of [
+      ...text.matchAll(/`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|(?:\]\()([^\r\n]+?)\)/gu),
+    ]) {
       await this.visit();
       if (match[0].startsWith('"')) {
         const decoded = decodeQuote(match[0]);
@@ -575,7 +615,10 @@ class WorkReferences {
           await this.text(decoded, bases, origin, source, false, scopes);
         else addQuoted(decoded);
       } else addQuoted(match[1] ?? match[2]!);
-      text = text.slice(0, match.index) + ' '.repeat(match[0].length) + text.slice(match.index! + match[0].length);
+      text =
+        text.slice(0, match.index) +
+        ' '.repeat(match[0].length) +
+        text.slice(match.index! + match[0].length);
     }
     const wordBefore = (index: number): boolean =>
       /[\p{L}\p{N}_]$/u.test(text.slice(Math.max(0, index - 2), index));
@@ -654,13 +697,20 @@ class WorkReferences {
       for (const child of value) await this.value(child, origin, source, bases, key, scopes);
     } else if (value && typeof value === 'object') {
       const object = value as Record<string, unknown>;
-      const directory = typeof object.directory === 'string' ? object.directory :
-        typeof object.cwd === 'string' ? object.cwd : null;
-      const localScopes = directory === null ? scopes : await this.scopes(directory, scopes, origin, source);
-      const cwdScopes = typeof object.cwd === 'string' && typeof object.directory === 'string'
-        ? await this.scopes(object.cwd, scopes, origin, source) : localScopes;
+      const directory =
+        typeof object.directory === 'string'
+          ? object.directory
+          : typeof object.cwd === 'string'
+            ? object.cwd
+            : null;
+      const localScopes =
+        directory === null ? scopes : await this.scopes(directory, scopes, origin, source);
+      const cwdScopes =
+        typeof object.cwd === 'string' && typeof object.directory === 'string'
+          ? await this.scopes(object.cwd, scopes, origin, source)
+          : localScopes;
       const localBases = typeof object.cwd === 'string' ? [...bases, ...cwdScopes] : bases;
-      const paired = directory !== null && await this.hasPattern(object);
+      const paired = directory !== null && (await this.hasPattern(object));
       for (const [name, child] of Object.entries(object)) {
         if (paired && (name === 'directory' || name === 'cwd')) continue;
         const meaning =
@@ -678,8 +728,12 @@ class WorkReferences {
     await this.visit();
     if (typeof value === 'string') {
       let parsed: unknown;
-      try { parsed = JSON.parse(value); } catch { return false; }
-      return parsed !== value && await this.hasPattern(parsed);
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return false;
+      }
+      return parsed !== value && (await this.hasPattern(parsed));
     }
     if (!value || typeof value !== 'object') return false;
     for (const [name, child] of Object.entries(value)) {
@@ -767,7 +821,12 @@ export async function collectWorkGarbage(
   check();
   await setImmediate();
   check();
-  const refs = new WorkReferences(inventory.projectRoot, inventory.entries, check, context.progress);
+  const refs = new WorkReferences(
+    inventory.projectRoot,
+    inventory.entries,
+    check,
+    context.progress,
+  );
   if (context.protection.retainAll) refs.protectAll('process_owner_uncertain', 'process_owner');
   for (const path of context.protection.capturePaths) {
     await setImmediate();

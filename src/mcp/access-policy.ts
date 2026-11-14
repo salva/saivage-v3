@@ -59,7 +59,6 @@ export class McpAdmission {
     return caller.principal.kind !== 'card' || path.includes(caller.principal.cardId);
   }
   liveAnchor(policy: McpAccessPolicy, path: readonly string[]): void {
-    if (path.at(-1) !== policy.controllerCardId)
-      this.unavailable();
+    if (path.at(-1) !== policy.controllerCardId) this.unavailable();
   }
 }

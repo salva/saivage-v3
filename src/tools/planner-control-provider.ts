@@ -86,7 +86,8 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
     }),
     defineToolBinder({
       name: 'activate_card',
-      description: 'Activate one immediate child and return its result. Supply current-task direction under its accepted brief, not replacement requirements.',
+      description:
+        'Activate one immediate child and return its result. Supply current-task direction under its accepted brief, not replacement requirements.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => activateCardArgumentsSchema,
       executor: (ctx, args, _signal, invocation) =>

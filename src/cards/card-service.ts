@@ -778,7 +778,10 @@ export class CardService {
     checkReached?: ReachedCardCheck,
   ): CardVersionListResult {
     const catalog = readCommittedCardArtifactCatalog(
-      this.projectRoot, id, instrumentation, checkReached,
+      this.projectRoot,
+      id,
+      instrumentation,
+      checkReached,
     );
     return catalog.kind === 'card-not-found'
       ? catalog
@@ -791,7 +794,13 @@ export class CardService {
     checkReached?: ReachedCardCheck,
   ): CardVersionContentResult {
     positiveSafeIntegerSchema.parse(version);
-    const catalog = readCommittedCardVersion(this.projectRoot, id, version, instrumentation, checkReached);
+    const catalog = readCommittedCardVersion(
+      this.projectRoot,
+      id,
+      version,
+      instrumentation,
+      checkReached,
+    );
     if (catalog.kind === 'card-not-found') return catalog;
     const row = catalog.value;
     return row && row.version === version
@@ -808,7 +817,11 @@ export class CardService {
     if (pivots.toVersion !== undefined && pivots.toVersion !== 'current')
       positiveSafeIntegerSchema.parse(pivots.toVersion);
     const selection = readCommittedCardDiffSelection(
-      this.projectRoot, id, pivots, instrumentation, checkReached,
+      this.projectRoot,
+      id,
+      pivots,
+      instrumentation,
+      checkReached,
     );
     if (selection.kind !== 'found') return selection;
     const { current, from, to, fromArtifact, toArtifact } = selection.value;
