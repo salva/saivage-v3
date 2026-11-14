@@ -1,6 +1,6 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import Fastify from 'fastify';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, rmSync, existsSync, utimesSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, rmSync, existsSync, utimesSync, appendFileSync, symlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -376,7 +376,9 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       }
       if (flags.length) {
         const privateSentinel = 'PRIVATE-online-global-source';
-        author.acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: `*${privateSentinel}` }), { kind: 'agent', agent: 'analyst' });
+        const unresolvedAlias = join(root, privateSentinel);
+        symlinkSync(join(root, 'missing-alias-target'), unresolvedAlias);
+        author.acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: unresolvedAlias }), { kind: 'agent', agent: 'analyst' });
         const globalOutput = jest.spyOn(console, 'log').mockImplementation(() => {});
         const globalProgress = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
         try {
