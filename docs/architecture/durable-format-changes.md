@@ -23,6 +23,28 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+Child activation result formatting from actual implementation source parent
+`f6d93ccccf0058797f037151c37fdb6d488754d1` removes the outer summary only
+from newly produced normal done/failed/blocked tool data; the full typed result
+and its nested summary remain. Cancelled/stopped results retain their outer
+summary. Settlement redacts and serializes the new result into durable conversation
+content with its hash, so this is a change to future recorded bytes.
+
+There is no retained-interpretation change or discriminator bump for this change:
+`contracts/tool-result.ts` treats data as opaque, and
+`contracts/conversation-validation.ts` validates the envelope rather than a
+historical activation-data schema. `runtime/actors/context/composition-projector.ts`
+retains activation result content; its specialized result interpretation is for
+process tools. Generic historical outbound projection preserves the historical
+fields subject to ordinary redaction. `persistence/work-gc-protection.ts` yields
+result data as semantic content, including the unchanged nested narrative and
+references. The existing UI presenter also exposes the nested result. No strict
+historical activation-data consumer was found. Retained rows, hashes, selection
+and meaning are not rewritten; this change alone requires no migration. Offline
+regression fixtures exercise historical primary and summarizer projection and a
+waiting parent's continuation with persisted content and hash. This is source
+evidence, not an installed-state or whole-release compatibility assertion.
+
 **Own-assignment review applicability — 2026-11-11**
 
 Actual implementation source parent `678c0536487d65a9adda1a4e78a335cbbbb9a995`

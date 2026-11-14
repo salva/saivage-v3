@@ -35,26 +35,9 @@ export function formatActivateCardResult(
       summary: outcome.summary,
     });
   }
-  if (outcome.status === 'done') {
-    return toolSucceeded({
-      card_id: cardId,
-      outcome: outcome.status,
-      summary: outcome.summary,
-      result: outcome.result,
-    });
-  }
-  if (outcome.status === 'failed') {
-    return toolSucceeded({
-      card_id: cardId,
-      outcome: outcome.status,
-      summary: outcome.summary,
-      result: outcome.result,
-    });
-  }
   return toolSucceeded({
     card_id: cardId,
     outcome: outcome.status,
-    summary: outcome.summary,
     result: outcome.result,
   });
 }

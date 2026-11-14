@@ -173,7 +173,20 @@ describe('current family semantic authority', () => {
     expect(details(analyst)).toContain('version seq');
     expect(analyst.outcome).toBe('stopped');
     expect(present('reorder_child', { parent_id: 'project', changed: 0 }).outcome).toBe('Unchanged');
-    expect(present('activate_card', { card_id: 'card-a', outcome: 'blocked', summary: 'Dependency missing', result: null }).outcome).toBe('blocked');
+    const activationResult = { kind: 'workflow-result', terminal: 'BLOCKED', executor: { kind: 'agent', agent: 'executor' }, node_id: 'execute', outcome: 'blocked', summary: 'Partial implementation; verification failed and worker release is unconfirmed.', records: [{ name: 'status.md', url: 'record:///status.md?card=card-a&v=3', version: 3 }] };
+    const activation = present('activate_card', { card_id: 'card-a', outcome: 'blocked', result: activationResult });
+    expect(activation.outcome).toBe('blocked');
+    expect(details(activation)).toContain(activationResult.summary);
+    expect(details(activation)).toContain(activationResult.records[0]!.url);
+    expect(details(activation)).toContain('BLOCKED');
+    for (const outcome of ['cancelled', 'stopped']) {
+      const summary = 'Interrupted after partial effects; verification and release remain unconfirmed.';
+      const interrupted = presentToolResult(JSON.stringify({ success: false, error: `Child card 'card-a' activation was ${outcome}.`, data: { card_id: 'card-a', outcome, summary } }), { tool: 'activate_card' });
+      expect(interrupted.status).toBe('error');
+      expect(interrupted.outcome).toContain(outcome);
+      expect(details(interrupted)).toContain(summary);
+      expect(details(interrupted)).toContain(`activation was ${outcome}.`);
+    }
     const deleted = present('delete_card', { deleted: ['card-a-b', 'card-a'], top_level_deleted: ['card-a'] });
     expect(deleted.sections.find((s) => s.items)?.items?.map((s) => s.content)).toEqual(['card-a-b', 'card-a']);
   });

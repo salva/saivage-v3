@@ -1984,6 +1984,15 @@ For a non-cancellation result, winner/settling selection precedes publication.
 Publication and local joins precede one transition that removes the exact owner and relationship, restores parent currentness, and releases the lease.
 Invalidation precedes deferred outcome delivery and caller continuation.
 
+For a returned `done`, `failed`, or `blocked` child outcome, `activate_card`
+returns tool success with `data:{card_id,outcome,result}`. The complete typed
+result carries its narrative at `data.result.summary`; there is no outer
+`data.summary`. Tool success means the activation tool completed normally, not
+that the child is DONE or that the parent accepted its work. For a returned
+`cancelled` or `stopped` outcome, the tool fails with an error and
+`data:{card_id,outcome,summary}`; there is no typed result. Admission and other
+tool failures are separate from these returned child outcomes.
+
 If terminal publication becomes outcome-unknown at its direct primitive, a later genuinely new process may observe either the prior version or the newly canonical terminal version.
 The failing process does not retry, reread, reconcile, write again, report the terminal result, naturally release ownership, or freeze/halt the graph.
 It emits the fixed stderr diagnostic and exits.
@@ -3283,7 +3292,7 @@ Marker append precedes one combined exchange publication, which precedes handoff
 Repeated refusal settles the running card BLOCKED with `{kind:'content-policy-refusal',summary:'Provider content policy blocked this card after one safety-respecting reframing attempt.',session_id,marker_id,evidence_url}` and null `completed_at`.
 Persistent typed internal-summary flagging instead settles the running card BLOCKED with `compaction-summary-blocked`, the fixed safe summary, owning session ID, summary input UUID, null `completed_at`, and no refusal marker or content-policy metadata.
 Every compiled node has a code-owned `execution:blocked` edge beside `execution:failed`.
-The waiting parent's successful `activate_card` result contains only nested `{card_id,outcome:'blocked',summary,result}` and no duplicated evidence fields or provider prose.
+The waiting parent's successful `activate_card` result has `data:{card_id,outcome:'blocked',result}`, with the summary and refusal evidence in the typed result and no duplicated evidence fields or provider prose.
 The parent remains active and may re-scope work; there is no replanning cap.
 
 For an ordinary Analyst submission, successful preparation precedes one physical `[activation_open marker, user text]` append and publication. Optional strict `{view,entityId,refinement}` workspace context is at most 2048 serialized UTF-8 bytes; views are `cockpit`, `files`, `system`, or null, and refinements are opaque route metadata. Null view requires null entity and refinement. The submitting client copies the route at Send; the server reads the same strict active linked-card list used for orientation once during preparation. The `analyst.workspace_focus` activation-local latest-snapshot block (primary and summarizer) is complete on each ordinary invocation, frozen through continuations and compaction, and at most 4096 serialized UTF-8 bytes. It includes exact matched card or card-session owning-card ID, type, version, lifecycle, bounded title and nullable card status-text preview/update time; global sessions, Files and System provide identity only. Missing active matches are unavailable, not proven nonexistent. The block is advisory observation of this submission only, not evidence of viewed content, authorization, continuous or cross-tab focus, or a historical compaction source. Explicit user targets win; no focus implies no target. Route redaction expansion or mandatory block size beyond budget produces only a fixed safe pre-effect recoverable HTTP 400 with issue `workspaceContext`, before unmatched settlement or ingress; strict card-list, orientation, and canonical failures remain exact-or-throwing, not HTTP 400. Existing history and assistant replies can still mention earlier focus.

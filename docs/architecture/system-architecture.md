@@ -444,6 +444,14 @@ owner/processor creation. Natural release removes the exact relationship/map own
 before caller delivery. Root natural settlement requires no owned children and the
 strict durable chain `[project]` before publication, with no post-publication scan.
 
+The Planner control provider passes the child outcome to
+`formatActivateCardResult`, which owns the compact outward activation payload.
+The internal outcome and actor lifecycle settlement remain separate and unchanged.
+Ordinary tool settlement redacts and canonically serializes that payload; the
+conversation result stores the settled content and its hash under the durable
+operational result policy. See the [activation result contract](../spec/system-specification.md#activation-admission-outcomes-and-cancellation)
+for outcome and summary locations and the meaning of tool success.
+
 `CardProcessActor` is the one narrow BaseActor micro-actor and owns graph position,
 accepted-by-node activation memory and task/consumer joins. Unexpected nonterminal
 events/start-entry/actor-main invariants latch `InternalActorError`, reject waiters

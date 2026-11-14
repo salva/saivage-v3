@@ -179,7 +179,7 @@ describe('planner control provider ownership delegation', () => {
         { card_id: CHILD, instructions: '  Complete the child task.\n' },
         context,
       ),
-    ).resolves.toMatchObject({ success: true, data: { card_id: CHILD, outcome: 'done' } });
+    ).resolves.toEqual({ success: true, data: { card_id: CHILD, outcome: 'done', result: workflowResult('DONE', CHILD) } });
     expect(test.activateChild).toHaveBeenCalledWith({
       authority: testPlannerAuthority(PARENT),
       childCardId: CHILD,
@@ -216,6 +216,22 @@ describe('planner control provider ownership delegation', () => {
         summary: 'urgent correction interrupted descendant work',
       },
     });
+  });
+
+  it.each(['failed', 'blocked'] as const)('settles a child %s as tool success with only its typed narrative', async (status) => {
+    const test = harness();
+    const outcome = status === 'failed'
+      ? { status, summary: 'Internal narrative is not an outward field.', result: runtimeFailure('Verification failed; partial changes remain and release is unconfirmed.') }
+      : { status, summary: 'Internal narrative is not an outward field.', result: workflowResult('BLOCKED', 'Verification blocked pending correction.', {
+          records: [{ name: 'status.md', url: `record:///status.md?card=${CHILD}&v=3`, version: 3 }],
+        }) };
+    test.activateChild.mockResolvedValueOnce(outcome);
+    await expect(settleToolForLlm(
+      test.surface,
+      'activate_card',
+      { card_id: CHILD, instructions: 'Complete scoped work.' },
+      testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolCallId: `activate-${status}`, toolName: 'activate_card' }),
+    )).resolves.toEqual({ success: true, data: { card_id: CHILD, outcome: status, result: outcome.result } });
   });
 
   it('validates immediate-child identity before reserving or delegating', async () => {

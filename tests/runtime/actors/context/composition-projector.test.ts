@@ -32,6 +32,11 @@ import { settledSuccessBytes } from '../../../../src/contracts/index.js';
 import { buildAnalystOrientationSnapshot } from '../../../../src/application/read-models/analyst-orientation.js';
 import { deriveRequiredModelFacts, selectConversationProtection, validateConversation, validateCompactedHistorySuccessor } from '../../../../src/contracts/conversation-validation.js';
 import { providerConversationProjection } from '../../../../src/runtime/actors/conversation-session.js';
+import { formatActivateCardResult } from '../../../../src/contracts/tool-api.js';
+import { settleToolActionOutcome } from '../../../../src/contracts/tool-result-projection.js';
+import { workflowResult } from '../../../helpers/workflow-result.js';
+import { projectCanonicalConversationRow } from '../../../../src/application/read-models/canonical-conversation-outbound.js';
+import { projectToolInvocation } from '../../../../src/tools/tool-invocation-outbound.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const INPUT_A = '11111111-1111-4111-8111-111111111111';
@@ -128,6 +133,33 @@ function processRows(tool: 'run_command' | 'wait_process' | 'kill_process', data
 }
 
 describe('composition projector selection pass', () => {
+  it('selects factual retained opaque activation bytes and new settled bytes without normalizing either', () => {
+    const result = workflowResult('FAILED', 'Partial changes remain; verification failed and resource release is unconfirmed.', {
+      records: [{ name: 'status.md', url: 'record:///status.md?card=card-a&v=3', version: 3 }],
+    });
+    const current = settleToolActionOutcome(formatActivateCardResult('card-a', { status: 'failed', summary: 'Internal lifecycle narrative', result })).settledResultBytes;
+    const retained = canonicalJson({ success: true, data: { card_id: 'card-a', outcome: 'failed', summary: 'Recorded outer narrative', result } });
+    for (const content of [retained, current]) {
+      const call = callRow(INPUT_A, 'activation', 'activate_card', OPERATIONAL_RESULT_POLICY_TEMPLATE, '{"card_id":"card-a","instructions":"Complete scoped work."}');
+      const settled = resultRow(INPUT_A, 'activation', 'activate_card', content, OPERATIONAL_RESULT_POLICY_TEMPLATE);
+      const rows = [call, settled];
+      const before = structuredClone(rows);
+      const conversation = validateConversation(SESSION, rows);
+      const primary = providerConversationProjection(conversation, []);
+      const selected = primary.messages.find(message => message.kind === 'tool_result')!;
+      if (selected.kind !== 'tool_result') throw new Error('Expected selected activation result.');
+      expect(selected.content).toBe(content);
+      expect(selected.context_policy).toEqual(settled.context_policy);
+      const summarizer = compose(rows).summarizer.find(entry => entry.kind === 'settled_tool_bundle');
+      expect(summarizer).toMatchObject({ resultContent: content });
+      const outbound = projectCanonicalConversationRow(settled, projectToolInvocation);
+      expect(JSON.parse(outbound.content)).toEqual(JSON.parse(content));
+      expect(JSON.parse(outbound.content).data.result).toEqual(result);
+      expect(Object.hasOwn(JSON.parse(outbound.content).data, 'summary')).toBe(content === retained);
+      expect(rows).toEqual(before);
+    }
+  });
+
   it('derives both projections from one selection with dynamic blocks before canonical rows', () => {
     const resultContent = JSON.stringify({ success: true, data: { card: 'a' } });
     const observed = createHash('sha256').update(resultContent, 'utf8').digest('hex');

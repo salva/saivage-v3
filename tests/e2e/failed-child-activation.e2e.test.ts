@@ -25,6 +25,7 @@ import {
 import { parseCanonicalContentPolicyRefusal } from '../../src/schemas/index.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
+import { sha256Hex } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -197,6 +198,7 @@ describe('failed child activation lifecycle E2E', () => {
     let plannerCalls = 0;
     let childCalls = 0;
     let parentResult: unknown;
+    let parentResultContent: string | undefined;
     const childInputs: LlmInvocationInput[] = [];
     const provider = {
       projectProviderExchanges: jest.fn(),
@@ -216,6 +218,7 @@ describe('failed child activation lifecycle E2E', () => {
                     message.kind === 'tool_result' &&
                     message.tool_call_id === 'activate-refusal-child',
                 );
+              parentResultContent = row?.content;
               parentResult = row ? JSON.parse(row.content) : null;
               return complete(
                 tool('write-refusal-status', 'write', {
@@ -284,8 +287,6 @@ describe('failed child activation lifecycle E2E', () => {
       data: {
         card_id: child.id,
         outcome: 'blocked',
-        summary:
-          'Provider content policy blocked this card after one safety-respecting reframing attempt.',
         result: {
           kind: 'content-policy-refusal',
           summary:
@@ -296,6 +297,21 @@ describe('failed child activation lifecycle E2E', () => {
         },
       },
     });
+    const parentConversation = readConversation(projectRoot, 'agent:planner:project');
+    const persisted = parentConversation.sourceRows.find(
+      (row) => row.kind === 'tool_result' && row.tool_call_id === 'activate-refusal-child',
+    )!;
+    expect(persisted.content).toBe(parentResultContent);
+    expect(JSON.parse(persisted.content)).toEqual(parentResult);
+    expect(JSON.parse(persisted.content).data).not.toHaveProperty('summary');
+    expect(persisted.context_policy).toMatchObject({
+      kind: 'tool_result',
+      result_content_sha256: sha256Hex(persisted.content),
+    });
+    expect(parentConversation.physicalRows.find((row) => row.id === persisted.id)).toEqual(persisted);
+    expect(parentConversation.sourceRows.some(
+      (row) => row.kind === 'tool_call' && row.tool_call_id === 'write-refusal-status',
+    )).toBe(true);
     expect(JSON.stringify(parentResult)).not.toContain('content_filter');
     expect(buildContentPolicyReadModel(projectRoot)).toMatchObject({
       refusal_high_water: 1,
@@ -344,6 +360,7 @@ describe('failed child activation lifecycle E2E', () => {
     let projectCalls = 0;
     let failedRunningVersion = 0;
     let failureToolResult: unknown;
+    let failureToolResultContent: string | undefined;
     let rejectedRetryToolResult: unknown;
     const provider = {
       projectProviderExchanges: jest.fn(),
@@ -351,7 +368,7 @@ describe('failed child activation lifecycle E2E', () => {
         jest.fn(
           async (
             input: LlmInvocationInput,
-            signal: AbortSignal,
+            _signal: AbortSignal,
           ): Promise<ProviderTurnCompletion> => {
             if (input.sessionId === 'agent:planner:project') {
               projectCalls += 1;
@@ -382,6 +399,7 @@ describe('failed child activation lifecycle E2E', () => {
                     (message) =>
                       message.kind === 'tool_result' && message.tool_call_id === 'activate-a',
                   );
+                failureToolResultContent = row?.content;
                 failureToolResult = row ? JSON.parse(row.content) : null;
                 return complete(
                   tool('retry-failed-a', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: failedChild.id }),
@@ -467,12 +485,21 @@ describe('failed child activation lifecycle E2E', () => {
       data: {
         card_id: failedChild.id,
         outcome: 'failed',
-        summary: expect.stringContaining('authentication failed permanently'),
         result: {
           kind: 'runtime-failure',
           summary: expect.stringContaining('authentication failed permanently'),
         },
       },
+    });
+    const persistedFailure = readConversation(projectRoot, `agent:planner:${parent.id}`).sourceRows.find(
+      (row) => row.kind === 'tool_result' && row.tool_call_id === 'activate-a',
+    )!;
+    expect(persistedFailure.content).toBe(failureToolResultContent);
+    expect(JSON.parse(persistedFailure.content)).toEqual(failureToolResult);
+    expect(JSON.parse(persistedFailure.content).data).not.toHaveProperty('summary');
+    expect(persistedFailure.context_policy).toMatchObject({
+      kind: 'tool_result',
+      result_content_sha256: sha256Hex(persistedFailure.content),
     });
     expect(rejectedRetryToolResult).toEqual({
       success: false,
@@ -637,7 +664,6 @@ describe('failed child activation lifecycle E2E', () => {
       data: {
         card_id: child.id,
         outcome: 'failed',
-        summary: expect.stringContaining('authentication failed permanently'),
         result: {
           kind: 'runtime-failure',
           summary: expect.stringContaining('authentication failed permanently'),
