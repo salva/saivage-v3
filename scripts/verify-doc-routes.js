@@ -932,9 +932,11 @@ function selectCardNotFoundUnion(projectRoot, unionName, operation) {
     : "body: {\n          error: 'historical_version_not_found',\n          resource: 'card',\n          owner_id: id,\n          version: result.version,"], `${operation} read-model serialization`);
   const service = 'src/cards/card-service.ts';
   const { ast: serviceAst } = sourceAst(projectRoot, service);
-  requireNodeFragments(namedFunction(serviceAst, operation === 'cards.history.get' ? 'readCardVersion' : 'diffCardVersions', service), serviceAst, operation === 'cards.history.get'
-    ? ['readCommittedCardVersion(this.projectRoot, id, version, instrumentation, checkReached)', "if (catalog.kind === 'card-not-found') return catalog", 'const row = catalog.value', 'row.version === version', "{ kind: 'version-not-found', version }"]
-    : ['readCommittedCardDiffSelection(', 'this.projectRoot, id, pivots, instrumentation, checkReached,', "if (selection.kind !== 'found') return selection", "if (!fromArtifact) return { kind: 'version-not-found', version: from, side: 'from' }", "if (typeof pivots.toVersion === 'number' && !toArtifact)", "return { kind: 'version-not-found', version: to, side: 'to' }"], `${operation} CardService selection`);
+  const serviceMethod = namedFunction(serviceAst, operation === 'cards.history.get' ? 'readCardVersion' : 'diffCardVersions', service);
+  requireCommittedSelectionCall(serviceMethod, operation === 'cards.history.get', `${operation} CardService selection`);
+  requireNodeFragments(serviceMethod, serviceAst, operation === 'cards.history.get'
+    ? ["if (catalog.kind === 'card-not-found') return catalog", 'const row = catalog.value', 'row.version === version', "{ kind: 'version-not-found', version }"]
+    : ["if (selection.kind !== 'found') return selection", "if (!fromArtifact) return { kind: 'version-not-found', version: from, side: 'from' }", "if (typeof pivots.toVersion === 'number' && !toArtifact)", "return { kind: 'version-not-found', version: to, side: 'to' }"], `${operation} CardService selection`);
   const persistence = 'src/persistence/card-files.ts';
   const { ast: persistenceAst } = sourceAst(projectRoot, persistence);
   requireNodeFragments(namedFunction(persistenceAst, operation === 'cards.history.get' ? 'readCommittedCardVersion' : 'readCommittedCardDiffSelection', persistence), persistenceAst, [
@@ -1342,6 +1344,96 @@ function requireNodeFragments(node, ast, fragments, edge) {
   const source = node.getText(ast);
   for (const fragment of fragments) if (!source.includes(fragment)) throw new Error(`${edge} is missing ${JSON.stringify(fragment)}`);
 }
+function withoutParens(node) {
+  while (node && ts.isParenthesizedExpression(node)) node = node.expression;
+  return node;
+}
+function isExactIdentifier(node, name) {
+  const value = withoutParens(node);
+  return !!value && ts.isIdentifier(value) && value.text === name;
+}
+function isExactProperty(node, ...path) {
+  const value = withoutParens(node);
+  if (!value) return false;
+  if (path.length === 1) return path[0] === 'this' ? value.kind === ts.SyntaxKind.ThisKeyword : isExactIdentifier(value, path[0]);
+  return ts.isPropertyAccessExpression(value) && !value.questionDotToken &&
+    value.name.text === path.at(-1) && isExactProperty(value.expression, ...path.slice(0, -1));
+}
+function directInitializer(owner, name, edge) {
+  const declarations = owner.body.statements.filter(ts.isVariableStatement)
+    .flatMap((statement) => [...statement.declarationList.declarations])
+    .filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === name);
+  if (declarations.length !== 1 || !declarations[0].initializer) throw new Error(`${edge} requires one direct ${name} initializer`);
+  return declarations[0].initializer;
+}
+function requireCommittedSelectionCall(owner, historical, edge) {
+  const binding = historical ? 'catalog' : 'selection';
+  const callee = historical ? 'readCommittedCardVersion' : 'readCommittedCardDiffSelection';
+  const args = ['id', historical ? 'version' : 'pivots', 'instrumentation', 'checkReached'];
+  const call = directInitializer(owner, binding, edge);
+  if (!ts.isCallExpression(call) || call.questionDotToken || !ts.isIdentifier(call.expression) ||
+    call.expression.text !== callee || call.arguments.length !== 5 ||
+    !isExactProperty(call.arguments[0], 'this', 'projectRoot') ||
+    !args.every((name, index) => isExactIdentifier(call.arguments[index + 1], name))) {
+    throw new Error(`${edge} requires ${binding} = ${callee}(this.projectRoot, ${args.join(', ')})`);
+  }
+}
+function isNumericToPredicate(node) {
+  const value = withoutParens(node);
+  if (!value || !ts.isBinaryExpression(value) || value.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken) return false;
+  const left = withoutParens(value.left);
+  const right = withoutParens(value.right);
+  return ts.isTypeOfExpression(left) && isExactProperty(left.expression, 'pivots', 'toVersion') &&
+    ts.isStringLiteral(right) && right.text === 'number';
+}
+function isNullExpression(node) {
+  return withoutParens(node)?.kind === ts.SyntaxKind.NullKeyword;
+}
+function isTombstoneSelection(node, version) {
+  const value = withoutParens(node);
+  return !!value && ts.isConditionalExpression(value) && isExactProperty(value.condition, 'fold', 'tombstone') &&
+    isExactProperty(value.whenTrue, 'fold', 'head', ...(version ? ['version'] : [])) &&
+    (version ? isExactProperty(value.whenFalse, 'current', 'card', 'version_seq') : isNullExpression(value.whenFalse));
+}
+function isHistoricalToArtifact(node) {
+  const value = withoutParens(node);
+  if (!value || !ts.isBinaryExpression(value) || value.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken || !isNullExpression(value.right)) return false;
+  const call = withoutParens(value.left);
+  if (!ts.isCallExpression(call) || call.questionDotToken || !isExactProperty(call.expression, 'rows', 'find') || call.arguments.length !== 1) return false;
+  const callback = withoutParens(call.arguments[0]);
+  if (!ts.isArrowFunction(callback) || callback.modifiers?.length || callback.typeParameters?.length || callback.parameters.length !== 1) return false;
+  const parameter = callback.parameters[0];
+  if (!ts.isIdentifier(parameter.name) || parameter.name.text !== 'row' || parameter.dotDotDotToken ||
+    parameter.questionToken || parameter.initializer || parameter.type || parameter.modifiers?.length) return false;
+  const predicate = withoutParens(callback.body);
+  return ts.isBinaryExpression(predicate) && predicate.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+    isExactProperty(predicate.left, 'row', 'version') && isExactIdentifier(predicate.right, 'to');
+}
+function uniqueObjectProperty(object, name, edge) {
+  const value = withoutParens(object);
+  if (!value || !ts.isObjectLiteralExpression(value)) throw new Error(`${edge} requires an object`);
+  const matches = value.properties.filter((property) => property.name && propertyName(property.name) === name);
+  if (matches.length !== 1 || !ts.isPropertyAssignment(matches[0])) throw new Error(`${edge} requires one ${name} property`);
+  return matches[0].initializer;
+}
+function requireDiffPersistenceConditionals(owner) {
+  const edge = 'backend diff persistence meanings';
+  const to = withoutParens(directInitializer(owner, 'to', edge));
+  if (!ts.isConditionalExpression(to) || !isNumericToPredicate(to.condition) ||
+    !isExactProperty(to.whenTrue, 'pivots', 'toVersion') || !isTombstoneSelection(to.whenFalse, true)) {
+    throw new Error(`${edge} requires numeric/current to selection`);
+  }
+  const finalReturn = owner.body.statements.at(-1);
+  if (!ts.isReturnStatement(finalReturn) || !finalReturn.expression) throw new Error(`${edge} requires final found return`);
+  const kind = withoutParens(uniqueObjectProperty(finalReturn.expression, 'kind', edge));
+  if (!ts.isStringLiteral(kind) || kind.text !== 'found') throw new Error(`${edge} requires final found return`);
+  const value = uniqueObjectProperty(finalReturn.expression, 'value', edge);
+  const artifact = withoutParens(uniqueObjectProperty(value, 'toArtifact', edge));
+  if (!ts.isConditionalExpression(artifact) || !isNumericToPredicate(artifact.condition) ||
+    !isHistoricalToArtifact(artifact.whenTrue) || !isTombstoneSelection(artifact.whenFalse, false)) {
+    throw new Error(`${edge} requires numeric/current toArtifact selection`);
+  }
+}
 function elementIndex(node, receiver, context) {
   const value = unwrapExpression(node);
   if (!ts.isElementAccessExpression(value) || !ts.isIdentifier(value.expression) || value.expression.text !== receiver || !value.argumentExpression || !ts.isNumericLiteral(unwrapExpression(value.argumentExpression))) throw new Error(`${context} must index ${receiver} with a numeric literal`);
@@ -1408,10 +1500,14 @@ function selectBackendPivot(projectRoot, side) {
   requireSourceFragments(projectRoot, 'src/application/read-models/cards-read-model.ts', ['diffCard(\n    id: string,\n    query:', 'fromVersion: query.from,\n      toVersion: query.to'], 'backend diff read-model mapping');
   const service = 'src/cards/card-service.ts';
   const { ast: serviceAst } = sourceAst(projectRoot, service);
-  requireNodeFragments(namedFunction(serviceAst, 'diffCardVersions', service), serviceAst, ["toVersion?: number | 'current'", 'readCommittedCardDiffSelection(', 'this.projectRoot, id, pivots, instrumentation, checkReached,', "if (selection.kind !== 'found') return selection", 'const { current, from, to, fromArtifact, toArtifact } = selection.value', 'head_id: current.headId', 'history_version: current.artifact.version', "{ kind: 'version', version: to }"], 'backend diff service meanings');
+  const serviceMethod = namedFunction(serviceAst, 'diffCardVersions', service);
+  requireCommittedSelectionCall(serviceMethod, false, 'backend diff service meanings');
+  requireNodeFragments(serviceMethod, serviceAst, ["toVersion?: number | 'current'", "if (selection.kind !== 'found') return selection", 'const { current, from, to, fromArtifact, toArtifact } = selection.value', 'head_id: current.headId', 'history_version: current.artifact.version', "{ kind: 'version', version: to }"], 'backend diff service meanings');
   const persistence = 'src/persistence/card-files.ts';
   const { ast: persistenceAst } = sourceAst(projectRoot, persistence);
-  requireNodeFragments(namedFunction(persistenceAst, 'readCommittedCardDiffSelection', persistence), persistenceAst, ['readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached)', 'const current = canonicalProjection(fold)', 'const from = pivots.fromVersion', "typeof pivots.toVersion === 'number'\n    ? pivots.toVersion", 'fold.tombstone ? fold.head.version : current.card.version_seq', "if (from > to) return { kind: 'invalid-pivots', from, to }", 'readHistory(resolve(projectRoot), fold, instrumentation, from)', 'fromArtifact: rows.find((row) => row.version === from) ?? null', "toArtifact: typeof pivots.toVersion === 'number'\n        ? rows.find((row) => row.version === to) ?? null\n        : fold.tombstone ? fold.head : null"], 'backend diff persistence meanings');
+  const persistenceMethod = namedFunction(persistenceAst, 'readCommittedCardDiffSelection', persistence);
+  requireDiffPersistenceConditionals(persistenceMethod);
+  requireNodeFragments(persistenceMethod, persistenceAst, ['readLinkedCard(resolve(projectRoot), cardId, true, instrumentation, checkReached)', 'const current = canonicalProjection(fold)', 'const from = pivots.fromVersion', "if (from > to) return { kind: 'invalid-pivots', from, to }", 'readHistory(resolve(projectRoot), fold, instrumentation, from)', 'fromArtifact: rows.find((row) => row.version === from) ?? null'], 'backend diff persistence meanings');
   return side === 'from'
     ? { field: 'from', presence: 'required', variants: [{ kind: 'canonical-positive-safe-integer' }], mapping: 'fromVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number' }
     : { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-projection', current: 'current-projection' } };

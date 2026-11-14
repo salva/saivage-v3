@@ -3,6 +3,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import ts from 'typescript';
 import {
   VALUE_CONTRACT_MANIFEST,
   formatVerificationResult,
@@ -106,6 +107,162 @@ function replaceAllChecked(root, path, before, after) {
   writeFileSync(target, source.replaceAll(before, after));
 }
 
+const HISTORY_CALL = 'readCommittedCardVersion(this.projectRoot, id, version, instrumentation, checkReached)';
+const DIFF_CALL = 'readCommittedCardDiffSelection(this.projectRoot, id, pivots, instrumentation, checkReached)';
+const TO_SELECTION = "typeof pivots.toVersion === 'number' ? pivots.toVersion : (fold.tombstone ? fold.head.version : current.card.version_seq)";
+const TO_ARTIFACT = "typeof pivots.toVersion === 'number' ? (rows.find((row) => row.version === to) ?? null) : (fold.tombstone ? fold.head : null)";
+const HISTORY_EXPRESSIONS = {
+  history: { path: 'src/cards/card-service.ts', owner: 'readCardVersion', binding: 'catalog', expression: HISTORY_CALL },
+  diff: { path: 'src/cards/card-service.ts', owner: 'diffCardVersions', binding: 'selection', expression: DIFF_CALL },
+  to: { path: 'src/persistence/card-files.ts', owner: 'readCommittedCardDiffSelection', binding: 'to', expression: TO_SELECTION },
+  artifact: { path: 'src/persistence/card-files.ts', owner: 'readCommittedCardDiffSelection', expression: TO_ARTIFACT },
+};
+
+function fixtureParens(node) {
+  while (ts.isParenthesizedExpression(node)) node = node.expression;
+  return node;
+}
+
+// Resolve the exact owner and direct declaration/return before changing copied source.
+function historyExpressionRange(source, spec, part) {
+  const ast = ts.createSourceFile(spec.path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  expect(ast.parseDiagnostics).toEqual([]);
+  const owners = [];
+  const visit = (node) => {
+    if ((ts.isMethodDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name?.getText(ast) === spec.owner) owners.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  expect(owners).toHaveLength(1);
+  const statements = owners[0].body.statements;
+  let selected;
+  if (spec.binding) {
+    const declarations = statements.filter(ts.isVariableStatement).flatMap((statement) => [...statement.declarationList.declarations])
+      .filter((node) => ts.isIdentifier(node.name) && node.name.text === spec.binding);
+    expect(declarations).toHaveLength(1);
+    selected = part === 'declaration' ? declarations[0] : declarations[0].initializer;
+  } else {
+    const returned = statements.at(-1);
+    expect(ts.isReturnStatement(returned)).toBe(true);
+    const objectProperty = (node, name) => {
+      const object = fixtureParens(node);
+      expect(ts.isObjectLiteralExpression(object)).toBe(true);
+      const matches = object.properties.filter((property) => property.name?.getText(ast) === name);
+      expect(matches).toHaveLength(1);
+      expect(ts.isPropertyAssignment(matches[0])).toBe(true);
+      return matches[0];
+    };
+    expect(objectProperty(returned.expression, 'kind').initializer.getText(ast)).toBe("'found'");
+    const value = objectProperty(returned.expression, 'value').initializer;
+    const property = objectProperty(value, 'toArtifact');
+    selected = part === 'return' ? returned : part === 'property' ? property : property.initializer;
+  }
+  expect(selected).toBeDefined();
+  const start = selected.getStart(ast);
+  const end = selected.getEnd();
+  expect(end).toBeGreaterThan(start);
+  expect(source.slice(start, end)).toBe(selected.getText(ast));
+  return [start, end];
+}
+
+function mutateHistoryExpression(root, key, replacement, part) {
+  const spec = HISTORY_EXPRESSIONS[key];
+  const target = join(root, spec.path);
+  const source = readFileSync(target, 'utf8');
+  const [start, end] = historyExpressionRange(source, spec, part);
+  const before = source.slice(start, end);
+  const after = typeof replacement === 'function' ? replacement(before) : replacement;
+  expect(after).not.toBe(before);
+  const changed = source.slice(0, start) + after + source.slice(end);
+  expect(changed).not.toBe(source);
+  writeFileSync(target, changed);
+}
+
+function expectHistoryClaims(root, claims, verify) {
+  const result = verify({ projectRoot: root });
+  for (const claim of claims) {
+    expect(result.failures).toContainEqual(expect.objectContaining({ type: 'value-contract-source', claim }));
+  }
+}
+
+const CALL_NEGATIVES = ['history', 'diff'].flatMap((key) => {
+  const spec = HISTORY_EXPRESSIONS[key];
+  const call = spec.expression;
+  const callee = key === 'history' ? 'readCommittedCardVersion' : 'readCommittedCardDiffSelection';
+  const third = key === 'history' ? 'version' : 'pivots';
+  return [
+    ['wrong callee', call.replace(callee, 'otherSelection')],
+    ['qualified callee', `owner.${call}`],
+    ['optional call', call.replace('(', '?.(')],
+    ['wrong receiver', call.replace('this.projectRoot', 'other.projectRoot')],
+    ['wrong root property', call.replace('this.projectRoot', 'this.otherRoot')],
+    ['optional root access', call.replace('this.projectRoot', 'this?.projectRoot')],
+    ...['id', third, 'instrumentation', 'checkReached'].map((arg) => [`replaced ${arg}`, call.replace(new RegExp(`\\b${arg}\\b`, 'u'), 'other')]),
+    ['swapped arguments', call.replace(`id, ${third}`, `${third}, id`)],
+    ['missing argument', call.replace(', checkReached', '')],
+    ['extra argument', call.replace('checkReached)', 'checkReached, extra)')],
+    ['spread argument', call.replace('instrumentation', '...instrumentation')],
+    ['asserted initializer', `${call} as Selection`],
+    ['detached initializer with call decoy', `wrongSelection; const decoy = ${call}`],
+    ['wrong initializer with comment decoy', `wrongSelection /* ${call} */`],
+    ['wrong initializer with string decoy', `wrongSelection; const decoy = ${JSON.stringify(call)}`],
+    ['renamed result declaration', `other = ${call}`, 'declaration'],
+    ['ambiguous result declaration', `${spec.binding} = ${call}; const ${spec.binding} = ${call}`, 'declaration'],
+  ].map(([label, expression, part]) => [`${key}: ${label}`, key, expression, part]);
+});
+
+const PERSISTENCE_NEGATIVES = ['to', 'artifact'].flatMap((key) => {
+  const expression = HISTORY_EXPRESSIONS[key].expression;
+  const historical = '(rows.find((row) => row.version === to) ?? null)';
+  const current = key === 'to' ? '(fold.tombstone ? fold.head.version : current.card.version_seq)' : '(fold.tombstone ? fold.head : null)';
+  const numeric = key === 'to' ? 'pivots.toVersion' : historical;
+  const numericBranch = `? ${numeric} :`;
+  const common = [
+    ['numeric comparison operator', expression.replace("=== 'number'", "!== 'number'")],
+    ['numeric predicate property', expression.replace('typeof pivots.toVersion', 'typeof pivots.fromVersion')],
+    ['numeric predicate literal', expression.replace("'number'", "'string'")],
+    ['numeric predicate literal whitespace', expression.replace("'number'", "' num ber '")],
+    ['numeric branch', expression.replace(numericBranch, '? other :')],
+    ['tombstone predicate', expression.replace('fold.tombstone', 'fold.other')],
+    ['tombstone true branch', expression.replace(key === 'to' ? 'fold.head.version' : 'fold.head', 'other')],
+    ['tombstone false branch', expression.replace(key === 'to' ? 'current.card.version_seq' : ': null)', key === 'to' ? 'other' : ': other)')],
+    ['swapped numeric/current branches', `typeof pivots.toVersion === 'number' ? ${current} : ${numeric}`],
+    ['swapped tombstone/live branches', expression.replace(current, key === 'to' ? '(fold.tombstone ? current.card.version_seq : fold.head.version)' : '(fold.tombstone ? null : fold.head)')],
+    ['cast expression', `${expression} as Selection`],
+    ['correct comment decoy', `wrongSelection /* ${expression} */`],
+  ];
+  if (key === 'to') common.push(
+    ['detached declaration with correct decoy', `other = ${expression}`, 'declaration'],
+    ['wrong declaration with correct decoy', `wrongSelection; const decoy = ${expression}`],
+    ['ambiguous declaration', `to = ${expression}; const to = ${expression}`, 'declaration'],
+    ['changed grouping', "(typeof pivots.toVersion === 'number' ? pivots.toVersion : fold.tombstone) ? fold.head.version : current.card.version_seq"],
+  );
+  else common.push(
+    ['find receiver', expression.replace('rows.find', 'other.find')],
+    ['find callee', expression.replace('rows.find', 'rows.filter')],
+    ['optional find', expression.replace('rows.find(', 'rows.find?.(')],
+    ['find extra argument', expression.replace('=== to)', '=== to, extra)')],
+    ['find spread argument', expression.replace('find((row)', 'find(...(row)')],
+    ['callback parameter', expression.replace('(row) =>', '(other) =>')],
+    ['callback extra parameter', expression.replace('(row) =>', '(row, extra) =>')],
+    ['callback rest parameter', expression.replace('(row) =>', '(...row) =>')],
+    ['callback default parameter', expression.replace('(row) =>', '(row = other) =>')],
+    ['callback block', expression.replace('row.version === to)', '{ return row.version === to; })')],
+    ['callback operator', expression.replace('row.version === to', 'row.version == to')],
+    ['callback property', expression.replace('row.version === to', 'row.other === to')],
+    ['callback target', expression.replace('row.version === to', 'row.version === from')],
+    ['coalescing operator', expression.replace('??', '||')],
+    ['historical fallback', expression.replace('?? null', '?? other')],
+    ['changed grouping', "(typeof pivots.toVersion === 'number' ? rows.find((row) => row.version === to) : fold.tombstone) ? fold.head : null"],
+    ['missing property with correct decoy', `decoy: ${expression}`, 'property'],
+    ['detached property with correct decoy', `toArtifact: other, decoy: ${expression}`, 'property'],
+    ['shorthand property with correct decoy', `toArtifact, decoy: ${expression}`, 'property'],
+    ['duplicate property', `toArtifact: ${expression}, toArtifact: ${expression}`, 'property'],
+    ['outer decoy declaration', `wrongSelection, decoy: ${expression}`],
+  );
+  return common.map(([label, text, part]) => [`${key}: ${label}`, key, text, part]);
+});
+
 function driftClaimRow(root, claimKey) {
   const entry = VALUE_CONTRACT_MANIFEST.find((candidate) => candidate.claims.includes(claimKey));
   replaceChecked(root, entry.file, `${claimKey} = {`, `${claimKey} = {"fixture":true,`);
@@ -166,7 +323,6 @@ const SOURCE_MUTATIONS = [
   ['history handler pass-through', verifyErrorShapeDocs, 'src/server/routes/operator-runtime-card-handlers.ts', 'getHistoryEntry(params.id, params.version)'],
   ['diff handler pass-through', verifyErrorShapeDocs, 'src/server/routes/operator-runtime-card-handlers.ts', 'diffCard(params.id, query)'],
   ['historical read-model serialization', verifyErrorShapeDocs, 'src/application/read-models/cards-read-model.ts', "body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version"],
-  ['history committed predecessor selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'readCommittedCardVersion(this.projectRoot, id, version, instrumentation, checkReached)'],
   ['history card absence', verifyErrorShapeDocs, 'src/cards/card-service.ts', "if (catalog.kind === 'card-not-found') return catalog"],
   ['history exact sparse artifact', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'const row = catalog.value'],
   ['history exact version', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'row.version === version'],
@@ -266,9 +422,6 @@ const SOURCE_MUTATIONS = [
   ['backend numeric refinement', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success'],
   ['backend numeric transform', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', '.transform(Number)'],
   ['backend read-model mapping', verifyCardDiffPivotDocs, 'src/application/read-models/cards-read-model.ts', 'fromVersion: query.from,\n      toVersion: query.to'],
-  ['backend persistence numeric meaning', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', "typeof pivots.toVersion === 'number'\n    ? pivots.toVersion"],
-  ['backend persistence current meaning', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', 'fold.tombstone ? fold.head.version : current.card.version_seq'],
-  ['backend persistence historical target', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', 'rows.find((row) => row.version === to) ?? null'],
   ['backend persistence current owner', verifyCardDiffPivotDocs, 'src/persistence/card-files.ts', 'const current = canonicalProjection(fold)'],
   ['backend service tagged current projection', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', 'head_id: current.headId'],
   ...[
@@ -348,6 +501,86 @@ function replaceOccurrence(root, path, token, occurrence) {
 }
 
 describe('documentation value contracts', () => {
+  it('accepts owner-bound history/diff calls and persistence selections through layout changes', () => {
+    withProject((root) => {
+      const originals = new Map([...new Set(Object.values(HISTORY_EXPRESSIONS).map(({ path }) => path))]
+        .map((path) => [path, readFileSync(join(root, path), 'utf8')]));
+      const reset = () => { for (const [path, source] of originals) writeFileSync(join(root, path), source); };
+      const verify = () => {
+        expect(verifyErrorShapeDocs({ projectRoot: root }).failures).toEqual([]);
+        expect(verifyCardDiffPivotDocs({ projectRoot: root }).failures).toEqual([]);
+      };
+      const layouts = {};
+      for (const key of ['history', 'diff']) {
+        const callee = key === 'history' ? 'readCommittedCardVersion' : 'readCommittedCardDiffSelection';
+        const third = key === 'history' ? 'version' : 'pivots';
+        layouts[key] = [
+          HISTORY_EXPRESSIONS[key].expression,
+          `${callee}(\n  this.projectRoot,\n  id,\n  ${third},\n  instrumentation,\n  checkReached, /* trailing */\n)`,
+          `${callee} /* callee */ (\n this /* receiver */\n . /* property */ projectRoot,\n /* id */ id, ${third},\n instrumentation, /* reachability */ checkReached,\n)`,
+        ];
+      }
+      layouts.to = [
+        TO_SELECTION,
+        "typeof pivots.toVersion === 'number'\n ? pivots.toVersion\n : (fold.tombstone\n ? fold.head.version\n : current.card.version_seq) /* layout */",
+        "((typeof (pivots /* pivot */ . toVersion)) === ('number')) ? (pivots.toVersion) : ((fold.tombstone) ? ((fold.head).version) : (current.card.version_seq))",
+      ];
+      layouts.artifact = [
+        TO_ARTIFACT,
+        "typeof pivots.toVersion === 'number'\n ? (rows.find(\n (row) => row.version === to,\n ) ?? null)\n : (fold.tombstone\n ? fold.head\n : null) /* layout */",
+        "((typeof (pivots.toVersion)) === ('number')) ? (((rows /* rows */ . find)((row) => ((row.version) === (to)))) ?? (null)) : ((fold.tombstone) ? (fold.head) : (null))",
+      ];
+      for (const [key, expressions] of Object.entries(layouts)) for (const expression of expressions) {
+        reset();
+        mutateHistoryExpression(root, key, expression);
+        verify();
+      }
+      reset();
+      for (const key of Object.keys(layouts)) mutateHistoryExpression(root, key, layouts[key][2]);
+      verify();
+      expect(verifyDocSourceContracts({ projectRoot: root }).failures).toEqual([]);
+      reset();
+      expect(verifyDocSourceContracts({ projectRoot: root }).failures).toEqual([]);
+    });
+  });
+
+  it('rejects every owner-bound call drift and decoy', () => {
+    withProject((root) => {
+      const path = join(root, HISTORY_EXPRESSIONS.history.path);
+      const source = readFileSync(path, 'utf8');
+      for (const [label, key, expression, part] of CALL_NEGATIVES) {
+        writeFileSync(path, source);
+        try {
+          mutateHistoryExpression(root, key, expression, part);
+          expectHistoryClaims(root, [key === 'history' ? 'error.cards-history-404' : 'error.cards-diff-404'], verifyErrorShapeDocs);
+          if (key === 'diff') expectHistoryClaims(root, ['pivot.cards-diff-from', 'pivot.cards-diff-to'], verifyCardDiffPivotDocs);
+        } catch (error) { throw new Error(label, { cause: error }); }
+      }
+    });
+  });
+
+  it('rejects every owner-bound persistence drift and decoy', () => {
+    withProject((root) => {
+      const path = join(root, HISTORY_EXPRESSIONS.to.path);
+      const source = readFileSync(path, 'utf8');
+      for (const [label, key, expression, part] of PERSISTENCE_NEGATIVES) {
+        writeFileSync(path, source);
+        try {
+          mutateHistoryExpression(root, key, expression, part);
+          expectHistoryClaims(root, ['pivot.cards-diff-from', 'pivot.cards-diff-to'], verifyCardDiffPivotDocs);
+        } catch (error) { throw new Error(label, { cause: error }); }
+      }
+    });
+  });
+
+  it('rejects a correct artifact decoy outside the final returned selection', () => {
+    withProject((root) => {
+      mutateHistoryExpression(root, 'artifact', 'wrongSelection');
+      mutateHistoryExpression(root, 'artifact', (returned) => `const decoy = ${TO_ARTIFACT};\n${returned}`, 'return');
+      expectHistoryClaims(root, ['pivot.cards-diff-from', 'pivot.cards-diff-to'], verifyCardDiffPivotDocs);
+    });
+  });
+
   it('extracts native classic inventory through formatting while rejecting changed construction', () => {
     withProject((root) => {
       const path = join(root, 'src/config/system-templates/classic-git/template.ts');
