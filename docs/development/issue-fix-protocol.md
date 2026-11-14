@@ -133,7 +133,8 @@ instructions, prompts, templates, fragments, agent bodies, skills, and AGENTS wo
 are written by `prompt-developer` and checked by `prompt-reviewer`, which the implementation
 manager invokes with the explicit exact override `openai/gpt-6.1-sol`. For a clearly trivial
 direct fix, the acting primary invokes the same pair the same way. Skills carry no model
-frontmatter; model selection stays in agent configuration.
+frontmatter; the invoking owner can select an authorized author model through the native
+subagent override as an alternative to the agent configuration's default.
 
 Each issue completes its own design and review loop, but the batch coordinator selects
 only one whole issue-fixer run at a time. That run covers design, review, freshness,
@@ -158,9 +159,9 @@ profile with its own complete body.
 | `design-reviewer-secondary` | `nvidia/z-ai/glm-5.2` | `issue-fixer`, only when explicitly requested | Optional extra design review. |
 | `implementation-manager` | Unchanged | `issue-fixer` | Sole lock holder and implementation orchestrator. |
 | `code-developer` | `openai/gpt-6.1-sol` | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
-| `doc-developer` | `opencode-go/claude-haiku-5-5`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
+| `doc-developer` | Default `opencode-go/claude-haiku-5-5` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
 | `doc-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
-| `prompt-developer` | `opencode-go/claude-haiku-5-5`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
+| `prompt-developer` | Default `opencode-go/claude-haiku-5-5` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
 | `prompt-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
 
 Only the primary batch coordinator may load the coordination skill. No other role loads
@@ -278,8 +279,14 @@ The pair reviews for different purposes:
 
 Each pair runs in order for an asset. The author settles before its reviewer starts. No author
 runs concurrently with another author, a source worker, or a reviewer of the same moving asset.
-Authors run on `opencode-go/claude-haiku-5-5` with no variant. Reviewers run on
-`openai/gpt-6.1-sol`, invoked with that explicit override. For inline model-facing wording in an
+For either author role, the invoking owner selects the configured `opencode-go/claude-haiku-5-5`
+default or directly selects `openai/gpt-6.1-terra` through the native subagent model override,
+without a variant. The owner passes the exact selection and requires actual execution identity
+evidence; missing or conflicting identity blocks the assignment. Unavailability or failure
+does not authorize automatic fallback or replay: the existing
+[settlement procedure](#native-delegation-and-settlement) governs any later decision.
+Both reviewers run in sessions distinct from the author on `openai/gpt-6.1-sol`, invoked with
+that explicit override. For inline model-facing wording in an
 executable host, the author writes the exact text, the prompt reviewer reviews that text, the
 mechanical applicator applies it verbatim (`code-developer` in an issue run, or the acting primary
 in a direct fix that has actual edit authority for the host), and then the prompt reviewer reviews
@@ -442,8 +449,9 @@ projects into that role's own prompt body, so a role never needs this document t
 
 - Invocation: the implementation manager invokes them within an issue run. The acting
   `build` or `plan` primary invokes them only for a clearly trivial direct wording assignment,
-  under [Direct trivial fixes](#direct-trivial-fixes). Both use exact model
-  `opencode-go/claude-haiku-5-5` and no variant. A coordinator, issue fixer, designer,
+  under [Direct trivial fixes](#direct-trivial-fixes). Both use the author selection described
+  under [Choosing the author and reviewer pair](#choosing-the-author-and-reviewer-pair).
+  A coordinator, issue fixer, designer,
   reviewer, or other author never invokes them. An author never invokes a reviewer itself;
   the invoking owner does, only after the author has settled.
 - Choice: `doc-developer` writes ordinary documentation. `prompt-developer` writes
@@ -461,7 +469,8 @@ projects into that role's own prompt body, so a role never needs this document t
   configuration and governing instructions, the callers and consumers that receive the text, and
   any template or fragment that delivers it. Read an unchanged sibling role only where it receives,
   consumes, or conflicts with the text. Do not judge the text alone.
-- Output: when the author edits the assigned file in place, the report names the files and
+- Output: the author reports actual model identity evidence from its execution context. When
+  the author edits the assigned file in place, the report names the files and
   sections changed, the sources read, the facts confirmed and not obtained, the links not
   verified, the selfchecks, and any text that belongs to the other pair. The file is the
   artifact, so the text is not echoed back. When the text must be applied elsewhere, such as

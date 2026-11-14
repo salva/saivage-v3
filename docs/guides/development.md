@@ -251,6 +251,8 @@ change that workflow. It is contributor material, not runtime Saivage behavior.
 Development assignments follow purpose. Ordinary documentation has its own author and
 reviewer. Model-facing instructions, prompts, agent bodies, skills, and AGENTS wording
 have a separate prompt author and reviewer. Design review stays separate from both. The
+[author and reviewer pair](../development/issue-fix-protocol.md#choosing-the-author-and-reviewer-pair)
+section explains author model selection and independent review. The
 [canonical roles and transition](../development/issue-fix-protocol.md#canonical-roles-and-transition)
 section names the canonical identities for new work and records the former pre-transition
 profiles, which have been removed. Do not rename an in-flight session to normalize its identity.
