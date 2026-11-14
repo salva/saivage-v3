@@ -216,15 +216,46 @@ child such as `foo`, `tmp/foo`, a stash artifact or process-specific capture
 directory remains concrete; known resolved aliases follow the same classification.
 Operational inputs, unfinished selections and process-owner protections retain
 their existing authority, including root-valued references. Concrete structured
-references remain exact; ambiguous free-text filename inference
-uses simple heuristics and can miss genuine references, including newline-bearing
-filenames mentioned only in free text: decoded CR/LF
-quotations are inspected for nested references, not inferred as one whole path.
-Exact structured path values remain unchanged. Such inference misses can
-make old still-needed work eligible for later explicit deletion. No error rate is
-estimated, and an age cutoff does not protect against this risk. Recognized aliases
-whose scope cannot be resolved remain conservative; this inference exception weakens
-neither strict history/native validation nor writer exclusion or candidate checks.
+path references remain exact. A recognized structured `pattern`, and a standalone
+quoted or unquoted path containing `*` or `?`, is a glob rather than an exact name or
+regular expression. Each glob is matched only within its applicable scope: its paired
+`directory` (or `cwd` when `directory` is absent) if present, otherwise the fallback
+bases (the project root for global conversations; the project root, card root and card
+`tmp` for card content). A literal directory before the first wildcard selects that
+scope, and the whole remaining suffix is matched. The matcher is the same one the
+project glob tools use: `*` and `?` stay within one path segment, a whole `**` segment
+crosses zero or more levels, matching is case-sensitive, brackets and braces are
+literal, and URI percent-decoding applies before matching while native percent names
+are not decoded. Shell-expression text (`${...}`, `$(...)`) is not evaluated and keeps
+its conservative handling.
+
+The candidates for a glob are the ordinary files and directories that inventory admitted
+under approved work namespaces, each physical entry counted once across overlapping
+scopes. Empty directories count. Reserved temporary names, symlinks, opaque entries and
+matches outside the scope never match. Matching counts both files and directories before
+administrative-root filtering. A glob with 0 matches protects nothing. One to 50 matches
+protect exactly the matched files and directories, and a matched directory protects its
+whole subtree. Fifty-one or more matches discard that glob's entire contribution, so
+none of those matches is protected by it. Other independent references, operational
+dependencies and process owners still apply unchanged. Only eligible regular files can be
+removed; matched directories are never deleted.
+
+A structured `directory` paired with a `pattern` is consumed as scope metadata and does
+not, by itself, protect the files in that directory. In prose, a bounded same-line group
+of quoted `directory` and `pattern` assignments pairs only when it contains exactly one
+of each, in either order, with double, single or backtick delimiters; JSON escapes are
+decoded in double-quoted values. Groups that span lines or contain ambiguous directories
+do not pair, and their patterns use the fallback bases.
+
+Ambiguous free-text filename inference uses simple heuristics and can miss genuine
+references, including newline-bearing filenames mentioned only in free text: decoded
+CR/LF quotations are inspected for nested references, not inferred as one whole path.
+Exact structured path values remain unchanged. Such inference misses, and globs that
+match more than 50 entries, can make old still-needed work eligible for later explicit
+deletion. No error rate is estimated, and an age cutoff does not protect against this
+risk. Needed work is kept by an explicit concrete reference. Recognized aliases whose
+scope cannot be resolved remain conservative; this inference exception weakens neither
+strict history/native validation nor writer exclusion or candidate checks.
 
 Only a missing lifecycle lock selects offline CLI GC: exact interactive maintained
 writer-quiescence confirmation precedes existing bound lifecycle exclusion and

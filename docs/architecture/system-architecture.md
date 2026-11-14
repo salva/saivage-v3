@@ -724,8 +724,8 @@ administrative containers: the work root and its ancestors (including project an
 work `processes`, `tmp` and `tmp/stash`. Arbitrary card children such as `foo`,
 reserved-area children such as `tmp/foo`, stash artifacts and process-specific
 capture directories remain concrete file/subtree marks. This applies equally to
-structured and inferred content paths and known aliases without changing extraction
-or inventory eligibility. Operational callbacks and process-owner capture parents
+structured and inferred content paths and known aliases without changing inventory
+eligibility. Glob inference changes separately, as described below. Operational callbacks and process-owner capture parents
 keep existing root-valued protection. Resolution still runs for ignored lexical
 roots; unknown scope remains conservative. Current concrete references to older
 files still protect them; administrative content mentions do not.
@@ -738,6 +738,24 @@ Nested values and text tokens cooperatively yield every 256 visited items; indiv
 file reads, JSON parsing and regex operations remain synchronous and indivisible.
 Call-local protection sets test candidate ancestors through the work root rather
 than scanning every mark for each candidate.
+
+Glob inference is owned by the collector's reference resolver in
+`src/workspace/work-garbage-collector.ts`. Inventory keeps one call-local list of the
+ordinary files and directories admitted by its existing yielding walk, excluding the
+work root, symlinks, opaque entries and reserved `.saivage-tmp` names. Deletion candidates
+and `observed_count` remain regular files only; directories serve only as glob matches.
+Extraction pairs a structured `directory`/`cwd` scope, or a bounded same-line quoted
+`directory`/`pattern` group in prose, with its `pattern`, consumes that metadata once and
+resolves the scope through the same metadata-only resolution used by exact paths.
+Unknown recognized aliases stay conservative. The matcher `globToRegExp()` is owned by
+`src/workspace/glob-matcher.ts`, which `src/workspace/vfs.ts` re-exports, so the
+collector and project glob tools share one dialect. For each glob, the collector scans
+the call-local entries within its scope with cooperative yields and counts distinct
+matches up to 51. Marks are added only after that pass completes: 0 matches add
+nothing, 1–50 protect the matched entries, and 51 add nothing from that glob. Matches are
+counted before administrative-root filtering, which still controls what content marks
+protect. No second filesystem walk, outside-work enumeration, persistent cache or saved
+selection is introduced, and newly appearing files are not collected.
 
 Explicit structured path fields pass their entire exact value to reference handling
 before prose extraction. Recognized `project`, `system`, `work`, `tmp` and `file`

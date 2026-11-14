@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from '@jest/globals';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, unlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree, CardService } from '../helpers/canonical-project.js';
@@ -98,7 +98,9 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
 it('offline strict terminal and stderr attribute a global mark without exposing its private source', async () => {
   const root = fixture(), sentinel = 'PRIVATE-offline-global-source';
   const candidate = work(root, `cards/project/tmp/${sentinel}`);
-  new CardService(root).acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: `*${sentinel}` }), { kind: 'agent', agent: 'analyst' });
+  const alias = join(root, sentinel);
+  symlinkSync(join(root, 'missing-alias-target'), alias);
+  new CardService(root).acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: alias }), { kind: 'agent', agent: 'analyst' });
   const preview = await cli(root, { separate: true });
   const response = WorkGcResponseSchema.parse(JSON.parse(preview.stdout));
   expect(preview.code).toBe(0);

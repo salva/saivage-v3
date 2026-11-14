@@ -106,11 +106,316 @@ function toolExchange(tool: string, content: string, argumentsText = '{}') {
 }
 
 describe('work GC two-phase selection', () => {
+  async function parity(root: string, paths: readonly string[], kept: readonly string[],
+    overrides: Partial<WorkGcCollectionContext> = {}) {
+    const bytes = await canonicalBytes(root);
+    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context(overrides));
+    expect(preview).toMatchObject({ first_global_protection: null, observed_count: paths.length,
+      retained: { protected: kept.length }, would_delete_count: paths.length - kept.length });
+    expect(paths.every(existsSync)).toBe(true);
+    const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context(overrides));
+    expect(deleted.deleted_count).toBe(preview.would_delete_count);
+    expect(deleted.deleted_logical_bytes).toBe(preview.would_delete_logical_bytes);
+    expect(paths.filter(existsSync)).toEqual(paths.filter(path => kept.includes(path)));
+    expect(paths.map(dirname).every(existsSync)).toBe(true);
+    expect(await canonicalBytes(root)).toEqual(bytes);
+  }
+
+  it.each([0, 1, 50, 51])('counts %i actual scoped entries, including empty directories, before publishing any glob marks', async count => {
+    const root = fixture(), scope = join(root, '.saivage/work/cards/project/tmp/search');
+    const files: string[] = [], kept: string[] = [];
+    for (let i = 0; i < count; i++) {
+      if (i % 2 === 0) {
+        const path = work(root, `cards/project/tmp/search/match-${i}.asm`);
+        files.push(path); kept.push(path);
+      } else {
+        const directory = join(scope, `match-${i}.asm`);
+        mkdirSync(directory, { recursive: true });
+        if (i === 1) {
+          const path = work(root, `cards/project/tmp/search/match-${i}.asm/child.bin`);
+          files.push(path); kept.push(path);
+        }
+      }
+    }
+    files.push(...['other.asm.txt', 'Match-case.asm', 'unrelated.bin'].map(name =>
+      work(root, `cards/project/tmp/search/${name}`)));
+    // Matching sibling entries do not contribute to this glob's cutoff.
+    for (let i = 0; i < 55; i++) files.push(work(root, `cards/project/tmp/searchish/match-${i}.asm`));
+    baseline(root, JSON.stringify({ directory: 'tmp:///project/search', pattern: 'match-*.asm' }));
+    await parity(root, files, count <= 50 ? kept : []);
+    expect(existsSync(scope)).toBe(true);
+    if (count > 1) expect(existsSync(join(scope, 'match-1.asm'))).toBe(true);
+  });
+
+  it('counts a matching directory once while protecting more than fifty nonmatching descendants', async () => {
+    const root = fixture(), files: string[] = [];
+    for (let i = 0; i < 60; i++) files.push(work(root, `cards/project/tmp/evidence.asm/child-${i}.bin`));
+    const control = work(root, 'cards/project/tmp/control');
+    baseline(root, JSON.stringify({ directory: 'tmp:///project', pattern: '*.asm' }));
+    await parity(root, [...files, control], files);
+  });
+
+  it.each([
+    ['*', 50], ['*', 51], ['**/*', 50], ['**/*', 51],
+  ] as const)('excludes the concrete scope itself from %s matching and the %i-child cutoff', async (pattern, count) => {
+    const root = fixture();
+    const files = Array.from({ length: count }, (_, i) =>
+      work(root, `cards/project/tmp/concrete-scope/child-${i}.asm`));
+    const control = work(root, 'cards/project/tmp/concrete-scopeish/control.asm');
+    baseline(root, JSON.stringify({ directory: 'tmp:///project/concrete-scope', pattern }));
+    await parity(root, [...files, control], count === 50 ? files : []);
+    expect(existsSync(join(root, '.saivage/work/cards/project/tmp/concrete-scope'))).toBe(true);
+  });
+
+  it.each(['card', 'global'] as const)('uses %s fallback bases and deduplicates overlapping scopes before the cutoff', async source => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/one.asm');
+    const control = work(root, 'cards/project/tmp/other.bin');
+    if (source === 'card') appendConversationBatch({ projectRoot: root }, [message('Keep "*.asm"')]);
+    else {
+      const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(),
+        'Keep "*.asm"', { kind: 'unavailable', reason: 'not_recorded' }));
+    }
+    await parity(root, [selected, control], source === 'card' ? [selected] : []);
+  });
+
+  it('counts fifty physical entries once across overlapping card fallback bases', async () => {
+    const root = fixture(), files = Array.from({ length: 50 }, (_, i) =>
+      work(root, `cards/project/tmp/formation-${i}.asm`));
+    baseline(root, 'Keep "**/*formation*.asm"');
+    await parity(root, files, files);
+  });
+
+  it('isolates two linked cards and keeps independently paired same-line assignment groups separate', async () => {
+    const root = fixture(), child = new CardService(root).create({ type: 'code', parent: 'project',
+      title: 'scope child', bootstrap_content: 'scope brief', created_by: 'analyst', depends_on: [] });
+    const a = work(root, 'cards/project/tmp/search/one.asm');
+    const b = work(root, `cards/${child.id}/tmp/search/one.asm`);
+    const other = work(root, 'cards/project/tmp/other/two.txt');
+    const control = work(root, 'cards/project/tmp/other/control.asm');
+    baseline(root, 'directory="tmp:///project/search", pattern="*.asm"; pattern=`*.txt`, directory=`tmp:///project/other`');
+    await parity(root, [a, b, other, control], [a, other]);
+  });
+
+  it('decodes JSON assignment escapes and URI wildcard punctuation before matching, not native percent punctuation', async () => {
+    const root = fixture();
+    const a = work(root, 'cards/project/tmp/quote" dir/item1.asm');
+    const b = work(root, 'cards/project/tmp/percent%20/item2.asm');
+    const control = work(root, 'cards/project/tmp/percent /item3.asm');
+    baseline(root, [
+      `directory=${JSON.stringify(dirname(a))}, pattern="item?.asm"`,
+      `Keep "${join(root, '.saivage/work/cards/project/tmp/percent%20')}/*.asm"`,
+      'Keep "tmp:///project/quote%22%20dir/item%3F.asm"',
+    ].join('\n'));
+    await parity(root, [a, b, control], [a, b]);
+  });
+
+  it('bases cutoff counting on all observed entries, not age, byte target or other protections', async () => {
+    const root = fixture(), files = Array.from({ length: 51 }, (_, i) =>
+      work(root, `cards/project/tmp/entry-${i}.asm`, 'abcd', i === 50 ? 3000 : 1000));
+    baseline(root, JSON.stringify({ directory: 'tmp:///project', pattern: 'entry-*.asm' }));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context({
+      operationalInputs: { path: files[0] },
+    }));
+    expect(result).toMatchObject({ retained: { protected: 1, recent: 1 }, would_delete_count: 49,
+      first_global_protection: null });
+    const limited = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', targetBytes: 200 }, context());
+    expect(limited).toMatchObject({ would_delete_count: 1, retained: { protected: 0, target: 50 } });
+  });
+
+  it.each(['pm global', 'tool arguments', 'nested JSON', 'inherited JSON', 'reverse single', 'backtick', 'cwd', 'nested override',
+    'standalone quoted', 'standalone bare'] as const)('extracts %s as one scoped glob through canonical semantic projection', async kind => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/search dir/deep/formation-one.asm');
+    const selectedRoot = work(root, 'cards/project/tmp/search dir/formation-root.asm');
+    const controls = ['cards/project/tmp/search dir/other.asm', 'cards/project/tmp/search dir/formation.txt',
+      'cards/project/tmp/search dirish/formation-other.asm'].map(name => work(root, name));
+    const directory = 'tmp:///project/search%20dir', pattern = '**/*formation*.asm';
+    const structured = { directory, pattern };
+    let prose = '';
+    if (kind === 'pm global') {
+      const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
+      // Preserve the reported directory and pattern spellings, but constrain the fixture tree.
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(),
+        'directory="work:///cards", pattern="**/*formation*.asm"', { kind: 'unavailable', reason: 'not_recorded' }));
+      // This third matching file is in the reported scope too.
+      await parity(root, [selected, selectedRoot, ...controls], [selected, selectedRoot, controls[2]!]);
+      return;
+    }
+    if (kind === 'tool arguments') appendConversationBatch({ projectRoot: root },
+      [toolExchange('glob', JSON.stringify({ success: true }), JSON.stringify(structured))[0]!]);
+    if (kind === 'nested JSON') prose = `Evidence: ${JSON.stringify(JSON.stringify(structured))}`;
+    if (kind === 'inherited JSON') prose = JSON.stringify({ directory, nested: JSON.stringify({ pattern }) });
+    if (kind === 'reverse single') prose = `pattern='${pattern}', directory='${directory}'`;
+    if (kind === 'backtick') prose = `directory=\`${directory}\`, pattern=\`${pattern}\``;
+    if (kind === 'cwd') prose = JSON.stringify({ cwd: directory, pattern });
+    if (kind === 'nested override') prose = JSON.stringify({ directory: 'tmp:///project/search dirish',
+      nested: { cwd: directory, query: { pattern } } });
+    if (kind === 'standalone quoted') prose = `Keep "${directory}/${pattern}"`;
+    if (kind === 'standalone bare') prose = `Keep ${directory}/${pattern}.`;
+    if (prose) appendConversationBatch({ projectRoot: root }, [message(prose)]);
+    await parity(root, [selected, selectedRoot, ...controls], [selected, selectedRoot]);
+  });
+
+  it.each(['work', 'tmp', 'project', 'system', 'file', 'native', 'alias', 'missing', 'outside'] as const)(
+    'resolves %s scopes by metadata only without scanning outside work', async spelling => {
+      const root = fixture(), path = work(root, 'cards/project/tmp/percent% dir/one.asm');
+      const control = work(root, 'cards/project/tmp/percent% dirish/two.asm');
+      const scope = dirname(path);
+      symlinkSync(scope, join(root, 'alias'));
+      mkdirSync(join(root, 'outside'));
+      const scopes = {
+        work: 'work:///cards/project/tmp/percent%25%20dir',
+        tmp: 'tmp:///project/percent%25%20dir',
+        project: 'project:///.saivage/work/cards/project/tmp/percent%25%20dir',
+        system: `system:///${scope.slice(1).replace('%', '%25').replace(' ', '%20')}`,
+        file: `file://${scope.replace('%', '%25').replace(' ', '%20')}`,
+        native: scope, alias: 'project:///alias', missing: 'tmp:///project/missing',
+        outside: 'project:///outside',
+      };
+      baseline(root, JSON.stringify({ directory: scopes[spelling], pattern: '*.asm' }));
+      const open = fs.opendirSync, enumerated: string[] = [];
+      jest.spyOn(fs, 'opendirSync').mockImplementation(((path: any, ...args: any[]) => {
+        enumerated.push(String(path)); return (open as any)(path, ...args);
+      }) as typeof open);
+      await parity(root, [path, control], spelling === 'missing' || spelling === 'outside' ? [] : [path]);
+      expect(enumerated.every(path => path.startsWith(join(root, '.saivage/work')) ||
+        path === cardRecordsRoot(root, 'project'))).toBe(true);
+    });
+
+  it('discards a broad glob independently of exact, small-glob, operational and process protection', async () => {
+    const root = fixture(), files = Array.from({ length: 51 }, (_, i) =>
+      work(root, `cards/project/tmp/search/formation-${i}.asm`));
+    const directoryChild = work(root, 'cards/project/tmp/search/formation-dir.asm/inside');
+    const small = work(root, 'cards/project/tmp/search/small.txt');
+    const capture = work(root, 'processes/active/stdout.log');
+    baseline(root, [
+      'directory="tmp:///project/search", pattern="**/*formation*.asm"',
+      'Keep "tmp:///project/search/formation-0.asm"',
+      'Keep tmp:///project/search/formation-dir.asm',
+      'Keep "tmp:///project/search/small*.txt"',
+    ].join('\n'));
+    await parity(root, [...files, directoryChild, small, capture], [files[0]!, files[1]!, directoryChild, small, capture], {
+      operationalInputs: { source_path: files[1] },
+      protection: { retainAll: false, capturePaths: [capture] },
+    });
+  });
+
+  it.each(['quoted', 'bare', 'paired', 'operational'] as const)(
+    'does not re-extract protective fragments from one over-limit %s glob', async kind => {
+      const root = fixture();
+      const files = Array.from({ length: 51 }, (_, i) =>
+        work(root, `cards/project/tmp/search/sub-${i}/formation-${i}.asm`));
+      const pattern = 'tmp:///project/search/**/*formation*.asm';
+      let input: unknown = {};
+      if (kind === 'operational') input = { directory: 'tmp:///project/search', pattern: '**/*formation*.asm' };
+      else baseline(root, kind === 'quoted' ? `Keep "${pattern}"`
+        : kind === 'bare' ? `Keep ${pattern}.`
+          : 'directory="tmp:///project/search", pattern="**/*formation*.asm"');
+      await parity(root, files, [], { operationalInputs: input });
+    });
+
+  it('keeps literal bracket/brace punctuation and exact structured wildcard filenames distinct from inference', async () => {
+    const root = fixture();
+    const names = ['item[1]{x}.asm', 'item1x.asm', 'native?.txt', 'nativeZ.txt', 'one.asm', 'two.ASM'];
+    const files = names.map(name => work(root, `cards/project/tmp/${name}`));
+    baseline(root, JSON.stringify({ directory: 'tmp:///project', pattern: '*[1]{x}.asm',
+      source_path: files[2], prose: 'Keep "tmp:///project/o?e.asm"' }));
+    // Native punctuation in an exact field is not wildcard syntax, even without URI encoding.
+    await parity(root, files, [files[0]!, files[2]!, files[4]!], {
+      operationalInputs: { source_path: files[2] },
+    });
+  });
+
+  it.each(['ambiguous', 'newline', 'separate', 'assignment newline'] as const)(
+    'does not guess scope for %s assignment groups', async kind => {
+    const root = fixture();
+    const files = ['left/formation.asm', 'right/formation.asm', 'control'].map(name =>
+      work(root, `cards/project/tmp/${name}`));
+    baseline(root, kind === 'ambiguous'
+      ? 'directory="tmp:///project/left", directory="tmp:///project/right", pattern="**/*formation*.asm"'
+      : kind === 'newline' ? 'directory="tmp:///project/missing",\npattern="**/*formation*.asm"'
+        : kind === 'assignment newline' ? 'directory=\n"tmp:///project/missing", pattern="**/*formation*.asm"'
+          : 'directory="tmp:///project/missing"; pattern="**/*formation*.asm"');
+    await parity(root, files, files.slice(0, 2));
+  });
+
+  it('uses directory for the pattern and cwd independently for exact structured paths', async () => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/search/one.asm');
+    const exact = work(root, 'cards/project/tmp/cwd/exact.txt');
+    const control = work(root, 'cards/project/tmp/search/exact.txt');
+    baseline(root, JSON.stringify({ directory: 'tmp:///project/search', cwd: 'tmp:///project/cwd',
+      pattern: '*.asm', source_path: 'exact.txt' }));
+    await parity(root, [selected, exact, control], [selected, exact]);
+  });
+
+  it('keeps command and argv reference inference alongside exact punctuation-bearing path fields', async () => {
+    const root = fixture(), files = ['script-output.txt', 'noextension', 'one.asm', 'control'].map(name =>
+      work(root, `cards/project/tmp/${name}`));
+    await parity(root, files, files.slice(0, 3), { operationalInputs: {
+      script: 'cat tmp:///project/script-output.txt',
+      argv: ['tmp:///project/noextension', 'tmp:///project/*.asm'],
+    } });
+  });
+
+  it.each(['broken', 'malformed', 'substitution'] as const)('keeps conservative %s glob scope uncertainty', async kind => {
+    const root = fixture();
+    work(root, 'cards/project/tmp/control');
+    symlinkSync(join(root, 'missing'), join(root, 'broken'));
+    baseline(root, JSON.stringify({ directory: kind === 'broken' ? 'project:///broken'
+      : kind === 'malformed' ? 'work:///%ZZ' : '${UNKNOWN}', pattern: '*.asm' }));
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
+    expect(result).toMatchObject({ first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' },
+      deleted_count: 0, retained: { protected: 1 } });
+  });
+
+  it('skips reserved directories before matching, metadata access and threshold counting', async () => {
+    const root = fixture(), selected = work(root, 'cards/project/tmp/one.asm');
+    const reservedRoot = join(root, '.saivage/work/cards/project/tmp/hidden.saivage-tmp');
+    mkdirSync(reservedRoot);
+    for (let i = 0; i < 55; i++) writeFileSync(join(reservedRoot, `match-${i}.asm`), 'hidden');
+    baseline(root, JSON.stringify({ directory: 'tmp:///project', pattern: '**/*.asm' }));
+    const stat = fs.lstatSync, open = fs.opendirSync;
+    jest.spyOn(fs, 'lstatSync').mockImplementation(((path: any, ...args: any[]) => {
+      expect(String(path)).not.toContain('hidden.saivage-tmp'); return (stat as any)(path, ...args);
+    }) as typeof stat);
+    jest.spyOn(fs, 'opendirSync').mockImplementation(((path: any, ...args: any[]) => {
+      expect(String(path)).not.toContain('hidden.saivage-tmp'); return (open as any)(path, ...args);
+    }) as typeof open);
+    await parity(root, [selected], [selected]);
+    expect(readFileSync(join(reservedRoot, 'match-0.asm'), 'utf8')).toBe('hidden');
+  });
+
+  it('yields to cancellation during a large nonmatching observed-entry pass before selection', async () => {
+    const root = fixture();
+    for (let i = 0; i < 1600; i++) work(root, `cards/project/tmp/entry-${i}.bin`);
+    const found = await inventory(root), controller = new AbortController();
+    let entered = false, checks = 0, armed = false;
+    const operationalInputs = { get pattern() { entered = true; return '*.no-match'; } };
+    await expect(collectWorkGarbage(found, { mode: 'delete' }, context({ operationalInputs,
+      assertCollecting: () => {
+        controller.signal.throwIfAborted();
+        if (entered) {
+          checks++;
+          if (checks === 300 && !armed) {
+            armed = true;
+            void setImmediate().then(() => controller.abort(new Error('glob matching cancelled')));
+          }
+        }
+      },
+    }))).rejects.toThrow('glob matching cancelled');
+    expect(checks).toBeGreaterThanOrEqual(300);
+    expect(existsSync(join(root, '.saivage/work/cards/project/tmp/entry-1599.bin'))).toBe(true);
+  });
+
   it.each(['conversation_content', 'record_content', 'pending_notification', 'operational_input', 'process_owner', 'process_capture'] as const)(
     'attributes the first sufficient global mark to %s without leaking input or skipping later work', async source => {
       const root = fixture(), sentinel = 'PRIVATE-attribution-sentinel';
       const candidate = work(root, `cards/project/tmp/${sentinel}`);
-      const unknown = JSON.stringify({ source_path: `*${sentinel}` });
+      symlinkSync(join(root, 'missing'), join(root, sentinel));
+      const unknown = JSON.stringify({ source_path: join(root, sentinel) });
       if (source === 'conversation_content') appendConversationBatch({ projectRoot: root }, [message(unknown)]);
       if (source === 'record_content') baseline(root, unknown);
       if (source === 'pending_notification') new CardService(root).enqueueNotification('project', {
@@ -151,7 +456,8 @@ describe('work GC two-phase selection', () => {
     const root = fixture();
     work(root, 'cards/project/tmp/control');
     const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
-    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(), 'Keep "*.txt"', { kind: 'unavailable', reason: 'not_recorded' }));
+    symlinkSync(join(root, 'missing'), join(root, 'unknown-alias'));
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(), 'Keep project:///unknown-alias', { kind: 'unavailable', reason: 'not_recorded' }));
     expect(await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context())).toMatchObject({
       first_global_protection: { reason: 'reference_scope_unknown', source: 'conversation_content' },
       retained: { protected: 1 }, would_delete_count: 0,
@@ -162,7 +468,8 @@ describe('work GC two-phase selection', () => {
     const root = fixture();
     work(root, 'cards/project/tmp/control');
     const reference = join(root, 'later-reference');
-    baseline(root, JSON.stringify({ source_path: '*.txt', later: { source_path: reference } }));
+    symlinkSync(join(root, 'missing'), join(root, 'unknown-alias'));
+    baseline(root, JSON.stringify({ source_path: join(root, 'unknown-alias'), later: { source_path: reference } }));
     const realpath = fs.realpathSync, failure = new Error('unexpected later metadata');
     const marks: unknown[] = [];
     jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
@@ -552,15 +859,14 @@ describe('work GC two-phase selection', () => {
     expect([selected, control].every(existsSync)).toBe(true);
   });
 
-  it.each(['unknown', 'scoped'] as const)('preserves genuine quoted %s wildcard protection', async scope => {
+  it.each(['fallback', 'scoped'] as const)('matches quoted %s wildcards without prefix or global protection', async scope => {
     const root = fixture();
-    const selected = work(root, 'cards/project/tmp/evidence/inside');
+    const selected = work(root, 'cards/project/tmp/evidence/inside.txt');
     const control = work(root, 'cards/project/tmp/control');
-    baseline(root, scope === 'unknown' ? 'Keep "*.txt"' : `Keep "${dirname(selected)}/*.txt"`);
+    baseline(root, scope === 'fallback' ? 'Keep "**/*.txt"' : `Keep "${dirname(selected)}/*.txt"`);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
-    expect(result).toMatchObject({ retained: { protected: scope === 'unknown' ? 2 : 1 },
-      first_global_protection: scope === 'unknown' ? { reason: 'reference_scope_unknown', source: 'record_content' } : null,
-      would_delete_count: scope === 'unknown' ? 0 : 1, deleted_count: 0 });
+    expect(result).toMatchObject({ retained: { protected: 1 },
+      first_global_protection: null, would_delete_count: 1, deleted_count: 0 });
     expect([selected, control].every(existsSync)).toBe(true);
   });
 

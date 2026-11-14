@@ -211,13 +211,24 @@ canonical histories remain unchanged. Mark explicit and recognized inferred
 references from those roots, then recheck each exact candidate before unlink.
 Unknown ownership, unresolved
 recognized reference scope or surviving-writer footprint requires retention/refusal.
-Ambiguous free-text filename inference may use simple documented heuristics and may
-miss genuine references; later explicit GC can delete old still-needed work, with no
-error probability or age-based safety guarantee claimed. This exception does not
-weaken explicit/structured references, strict selected-history/native validation,
-conservative resolution of recognized unknown aliases, writer exclusion or candidate
-checks. Keep directories. Default/explicit dry-run uses the same
-selection without collector file effects; offline preview does publish/release the
+Ambiguous free-text filename inference is bounded precise glob matching with an intentional
+loss rule. A recognized glob (a structured `pattern`, a wildcard path, or a same-line
+`directory`/`pattern` prose pair) matches the actual ordinary files and directories beneath
+its resolved directory or cwd scope, or beneath the standard fallback bases when no scope is
+given. Matching uses the `globToRegExp` dialect: `*` and `?` stay inside one path segment,
+whole-segment `**` spans levels, and other characters are literal. Each entry counts once per
+glob; the scope directory itself and entries outside the scope do not count. Zero matches add
+nothing. One to fifty matches protect exactly those entries; a matched directory protects its
+subtree, and its descendants count only if they match the glob themselves. Fifty-one or more
+matches discard that glob's whole contribution, so none of its matches is protected, not even
+the first fifty. Independent exact references, operational dependencies, process-owner
+protections and other explicit roots still protect as before. Heuristics may still miss
+genuine free-text references, and needed work reachable only through a broad or missed glob
+can be deleted; no lossless, error-probability or age-based safety guarantee is claimed. This
+exception does not weaken explicit/structured references, conservative handling of
+unresolved recognized aliases and shell substitutions, strict selected-history/native
+validation, writer exclusion or candidate checks. Keep directories. Default/explicit dry-run uses
+the same selection without collector file effects; offline preview does publish/release the
 lifecycle lock and prints its result only after successful release. Delete is
 irreversible and has no lossless guarantee. GC has no elapsed deadline or duration
 guarantee; cooperative cancellation settles the collector before hold/lock release.

@@ -1,6 +1,8 @@
 import { readdirSync, realpathSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
+import { normalizeRel } from './glob-matcher.js';
+export { globToRegExp } from './glob-matcher.js';
 import {
   inspectAgentReadPath,
   isWithinReadRoot,
@@ -104,10 +106,6 @@ const TMP_SCOPED_PREFIX_RE = /^\.saivage\/work\/cards\/[^/]+\/tmp\/?/;
 type FsResolved = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>;
 type RecordDirectoryResolved = Extract<VfsResolved, { kind: 'record'; recordKind: 'directory' }>;
 
-function normalizeRel(path: string): string {
-  return path.replace(/\\/g, '/');
-}
-
 export function isHiddenPath(
   projectRoot: string,
   absolutePath: string,
@@ -150,26 +148,6 @@ export function listVisibleDirectoryEntries(
     )
     .map(({ name, type }) => ({ name, type }))
     .sort((a, b) => compareStrings(a.name, b.name));
-}
-
-function globSegmentToRegExp(segment: string): string {
-  return segment
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]');
-}
-
-export function globToRegExp(pattern: string): RegExp {
-  const segments = normalizeRel(pattern).split('/');
-  const parts = ['^'];
-  for (let i = 0; i < segments.length; i += 1) {
-    const segment = segments[i];
-    if (segment === '**') parts.push(i === segments.length - 1 ? '.*' : '(?:[^/]+/)*');
-    else parts.push(globSegmentToRegExp(segment));
-    if (i < segments.length - 1 && segment !== '**') parts.push('/');
-  }
-  parts.push('$');
-  return new RegExp(parts.join(''));
 }
 
 export async function visitFiles(

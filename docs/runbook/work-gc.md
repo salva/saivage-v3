@@ -25,10 +25,30 @@ but `.saivage/work/cards/card-n/tmp/foo` and `.saivage/work/cards/card-n/foo`
 protect that file or directory subtree. Stash artifacts and process-specific capture
 directories are also concrete. Known resolved aliases follow their target's rule.
 This applies to structured paths/URIs as well as prose: a root in a `path` or `cwd`
-field is not a concrete artifact. Previously blanket-protected old files can become
-eligible despite a human's intended blanket retention. Operational/unfinished-owner
-protections still cover their selected scopes, including roots; unknown recognized
-aliases can still retain all work. No reclamation or historical availability is promised.
+field is not a concrete artifact. Previously blanket-protected old files (through
+administrative-root mentions or broad wildcards) can become eligible despite a human's
+intended blanket retention. Operational/unfinished-owner protections still cover their
+selected scopes, including roots; unknown recognized aliases can still retain all work.
+No reclamation or historical availability is promised.
+
+Wildcard references protect only what they match, within their scope. A `pattern`
+field, or a quoted or unquoted path containing `*` or `?`, is matched against the
+ordinary files and directories under work in its scope. That scope is the paired
+`directory` (or `cwd`) when present; otherwise it is the project root for global
+conversations, or the project root, card root and card `tmp` for card content. The
+matching is anchored and case-sensitive: `*` and `?` stay within one path segment, and
+a whole `**` segment crosses levels. Each physical entry counts once across overlapping
+scopes. Empty directories count, but reserved `.saivage-tmp` names, symlinks and opaque
+entries never match. A glob with no matches protects nothing. A glob with 1 to 50
+matches protects exactly those files and directories, and a matched directory protects
+its whole subtree. A glob with 51 or more matches discards its whole contribution, so
+none of those matches is protected by that glob. Other references, operational
+dependencies and process owners still protect their own targets. Concretely, a glob
+matching exactly 50 files protects all 50; a 51st match makes that glob protect none of
+the 51. A single matching directory protects its subtree however many children it has.
+Needed work that is reachable only through a broad or over-threshold wildcard can be
+deleted; name needed files or subtrees with an explicit reference instead. A wildcard
+without an explicit scope is not, by itself, retention of all work.
 
 ## Preview first, delete separately
 
@@ -68,8 +88,10 @@ always recomputes inventory, fresh references and final identity checks. A refer
 added since preview can protect a formerly eligible file.
 
 Preview first, but neither preview nor an age cutoff proves that selected work is
-unneeded. Concrete explicit/structured paths are protected exactly; filename inference from
-ambiguous free text is heuristic and can miss genuine references. For example, a
+unneeded. Concrete explicit/structured paths are protected exactly. Wildcards protect
+only matches up to 50 per glob, so a broader pattern can leave needed work eligible.
+Filename inference from ambiguous free text is heuristic and can miss genuine
+references. For example, a
 space-containing native path mentioned only as `open(r'data/with space.txt'r'')`
 may be missed and become eligible when old enough. So can a filename containing
 line breaks mentioned only in free text: decoded CR/LF quotations are inspected
@@ -161,14 +183,21 @@ lock and operator exclusion above. There is no GC elapsed maintenance/header/bod
 total-request deadline or duration setting; connection establishment remains finite.
 Nested extraction and candidate loops yield cooperatively, but individual synchronous
 reads, JSON parsing and regex operations are indivisible. No cancellation latency
-or throughput is promised. Conservative ambiguous single-line prose (including
-backtick/double-quoted text with path syntax) can protect all candidates: a completed
-preview may reclaim zero bytes. An unresolved recognized reference, including a path-length filesystem
+or throughput is promised. Some ambiguous single-line path-like prose still protects all
+candidates through the unknown-scope rules. Examples: a shell substitution (`${...}` or
+`$(...)`) with no literal directory before it; a `#` fragment in a `project`, `system`,
+`work` or `tmp` URI in prose that has no `*` or `?`; and a `?` or `#` in such a URI used
+as an exact structured path field or as paired `directory`/`cwd` scope metadata. A
+completed preview may then reclaim zero bytes. By contrast, a `?` in an inferred URI or
+quoted path is glob syntax: it is matched against entries within its scope, and a glob
+matching more than 50 entries contributes nothing rather than protecting all candidates. An unresolved recognized reference, including a path-length filesystem
 error during exact alias metadata resolution, also retains all; this never bypasses
 strict required history/native validation. Conversely, missed prose filenames can
 leave needed work eligible: useful reclamation is not proof of safe inference.
 The decoded-multiline correction removes one false global-retention trigger; it
 neither excludes other global-protection causes nor certifies candidates unneeded.
+Over-broad wildcard matches are no longer a global-retention trigger, but the other
+reasons listed above can still retain all candidates.
 
 ## Results, cancellation and restoration
 
@@ -204,7 +233,7 @@ ranked cause, and encounter ordering need not be stable between attempts:
 * `process_owner_uncertain`: process ownership has an unresolved footprint.
 * `operational_root`: an operational input selects work or an ancestor broadly.
 * `reference_scope_unknown`: recognized reference scope/alias metadata cannot be
-  resolved, including an unscoped wildcard.
+  resolved. A wildcard without an explicit scope is not this reason.
 
 The source family is one of `process_owner`, `process_capture`, `card_content`,
 `pending_notification`, `record_content` (selected baseline/draft/latest accepted),
