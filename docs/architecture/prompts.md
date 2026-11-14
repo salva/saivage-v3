@@ -392,12 +392,18 @@ semantic fidelity, recall or model-compliance guarantee follows. See
 
 ### Prepared, current and historical instructions
 
-The activation marker records named prepared role/node/card/caller/activation/parent
-fields once. This structural evidence is **not** ordinary context fed back to
-primary/summary, a protected instruction occurrence or a snapshot of bootstrap/tool
-definitions. It is not carried into compacted genesis: inspect the exact indexed
-source segment. Existing positively marked `workflow_prompt` occurrences retain
-their producer position and policy; unmarked text is not reclassified by resemblance.
+Each recorded card agent-node entry has a marker with prepared
+role/node/card/caller/activation/parent fields; several entries can share a card
+activation identity and a configured session. Model-backed Analyst submissions and
+Oversight checks instead record prepared role evidence at global ingress.
+See [historical instruction evidence](../spec/system-specification.md#historical-instruction-evidence).
+Repeated snapshots on disk do not stack old role/node text into model history: this
+structural evidence is **not** ordinary context fed back to primary/summary, a
+protected instruction occurrence or a snapshot of bootstrap/tool definitions.
+Current prepared instructions are supplied separately. Historical evidence is not
+carried into compacted genesis: inspect the exact indexed source segment. Existing
+positively marked `workflow_prompt` occurrences retain their producer position and
+policy; unmarked text is not reclassified by resemblance.
 
 The current-instructions endpoint renders **server-loaded configuration**, redacts
 each complete binding and excludes dynamic context/tools/private wire data. It does

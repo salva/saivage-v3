@@ -1381,10 +1381,12 @@ A later semantic change may reject again; unchanged refreshed context may succee
 
 ## Conversations and instruction evidence
 
-Sessions are stable configured identities; activations and provider source-input
-UUIDs are separate. Retained rows are request-assembly inputs, not exact provider
-requests or proof of perception. This chapter separates historical preparation,
-fresh record context, current loaded instructions and strict segment/settlement rules.
+Sessions are stable configured conversation identities; card activations, recorded
+entry markers and provider source-input UUIDs have separate lifetimes. A logical
+provider operation's source input is not itself a card activation or entry marker.
+Retained rows are request-assembly inputs, not exact provider requests or proof of
+perception. This chapter separates historical preparation, fresh record context,
+current loaded instructions and strict segment/settlement rules.
 
 ### Scoped operator overrides of local guidance
 
@@ -1444,14 +1446,23 @@ plus nonblank rendered direction; identity/parent associations are validated.
 `unavailable/not_recorded` states absence, never a current-template fallback;
 global confirmation-only ingress is `not_applicable/non_model_ingress`.
 
-New model-backed ingress records this once per real activation, not continuation,
-correction, retry or compaction. Preparation/publication, admission and turn-start
-prove neither delivery nor interpretation. Besides those explicit orientation/
+One card activation may traverse several agent nodes. Each agent-node entry that
+reaches evidence publication records its prepared snapshot with that card activation
+identity; reentry is another entry and may use the same configured session. Ordinary
+provider, tool and corrective continuations, retries and compaction within an entry
+do not themselves create another node-entry marker; a genuine new node entry does.
+For globals, a model-backed Analyst submission or Oversight check records prepared
+role evidence at its own ingress, not at a card-node entry.
+
+Preparation/publication, admission and turn-start prove neither delivery nor
+interpretation. Besides those explicit orientation/
 caller fields, the snapshot contains authored role/node strings, not arbitrary
 dynamic records/focus, tools, prefix containers, routing/auth, private replay or
 diagnostic bodies. Structural evidence stays excluded from primary/summarizer
-context, accounting, protected prompts and required facts. Compaction retains it
-in exact indexed source history, not a duplicate active block in genesis.
+context, accounting, protected prompts and required facts. This exclusion does not
+remove the independently prepared current role and node instructions supplied for
+the current invocation. Compaction retains historical evidence in exact indexed
+source history, not a duplicate active block in genesis.
 
 Lifecycle-entry, configured edge/pending and correction owners positively mark
 existing card user `text`/`model_repair` only with

@@ -116,7 +116,8 @@ FAILED card has placeholder requirements, not recovered acceptance; see
 
 Open a card participant in Conversations or configured global participant in
 System. **Activation entries · N** lists retained markers in the selected accepted
-segment. Card Evidence's segment catalog selects the exact numeric segment.
+segment. The count is markers, not distinct card activations, provider calls or
+completed work. Card Evidence's segment catalog selects the exact numeric segment.
 **Open entry** focuses its actual marker, including marker-only rounds. Share the
 router-built `/agents/:id?segment=N&entry=ID` link; reload/Back retain exact selection.
 
@@ -135,9 +136,12 @@ is continuation context, not another activation/time/location.
 
 ### Prepared, current and historical instructions
 
-At an activation entry, **Prepared instructions** retains rendered historical role
-and full node text once, with agent/node/time. Expand Role instructions / Node
-instructions and copy complete privacy-filtered public text. Retained configured
+At each recorded card agent-node entry, **Prepared instructions** retains rendered
+historical role and full node text, with agent/node/time. Multiple entries can share
+one card activation and configured session. Model-backed global Analyst submissions
+and Oversight checks record prepared role text at ingress, without node text.
+Expand Role instructions / Node instructions and copy complete privacy-filtered
+public text. Retained configured
 workflow rows are **Recorded workflow instruction** at original/repair positions;
 protected details keep provenance/source, not original adjacency. Unmarked adjacent
 text is not retrospectively reclassified.
