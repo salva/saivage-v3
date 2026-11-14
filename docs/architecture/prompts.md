@@ -431,6 +431,15 @@ and baggage review. Static projection is not delivery or quality evidence.
 | Current selected record data | Supplier/record-context host; not indispensable init-only procedure. |
 | Parameter/output mechanics | Generated tool/result contract. |
 
+For ordinary shipped Executor correction, the correction host keeps the
+diagnostic-led result and required-record correction, conditional delivery work
+and `emit_result` submission. The prepared Executor role frames the current node
+against historical work and distinguishes completion from mere submission; the
+current node and generated contract supply its actual outcomes and gates. Runtime
+diagnostics remain separate, and earlier correction occurrences are not rewritten.
+Custom or materialized hosts may differ and need deliberate reconciliation of the
+selected role and correction host; source edits do not update installed hosts.
+
 The primary invocation receives the prepared role with the generated result contract
 for the current node, then the current node, card and parent-direction blocks and the
 current accepted bootstrap. That role is prepared at each node entry, not startup-only
