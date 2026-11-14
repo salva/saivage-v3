@@ -424,12 +424,28 @@ and baggage review. Static projection is not delivery or quality evidence.
 
 | Instruction responsibility | Effective owner |
 | --- | --- |
-| Reusable strategy, evidence reuse, scope and authority | Always-prepared shared role. |
-| Today's work, evidence and outcome distinction | Actual current-node process host. |
+| Reusable method: strategy, premise testing, progressive planning, delegation, revision, alignment and finding assessment; evidence reuse, scope and authority | Always-prepared shared role, refreshed with its generated result contract at each node entry. |
+| Today's task: scope, required products, evidence responsibility and outcome distinctions | Actual current-node process host; its node text also orients the compaction summary. |
 | Accepted findings, immutable citations, outstanding obligations | One-time edge/handoff; not a second destination task. |
 | Correct the attempted result/record violations using supplied diagnostics and budget | Correction host; not indiscriminate reimplementation or a future activation's task. |
 | Current selected record data | Supplier/record-context host; not indispensable init-only procedure. |
 | Parameter/output mechanics | Generated tool/result contract. |
+
+The primary invocation receives the prepared role with the generated result contract
+for the current node, then the current node, card and parent-direction blocks and the
+current accepted bootstrap. That role is prepared at each node entry, not startup-only
+memory; it stays in place through the node's continuations and after compaction.
+Structural activation markers are not replayed as ordinary context.
+
+Compaction summary orientation receives only the current node, card, parent-direction
+and bootstrap blocks plus the protected instruction occurrences still retained. It does
+not receive the prepared role text or its generated contract, and the summarizer's own
+instructions govern that request. A node therefore states its task scope, required
+products, evidence responsibility and outcome distinctions in its own text, which is
+sufficient task orientation for the summarizer. Reusable method is left to the prepared
+role that the primary invocation receives; a node does not restate it.
+Conditional record-prompt feeds may be suppressed when the observation is unchanged;
+the accepted bootstrap block is still supplied freshly at each logical operation.
 
 The shared Planner interprets separately supplied `cardType`: project strategy
 through complete evidenced acceptance versus goal-local decomposition/repair.
@@ -644,6 +660,10 @@ framing, alignment, delivery, root reconciliation, acceptance, debt and reentry.
 Generated contracts remain the sole result authority; generic correction uses
 actual diagnostics. Final pending-context handoff is historical, not duplicate
 next-node instruction. Distinct doc/ops hosts retain asset-specific completion.
+The framing, alignment, delivery and integrated-acceptance hosts state their current
+task scope, products, evidence to judge and route outcomes; the reusable premise,
+alignment and finding-assessment method stays in the prepared Planner and Reviewer
+roles and is not restated in those hosts. This is source and package closure only.
 
 One Planner and one distinct Reviewer session recur across nodes. Accepted prior
 review and effective clean draft feed separately; only the required record is
@@ -765,7 +785,11 @@ assessment, notification handling, correction/transition hosts and all seven sha
 fragments. Direct includes and exactly one generated contract token per workflow
 role remain unchanged. Reusable method belongs to prepared roles, today's task to
 the full current-node host—not replaceable project-guidance hooks or init-only
-memory. Primary invocation instructions retain the role method through continuing
+memory. The newloop plan, recover and review hosts (goal and project) do not restate
+the premise-testing, progressive-planning, delegation, alignment and finding-assessment
+method that the Planner and Reviewer roles deliver; each keeps its task scope, required
+products, evidence responsibility, honest blocked/failed boundaries and outcome routes.
+Primary invocation instructions retain the role method through continuing
 turns, reentry and after compaction. Summary requests instead use summary-specific
 instructions; selected prepared card/current-node/bootstrap context and
 activation-local parent direction where applicable supply read-only orientation,

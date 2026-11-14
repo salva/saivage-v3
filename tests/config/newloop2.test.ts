@@ -153,4 +153,26 @@ describe('newloop2 standalone compiled declarations', () => {
       }
     }
   });
+  it.each(['project', 'goal'])('%s preserves repair, replan, debt and later-stage reentry routes', (type) => {
+    const process = compiled.cardTypes.get(type)!;
+    const expected = [
+      ['alignment', 'revise', 'frame-plan'],
+      ['deliver', 'replan', 'frame-plan'],
+      ['integrated-acceptance', 'repair', 'deliver'],
+      ['integrated-acceptance', 'replan', 'frame-plan'],
+      ['integrated-acceptance', 'accepted', 'debt-assessment'],
+      ['debt-assessment', 'refactor', 'frame-plan'],
+      ['debt-assessment', 'reassess', 'resume-assess'],
+      ['resume-assess', 'deliver', 'deliver'],
+      ['resume-assess', 'accept', 'integrated-acceptance'],
+      ['resume-assess', 'assess_debt', 'debt-assessment'],
+      ...(type === 'project' ? [['resume-assess', 'reconcile', 'objective-assessment']] : []),
+    ];
+    for (const [node, outcome, target] of expected)
+      expect(process.states.get(`node:${node}`)!.on.get(`result:${outcome}`)!.targetStateId)
+        .toBe(`node:${target}`);
+    for (const entry of ['CHANGED', 'BLOCKED', 'STOPPED'])
+      expect(process.states.get(`entry:${entry}`)!.on.get('entry:route')!.targetStateId)
+        .toBe('node:resume-assess');
+  });
 });

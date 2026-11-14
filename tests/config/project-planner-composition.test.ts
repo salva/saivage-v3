@@ -18,6 +18,11 @@ import {
 import { canonicalJson } from '../../src/schemas/index.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
+import { buildUserContextMessage } from '../../src/runtime/actors/conversation-session.js';
+import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
+import type { ContextBlock } from '../../src/contracts/index.js';
+import type { CardActivationInput } from '../../src/runtime/actors/card-activation-owner.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -27,6 +32,7 @@ type VisibleContext = Readonly<{ role: 'user'; content: string }>;
 
 const transitionRenderer = new AgentNodeExecution({} as never, {} as never) as unknown as {
   transitionContext(process: CompiledCardTypeWorkflow, transition: NodeTransition): readonly VisibleContext[];
+  nodeStableBlocks(input: CardActivationInput, node: CompiledNodeContract, text: string): Readonly<{ card: ContextBlock; node: ContextBlock; parent: ContextBlock | null }>;
 };
 
 function requireNode(process: CompiledCardTypeWorkflow, nodeId: string): CompiledNodeContract {
@@ -42,7 +48,6 @@ function requirePrompt(process: CompiledCardTypeWorkflow, promptId: string): str
 }
 
 function accepted(node: CompiledNodeContract, outcome: string, cardId: string): AcceptedNodeResult {
-  const recordName = node.nodeId === 'review' ? 'review.md' : 'status.md';
   return Object.freeze({
     nodeOrdinal: 0, source: null,
     nodeId: node.nodeId,
@@ -51,7 +56,9 @@ function accepted(node: CompiledNodeContract, outcome: string, cardId: string): 
     outcome,
     event: `result:${outcome}`,
     summary: `${node.nodeId} evidence retained`,
-    acceptedRecords: Object.freeze([{ name: recordName, url: `record:///${recordName}?card=${cardId}&v=2`, version: 2 }]),
+    acceptedRecords: Object.freeze(node.requirements.map(({ definition: { name } }) =>
+      ({ name, url: `record:///${name}?card=${cardId}&v=2`, version: 2 }),
+    )),
   });
 }
 
@@ -122,6 +129,79 @@ function renderedNode(template: SystemTemplateDefinition, compiled: ReturnType<t
 }
 
 describe('shipped project Planner semantic composition', () => {
+  it.each([
+    { profile: 'newloop', cardType: 'goal', visits: [['plan', 'admit_review'], ['review', 'revision_required'], ['plan', 'admit_review'], ['review', 'approved']] },
+    { profile: 'newloop2', cardType: 'project', visits: [['frame-plan', 'ready'], ['alignment', 'aligned'], ['deliver', 'candidate_ready'], ['objective-assessment', 'candidate_ready'], ['integrated-acceptance', 'accepted'], ['debt-assessment', 'clear']] },
+  ] as const)('refreshes selected role, contract and projected node across $profile/$cardType handoffs', ({ profile, cardType, visits }) => {
+    const template = resolveSystemTemplate(profile);
+    const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)), {
+      defaultPromptRoot: template.promptRoot,
+    });
+    const registry = createPromptTemplateRegistry(workflows);
+    const process = workflows.cardTypes.get(cardType)!;
+    const cardId = cardType === 'project' ? 'project' : 'card-a';
+    const input = {
+      activationId: '11111111-1111-4111-8111-111111111111',
+      card: { id: cardId, type: cardType, title: cardType },
+      caller: cardType === 'project' ? { kind: 'root' } : {
+        kind: 'parent', cardId: 'project', sessionId: 'agent:planner:project',
+        sourceInputId: '11111111-1111-4111-8111-111111111111',
+        toolCallId: 'activate-goal', toolName: 'activate_card', instructions: '',
+      },
+    } as CardActivationInput;
+    const histories = new Map<string, AgentMessage[]>();
+    const contracts = new Map<string, string>();
+    let previous: NodeTransition | undefined;
+    for (const [index, [nodeId, outcome]] of visits.entries()) {
+      const node = requireNode(process, nodeId);
+      const agent = agentExecution(node).agent.name;
+      const sessionId = `agent:${agent}:${cardId}` as ConversationSessionId;
+      const contract = describeNodeResultContract(process, `node:${nodeId}`);
+      const instruction = registry.render({ kind: 'workflow-agent', cardType }, agent, { contractDescription: contract });
+      expect(agentExecution(node).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: agent });
+      expect(instruction.split(contract)).toHaveLength(2);
+      for (const priorContract of contracts.values())
+        if (priorContract !== contract) expect(instruction).not.toContain(priorContract);
+      contracts.set(nodeId, contract);
+
+      const history = histories.get(agent) ?? [];
+      if (previous)
+        history.push(...transitionRenderer.transitionContext(process, previous).map((message, ordinal) =>
+          buildUserContextMessage(sessionId, input.activationId, 'process_transition', index * 10 + ordinal, message),
+        ));
+      // A role's first visit has only its received handoff, not the other role's session.
+      const blocks = transitionRenderer.nodeStableBlocks(input, node, requirePrompt(process, agentExecution(node).prompt.promptId));
+      const projected = providerConversationFromComposedContext(composeContextProjection({
+        sourceSessionId: sessionId, effectiveHistory: null,
+        dynamicBlocks: [blocks.card, blocks.node, ...(blocks.parent ? [blocks.parent] : [])], uncoveredRows: history,
+      }));
+      expect(projected.messages.filter(message => message.kind === 'synthetic_context' && message.origin === 'dynamic'))
+        .toEqual([
+          expect.objectContaining({ block_identity: `card-activation:${cardId}`, content: blocks.card.content }),
+          expect.objectContaining({ block_identity: `node-activation:${cardId}:${nodeId}`, content: blocks.node.content }),
+          ...(blocks.parent ? [expect.objectContaining({ block_identity: blocks.parent.id, content: blocks.parent.content })] : []),
+        ]);
+      expect(projected.messages.filter(message => message.kind !== 'synthetic_context').map(message => message.content))
+        .toEqual(history.map(message => message.content));
+      if (previous) {
+        expect(projected.messages.map(message => message.content).join('\n')).toContain(previous.acceptedResult!.acceptedRecords[0]!.url);
+        expect(projected.messages.map(message => message.content).join('\n')).toContain(`Accepted outcome: ${previous.acceptedResult!.outcome}`);
+      }
+      histories.set(agent, history);
+      const route = node.on.get(`result:${outcome}`)!;
+      expect(route).toBeDefined();
+      const next = visits[index + 1];
+      if (next) {
+        expect(route.targetStateId).toBe(`node:${next[0]}`);
+        previous = {
+          context: { source: `node:${nodeId}`, event: `result:${outcome}`, target: route.targetStateId },
+          acceptedResult: accepted(node, outcome, cardId),
+        } as NodeTransition;
+      } else expect(route.targetStateId).toBe('terminal:DONE');
+    }
+    expect([...histories.keys()].sort()).toEqual(['planner', 'reviewer']);
+  });
+
   it('selects each bundled shared role with one generated node contract and byte parity across template families', () => {
     const renderedSources = new Map<string, string>();
     for (const templateName of ['classic', 'classic-typed'] as const) {
