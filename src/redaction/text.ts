@@ -63,7 +63,7 @@ const YAML_SECRET_VALUE_RE =
   /(^[ \t]*([A-Za-z][A-Za-z0-9_-]*)[ \t]*:[ \t]*)([^\n#][^\n]*)(?=$|\n)/gim;
 const ENCODED_YAML_SECRET_VALUE_RE = new RegExp(
   `(?: |${String.raw`\\t`})*[A-Za-z][A-Za-z0-9_-]*(?: |${String.raw`\\t`})*:(?: |${String.raw`\\t`})*(?!#)${ENCODED_NON_LF}+`,
-  'gi',
+  'iy',
 );
 const CREDENTIAL_LITERAL_RE = new RegExp(
   `\\b(?:${CREDENTIAL_FAMILIES.map(({ prefix, body }) => `(${prefix}(?!\\[REDACTED\\])${body})`).join('|')})\\b`,
@@ -85,11 +85,11 @@ const ENCODED_ESCAPED_JSON_SECRET_VALUE_RE = new RegExp(
 );
 const INLINE_SECRET_ASSIGNMENT_RE = new RegExp(
   String.raw`\b([A-Za-z][A-Za-z0-9_-]*(?:(?:${SECRET_NAME_SYNTAX})[A-Za-z0-9_-]*)?)\s*=\s*("[^"]*"|'[^']*'|\S+)`,
-  'gi',
+  'iy',
 );
 const ENCODED_INLINE_SECRET_ASSIGNMENT_RE = new RegExp(
   `([A-Za-z][A-Za-z0-9_-]*)${ENCODED_SPACE}*=${ENCODED_SPACE}*(${String.raw`\\"`}${ENCODED_NON_QUOTE}*${String.raw`\\"`}|'${encodedUnit(String.raw`[^'"\\\x00-\x1f]`)}*'|${ENCODED_NON_SPACE}+)`,
-  'gi',
+  'iy',
 );
 const COMPLETE_INLINE_DOUBLE_QUOTED_VALUE_RE = /^"(?:[^"\\]|\\[\s\S])*"/;
 const COMPLETE_ENCODED_INLINE_VALUE_RE = new RegExp(`^${ENCODED_JSON_STRING}`);
@@ -129,23 +129,14 @@ function replaceEncodedPattern(
   pattern: RegExp,
   ordinary: RegExp,
   replacement: Replacement,
-  boundary: 'none' | 'word' | 'credential' | 'yaml' = 'none',
+  boundary: 'none' | 'word' | 'credential' = 'none',
 ): string {
   // Exclude starts inside an escape before matching, so a rejected candidate cannot
   // swallow a later legitimate start (for example the key after encoded tab).
   const atUnitStart = atEncodedUnitStart(pattern);
   return text.replace(atUnitStart, (match: string, ...args: unknown[]) => {
     const offset = args.at(-2) as number;
-    if (boundary === 'yaml') {
-      const previous = text[offset - 1];
-      if (
-        offset !== 0 &&
-        previous !== '"' &&
-        previous !== '\n' &&
-        representedPreviousCharacter(text, offset) !== '\n'
-      )
-        return match;
-    } else if (boundary !== 'none') {
+    if (boundary !== 'none') {
       if (!hasRepresentedWordBoundary(text, offset, match[0]!)) return match;
       if (
         boundary === 'credential' &&
@@ -159,13 +150,91 @@ function replaceEncodedPattern(
   });
 }
 
-function redactEncodedInlineAssignments(text: string): string {
-  const matcher = atEncodedUnitStart(ENCODED_INLINE_SECRET_ASSIGNMENT_RE);
+// A failed complete grammar at a maximal key run has the same delimiter/value
+// tail at every suffix. Skip that run, but never the following whitespace/value.
+// Eligibility is tested before matching: rejected starts consume nothing.
+function keyCandidates(text: string, pattern: RegExp, encoded: boolean, yaml = false) {
+  const matcher = cloneRegex(pattern);
+  let cursor = 0;
+  let parity = 0;
+  const advance = (end: number) => {
+    while (cursor < end) parity = text[cursor++] === '\\' ? parity ^ 1 : 0;
+  };
+  return (from: number): RegExpExecArray | null => {
+    advance(from);
+    while (cursor < text.length) {
+      const start = cursor;
+      const letter = /[A-Za-z]/.test(text[start]!);
+      const indent = yaml && (text[start] === ' ' || text.startsWith('\\t', start));
+      const eligible = encoded ? parity === 0 : !/\w/.test(text[start - 1] ?? '');
+      if (!eligible || (!letter && !indent)) {
+        advance(start + 1);
+        continue;
+      }
+      matcher.lastIndex = start;
+      const match = matcher.exec(text);
+      if (match) return match;
+      let keyStart = start;
+      let lastTab = -1;
+      if (indent) {
+        while (text[keyStart] === ' ' || text.startsWith('\\t', keyStart)) {
+          if (text[keyStart] === ' ') keyStart++;
+          else {
+            lastTab = keyStart + 1;
+            keyStart += 2;
+          }
+        }
+      }
+      let end = keyStart;
+      if (/[A-Za-z]/.test(text[keyStart] ?? '')) {
+        while (/[A-Za-z0-9_-]/.test(text[end] ?? '')) end++;
+      } else if (lastTab >= start) {
+        // Without a following key, the last indentation t can have a distinct
+        // tail (e.g. t: value). Earlier t suffixes end at another backslash.
+        end = lastTab;
+      }
+      advance(Math.max(start + 1, end));
+    }
+    return null;
+  };
+}
+
+function redactEncodedYaml(text: string): string {
+  const next = keyCandidates(text, ENCODED_YAML_SECRET_VALUE_RE, true, true);
   const parts: string[] = [];
   let end = 0;
-  for (let match; (match = matcher.exec(text)) !== null; ) {
+  for (let match; (match = next(end)) !== null; ) {
+    const start = match.index;
+    parts.push(text.slice(end, start));
+    end = start + match[0].length;
+    const previous = text[start - 1];
+    // A successful eligible match consumes its original range even when this
+    // represented boundary rejects it; this is not a rejected start.
+    if (
+      start !== 0 &&
+      previous !== '"' &&
+      previous !== '\n' &&
+      representedPreviousCharacter(text, start) !== '\n'
+    ) {
+      parts.push(match[0]);
+      continue;
+    }
+    const decoded = JSON.parse(`"${match[0]}"`) as string;
+    const changed = decoded.replace(cloneRegex(YAML_SECRET_VALUE_RE), replaceYamlSecretValue);
+    parts.push(changed === decoded ? match[0] : JSON.stringify(changed).slice(1, -1));
+  }
+  parts.push(text.slice(end));
+  return parts.join('');
+}
+
+function redactEncodedInlineAssignments(text: string): string {
+  const next = keyCandidates(text, ENCODED_INLINE_SECRET_ASSIGNMENT_RE, true);
+  const parts: string[] = [];
+  let end = 0;
+  for (let match; (match = next(end)) !== null; ) {
     parts.push(text.slice(end, match.index));
     let chosen = match[0];
+    let selectedEnd = match.index + chosen.length;
     const key = match[1]!;
     const value = match[2]!;
     if (
@@ -174,7 +243,7 @@ function redactEncodedInlineAssignments(text: string): string {
       !value.startsWith(SECRET_REDACTION_PLACEHOLDER)
     ) {
       if (value.startsWith(String.raw`\"`)) {
-        const valueStart = matcher.lastIndex - value.length;
+        const valueStart = selectedEnd - value.length;
         const complete = COMPLETE_ENCODED_INLINE_VALUE_RE.exec(text.slice(valueStart));
         if (complete && complete[0].length > value.length)
           chosen = text.slice(match.index, valueStart + complete[0].length);
@@ -183,12 +252,12 @@ function redactEncodedInlineAssignments(text: string): string {
       const changed = redactInlineAssignments(selected);
       // Only a changed (masked) candidate may consume an extended range.
       if (changed !== selected) {
-        matcher.lastIndex = match.index + chosen.length;
+        selectedEnd = match.index + chosen.length;
         chosen = JSON.stringify(changed).slice(1, -1);
       } else chosen = match[0];
     }
     parts.push(chosen);
-    end = matcher.lastIndex;
+    end = selectedEnd;
   }
   parts.push(text.slice(end));
   return parts.join('');
@@ -202,13 +271,7 @@ export function redactRecordPromptForOutbound(text: string): string {
     JSON_SECRET_VALUE_RE,
     replaceJsonSecretValue,
   );
-  result = replaceEncodedPattern(
-    result,
-    ENCODED_YAML_SECRET_VALUE_RE,
-    YAML_SECRET_VALUE_RE,
-    replaceYamlSecretValue,
-    'yaml',
-  );
+  result = redactEncodedYaml(result);
   result = replaceEncodedPattern(
     result,
     ENCODED_CREDENTIAL_LITERAL_RE,
@@ -260,6 +323,17 @@ export function redactTextWithStablePrefixesForOutbound(text: string): {
   const spans: Array<{ start: number; end: number }> = [];
 
   for (const rule of TEXT_REDACTION_RULES) {
+    if (rule.pattern === INLINE_SECRET_ASSIGNMENT_RE) {
+      const next = keyCandidates(redacted, INLINE_SECRET_ASSIGNMENT_RE, false);
+      let end = 0;
+      for (let match; (match = next(end)) !== null; ) {
+        end = match.index + match[0].length;
+        spans.push({ start: match.index, end });
+        if (replaceInlineSecretAssignment(match[0], ...match.slice(1)) !== match[0])
+          maxPrefixEnd = Math.min(maxPrefixEnd, match.index);
+      }
+      continue;
+    }
     redacted.replace(cloneRegex(rule.pattern), (match, ...captures: unknown[]) => {
       const offset = captures.at(-2);
       if (typeof offset !== 'number')
@@ -412,23 +486,24 @@ export function redactSecretAssignmentsForOutbound(content: string): string {
   );
 }
 function redactInlineAssignments(content: string): string {
-  const matcher = cloneRegex(INLINE_SECRET_ASSIGNMENT_RE);
+  const next = keyCandidates(content, INLINE_SECRET_ASSIGNMENT_RE, false);
   const parts: string[] = [];
   let end = 0;
-  for (let match; (match = matcher.exec(content)) !== null; ) {
+  for (let match; (match = next(end)) !== null; ) {
     parts.push(content.slice(end, match.index));
+    let selectedEnd = match.index + match[0].length;
     const key = match[1]!;
     const value = match[2]!;
     if (isSecretKey(key) && !value.startsWith(SECRET_REDACTION_PLACEHOLDER)) {
       if (value.startsWith('"')) {
-        const valueStart = matcher.lastIndex - value.length;
+        const valueStart = selectedEnd - value.length;
         const complete = COMPLETE_INLINE_DOUBLE_QUOTED_VALUE_RE.exec(content.slice(valueStart));
         if (complete && complete[0].length > value.length)
-          matcher.lastIndex = valueStart + complete[0].length;
+          selectedEnd = valueStart + complete[0].length;
       }
       parts.push(`${key}=${SECRET_REDACTION_PLACEHOLDER}`);
     } else parts.push(match[0]);
-    end = matcher.lastIndex;
+    end = selectedEnd;
   }
   parts.push(content.slice(end));
   return parts.join('');

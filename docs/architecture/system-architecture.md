@@ -1651,6 +1651,20 @@ fixed-point guarantee. Record prompt redaction lifts rules through exactly one J
 string layer, never recursively reconstructs body/template. Browser message ingress
 is not an egress projector.
 
+Encoded YAML and inline assignments and ordinary inline assignments use call-local
+forward key-candidate discovery with their existing grammars matched at sticky starts. Encoded
+start eligibility tracks the parity of the immediately preceding raw backslashes;
+it is not a represented-unit tokenizer, so eligible suffix letters in Unicode
+spellings remain candidates. Failed key runs share a delimiter/value tail and can
+be skipped; YAML indentation keeps suffix starts with distinct tails reachable.
+Rejected starts consume nothing, while an eligible match consumes its original
+range even if a subsequent represented boundary rejects masking.
+Ordinary inline transformation and stable-prefix certification share discovery,
+but certification uses original candidate spans on the final redacted text, not
+the secret-only quoted-value extension used by transformation. Other encoded
+searches retain their existing path; pass order and the final ordinary pass remain
+unchanged.
+
 Successful navigation data is independently parsed against the strict shared
 target/intent contract immediately before browser route effects, requiring exact
 tool correspondence. Invalid/cross-wired/failed/unknown results cannot navigate;

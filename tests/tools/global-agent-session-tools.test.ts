@@ -207,6 +207,22 @@ describe('global agent-session observation tools', () => {
     expect(JSON.parse(data.diagnostics.items[2].preview).provider_response).toBe('Refused token=[REDACTED]');
     expect(JSON.stringify(data)).not.toContain('synthetic-refusal-secret');
   });
+  it('backs a diagnostic cut up to the original unchanged inline candidate start', async () => {
+    const root = setup();
+    const session = 'agent:planner:project';
+    const prefix = `${'p'.repeat(500)} `;
+    const content = `${prefix}note="${'q'.repeat(100)}"`;
+    appendConversationBatch({ projectRoot: root }, [
+      rows()[0]!, issue(session, 'long-inline-issue', timestamp, content),
+    ]);
+    const data = await diagnosticData(root, session);
+    expect(data.diagnostics.items[1]).toMatchObject({
+      preview: prefix,
+      preview_utf8_bytes: 501,
+      content_utf8_bytes: 608,
+      preview_complete: false,
+    });
+  });
   it('preserves real recovery settlement as uncertainty, and rejects complete malformed canonical bytes even for exact lookup', async () => {
     const root = setup();
     appendConversationBatch({ projectRoot: root }, rows());

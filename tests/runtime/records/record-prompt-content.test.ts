@@ -74,4 +74,31 @@ describe('recordContent JSON-value preparation', () => {
     expect(substitution).toBe(canonicalJson(preview));
     expect(JSON.parse(`{"payload": ${substitution}}`).payload).toBe(preview);
   });
+
+  it('counts middle-only secrets after full-body redaction and masks a value crossing a display cut', () => {
+    const body = `${'e'.repeat(9000)}\napi_key=${'x'.repeat(20000)}\n${'z'.repeat(9000)}`;
+    const preview = JSON.parse(prepareRecordPromptContent(body, url)) as string;
+    const [head, notice, tail] = preview.split('\n\n');
+    expect(head).toBe(`"${'e'.repeat(8191)}`);
+    expect(tail).toBe(`${'z'.repeat(8191)}"`);
+    // Two quotes, two encoded LF pairs, 18000 safe letters, and an 18-byte assignment.
+    expect(notice).toContain('Middle omitted: 1640 UTF-8 display bytes.');
+    expect(preview).not.toContain('xxx');
+
+    const crossing = `api_key="${'x'.repeat(40000)}"\n${'z'.repeat(9000)}`;
+    const complete = JSON.parse(prepareRecordPromptContent(crossing, url)) as string;
+    expect(complete.split('\n\n')[0]).toBe(`"api_key=[REDACTED]\\n${'z'.repeat(9000)}"`);
+    expect(complete).toContain('No further middle elision was needed.');
+    expect(complete).not.toContain('xxx');
+  });
+
+  it('retains opaque lone-surrogate spellings across display cuts without normalizing them', () => {
+    const substitution = prepareRecordPromptContent('\udabc'.repeat(32769), url);
+    const preview = JSON.parse(substitution) as string;
+    const [head, notice, tail] = preview.split('\n\n');
+    expect(head).toBe('"' + String.raw`\udabc`.repeat(1365) + '\\');
+    expect(tail).toBe('c' + String.raw`\udabc`.repeat(1365) + '"');
+    expect(notice).toContain('Middle omitted: 180232 UTF-8 display bytes.');
+    expect(JSON.parse(`{"payload": ${substitution}}`).payload).toBe(preview);
+  });
 });

@@ -41,6 +41,16 @@ const classifiedProjector: ToolInvocationProjector = (input) => {
 };
 
 describe('canonical conversation outbound row projection', () => {
+  it('preserves Unicode-suffix consumption in mixed host and supplier spellings', () => {
+    const content = String.raw`Host " unmatched: {"broken": Data: "\u001bapi_key=\"one two\"" tail token=synthetic`;
+    const row = agentMessageSchema.parse({
+      ...ordinary(), role: 'user', kind: 'record_prompt', content, ...recordContextMetadata(),
+    });
+    expect(projectCanonicalConversationRow(row, identityProjector).content).toBe(
+      String.raw`Host " unmatched: {"broken": Data: "\u001bapi_key=[REDACTED] two\"" tail token=[REDACTED]`,
+    );
+    expect(row.content).toBe(content);
+  });
   it.each(['agent:analyst:global', 'agent:planner:project'] as const)('projects failed and unmatched workspace calls in %s without changing canonical bytes or identity', (session) => {
     for (const unmatched of [false, true]) {
       const rows = workspaceArgumentEgressRows(session, unmatched);
