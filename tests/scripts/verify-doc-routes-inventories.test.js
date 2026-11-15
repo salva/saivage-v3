@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { verifyAgentToolDocs, verifyConfigDocs } from '../../scripts/verify-doc-routes.js';
+import { copyInventoryFixture } from './doc-inventory-fixture.js';
 
 const AGENTS = 'src/config/system-templates/classic-shared.ts';
 const POLICY = 'src/contracts/oversight-tool-policy.ts';
@@ -13,10 +14,13 @@ const DOC = 'docs/architecture/system-architecture.md';
 function withFixture(paths, testFn) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-doc-inventory-'));
   try {
-    for (const path of paths) {
-      const destination = join(root, path);
-      mkdirSync(dirname(destination), { recursive: true });
-      writeFileSync(destination, readFileSync(join(process.cwd(), path), 'utf8'));
+    if (paths.includes(AGENTS)) copyInventoryFixture(root);
+    else {
+      for (const path of paths) {
+        const destination = join(root, path);
+        mkdirSync(dirname(destination), { recursive: true });
+        writeFileSync(destination, readFileSync(join(process.cwd(), path), 'utf8'));
+      }
     }
     testFn(root);
   } finally {
@@ -179,28 +183,32 @@ describe('source-derived named-agent tool inventory', () => {
         'read_runtime_events',
       ],
     });
-  });
+  }, 15000);
 
-  it('derives literal catalog changes and rejects invalid catalog syntax', () => {
+  it('observes executable catalog changes', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'activate_card'", "'fixture_tool'");
       expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).toContain(
         'fixture_tool',
       );
     });
+  }, 15000);
+  it('rejects duplicate tools', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'edit_card'", "'create_card'");
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains duplicates');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Template inventory observer failed');
     });
+  }, 15000);
+  it('rejects undefined tools', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'edit_card'", 'computedTool');
       expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow(
-        'contains a non-string entry',
+        'Template inventory observer failed',
       );
     });
-  });
+  }, 15000);
 
-  it('rejects duplicate, unexpected, and malformed documentation rows', () => {
+  it('rejects duplicate documentation rows', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `planner` .*$/m)[0];
       replaceChecked(
@@ -211,6 +219,8 @@ describe('source-derived named-agent tool inventory', () => {
       );
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('duplicate-agent');
     });
+  }, 15000);
+  it('rejects unexpected documentation rows', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(
         root,
@@ -222,28 +232,31 @@ describe('source-derived named-agent tool inventory', () => {
         'unexpected-agent',
       );
     });
+  }, 15000);
+  it('rejects malformed documentation rows', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, DOC, '| `planner` | `activate_card', '| `planner` | activate_card');
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain(
         'malformed-agent-tool-row',
       );
     });
-  });
+  }, 15000);
 
-  it('consumes the Oversight tuple through its exact public reexport and rejects arbitrary declarations', () => {
+  it('consumes the Oversight tuple through its exact public reexport', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, POLICY, "'get_status'", "'fixture_observation'");
       const result = verifyAgentToolDocs({ projectRoot: root });
       expect(result.expected.get('oversight')).toContain('fixture_observation');
       expect(result.ok).toBe(false);
     });
-    for (const [path, before, after, error] of [
+  }, 15000);
+  it.each([
       [POLICY, "'list_cards'", "'get_status'", 'contains duplicates'],
       [POLICY, "'list_cards'", 'computedTool', 'contains a non-string entry'],
-      [AGENTS, '...OVERSIGHT_ALLOWED_TOOL_NAMES.map', '...otherPolicy.map', 'must map OVERSIGHT_ALLOWED_TOOL_NAMES'],
-      [AGENTS, 'return grant([tool], allCards)', "return grant(['get_status'], allCards)", 'must preserve each mapped tool'],
-      [AGENTS, '    planner: {', '    [computedRole]: {', 'Unsupported computed property'],
-      [AGENTS, "'edit_card'", '...otherTools', 'contains a non-string entry'],
+      [AGENTS, '...OVERSIGHT_ALLOWED_TOOL_NAMES.map', '...otherPolicy.map', 'Template inventory observer failed'],
+      [AGENTS, 'return grant([tool], allCards)', "return grant(['get_status'], allCards)", 'Template inventory observer failed'],
+      [AGENTS, '    planner: {', '    [computedRole]: {', 'Template inventory observer failed'],
+      [AGENTS, "'edit_card'", '...otherTools', 'Template inventory observer failed'],
       [
         'src/contracts/index.ts',
         "from './oversight-tool-policy.js'",
@@ -256,12 +269,12 @@ describe('source-derived named-agent tool inventory', () => {
         "from '../../contracts/oversight-tool-policy.js'",
         'must import',
       ],
-    ])
+    ])('rejects invalid owner/value %s: %s', (path, before, after, error) => {
       withFixture([...AGENT_SOURCES, DOC], (root) => {
         replaceChecked(root, path, before, after);
         expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow(error);
       });
-  });
+  }, 15000);
 });
 
 describe('source-derived Config schema inventory', () => {

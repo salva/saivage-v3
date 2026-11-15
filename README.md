@@ -207,6 +207,11 @@ compile cache or Jest's transform cache; it is not a production runtime flag.
 | `npm run validate:ui` | Web typecheck, complete web Vitest and operator smoke |
 | `npm run validate:release` | Local release composition: typecheck, full build, backend non-E2E and E2E, operator smoke, docs |
 
+Docs and routine verification freshly emit a temporary observer to materialize
+registered-template declarations; neither needs a preexisting `dist` or full build.
+That emission is not full type checking, which remains separately owned by
+`typecheck` and included in the routine profile.
+
 Release success does **not** replace the separate `npm run audit:security`
 high/critical gate. `npm run lint` and `npm run deps:review` have their own
 [coverage and applicability](docs/validation.md#select-a-profile).

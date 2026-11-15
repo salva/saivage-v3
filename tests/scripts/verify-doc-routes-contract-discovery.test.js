@@ -95,7 +95,7 @@ describe('verify-doc-routes operator contract discovery', () => {
       'GET /api/debug/graphs',
     ]);
     expect(result.routeResult.routeInventoryRows.map((row) => row.key)).not.toEqual(expect.arrayContaining(debugRoutes));
-  });
+  }, 15000);
 
   it('reports discovered route-bearing and value-contract sources in docs verification output', () => {
     const projectRoot = process.cwd();
@@ -109,7 +109,7 @@ describe('verify-doc-routes operator contract discovery', () => {
     expect(output).toContain('src/config/system-templates/classic-shared.ts');
     expect(output).toContain('src/contracts/index.ts');
     expect(output).toContain('src/contracts/oversight-tool-policy.ts');
-  });
+  }, 15000);
 
   it('discovers future operator-api slices and ignores helper slices without route literals', () => {
     withFixture({

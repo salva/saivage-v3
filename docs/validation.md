@@ -504,6 +504,37 @@ The cadence guard structurally parses workflow YAML once, rejecting duplicate ke
 and checks command coverage/prerequisites, not arbitrary shell semantics or prose
 comprehension. Missing/malformed contract negative cases must remain meaningful.
 
+Tool inventory verification requires the selected checkout's source, tooling and
+root configuration, installed root dependencies including TypeScript and Zod, and
+writable temporary space. It uses a scoped `allowJs`/`noCheck` TypeScript project
+to freshly emit the statically linked JavaScript observer and its TypeScript/JS
+dependency closure, then executes the emitted observer with native Node. Literal
+named imports expose its source dependencies to the existing export-consumer guard.
+It does not reuse checkout `dist`, require a prior full build, or perform full
+semantic type checking; `npm run typecheck` owns that separately and routine runs
+it before docs verification.
+
+The observer materializes every registered template, using the shared synthetic
+provisioning fixture for the provision-required template, and checks the actual
+source/effective schemas and ordered grants. Separate structural and semantic
+guards check source ownership, prompt selection, policy, inventory order, native
+delta and presenter relationships. An emission or observer failure, timeout, or
+invalid output fails verification. Each independent observation has fresh output;
+the aggregate shares one observation across its tool claims. On settled success or
+failure the verifier removes only its exact allocated output directory, reporting
+cleanup failure without hiding the original failure. It neither requires the
+temporary parent to be empty nor controls incidental caches. Routine therefore
+emits disposable inventory output, not a distributable build.
+
+Nineteen affected formerly default-budget Jest cases have explicit 15000 ms case
+timeouts for source emission/materialization; global/default and unrelated budgets
+are unchanged, as is the contract-values suite's 240000 ms budget. In prior
+qualification, “observes executable catalog changes” passed actual Jest; an
+independent hook measured 7343.086 ms, not a Jest timeout failure. A single-emission
+aggregate observation took 6.154 seconds and the heavy case took 129.449 seconds.
+These historical bounded measurements are not current full-suite certification or
+a product latency guarantee.
+
 The Markdown guard retains repository-wide file resolution, but published docs
 fragments and internal HTML links use **actual freshly rendered IDs and hrefs**,
 not guessed heading slugs. Missing rendered output is a failure. It checks local
@@ -542,9 +573,14 @@ Never stage generated dist, live/generated runtime state or private evidence.
 `tests/scripts/file-url-entrypoints.test.js` invokes actual packaging/docs CLIs in
 tracked-file relocation fixtures on Linux. Packaging uses installed tsx in ordinary
 and `checkout café` paths; the native-Node docs verifier also covers
-`checkout café #?%20%`. Each starts from a healthy baseline, then rejects missing
-selected prompt/public-route drift. Packaging checks exact sets/bytes/closure;
-distinct-driver and no-argv imports remain silent with invalid fixture inputs.
+`checkout café #?%20%`. The docs path starts healthy and rejects inventory and
+public-route drift; packaging starts healthy and rejects a missing selected prompt,
+checking exact sets/bytes/closure. Fixtures include the executable source and tooling
+closure, package and root tsconfig, and linked installed dependencies, not runtime
+state or working documents. Both tools use `scripts/system-template-fixtures.js`
+for synthetic provisioning. Distinct-driver and no-argv imports remain silent with
+invalid fixture inputs; importing the verifier alone does not allocate its output
+or launch compiler/observer children.
 
 Run separately from the root (two cases per command):
 

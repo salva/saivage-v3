@@ -35,12 +35,13 @@ describe('verify-doc-routes.d.ts declaration parity', () => {
       'src/contracts/result-envelope.ts',
       'src/schemas/index.ts',
       'src/schemas/quality-operation-config.ts',
+      'src/schemas/saivage-config.ts',
       'src/tools/mcp-provider.ts',
       'src/tools/quality-provider.ts',
       'src/tools/tool-invocation-outbound.ts',
       'web/src/utils/tool-presenters/presenters.ts',
     ]);
-  });
+  }, 15000);
   it('RouteVerificationResult mirrors the verifyDocRoutes return shape', () => {
     const body = interfaceBody('RouteVerificationResult', DTS);
     expect(body).toContain('internalDebugRows: RouteInventoryRow[]');
@@ -83,6 +84,7 @@ describe('verify-doc-routes.d.ts declaration parity', () => {
     ]) expect(DTS).toMatch(new RegExp(`export (?:const|function) ${name}\\b`));
     expect(JS).not.toMatch(/^export const VALUE_CONTRACT_CLAIMS\b/m);
     expect(DTS).not.toContain('export const VALUE_CONTRACT_CLAIMS');
+    expect(interfaceBody('AgentToolVerificationOptions', DTS)).not.toContain('expectedTools');
 
     const aggregate = interfaceBody('DocSourceContractsResult', DTS);
     for (const field of ['errorShapeResult', 'closedVocabularyResult', 'sourceConstantResult', 'toolContractResult', 'identityGrammarResult', 'cardDiffPivotResult']) {

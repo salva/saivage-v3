@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, mkdtempSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -20,6 +22,60 @@ const AGENTS_DOC = 'docs/architecture/system-architecture.md';
 const CONFIG_DOC = 'docs/architecture/system-architecture.md';
 const CONFIG_DOCS = ['docs/architecture/system-architecture.md'];
 const CONTRACT_ROUTE_RE = /method:\s*['"`](GET|POST|PATCH|DELETE|PUT)['"`][\s\S]*?path:\s*['"`]([^'"`]+)['"`]/g;
+
+function observeTemplateInventories(projectRoot) {
+  const output = mkdtempSync(join(tmpdir(), 'saivage-doc-template-output-'));
+  let primary;
+  try {
+    const run = (owner, args) => {
+      const result = spawnSync(process.execPath, args, {
+        cwd: projectRoot, encoding: 'utf8', timeout: 60000, killSignal: 'SIGKILL',
+        maxBuffer: 1024 * 1024,
+      });
+      if (result.error || result.signal || result.status !== 0) {
+        throw new Error(`${owner} failed (${result.error?.code ?? result.signal ?? result.status}): ${result.stderr || result.stdout || 'no diagnostic'}`);
+      }
+      return result.stdout;
+    };
+    run('Template inventory emission', [
+      join(projectRoot, 'node_modules/typescript/bin/tsc'),
+      '--project', join(projectRoot, 'scripts/tsconfig.doc-inventory.json'), '--outDir', output,
+    ]);
+    writeFileSync(join(output, 'package.json'), '{"type":"module"}\n');
+    symlinkSync(join(projectRoot, 'node_modules'), join(output, 'node_modules'), 'dir');
+    const value = JSON.parse(run('Template inventory observer', [
+      join(output, 'scripts/collect-doc-template-inventory.js'),
+    ]));
+    exactKeys(value, ['defaultTemplate', 'templates'], 'template observation');
+    if (typeof value.defaultTemplate !== 'string' || !Array.isArray(value.templates) || !value.templates.length) throw new Error('Invalid template observation');
+    const names = new Set();
+    for (const template of value.templates) {
+      exactKeys(template, ['name', 'provisioningRequired', 'agents'], 'observed template');
+      if (typeof template.name !== 'string' || !template.name || names.has(template.name)
+        || typeof template.provisioningRequired !== 'boolean' || !Array.isArray(template.agents) || !template.agents.length) throw new Error('Invalid observed template');
+      names.add(template.name);
+      const roles = new Set();
+      for (const agent of template.agents) {
+        exactKeys(agent, ['name', 'tools'], 'observed agent');
+        if (typeof agent.name !== 'string' || !agent.name || roles.has(agent.name)
+          || !Array.isArray(agent.tools) || agent.tools.some(tool => typeof tool !== 'string' || !tool)
+          || new Set(agent.tools).size !== agent.tools.length) throw new Error('Invalid observed agent');
+        roles.add(agent.name);
+      }
+    }
+    if (!value.templates.some(template => template.name === value.defaultTemplate && !template.provisioningRequired)) throw new Error('Invalid observed default');
+    return value;
+  } catch (error) {
+    primary = error;
+    throw error;
+  } finally {
+    try { rmSync(output, { recursive: true, force: true }); }
+    catch (error) {
+      if (primary) throw new AggregateError([primary, error], 'Inventory failed and exact output cleanup failed');
+      throw error;
+    }
+  }
+}
 
 function listTsFiles(directory) {
   if (!existsSync(directory)) return [];
@@ -261,6 +317,13 @@ const SHIPPED_TEMPLATE_SOURCES = [
   'src/config/system-templates/newloop/template.ts',
 ];
 
+// Selected semantic/structural owners, not an inventory of the compiler import closure.
+const SHIPPED_TOOL_SOURCE_PATHS = [
+  ...SHIPPED_TEMPLATE_SOURCES, CLASSIC_FACTORY_SOURCE,
+  'src/config/system-templates/registry.ts', 'src/contracts/index.ts', OVERSIGHT_POLICY_SOURCE,
+  'src/schemas/saivage-config.ts',
+].sort();
+
 function requireNamedImport(ast, module, name) {
   const found = ast.statements.some((statement) => ts.isImportDeclaration(statement)
     && ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text === module
@@ -295,17 +358,6 @@ function extractOversightPolicy(projectRoot, factoryAst) {
   return names;
 }
 
-function typedLocal(statement, name, type, ast) {
-  if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)
-    || statement.declarationList.declarations.length !== 1) throw new Error(`createClassicConfig must declare typed local ${name}`);
-  const declaration = statement.declarationList.declarations[0];
-  if (!ts.isIdentifier(declaration.name) || declaration.name.text !== name || declaration.type?.getText(ast) !== type
-    || !declaration.initializer) throw new Error(`createClassicConfig must declare typed local ${name}`);
-  const value = declaration.initializer;
-  if (!ts.isObjectLiteralExpression(value)) throw new Error(`createClassicConfig ${name} must be an object literal`);
-  return value;
-}
-
 function requireLiteralMembers(object, context) {
   const names = new Set();
   for (const member of object.properties) {
@@ -316,78 +368,20 @@ function requireLiteralMembers(object, context) {
   }
 }
 
-function extractClassicAgents(projectRoot) {
+function inspectClassicFactory(projectRoot) {
   const { ast } = sourceAst(projectRoot, CLASSIC_FACTORY_SOURCE);
   const factory = ast.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === 'createClassicConfig');
   if (!factory?.body || !factory.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
-    || factory.parameters.length !== 1 || factory.parameters[0].name.getText(ast) !== 'cardTypes'
-    || factory.parameters[0].type?.getText(ast) !== 'CardTypesSource'
-    || factory.type?.getText(ast) !== 'SaivageConfigSource' || factory.body.statements.length !== 4) {
+    || factory.parameters.length !== 1 || factory.parameters[0].type?.getText(ast) !== 'CardTypesSource'
+    || factory.type?.getText(ast) !== 'SaivageConfigSource') {
     throw new Error(`${CLASSIC_FACTORY_SOURCE} must export the typed createClassicConfig factory`);
   }
-  const [agentsStatement, routesStatement, configStatement, returned] = factory.body.statements;
-  const agents = typedLocal(agentsStatement, 'agents', "SaivageConfigSource['agents']", ast);
-  typedLocal(routesStatement, 'routes', "SaivageConfigSource['models']['routes']", ast);
-  const config = typedLocal(configStatement, 'config', 'SaivageConfigSource', ast);
-  requireLiteralMembers(config, 'createClassicConfig config');
-  if (identifierText(propertyAssignment(config, 'agents', 'createClassicConfig config'), 'config.agents') !== 'agents'
-    || identifierText(propertyAssignment(config, 'card_types', 'createClassicConfig config'), 'config.card_types') !== 'cardTypes') {
-    throw new Error('createClassicConfig config must use local agents and supplied cardTypes');
-  }
-  if (!ts.isReturnStatement(returned) || !returned.expression) throw new Error('createClassicConfig must return deepFreeze(config)');
-  const freeze = directIdentifierCall(returned.expression, 'deepFreeze', 'createClassicConfig return');
-  if (freeze.arguments.length !== 1 || identifierText(freeze.arguments[0], 'createClassicConfig return argument') !== 'config') {
-    throw new Error('createClassicConfig must return deepFreeze(config)');
-  }
-  const policy = extractOversightPolicy(projectRoot, ast);
-  const roles = {};
-  for (const member of agents.properties) {
-    if (!ts.isPropertyAssignment(member)) throw new Error('createClassicConfig agents has unsupported role');
-    const role = propertyName(member.name);
-    if (Object.hasOwn(roles, role)) throw new Error('createClassicConfig agents contains duplicates');
-    const agent = member.initializer;
-    if (!ts.isObjectLiteralExpression(agent)) throw new Error(`createClassicConfig agents.${role} must be an object literal`);
-    const fields = new Set();
-    for (const field of agent.properties) {
-      if (!ts.isPropertyAssignment(field)) throw new Error(`createClassicConfig agents.${role} has unsupported member`);
-      const key = propertyName(field.name);
-      if (fields.has(key)) throw new Error(`createClassicConfig agents.${role} contains duplicates`);
-      fields.add(key);
-    }
-    const capabilities = directIdentifierCall(propertyAssignment(agent, 'capabilities', `createClassicConfig agents.${role}`), 'capabilities', `agents.${role}.capabilities`);
-    let ordered;
-    if (role === 'oversight') {
-      const spread = capabilities.arguments[0];
-      if (capabilities.arguments.length !== 1 || !ts.isSpreadElement(spread)
-        || !callNamed(spread.expression, 'OVERSIGHT_ALLOWED_TOOL_NAMES', 'map')) {
-        throw new Error('createClassicConfig oversight capabilities must map OVERSIGHT_ALLOWED_TOOL_NAMES');
-      }
-      const map = callNamed(spread.expression, 'OVERSIGHT_ALLOWED_TOOL_NAMES', 'map');
-      const mapper = map.arguments[0];
-      if (map.arguments.length !== 1 || !ts.isArrowFunction(mapper) || mapper.parameters.length !== 1
-        || identifierText(mapper.parameters[0].name, 'Oversight grant mapper') !== 'tool') throw new Error('Oversight grant mapper must bind tool');
-      const grants = descendants(mapper.body, node => ts.isCallExpression(node)
-        && ts.isIdentifier(node.expression) && node.expression.text === 'grant');
-      if (grants.length === 0 || grants.some(grant => {
-        const tools = grant.arguments[0];
-        return !ts.isArrayLiteralExpression(tools) || tools.elements.length !== 1
-          || !ts.isIdentifier(tools.elements[0]) || tools.elements[0].text !== 'tool';
-      })) throw new Error('Oversight grants must preserve each mapped tool');
-      ordered = policy;
-    } else ordered = capabilities.arguments.flatMap((argument) => {
-      const grant = directIdentifierCall(argument, 'grant', `agents.${role} grant`);
-      if (grant.arguments.length < 1 || grant.arguments.length > 2) throw new Error(`Invalid agents.${role} grant`);
-      return stringArray(grant.arguments[0], `agents.${role} grant.tools`);
-    });
-    if (new Set(ordered).size !== ordered.length) throw new Error(`createClassicConfig agents.${role}.tools contains duplicates`);
-    roles[role] = ordered;
-  }
-  if (Object.keys(roles).length === 0) throw new Error('createClassicConfig agents must not be empty');
-  return canonicalValue(roles);
+  return extractOversightPolicy(projectRoot, ast);
 }
 
-function extractImplementedAgentTools(projectRoot) {
-  return new Map(Object.entries(extractClassicAgents(projectRoot)).map(([role, tools]) => [role, uniqueSorted(tools)]));
+function extractImplementedAgentTools(projectRoot, observation = registeredInventories(projectRoot)) {
+  const selected = observation.templates.find(template => template.name === observation.defaultTemplate);
+  return new Map(selected.agents.map(({ name, tools }) => [name, uniqueSorted(tools)]));
 }
 
 const SCHEMA_WRAPPERS = new Set(['optional', 'nullable', 'default', 'strict', 'passthrough', 'superRefine', 'transform', 'pipe']);
@@ -837,8 +831,8 @@ const PATHS = Object.freeze({
   loggedEvents: sourcePathSet(['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/global-observation-tools.ts']),
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
-  shippedTools: sourcePathSet(['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/newloop2/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
-  toolRelations: sourcePathSet(['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
+  shippedTools: sourcePathSet(SHIPPED_TOOL_SOURCE_PATHS),
+  toolRelations: sourcePathSet([...SHIPPED_TOOL_SOURCE_PATHS, 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'].sort()),
   uiDiff: sourcePathSet(['web/src/api/client.ts', 'web/src/stores/cards.ts']),
 });
 
@@ -1066,7 +1060,7 @@ function directIdentifierCall(node, name, context) {
   if (!ts.isCallExpression(value) || !ts.isIdentifier(value.expression) || value.expression.text !== name) throw new Error(`${context} must call ${name}`);
   return value;
 }
-function extractMaterializedTemplate(projectRoot, path, templateName) {
+function inspectTemplateStructure(projectRoot, path, templateName) {
   const { ast } = sourceAst(projectRoot, path);
   if (!ast.statements.some((statement) => ts.isVariableStatement(statement)
     && (statement.declarationList.flags & ts.NodeFlags.Const)
@@ -1088,68 +1082,21 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
       || identifierText(propertyAssignment(template, 'materialize', path), path) !== 'createClassicGitConfig') throw new Error('Native template must require its direct provisioned builder');
     const builder = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'createClassicGitConfig');
     if (!builder?.body) throw new Error(`${path} must define createClassicGitConfig`);
-    if (!builder.body.statements.some(statement => ts.isVariableStatement(statement)
-      && (statement.declarationList.flags & ts.NodeFlags.Const)
-      && statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === 'config'))) {
-      throw new Error(`${path} native classic selected inventory must declare const config`);
-    }
-    let configSource = requiredInitializer(constInitializers(builder.body), 'config', path);
-    for (const name of ['structuredClone', 'createClassicConfig', 'structuredClone']) {
-      const call = directIdentifierCall(configSource, name, `${path} native classic selected inventory`);
-      if (call.arguments.length !== 1) throw new Error(`${path} native classic selected inventory: ${name} must have one argument`);
-      configSource = unwrapExpression(call.arguments[0]);
-    }
-    if (!ts.isNonNullExpression(configSource)) throw new Error(`${path} native classic selected inventory must use CLASSIC_TEMPLATE.config.card_types!`);
-    const cardTypes = configSource.expression;
-    if (!ts.isPropertyAccessExpression(cardTypes) || cardTypes.name.text !== 'card_types'
-      || !ts.isPropertyAccessExpression(cardTypes.expression) || cardTypes.expression.name.text !== 'config'
-      || identifierText(cardTypes.expression.expression, path) !== 'CLASSIC_TEMPLATE') {
-      throw new Error(`${path} native classic selected inventory must use CLASSIC_TEMPLATE.config.card_types!`);
-    }
-    const codePath = node => node.getText(ast).replace(/\s+/gu, '');
-    const assignment = builder.body.statements.find(statement => ts.isExpressionStatement(statement)
-      && ts.isBinaryExpression(statement.expression)
-      && statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && codePath(statement.expression.left) === 'config.agents.analyst!.capabilities.grants')?.expression;
-    const nonempty = assignment && unwrapExpression(assignment.right);
-    const mapping = nonempty && ts.isCallExpression(nonempty) && ts.isPropertyAccessExpression(nonempty.expression)
-      && nonempty.expression.name.text === 'filter' ? unwrapExpression(nonempty.expression.expression) : null;
-    const keep = nonempty && ts.isCallExpression(nonempty) ? nonempty.arguments[0] : null;
-    const keepBody = keep && ts.isArrowFunction(keep) ? unwrapExpression(keep.body) : null;
-    const mapper = mapping && ts.isCallExpression(mapping) ? mapping.arguments[0] : null;
-    const mapped = mapper && ts.isArrowFunction(mapper) ? unwrapExpression(mapper.body) : null;
-    const tools = mapped && ts.isObjectLiteralExpression(mapped) ? propertyAssignment(mapped, 'tools', path) : null;
-    const predicate = tools && ts.isCallExpression(tools) ? tools.arguments[0] : null;
-    const body = predicate && ts.isArrowFunction(predicate) ? unwrapExpression(predicate.body) : null;
-    const excluded = body && ts.isPrefixUnaryExpression(body) && body.operator === ts.SyntaxKind.ExclamationToken
-      ? callNamed(unwrapExpression(body.operand), 'nativeGlobalExcludedTools', 'includes') : null;
-    if (!nonempty || !ts.isCallExpression(nonempty) || nonempty.arguments.length !== 1
-      || !keep || !ts.isArrowFunction(keep) || keep.parameters.length !== 1
-      || identifierText(keep.parameters[0].name, path) !== 'grant'
-      || !keepBody || !ts.isBinaryExpression(keepBody)
-      || keepBody.operatorToken.kind !== ts.SyntaxKind.GreaterThanToken
-      || codePath(keepBody.left) !== 'grant.tools.length'
-      || !ts.isNumericLiteral(keepBody.right) || keepBody.right.text !== '0'
-      || !mapping || !ts.isCallExpression(mapping) || mapping.arguments.length !== 1
-      || !ts.isPropertyAccessExpression(mapping.expression) || mapping.expression.name.text !== 'map'
-      || codePath(mapping.expression.expression) !== 'config.agents.analyst!.capabilities.grants'
-      || !mapper || !ts.isArrowFunction(mapper) || mapper.parameters.length !== 1
-      || identifierText(mapper.parameters[0].name, path) !== 'grant'
-      || !mapped || !ts.isObjectLiteralExpression(mapped) || mapped.properties.length !== 2
-      || !ts.isSpreadAssignment(mapped.properties[0]) || codePath(mapped.properties[0].expression) !== 'grant'
-      || !tools || !ts.isCallExpression(tools) || tools.arguments.length !== 1
-      || codePath(tools.expression) !== 'grant.tools.filter'
-      || !predicate || !ts.isArrowFunction(predicate) || predicate.parameters.length !== 1
-      || identifierText(predicate.parameters[0].name, path) !== 'name'
-      || !excluded || excluded.arguments.length !== 1 || identifierText(excluded.arguments[0], path) !== 'name') {
-      throw new Error(`${path} must filter excluded global tools through its singular capability grants`);
+    requireNamedImport(ast, '../classic-shared.js', 'createClassicConfig');
+    requireNamedImport(ast, '../classic/template.js', 'CLASSIC_TEMPLATE');
+    const factories = descendants(builder, node => ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression) && node.expression.text === 'createClassicConfig');
+    if (factories.length !== 1 || factories[0].arguments.length !== 1
+      || !descendants(factories[0].arguments[0], node => ts.isPropertyAccessExpression(node)
+        && node.getText(ast).replace(/\s+/gu, '') === 'CLASSIC_TEMPLATE.config.card_types').length) {
+      throw new Error(`${path} native builder must use createClassicConfig with CLASSIC_TEMPLATE.config.card_types`);
     }
   } else if (path === 'src/config/system-templates/paad-typed/template.ts' || path === 'src/config/system-templates/newloop/template.ts') {
     requireNamedImport(ast, '../classic-typed/template.js', 'CLASSIC_TYPED_TEMPLATE');
     if (name !== (path.includes('/newloop/') ? 'newloop' : 'paad-typed') || !ts.isPropertyAccessExpression(configExpression)
       || identifierText(configExpression.expression, `${path} config owner`) !== 'CLASSIC_TYPED_TEMPLATE'
       || configExpression.name.text !== 'config') throw new Error(`${path} must directly reuse CLASSIC_TYPED_TEMPLATE.config`);
-    extractMaterializedTemplate(projectRoot, 'src/config/system-templates/classic-typed/template.ts', 'CLASSIC_TYPED_TEMPLATE');
+    inspectTemplateStructure(projectRoot, 'src/config/system-templates/classic-typed/template.ts', 'CLASSIC_TYPED_TEMPLATE');
   } else {
     requireNamedImport(ast, '../classic-shared.js', 'createClassicConfig');
     const configName = identifierText(configExpression, `${path} ${templateName}.config`);
@@ -1168,18 +1115,7 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
     || url.arguments[0].text !== './prompts/' || url.arguments[1].getText(ast) !== 'import.meta.url') {
     throw new Error(`${path} ${templateName} must retain its exact promptRoot`);
   }
-  const roles = extractClassicAgents(projectRoot);
-  if (native) {
-    const excluded = constStringArray(projectRoot, path, 'nativeGlobalExcludedTools');
-    roles.analyst = roles.analyst.filter(tool => !excluded.includes(tool));
-    const builder = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'createClassicGitConfig');
-    const additions = descendants(builder, node => ts.isCallExpression(node)
-      && ts.isPropertyAccessExpression(node.expression)
-      && node.expression.getText(ast) === 'config.agents.executor!.capabilities.grants.push');
-    if (additions.length !== 1 || additions[0].arguments.length !== 1 || !ts.isObjectLiteralExpression(additions[0].arguments[0])) throw new Error(`${path} must declare its native Executor grant`);
-    roles.executor = [...roles.executor, ...stringArray(propertyAssignment(additions[0].arguments[0], 'tools', 'native Executor grant'), 'native Executor tools')];
-  }
-  return { name, roles, provisioningRequired: native };
+  return { name, provisioningRequired: native };
 }
 function registryTemplates(projectRoot) {
   const registryPath = 'src/config/system-templates/registry.ts';
@@ -1200,18 +1136,41 @@ function registryTemplates(projectRoot) {
     const absolute = resolve(dirname(join(projectRoot, registryPath)), module.replace(/\.js$/u, '.ts'));
     const path = relative(projectRoot, absolute);
     if (!SHIPPED_TEMPLATE_SOURCES.includes(path)) throw new Error(`${registryPath} ${identifier} resolves outside the exact shipped-template paths`);
-    return extractMaterializedTemplate(projectRoot, path, identifier);
+    return inspectTemplateStructure(projectRoot, path, identifier);
   });
 }
-function shippedToolInventories(projectRoot) {
+function registeredInventories(projectRoot) {
+  const structure = registryTemplates(projectRoot);
+  const policy = inspectClassicFactory(projectRoot);
+  const observation = observeTemplateInventories(projectRoot);
+  if (canonicalJson(structure) !== canonicalJson(observation.templates.map(({ name, provisioningRequired }) => ({ name, provisioningRequired })))) {
+    throw new Error('Observed registry differs from selected source owners');
+  }
+  for (const template of observation.templates) {
+    const oversight = template.agents.find(agent => agent.name === 'oversight');
+    if (!oversight || !sameArray(oversight.tools, policy)) throw new Error('Observed Oversight grants differ from public policy');
+  }
+  const baseline = observation.templates.find(template => template.name === observation.defaultTemplate);
+  const exclusions = ['run_command', 'wait_process', 'kill_process', 'mcp_tool_call', 'mcp_server_control', 'mcp_tools'];
+  for (const template of observation.templates.filter(template => template.provisioningRequired)) {
+    if (!sameArray(template.agents.map(agent => agent.name), baseline.agents.map(agent => agent.name))) throw new Error('Native roles differ');
+    for (const agent of template.agents) {
+      const original = baseline.agents.find(candidate => candidate.name === agent.name).tools;
+      const expected = agent.name === 'analyst' ? original.filter(tool => !exclusions.includes(tool))
+        : agent.name === 'executor' ? [...original, 'checkpoint_source'] : original;
+      if (!sameArray(agent.tools, expected)) throw new Error(`Native ${agent.name} tool delta differs`);
+    }
+  }
+  return observation;
+}
+function shippedToolInventories(projectRoot, observation = registeredInventories(projectRoot)) {
   // This claim describes the fixed OFF inventories. Native provisioning is a
   // distinct selection, included in the tool union and exclusive-role checks.
-  const templates = registryTemplates(projectRoot).filter(template => !template.provisioningRequired);
+  const templates = observation.templates.filter(template => !template.provisioningRequired);
   if (templates.length === 0) throw new Error('SYSTEM_TEMPLATES must contain a shipped template');
   const [first, ...rest] = templates;
-  for (const template of rest) if (canonicalJson(first.roles) !== canonicalJson(template.roles)) throw new Error('Shipped template role/tool inventories differ');
-  const agents = Object.entries(first.roles).map(([name, tools]) => ({ name, tools }));
-  return { templates: templates.map((template) => template.name), agents };
+  for (const template of rest) if (canonicalJson(first.agents) !== canonicalJson(template.agents)) throw new Error('Shipped template role/tool inventories differ');
+  return { templates: templates.map((template) => template.name), agents: first.agents };
 }
 function objectKeys(projectRoot, path, name) {
   const { ast } = sourceAst(projectRoot, path);
@@ -1222,8 +1181,8 @@ function objectKeys(projectRoot, path, name) {
     return propertyName(member.name);
   });
 }
-function selectToolEquality(projectRoot) {
-  const inventories = registryTemplates(projectRoot).flatMap(template => Object.values(template.roles));
+function selectToolEquality(projectRoot, observation = registeredInventories(projectRoot)) {
+  const inventories = observation.templates.flatMap(template => template.agents.map(agent => agent.tools));
   const invocationPath = 'src/tools/tool-invocation-outbound.ts';
   const names = constStringArrayWithIdentifier(projectRoot, invocationPath, 'KNOWN_TOOL_INVOCATION_NAMES', 'TERMINAL_RESULT_TOOL_NAME', stringInitializer(projectRoot, 'src/contracts/result-envelope.ts', 'TERMINAL_RESULT_TOOL_NAME'));
   const presenters = objectKeys(projectRoot, 'web/src/utils/tool-presenters/presenters.ts', 'TOOL_PRESENTERS');
@@ -1276,9 +1235,9 @@ function constStringArrayWithIdentifier(projectRoot, path, name, identifier, res
     throw new Error(`${path} ${name} contains unsupported member`);
   });
 }
-function selectExclusiveTools(projectRoot) {
+function selectExclusiveTools(projectRoot, observation = registeredInventories(projectRoot)) {
   const roles = {};
-  for (const template of registryTemplates(projectRoot)) for (const [name, tools] of Object.entries(template.roles))
+  for (const template of observation.templates) for (const { name, tools } of template.agents)
     roles[name] = [...new Set([...(roles[name] ?? []), ...tools])];
   const allOther = (role) => new Set(Object.entries(roles).filter(([name]) => name !== role).flatMap(([, tools]) => tools));
   const relative = (role) => mathematicalSet(roles[role].filter((tool) => !allOther(role).has(tool)), `${role} exclusive tools`);
@@ -1657,21 +1616,28 @@ function verifyCatalogAndManifest() {
   }
   if (!sameArray(asciiSorted(uses), claimKeys)) throw new Error('Manifest must use every claim exactly once');
 }
-function selectClaims(projectRoot, family) {
+function selectClaims(projectRoot, family, observation) {
   const selected = new Map();
   const failures = [];
   const claims = Object.entries(VALUE_CONTRACT_CLAIMS).filter(([, claim]) => claim.family === family);
+  let observationError;
+  if (family === 'tools' && !observation) {
+    try { observation = registeredInventories(projectRoot); } catch (error) { observationError = error; }
+  }
   for (const [key, claim] of claims) {
-    try { selected.set(key, normalizeClaimValue(key, claim.select(projectRoot))); }
+    try {
+      if (observationError) throw observationError;
+      selected.set(key, normalizeClaimValue(key, claim.select(projectRoot, observation)));
+    }
     catch (error) { failures.push({ type: 'value-contract-source', claim: key, message: `${key}: ${error instanceof Error ? error.message : String(error)}` }); }
   }
   return { selected, failures, claims };
 }
-function verifyFamily(family, options = {}) {
+function verifyFamily(family, options = {}, observation) {
   const projectRoot = options.projectRoot ?? process.cwd();
   const failures = [];
   try { verifyCatalogAndManifest(); } catch (error) { failures.push({ type: 'value-contract-catalog', message: error instanceof Error ? error.message : String(error) }); }
-  const selection = selectClaims(projectRoot, family);
+  const selection = selectClaims(projectRoot, family, observation);
   failures.push(...selection.failures);
   const relevantBlocks = VALUE_CONTRACT_MANIFEST.filter((entry) => entry.family.includes(family));
   if (selection.failures.length === 0) {
@@ -1756,7 +1722,10 @@ export function verifyDocRoutes(options = {}) {
 
 export function verifyAgentToolDocs(options = {}) {
   const projectRoot = options.projectRoot ?? process.cwd();
-  const expected = options.expectedTools ?? extractImplementedAgentTools(projectRoot);
+  return verifyAgentToolObservation(options, extractImplementedAgentTools(projectRoot));
+}
+function verifyAgentToolObservation(options, expected) {
+  const projectRoot = options.projectRoot ?? process.cwd();
   const parsed = options.documentedTools
     ? { rows: Array.from(options.documentedTools, ([key, row]) => ({ key, ...row })), failures: [] }
     : parseAgentToolTable(projectRoot);
@@ -1822,12 +1791,13 @@ export function verifyConfigDocs(options = {}) {
 export function verifyDocSourceContracts(options = {}) {
   const projectRoot = options.projectRoot ?? process.cwd();
   const routeResult = verifyDocRoutes({ ...options, projectRoot });
-  const toolResult = verifyAgentToolDocs({ projectRoot });
+  const observation = registeredInventories(projectRoot);
+  const toolResult = verifyAgentToolObservation({ projectRoot }, extractImplementedAgentTools(projectRoot, observation));
   const configResult = verifyConfigDocs({ projectRoot });
   const errorShapeResult = verifyErrorShapeDocs({ projectRoot });
   const closedVocabularyResult = verifyClosedVocabularyDocs({ projectRoot });
   const sourceConstantResult = verifySourceConstantDocs({ projectRoot });
-  const toolContractResult = verifyToolContractDocs({ projectRoot });
+  const toolContractResult = verifyFamily('tools', { projectRoot }, observation);
   const identityGrammarResult = verifyIdentityGrammarDocs({ projectRoot });
   const cardDiffPivotResult = verifyCardDiffPivotDocs({ projectRoot });
   const failures = [

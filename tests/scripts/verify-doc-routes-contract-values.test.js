@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyInventoryFixture } from './doc-inventory-fixture.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -21,8 +22,8 @@ const SCRIPT = join(process.cwd(), 'scripts/verify-doc-routes.js');
 jest.setTimeout(240_000);
 const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/persistence/card-files.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
 const PROCESS_PATHS = ['src/application/external-analyst-operations.ts', 'src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
-const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/newloop2/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
-const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
+const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-git/template.ts', 'src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/newloop/template.ts', 'src/config/system-templates/newloop2/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/schemas/saivage-config.ts'];
+const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/schemas/index.ts', 'src/schemas/quality-operation-config.ts', 'src/tools/mcp-provider.ts', 'src/tools/quality-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'].sort();
 const EXPECTED_CATALOG = {
   'constant.analyst-orientation-max-bytes': ['constants', ['src/application/read-models/analyst-orientation.ts']],
   'constant.analyst-title-preview-max-bytes': ['constants', ['src/application/read-models/analyst-orientation.ts']],
@@ -86,11 +87,20 @@ const families = [
 function withProject(testFn) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-doc-values-'));
   try {
-    for (const path of ['src', 'web/src', 'docs', 'README.md']) cpSync(join(process.cwd(), path), join(root, path), { recursive: true });
+    copyInventoryFixture(root);
     testFn(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+function probeInventory(root, operation, input = {}) {
+  const result = spawnSync(process.execPath, [
+    join(process.cwd(), 'tests/scripts/doc-inventory-probe.js'), root, operation, JSON.stringify(input),
+  ], { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 1024 * 1024 });
+  expect({ status: result.status, signal: result.signal, error: result.error, stderr: result.stderr })
+    .toEqual({ status: 0, signal: null, error: undefined, stderr: '' });
+  expect(JSON.parse(result.stdout)).toMatchObject({ exactCleanup: true, sentinelPreserved: true });
 }
 
 function replaceChecked(root, path, before, after) {
@@ -581,7 +591,7 @@ describe('documentation value contracts', () => {
     });
   });
 
-  it('extracts native classic inventory through formatting while rejecting changed construction', () => {
+  it('observes native layout changes while rejecting detached owners and changed semantics', () => {
     withProject((root) => {
       const path = join(root, 'src/config/system-templates/classic-git/template.ts');
       const source = readFileSync(path, 'utf8');
@@ -603,7 +613,7 @@ describe('documentation value contracts', () => {
         writeFileSync(path, source.replace(initializer, `const config = ${expression};`));
         const result = verifyToolContractDocs({ projectRoot: root });
         expect(result.ok).toBe(false);
-        expect(JSON.stringify(result.failures)).toContain('native classic selected inventory');
+        expect(result.failures.length).toBeGreaterThan(0);
       }
       for (const predicate of ['(name) => nativeGlobalExcludedTools.includes(name)',
         '(name) => !nativeGlobalExcludedTools.includes("other")']) {
@@ -634,6 +644,119 @@ describe('documentation value contracts', () => {
         expect(new Set(values).size).toBe(values.length);
       }
     }
+  });
+
+  it('accepts executable native loops and shared grant rewrites, and observes later mutations', () => {
+    withProject(root => {
+      const nativePath = join(root, 'src/config/system-templates/classic-git/template.ts');
+      const native = readFileSync(nativePath, 'utf8');
+      const start = native.indexOf('  config.agents.analyst!');
+      const end = native.indexOf('  config.agents.executor!', start);
+      const loop = `  const filtered = [];
+  for (const capability of config.agents.analyst!.capabilities.grants) {
+    const selected = [];
+    for (const identity of capability.tools)
+      if (!nativeGlobalExcludedTools.includes(identity)) selected.push(identity);
+    if (selected.length) filtered.push({ ...capability, tools: selected });
+  }
+  config.agents.analyst!.capabilities.grants = filtered;
+`;
+      const rewritten = native.slice(0, start) + loop + native.slice(end);
+      const builderStart = rewritten.indexOf('function createClassicGitConfig');
+      const builderEnd = rewritten.indexOf('export const CLASSIC_GIT_TEMPLATE');
+      writeFileSync(nativePath, rewritten.slice(0, builderStart)
+        + rewritten.slice(builderStart, builderEnd).replace(/(?<!\.)\bconfig\b/gu, 'selection')
+        + rewritten.slice(builderEnd));
+      expect(verifyToolContractDocs({ projectRoot: root }).failures).toEqual([]);
+      writeFileSync(nativePath, native.slice(0, start) + native.slice(start, end)
+        .replace(/\bgrant\b/gu, 'capability').replace(/\bname\b/gu, 'identity') + native.slice(end));
+      expect(verifyToolContractDocs({ projectRoot: root }).failures).toEqual([]);
+      for (const tool of ['read', 'write']) {
+        writeFileSync(nativePath, native.replace('  return saivageConfigSchema.parse(config);',
+          `  config.agents.analyst!.capabilities.grants = config.agents.analyst!.capabilities.grants.map(g => ({ ...g, tools: g.tools.filter(t => t !== '${tool}') })).filter(g => g.tools.length);\n  return saivageConfigSchema.parse(config);`));
+        expect(verifyToolContractDocs({ projectRoot: root }).failures)
+          .toContainEqual(expect.objectContaining({ message: expect.stringContaining('Native analyst tool delta differs') }));
+      }
+      writeFileSync(nativePath, native);
+      const sharedPath = join(root, 'src/config/system-templates/classic-shared.ts');
+      const shared = readFileSync(sharedPath, 'utf8');
+      const mapping = shared.match(/\.\.\.OVERSIGHT_ALLOWED_TOOL_NAMES\.map\(\(tool\) => \{([\s\S]*?)\n        \}\),/u);
+      expect(mapping).not.toBeNull();
+      const replacement = `...(() => {
+          const selectedGrants = [];
+          for (const observationName of OVERSIGHT_ALLOWED_TOOL_NAMES) {
+            selectedGrants.push((() => {${mapping[1].replace(/\btool\b/gu, 'observationName')}})());
+          }
+          return selectedGrants;
+        })(),`;
+      writeFileSync(sharedPath, shared.replace(mapping[0], replacement).replace(/\bgrant\b/gu, 'permission')
+        .replace('const config:', 'const result:').replace('deepFreeze(config)', 'deepFreeze(result)'));
+      expect(verifyToolContractDocs({ projectRoot: root }).failures).toEqual([]);
+    });
+  });
+
+  it.each([
+    ['added tool', "'edit_card'", "'edit_card', 'fixture_tool'", null],
+    ['removed tool', "'edit_card',", '', null],
+    ['reordered tools', "'edit_card', 'cancel_card'", "'cancel_card', 'edit_card'", null],
+    ['duplicate tool', "'edit_card'", "'create_card'", null],
+    ['Oversight divergence', 'return grant([tool], allCards)',
+      "return grant([tool === 'get_card' ? 'fixture_tool' : tool], allCards)",
+      'Observed Oversight grants differ from public policy'],
+    ['unfrozen factory', 'return deepFreeze(config)', 'return config', null],
+  ])('rejects actual %s inventory drift', (_label, before, after, expectedError) => {
+    withProject(root => {
+      replaceChecked(root, 'src/config/system-templates/classic-shared.ts', before, after);
+      const result = verifyToolContractDocs({ projectRoot: root });
+      expect(result.ok).toBe(false);
+      if (expectedError) expect(JSON.stringify(result.failures)).toContain(expectedError);
+    });
+  });
+
+  it('rejects changed native additions and removed OFF registry membership', () => {
+    withProject(root => {
+      replaceChecked(root, 'src/config/system-templates/classic-git/template.ts',
+        "tools: ['checkpoint_source']", "tools: ['fixture_tool']");
+      expect(verifyToolContractDocs({ projectRoot: root }).ok).toBe(false);
+    });
+    withProject(root => {
+      replaceChecked(root, 'src/config/system-templates/registry.ts', '  NEWLOOP2_TEMPLATE,\n', '');
+      expect(verifyToolContractDocs({ projectRoot: root }).ok).toBe(false);
+    });
+  });
+
+  it('shares exactly one fresh compiler/observer across aggregate tool claims', () => {
+    probeInventory(process.cwd(), 'aggregate');
+  });
+
+  it.each(['dependencies', 'source', 'parse', 'schema'])('fails visibly on %s without stale output or unrelated cleanup', kind => {
+    withProject(root => {
+      if (kind === 'dependencies') rmSync(join(root, 'node_modules'));
+      if (kind === 'source') rmSync(join(root, 'src/config/system-templates/registry.ts'));
+      if (kind === 'parse') {
+        const path = join(root, 'src/schemas/saivage-config.ts');
+        writeFileSync(path, readFileSync(path, 'utf8') + '\nconst broken = ;\n');
+      }
+      if (kind === 'schema') replaceChecked(root, 'src/config/system-templates/registry.ts',
+        'return structuredClone(template.config);',
+        "return { ...structuredClone(template.config), server: { host: '127.0.0.1', port: -1 } };");
+      probeInventory(root, kind);
+    });
+  });
+
+  it.each([
+    ['empty', { status: 0, stdout: '' }],
+    ['truncated', { status: 0, stdout: '{"templates":' }],
+    ['invalid projection', { status: 0, stdout: '{}' }],
+    ['failed', { status: 1, stdout: '', stderr: 'fixture child failure' }],
+    ['signal', { status: null, signal: 'SIGKILL', stdout: '' }],
+    ['launch', { status: null, error: { code: 'ENOENT' }, stdout: '' }],
+  ])('rejects %s child results and removes only exact owned output', (_label, childResult) => {
+    probeInventory(process.cwd(), 'mock', childResult);
+  });
+
+  it('never observes partial output after failed emission', () => {
+    probeInventory(process.cwd(), 'partial-emission');
   });
 
   it('fails closed when any one of the fifteen owning blocks is missing or malformed', () => {

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SYSTEM_TEMPLATES } from '../../src/config/system-templates/registry.js';
-import { collectTemplatePromptClosure, SYNTHETIC_GIT_PROVISIONING } from '../../scripts/copy-system-template-prompts.js';
+import { collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
+import { SYNTHETIC_GIT_PROVISIONING } from '../../scripts/system-template-fixtures.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const fixtureInputs = [
@@ -49,7 +50,14 @@ function walkFiles(root, current = root) {
 
 function assertSilentImports(fixture, script, caller, name) {
   const scriptURL = pathToFileURL(script).href;
-  const source = `await import(${JSON.stringify(scriptURL)});\n`;
+  const source = `${caller === 'docs' ? `
+import fs from 'node:fs';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+fs.mkdtempSync = () => { throw new Error('Verifier allocated on import'); };
+childProcess.spawnSync = () => { throw new Error('Verifier launched on import'); };
+syncBuiltinESMExports();
+` : ''}await import(${JSON.stringify(scriptURL)});\n`;
   const driver = join(fixture, 'import-driver.mjs');
   writeFileSync(driver, source);
   const registration = caller === 'packaging' ? ['--import', 'tsx'] : [];
@@ -112,6 +120,12 @@ for (const name of ['checkout-ordinary', 'checkout café #?%20%']) {
       expect(success.stdout).toContain('==> Verifying active docs against source contracts...');
       expect(success.stdout).toContain('✓ current docs match routes, tools, config schema, anchors, errors, vocabularies, constants, shipped-tool contracts, identities, and card-diff pivots');
 
+      const shared = join(fixture, 'src/config/system-templates/classic-shared.ts');
+      const source = readFileSync(shared, 'utf8');
+      writeFileSync(shared, source.replace("'edit_card'", "'skill'"));
+      const inventoryFailure = runChild(`docs (${name}) inventory mutation`, fixture, process.execPath, [script], 1);
+      expect(inventoryFailure.stderr + inventoryFailure.stdout).toContain('planner');
+      writeFileSync(shared, source);
       const missingRoute = 'GET /api/portability-fixture-missing';
       appendFileSync(join(fixture, 'docs/spec/operator-ui-contracts.md'), `\nFixture public route: \`${missingRoute}\`.\n`);
       const failure = runChild(`docs (${name}) deliberate route drift`, fixture, process.execPath, [script], 1);

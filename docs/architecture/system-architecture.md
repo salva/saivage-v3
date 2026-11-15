@@ -1938,9 +1938,12 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 
 ### Agent tools
 
-Rows compare alphabetically normalized default membership, not operational order.
-These default rows and the fixed `shipped-role-inventories` claim cover the four
-OFF profiles. The provision-required `classic-git` builder derives the same graph:
+Rows compare alphabetically normalized membership of the registered default
+`classic`, not operational order. The fixed `shipped-role-inventories` claim
+instead compares ordered inventories across all five OFF profiles. The verifier
+materializes all six registered templates through a freshly emitted, statically linked
+observer; it supplies synthetic provisioning to `classic-git`, not a real project.
+The provision-required `classic-git` builder derives the same graph:
 its Analyst excludes run_command/wait_process/kill_process and the three default
 MCP tools, while Executor adds `checkpoint_source` and optional git-correction.md
 permission on every type. Other role inventories are unchanged. The tool-union and
@@ -1961,10 +1964,17 @@ not default grants. Shared reopen spelling never aliases scoped contracts.
 
 ### Exact shipped tool identities
 
-The verifier follows exact template factory/registry declarations, PAAD config reuse,
-Oversight tuple and actual invocation-projector/browser-presenter gates. Sorted
-membership, configured order, optional identities and scoped exclusivity are
-separate claims, not a second executable catalog.
+The observer parses materialized configurations with the source and effective
+schemas and rejects duplicate ordered grants. Separate structural guards follow
+exact registry and factory ownership, PAAD/newloop config reuse, source prompt
+selection and the frozen Oversight policy; observed Oversight order must match
+that policy. The observer's literal named imports remain visible to the unchanged
+export-consumer guard. Selected source-path evidence identifies semantic and
+structural owners, not every transitive compiler dependency.
+
+Actual invocation-projector/browser-presenter gates, sorted membership, configured
+order, optional identities and scoped exclusivity are separate claims, not a
+second executable catalog.
 
 <!-- saivage:value-contract:tool-identities:start -->
 ```text

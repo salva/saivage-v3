@@ -6,14 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { SYSTEM_TEMPLATES, materializeSystemTemplate } from '../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../src/schemas/saivage-config.js';
 import { compileProjectWorkflows } from '../src/runtime/card-process/card-process-config.js';
+import { SYNTHETIC_GIT_PROVISIONING } from './system-template-fixtures.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-// Offline closure qualification only; never emitted as a project's configuration.
-export const SYNTHETIC_GIT_PROVISIONING = Object.freeze({
-  delivery_branch: 'packaging-fixture', private_ref_namespace: 'refs/saivage/packaging-fixture',
-  source_roots: ['.'], excluded_paths: ['.git', '.saivage'],
-});
 
 function walkFiles(root, current = root) {
   const files = [];

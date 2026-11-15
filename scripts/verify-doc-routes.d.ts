@@ -59,7 +59,6 @@ export interface VerifyDocRoutesOptions {
 
 export interface AgentToolVerificationOptions {
   projectRoot?: string;
-  expectedTools?: Map<string, string[]>;
   documentedTools?: Map<string, ToolDocRow>;
 }
 
