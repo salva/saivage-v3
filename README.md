@@ -191,6 +191,8 @@ materialized prompts or authorize installed-state adoption.
 Install both root and web dependencies first. Use focused owner tests, then the
 profile appropriate to the change; [Validation](docs/validation.md) owns exact
 coverage, prerequisites, specialized recipes and CI interpretation.
+Complete `npm test` includes native quality tests and needs a matching build and
+[isolated native prerequisites](docs/validation.md#isolated-native-quality-prerequisites).
 
 Package Jest commands pass `--no-compilation-cache` directly to Node to improve
 ESM lifetime/headroom, qualified on Node 24.22.0. Use package commands for equivalent

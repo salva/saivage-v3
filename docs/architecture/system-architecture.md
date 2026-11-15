@@ -1651,6 +1651,12 @@ fixed-point guarantee. Record prompt redaction lifts rules through exactly one J
 string layer, never recursively reconstructs body/template. Browser message ingress
 is not an egress projector.
 
+The shared `isSecretKey` classifier recognizes finite name alternatives and suffix
+occurrences directly, without repeating an arbitrary-prefix search for suffixes.
+Its existing boolean language is unchanged for arbitrary keys: finite names retain
+their initial boundary, all alternatives retain their terminal boundary, and
+case-insensitive matching retains non-Unicode semantics.
+
 Encoded YAML and inline assignments and ordinary inline assignments use call-local
 forward key-candidate discovery with their existing grammars matched at sticky starts. Encoded
 start eligibility tracks the parity of the immediately preceding raw backslashes;

@@ -9,10 +9,14 @@ import { verifyValidationCadence } from '../../scripts/check-validation-cadence.
 const TERMINAL_CHILD_PATH = 'tests/boot/app-terminal-child-process.test.ts';
 const TERMINAL_CHILD_IGNORE_REGEX = String.raw`<rootDir>/tests/boot/app-terminal-child-process\.test\.ts$`;
 const TERMINAL_CHILD_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
+const REDACTION_PROGRESS_PATH = 'tests/utils/redaction-key-progress.test.ts';
+const REDACTION_PROGRESS_IGNORE_REGEX = String.raw`<rootDir>/tests/utils/redaction-key-progress\.test\.ts$`;
+const REDACTION_PROGRESS_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${REDACTION_PROGRESS_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
 const JEST_IGNORE_PATTERNS = [
   '<rootDir>/tests/playwright/',
   '<rootDir>/tests/e2e/',
   TERMINAL_CHILD_IGNORE_REGEX,
+  REDACTION_PROGRESS_IGNORE_REGEX,
 ];
 
 function withFixture(files, testFn) {
@@ -34,9 +38,10 @@ const PACKAGE_SCRIPTS = {
   'docs:build': 'vitepress build docs',
   typecheck: 'tsc --noEmit',
   build: 'tsc',
-  test: 'npm run test:parallel && npm run test:terminal-child',
+  test: 'npm run test:parallel -- --maxWorkers=2 && npm run test:redaction-progress && npm run test:terminal-child',
   'test:parallel': 'NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js',
   'test:terminal-child': TERMINAL_CHILD_COMMAND,
+  'test:redaction-progress': REDACTION_PROGRESS_COMMAND,
   'test:direct': 'NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js',
   'test:e2e': "NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js tests/e2e/ --testPathIgnorePatterns='<rootDir>/tests/playwright/'",
   'audit:root': 'npm audit --audit-level=high --omit=dev',
@@ -226,7 +231,7 @@ function validFiles(overrides = {}) {
   return {
     'package.json': PACKAGE_JSON,
     'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run test:terminal-child\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_PLAYWRIGHT_DOCS,
-    'docs/validation.md': '```bash\nnpm run test:terminal-child\n```\n',
+    'docs/validation.md': '```bash\nnpm run test:terminal-child\nnpm run test:redaction-progress\n```\n',
     'web/package.json': WEB_PACKAGE_JSON,
     'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nCanonical commands include `npm run web:test:analyst-ui` and `npm run web:test:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\n```\n' + VALID_PROFILE_DOCS,
     '.github/workflows/validation.yml': VALID_WORKFLOW,
@@ -264,7 +269,7 @@ describe('validation cadence guard', () => {
 
   it('accepts detailed cadence at its validation-reference owner without README duplication', () => {
     const files = validFiles();
-    files['docs/validation.md'] = files['README.md'] + files['docs/architecture/system-architecture.md'];
+    files['docs/validation.md'] += files['README.md'] + files['docs/architecture/system-architecture.md'];
     files['README.md'] = '# Saivage\nSee the validation reference.\n';
     files['docs/architecture/system-architecture.md'] = '# Architecture\n';
     withFixture(files, (root) => {
@@ -275,6 +280,11 @@ describe('validation cadence guard', () => {
   it('requires terminal-child documentation at the reference owner even if README mentions it', () => {
     withFixture(validFiles({ 'docs/validation.md': '# Validation\n' }), (root) => {
       expect(verifyValidationCadence({ root }).failures).toContain('docs/validation.md must document npm run test:terminal-child');
+    });
+  });
+  it('requires redaction-progress documentation at the reference owner', () => {
+    withFixture(validFiles({ 'docs/validation.md': 'npm run test:terminal-child\n' }), (root) => {
+      expect(verifyValidationCadence({ root }).failures).toContain('docs/validation.md must document npm run test:redaction-progress');
     });
   });
 
@@ -589,6 +599,16 @@ describe('validation cadence guard', () => {
       ['the ordinary phase', 'npm run test:terminal-child'],
       ['the terminal-child phase', 'npm run test:parallel'],
       ['the required phase order', 'npm run test:terminal-child && npm run test:parallel'],
+      ['the isolated redaction phase', 'npm run test:parallel -- --maxWorkers=2 && npm run test:terminal-child'],
+      ['the final terminal phase', 'npm run test:parallel -- --maxWorkers=2 && npm run test:redaction-progress'],
+      ['the fixed worker limit', PACKAGE_SCRIPTS.test.replace(' -- --maxWorkers=2', '')],
+      ['the exact worker count', PACKAGE_SCRIPTS.test.replace('--maxWorkers=2', '--maxWorkers=3')],
+      ['short-circuiting', PACKAGE_SCRIPTS.test.replaceAll(' && ', '; ')],
+      ['failure propagation', PACKAGE_SCRIPTS.test.replaceAll(' && ', ' || ')],
+      ['single ordinary execution', PACKAGE_SCRIPTS.test.replace('npm run test:parallel -- --maxWorkers=2', 'npm run test:parallel -- --maxWorkers=2 && npm run test:parallel -- --maxWorkers=2')],
+      ['single terminal execution', `${PACKAGE_SCRIPTS.test} && npm run test:terminal-child`],
+      ['single redaction execution', PACKAGE_SCRIPTS.test.replace('npm run test:redaction-progress', 'npm run test:redaction-progress && npm run test:redaction-progress')],
+      ['redaction before terminal', PACKAGE_SCRIPTS.test.replace('npm run test:redaction-progress && npm run test:terminal-child', 'npm run test:terminal-child && npm run test:redaction-progress')],
     ];
 
     it.each(compositionMutations)('rejects root composition without %s', (_label, test) => {
@@ -609,11 +629,49 @@ describe('validation cadence guard', () => {
 
     it('rejects a second positive package owner for the terminal-child path', () => {
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:terminal-child-alias': TERMINAL_CHILD_COMMAND } }), 'exactly one positive package owner');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:terminal-child': `${TERMINAL_CHILD_COMMAND} ${TERMINAL_CHILD_PATH}` } }), 'exactly one positive package owner');
     });
 
     it('rejects release invoking a backend Jest subphase independently', () => {
       const release = `${PACKAGE_SCRIPTS['validate:release']} && npm run test:terminal-child`;
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:release': release } }), 'must invoke singular npm test exactly once');
+    });
+
+    it.each([
+      ['omits npm test', PACKAGE_SCRIPTS['validate:release'].replace(' && npm test', '')],
+      ['duplicates npm test', PACKAGE_SCRIPTS['validate:release'].replace('npm test', 'npm test && npm test')],
+      ['invokes redaction independently', `${PACKAGE_SCRIPTS['validate:release']} && npm run test:redaction-progress`],
+      ['invokes ordinary independently', `${PACKAGE_SCRIPTS['validate:release']} && npm run test:parallel`],
+    ])('rejects release that %s', (_label, release) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:release': release } }), 'must invoke singular npm test exactly once');
+    });
+
+    it.each([
+      ['missing', JEST_IGNORE_PATTERNS.slice(0, 3)],
+      ['unescaped', [...JEST_IGNORE_PATTERNS.slice(0, 3), '<rootDir>/tests/utils/redaction-key-progress.test.ts$']],
+      ['unanchored', [...JEST_IGNORE_PATTERNS.slice(0, 3), String.raw`<rootDir>/tests/utils/redaction-key-progress\.test\.ts`]],
+      ['broad', [...JEST_IGNORE_PATTERNS, '<rootDir>/tests/utils/']],
+      ['duplicate', [...JEST_IGNORE_PATTERNS, REDACTION_PROGRESS_IGNORE_REGEX]],
+    ])('rejects %s redaction exclusion', (_label, ignorePatterns) => {
+      expectPackageFailure(packageJson({ ignorePatterns }), 'ordinary Jest ignore array');
+    });
+
+    it.each([
+      REDACTION_PROGRESS_COMMAND.replace(' --no-compilation-cache', ''),
+      REDACTION_PROGRESS_COMMAND.replace(REDACTION_PROGRESS_PATH, ''),
+      REDACTION_PROGRESS_COMMAND.replace(REDACTION_PROGRESS_PATH, 'tests/utils/'),
+      REDACTION_PROGRESS_COMMAND.replace('--runTestsByPath ', ''),
+      REDACTION_PROGRESS_COMMAND.replace('--runInBand ', ''),
+      REDACTION_PROGRESS_COMMAND.replace(" --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'", ''),
+      `${REDACTION_PROGRESS_COMMAND} --passWithNoTests`,
+      `${REDACTION_PROGRESS_COMMAND} ${REDACTION_PROGRESS_PATH}`,
+    ])('rejects invalid redaction owner %s', (command) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:redaction-progress': command } }), 'script "test:redaction-progress" must be exactly:');
+    });
+
+    it('rejects duplicate redaction owners and positive ordinary selection', () => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, alias: REDACTION_PROGRESS_COMMAND } }), 'exactly one positive package owner');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:parallel': `${PACKAGE_SCRIPTS['test:parallel']} ${REDACTION_PROGRESS_PATH}` } }), 'must not positively select');
     });
 
     it.each([

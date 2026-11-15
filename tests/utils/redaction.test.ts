@@ -66,6 +66,38 @@ describe('outbound redaction', () => {
   });
 
   describe('structured values', () => {
+    it('keeps embedded suffixes, nonword keys and scalar/container semantics exact', () => {
+      const cycle: Record<string, unknown> = { monkey: 17, '1key': true };
+      cycle.self = cycle;
+      expect(projectDynamicForOutbound({
+        monkey: 73,
+        'ésecret': true,
+        '1key': 19,
+        '1secret': true,
+        aKeyZ: 'visible',
+        container_secret: { monkey: 'synthetic', safe: 'visible' },
+        array_secret: ['visible', { monkey: false }],
+        cycle,
+      })).toEqual({
+        monkey: 0,
+        'ésecret': false,
+        '1key': 19,
+        '1secret': true,
+        aKeyZ: 'visible',
+        container_secret: { monkey: '[REDACTED]', safe: 'visible' },
+        array_secret: ['visible', { monkey: false }],
+        cycle: { monkey: 0, '1key': true, self: '[Circular]' },
+      });
+      for (const [key, secret] of [['monkey', true], ['aKeyZ', false], ['a-password', true]] as const) {
+        const value = secret ? '[REDACTED]' : 'synthetic';
+        expect(projectDynamicForOutbound({ [key]: 'synthetic' })).toEqual({ [key]: value });
+        expect(redactTextForOutbound(JSON.stringify({ [key]: 'synthetic' })))
+          .toBe(JSON.stringify({ [key]: value }));
+        expect(redactTextForOutbound(`${key}: synthetic`)).toBe(`${key}: ${value}`);
+        expect(redactTextForOutbound(`${key}=synthetic`)).toBe(`${key}=${value}`);
+      }
+    });
+
     it('shares typed scalar neutralization without changing dynamic null, bigint or array traversal', () => {
       const text: string = neutralSecretValue('violet-orbit-4826');
       const count: number = neutralSecretValue(73);

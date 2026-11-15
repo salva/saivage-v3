@@ -68,6 +68,26 @@ afterEach(() => {
 });
 
 describe('private diagnostic wire-derived projection and finite activation', () => {
+  it('suppresses embedded and non-ASCII-delimited secret keys with exact counts', () => {
+    const f = fixture();
+    f.capture(JSON.stringify({
+      input: [{
+        type: 'function_call',
+        call_id: 'call-1',
+        name: 'lookup',
+        arguments: JSON.stringify({ monkey: 17, 'ésecret': false, '1key': 'visible', aKeyZ: true }),
+      }],
+    }));
+    const [{ document }] = f.documents();
+    expect(JSON.parse(JSON.parse(document.stored_body).input[0].arguments)).toEqual({
+      monkey: '[REDACTED]', 'ésecret': '[REDACTED]', '1key': 'visible', aKeyZ: true,
+    });
+    expect(document.counts).toEqual({
+      structured_private: 2, structured_redactions: 2, images: 0, private_replay: 0,
+      data_urls: 0, tool_arguments_reencoded: 1, unprojectable_tool_arguments: 0, text_redactions: 0,
+    });
+  });
+
   it.each(['openai-responses', 'openai-codex-backend', 'openai-chat-completions'])(
     'separates native positions from lookalike application data for %s',
     (protocol) => {

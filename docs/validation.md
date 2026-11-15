@@ -52,9 +52,10 @@ control: `npm run test:parallel -- --runInBand tests/runtime/actors/supervisor-n
 The package has no worker-limit environment variable; arguments passed to the
 top-level release script do not propagate to its nested Jest command. To execute
 the backend release stage serially, run `npm run check:stamp-producers`,
-`npm run test:parallel -- --runInBand`, and `npm run test:terminal-child`, retaining
-all other release stages separately. Report this as constituent release gates,
-not an invocation of the unchanged aggregate command. Native operation deadlines
+`npm run test:parallel -- --runInBand`, `npm run test:redaction-progress`, and
+`npm run test:terminal-child`, retaining all other release stages separately. Report
+this as constituent release gates, not an invocation of the unchanged aggregate
+command. Native operation deadlines
 and all repeated-preservation/source assertions remain unchanged; resource
 contention can trigger real containment, which must not be treated as success.
 
@@ -99,7 +100,8 @@ abort-listener release, gate transition or parent continuation. Its separate kno
 head-open failure retains one factual delivered execution without publishing child
 DONE or replaying delivery. These subprocess witnesses retain their scratch receipts.
 
-Native quality witnesses require explicit `SAIVAGE_QUALITY_NATIVE_ROOT` provisioned
+The ordinary backend selection includes `tests/quality/native-engines.test.ts`, so
+complete `npm test` requires explicit `SAIVAGE_QUALITY_NATIVE_ROOT` provisioned
 from the tracked exact qualification inputs, `NODE_DISABLE_COMPILE_CACHE=1`, and a
 matching build before `tests/quality/native-engines.test.ts`. The Jest test launches
 the built standalone Node harness; missing prerequisites fail rather than skip.
@@ -235,7 +237,7 @@ the selected browser, host libraries and their fixture/network prerequisites.
 | `npm run validate:routine` | Typecheck, export-consumer guard, canonical-persistence drift, in-band `tests/architecture` Jest, docs verification | Full backend Jest, lint or production web build |
 | `npm run validate:ui-smoke` | Operator cockpit Vitest and explicitly selected operator Playwright specs | All web Vitest or all browser specs |
 | `npm run validate:ui` | Web typecheck, complete web Vitest, operator smoke | Full backend or complete browser profile |
-| `npm run validate:release` | Typecheck, full build, canonical `npm test`, backend E2E, operator smoke, docs verification | Independent security gate, exact-SHA CI or live deployment |
+| `npm run validate:release` | Typecheck, full build, canonical `npm test`, compiled quality witnesses, backend E2E, operator smoke, docs verification | Independent security gate, exact-SHA CI or live deployment |
 
 Also select `npm run lint`, `npm run audit:security` and `npm run deps:review`
 where applicable. Release does not run/replace the separate high/critical audit.
@@ -326,10 +328,17 @@ full-release validation.
 ## Backend execution and terminal ownership
 
 `npm test` is the complete **non-E2E backend** authority: its pretest checks stamp
-producers, then ordinary parallel Jest exits before the exact terminal-child suite
-runs serially. `test:direct` and `test:parallel` use the ordinary selection, excluding
-Playwright, backend E2E and terminal-child. `test:e2e` owns backend E2E separately.
-The `.cjs` import ratchet is Node-owned, not a Jest suite.
+producers, then `npm run test:parallel -- --maxWorkers=2` runs ordinary Jest,
+followed on success by `npm run test:redaction-progress` and then
+`npm run test:terminal-child`, both serial. Failure short-circuits later stages.
+`npm run test:direct` and `npm run test:parallel` use the ordinary selection. Its
+four exclusions are Playwright, backend E2E, the exact escaped/end-anchored
+`tests/boot/app-terminal-child-process.test.ts`, and the exact escaped/end-anchored
+`tests/utils/redaction-key-progress.test.ts`. Each isolated launcher selects its
+own exact file and overrides ignores to exclude only Playwright and E2E.
+`npm run test:e2e` and `npm run test:e2e:direct` own backend E2E separately.
+The `.cjs` import ratchet is Node-owned, not a Jest suite. Complete backend
+execution requires the [native prerequisites and matching build](#isolated-native-quality-prerequisites).
 
 Jest 30 uses ts-jest ESM and Node's experimental VM modules. The scripts set
 `NODE_OPTIONS=--experimental-vm-modules`; direct Jest must do so too. Explicit
@@ -338,7 +347,7 @@ JS/TS `testMatch` families are `**/__tests__/**/*.[jt]s?(x)` and
 ESNext/NodeNext/isolatedModules, `.js`-relative mapping and enabled diagnostics.
 Isolated transforms do not replace strict `tsc --noEmit` semantic checking.
 
-The five package Jest launchers pass `--no-compilation-cache` directly to Node
+The six package Jest launchers pass `--no-compilation-cache` directly to Node
 for ESM lifetime/headroom, qualified on Node 24.22.0. Use the package commands for
 equivalent focused execution. This V8 in-process compilation-cache option is
 engine-specific, not a stable Node application API; unsupported engines fail rather
@@ -359,6 +368,13 @@ not a test/hook deadline or speed target. No `forceExit` option is enabled. Jest
 own fallback may warn about an overdue worker; complete canonical stages with
 natural npm exit 0 pass even with that warning. No warning is not proof of leak-free
 cleanup or attribution of a past teardown fault.
+
+The isolated redaction suite runs fresh and fixed-warm-up child cases with a
+5000-ms wall-time assertion after import and warm-up, including assertions and
+preview hashes. The child has a 15-second startup-inclusive subprocess timeout;
+each Jest case has a 20-second budget. Bounded classifier attribution can help
+investigate a failure, but CPU measurements do not replace the wall gate or give
+a machine-independent timing guarantee.
 
 ### Terminal ownership and deadlines
 

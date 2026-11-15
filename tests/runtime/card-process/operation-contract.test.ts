@@ -117,6 +117,13 @@ describe('explicit compiled operation contracts', () => {
     ])
       expect(() => shellOperationConfigSchema.parse({ script: 'true', ...change })).toThrow();
   });
+  it('preserves embedded secret suffix and right-boundary env admission', () => {
+    for (const key of ['monkey', 'someSecret', 'candidate_password'])
+      expect(() => shellOperationConfigSchema.parse({ script: 'true', env: { [key]: 'synthetic' } })).toThrow();
+    for (const key of ['aKeyZ', 'ordinary', 'key1'])
+      expect(shellOperationConfigSchema.parse({ script: 'true', env: { [key]: 'synthetic' } }).env)
+        .toEqual({ [key]: 'synthetic' });
+  });
   it('keeps plugin values independent of a core output union and freezes the compiled declaration', async () => {
     const operations = compileOperations(
       [],

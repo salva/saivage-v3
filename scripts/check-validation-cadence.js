@@ -18,16 +18,20 @@ const EXPECTED_NODE_MAJOR = '24';
 const EXPECTED_NODE_ENGINE = '>=24 <25';
 const EXPECTED_NPM_ENGINE = '>=10 <12';
 const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
-const ROOT_TEST_COMMAND = 'npm run test:parallel && npm run test:terminal-child';
+const ROOT_TEST_COMMAND = 'npm run test:parallel -- --maxWorkers=2 && npm run test:redaction-progress && npm run test:terminal-child';
 const PARALLEL_TEST_COMMAND = 'NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js';
 const TERMINAL_CHILD_TEST_PATH = 'tests/boot/app-terminal-child-process.test.ts';
 const TERMINAL_CHILD_IGNORE_REGEX = String.raw`<rootDir>/tests/boot/app-terminal-child-process\.test\.ts$`;
+const REDACTION_PROGRESS_TEST_PATH = 'tests/utils/redaction-key-progress.test.ts';
+const REDACTION_PROGRESS_IGNORE_REGEX = String.raw`<rootDir>/tests/utils/redaction-key-progress\.test\.ts$`;
 const JEST_IGNORE_PATTERNS = [
   '<rootDir>/tests/playwright/',
   '<rootDir>/tests/e2e/',
   TERMINAL_CHILD_IGNORE_REGEX,
+  REDACTION_PROGRESS_IGNORE_REGEX,
 ];
 const TERMINAL_CHILD_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
+const REDACTION_PROGRESS_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${REDACTION_PROGRESS_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
 const EXPORT_CONSUMER_COMMAND = 'npm run check:export-consumers';
 const EXPORT_CONSUMER_SCRIPT = 'node scripts/check-export-consumers.js';
 const IMPORT_BOUNDARY_COMMAND = 'npm run test:import-boundaries';
@@ -922,33 +926,37 @@ function validateTerminalChildJestContract({ root, pkg, scripts }) {
   if ((scripts['test:parallel'] ?? '').includes('--runInBand')) {
     failures.push('package.json script "test:parallel" must retain Jest default worker parallelism and must not use --runInBand');
   }
-  if ((scripts['test:parallel'] ?? '').includes(TERMINAL_CHILD_TEST_PATH)) {
-    failures.push(`package.json script "test:parallel" must not positively select ${TERMINAL_CHILD_TEST_PATH}`);
-  }
-
-  const terminalChildCommand = scripts['test:terminal-child'] ?? '';
-  checked.push('package.json exact serial terminal-child Jest owner');
-  if (!terminalChildCommand.includes(`--runTestsByPath ${TERMINAL_CHILD_TEST_PATH}`)) {
-    failures.push(`package.json script "test:terminal-child" must positively own exactly ${TERMINAL_CHILD_TEST_PATH} through --runTestsByPath`);
-  }
-  if (!terminalChildCommand.includes('--runInBand')) {
-    failures.push('package.json script "test:terminal-child" must serialize its exact suite with --runInBand');
-  }
-  if (!terminalChildCommand.includes("--testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'")) {
-    failures.push('package.json script "test:terminal-child" must override testPathIgnorePatterns with exactly the Playwright/E2E directory exclusion');
-  }
-  if (commandUsesPassWithNoTests(terminalChildCommand)) {
-    failures.push(`package.json script test:terminal-child must not use ${PASS_WITH_NO_TESTS_FLAG}; the dedicated owner must fail when its exact test is absent`);
-  }
-  if (terminalChildCommand !== TERMINAL_CHILD_TEST_COMMAND) {
-    failures.push(`package.json script "test:terminal-child" must be exactly: ${TERMINAL_CHILD_TEST_COMMAND}`);
-  }
-  const positiveOwners = Object.entries(scripts)
-    .filter(([, command]) => command.includes(TERMINAL_CHILD_TEST_PATH))
-    .map(([name]) => name);
-  const dedicatedPathOccurrences = terminalChildCommand.split(TERMINAL_CHILD_TEST_PATH).length - 1;
-  if (JSON.stringify(positiveOwners) !== JSON.stringify(['test:terminal-child']) || dedicatedPathOccurrences !== 1) {
-    failures.push('package.json must have exactly one positive package owner for the terminal-child path: test:terminal-child with one exact path occurrence');
+  for (const [name, testPath, expectedCommand] of [
+    ['test:terminal-child', TERMINAL_CHILD_TEST_PATH, TERMINAL_CHILD_TEST_COMMAND],
+    ['test:redaction-progress', REDACTION_PROGRESS_TEST_PATH, REDACTION_PROGRESS_TEST_COMMAND],
+  ]) {
+    if ((scripts['test:parallel'] ?? '').includes(testPath)) {
+      failures.push(`package.json script "test:parallel" must not positively select ${testPath}`);
+    }
+    const command = scripts[name] ?? '';
+    checked.push(`package.json exact serial ${name.slice(5)} Jest owner`);
+    if (!command.includes(`--runTestsByPath ${testPath}`)) {
+      failures.push(`package.json script "${name}" must positively own exactly ${testPath} through --runTestsByPath`);
+    }
+    if (!command.includes('--runInBand')) {
+      failures.push(`package.json script "${name}" must serialize its exact suite with --runInBand`);
+    }
+    if (!command.includes("--testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'")) {
+      failures.push(`package.json script "${name}" must override testPathIgnorePatterns with exactly the Playwright/E2E directory exclusion`);
+    }
+    if (commandUsesPassWithNoTests(command)) {
+      failures.push(`package.json script ${name} must not use ${PASS_WITH_NO_TESTS_FLAG}; the dedicated owner must fail when its exact test is absent`);
+    }
+    if (command !== expectedCommand) {
+      failures.push(`package.json script "${name}" must be exactly: ${expectedCommand}`);
+    }
+    const positiveOwners = Object.entries(scripts)
+      .filter(([, value]) => value.includes(testPath))
+      .map(([owner]) => owner);
+    const dedicatedPathOccurrences = command.split(testPath).length - 1;
+    if (JSON.stringify(positiveOwners) !== JSON.stringify([name]) || dedicatedPathOccurrences !== 1) {
+      failures.push(`package.json must have exactly one positive package owner for the ${name.slice(5)} path: ${name} with one exact path occurrence`);
+    }
   }
 
   const ignorePatterns = pkg.jest?.testPathIgnorePatterns;
@@ -963,14 +971,14 @@ function validateTerminalChildJestContract({ root, pkg, scripts }) {
       failures.push('package.json ordinary terminal-child exclusion must contain exactly one canonical regex; duplicate canonical entries are forbidden');
     }
     if (!exactSet(ignorePatterns, JEST_IGNORE_PATTERNS)) {
-      failures.push('package.json ordinary Jest ignore array must contain exactly the Playwright entry, E2E entry, and one canonical terminal-child exclusion; noncanonical, extra, duplicate, and broader exclusions are forbidden');
+      failures.push('package.json ordinary Jest ignore array must contain exactly the Playwright entry, E2E entry, and one canonical terminal-child and redaction-progress exclusion each; noncanonical, extra, duplicate, and broader exclusions are forbidden');
     }
   }
 
   checked.push('package.json singular release backend Jest authority');
   const releaseSegments = splitCommandSegments(scripts['validate:release'] ?? '');
   if (releaseSegments.filter((segment) => segment === 'npm test').length !== 1
-      || releaseSegments.some((segment) => /^npm run test:(?:parallel|terminal-child)(?:\s|$)/.test(segment))) {
+       || releaseSegments.some((segment) => /^npm run test:(?:parallel|redaction-progress|terminal-child)(?:\s|$)/.test(segment))) {
     failures.push('package.json validate:release must invoke singular npm test exactly once and must not invoke backend Jest subphases independently');
   }
   checked.push('package.json release backend-E2E cadence');
@@ -981,6 +989,9 @@ function validateTerminalChildJestContract({ root, pkg, scripts }) {
   const validation = existsSync(path.join(root, 'docs/validation.md')) ? readFileSync(path.join(root, 'docs/validation.md'), 'utf8') : '';
   if (!validation.includes('npm run test:terminal-child')) {
     failures.push('docs/validation.md must document npm run test:terminal-child');
+  }
+  if (!validation.includes('npm run test:redaction-progress')) {
+    failures.push('docs/validation.md must document npm run test:redaction-progress');
   }
 
   return { checked, failures };

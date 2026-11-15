@@ -13,8 +13,9 @@
   },
   "scripts": {
     "pretest": "npm run check:stamp-producers",
-    "test": "npm run test:parallel && npm run test:terminal-child",
+    "test": "npm run test:parallel -- --maxWorkers=2 && npm run test:redaction-progress && npm run test:terminal-child",
     "test:parallel": "NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js",
+    "test:redaction-progress": "NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath tests/utils/redaction-key-progress.test.ts --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'",
     "test:terminal-child": "NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath tests/boot/app-terminal-child-process.test.ts --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'",
     "test:direct": "NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules node --no-compilation-cache ./node_modules/jest/bin/jest.js tests/e2e/ --testPathIgnorePatterns='<rootDir>/tests/playwright/'",
@@ -139,7 +140,8 @@
     "testPathIgnorePatterns": [
       "<rootDir>/tests/playwright/",
       "<rootDir>/tests/e2e/",
-      "<rootDir>/tests/boot/app-terminal-child-process\\.test\\.ts$"
+      "<rootDir>/tests/boot/app-terminal-child-process\\.test\\.ts$",
+      "<rootDir>/tests/utils/redaction-key-progress\\.test\\.ts$"
     ],
     "extensionsToTreatAsEsm": [
       ".ts"

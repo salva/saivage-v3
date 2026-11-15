@@ -6,7 +6,8 @@ qualified Node/npm versions on PATH. Use an existing parent outside the checkout
 the target must not exist. This installs only that isolated npm tree and Python
 venv with the tracked locks/hashes. Export its path as `SAIVAGE_QUALITY_NATIVE_ROOT`,
 set `NODE_DISABLE_COMPILE_CACHE=1` and `SAIVAGE_QUALITY_TEST_SCRATCH`, then build
-before `npm run test:quality:compiled`. Runtime tools never call provisioning.
+before complete `npm test` or `npm run test:quality:compiled`. Runtime tools never
+call provisioning.
 
 This is a **development prerequisite reference**, not deployment or product
 acceptance certification. Explicit compiled quality actions use these pins through
@@ -16,9 +17,11 @@ Optional agent-tool binding selects the same compiled actions through a narrow
 runtime port; it adds no default grant or runtime installation.
 See [configuration](./configuration.md#quality-actions).
 
-Native engine development tests require that explicit provisioned root in
-`SAIVAGE_QUALITY_NATIVE_ROOT` and `NODE_DISABLE_COMPILE_CACHE=1`. They fail if the
-prerequisite is missing; they never use this repository's root ESLint as a fallback.
+The ordinary backend Jest selection includes `tests/quality/native-engines.test.ts`;
+complete `npm test` therefore requires that explicit provisioned root in
+`SAIVAGE_QUALITY_NATIVE_ROOT` and `NODE_DISABLE_COMPILE_CACHE=1`. The native
+witness fails if its prerequisite is missing; it never uses this repository's root
+ESLint as a fallback.
 Build the matching source before running `tests/quality/native-engines.test.ts`:
 that test launches `dist/tests/scripts/quality-native-engines.js` in standalone Node
 so native package imports use Node resolution rather than Jest's VM resolver. The
@@ -41,7 +44,9 @@ The private [qualification package](https://github.com/salva/saivage-v3/tree/HEA
 has its own manifest and actual npm lock. It does not replace root lint dependencies.
 Use Node **24.22.0**, npm **11.19.1**, Python with `venv`/`ensurepip`, curl, and
 Linux x86_64 with glibc>=2.17 for the selected Ruff wheel. No Rust build or global
-Python installation is needed. Other platforms are not qualified by this wheel.
+Python installation is needed. CI selects Python **3.14.4** for the native jobs;
+the provisioning script checks the exact Node and npm versions, not the Python
+version. Other platforms are not qualified by this wheel.
 
 | Component | Exact input / integrity | Implementation license |
 | --- | --- | --- |
