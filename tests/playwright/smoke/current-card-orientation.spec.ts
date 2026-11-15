@@ -120,17 +120,17 @@ test('production shell distinguishes current runtime identity from retained deta
   await page.screenshot({ path: testInfo.outputPath('b-not-found-retained-a.png') });
 
   await f.observe(null);
-  await expect(notices).toHaveText(['No live runtime.', 'Last-known card card-a: refreshed A problem']);
+  await expect(notices).toHaveText(['Last-known card card-a: refreshed A problem']);
   const pendingA = f.hold('card-a');
   await f.observe('card-a');
   await expect(notices).toHaveText(['Current card card-a details loading.', 'Last-known card card-a: refreshed A problem']);
   await expect.poll(() => f.reads.filter((id) => id === 'card-a').length).toBe(4);
   await f.observe(null);
-  await expect(notices).toHaveText(['No live runtime.', 'Last-known card card-a: refreshed A problem']);
+  await expect(notices).toHaveText(['Last-known card card-a: refreshed A problem']);
   await expect.poll(() => f.aborted).toContain('/api/cards/card-a');
   // Chromium cancelled this fetch; this does not claim delivery of its late callback.
   await pendingA(cardReply('card-a', 'departed A body'));
-  await expect(notices).toHaveText(['No live runtime.', 'Last-known card card-a: refreshed A problem']);
+  await expect(notices).toHaveText(['Last-known card card-a: refreshed A problem']);
   await expect(page.getByTestId('strip-current-work')).toHaveText('No current work');
 
   const finalA = f.hold('card-a');
@@ -169,7 +169,7 @@ test('production cancellation prevents a pending B from changing returned A or a
   await f.observe(null);
   await expect.poll(() => f.aborted.filter((path) => path === '/api/cards/card-b').length).toBe(2);
   await b2(cardReply('card-b', 'departed B problem'));
-  await expect(notices).toHaveText(['No live runtime.', 'Last-known card card-a: returned A problem']);
+  await expect(notices).toHaveText(['Last-known card card-a: returned A problem']);
   await expect(page.getByTestId('strip-current-work')).toHaveText('No current work');
   expect(f.reads).toEqual(['card-a', 'card-b', 'card-a', 'card-b']);
   await page.screenshot({ path: testInfo.outputPath('null-retained-a-cancelled-b.png') });

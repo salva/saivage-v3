@@ -83,7 +83,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     await waitForRuntimePair(page, () => page.goto('/system?section=mcp'));
     await expect(page.getByText('filesystem', { exact: true })).toBeVisible();
-    await expect(page.getByText('No failure reported', { exact: true })).toBeVisible();
+    const mcpServer = page.locator('.debug-section').filter({ has: page.locator('.mcp-server-name', { hasText: /^filesystem$/ }) });
+    await expect(mcpServer.getByText('Ready · last established', { exact: true })).toBeVisible();
+    await expect(mcpServer.getByText('Failure:', { exact: true })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`mcp-read-only-${colorScheme}.png`), fullPage: true });
 
     await waitForRuntimePair(page, () => page.goto('/system?section=doctor'));
