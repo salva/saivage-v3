@@ -1365,8 +1365,9 @@ describe('disposable production-composition smoke', () => {
       const activation = JSON.parse(activationToolResult);
       expect(activation).toMatchObject({
         success: true,
-        data: { outcome: 'done', summary: 'Promoted executor summary.' },
+        data: { outcome: 'done' },
       });
+      expect(activation.data).not.toHaveProperty('summary');
       expect(activation.data.result).toMatchObject({ node_id: 'execute', summary: 'Promoted executor summary.', executor: { kind: 'agent', agent: 'executor' } });
       expect(activation.data.result.records.map((record: any) => record.name)).toEqual([
         'status.md',
