@@ -579,6 +579,13 @@ and are included in the existing CI browser failure-artifact upload. The
 `browser-smoke` CI job runs the complete three-suite profile after its matching
 build; brand assets, docs theme/config, landing and gallery edits select that job.
 
+The `ubuntu-24.04` hosted image supplies the APT configuration. The job uses
+`npx playwright install-deps chromium` to install host libraries without
+repository-authored APT source rewriting. The Ubuntu release label does not freeze
+image contents or guarantee network availability. Hosted browser qualification
+requires a successful dependency install and the complete `browser-smoke` job on
+the exact final commit, not installation alone.
+
 Current locks select `@playwright/test`, playwright and playwright-core 1.64.1;
 matched Chromium/headless shell revision 1248/version 156.0.8078.4 and ffmpeg 1013.
 Refresh browser installation after package changes. External Playwright **MCP**

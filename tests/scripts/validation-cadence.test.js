@@ -417,6 +417,13 @@ describe('validation cadence guard', () => {
     ])('fails clearly on invalid %s structure', (_label, workflow, expected) => expectWorkflowFailure(workflow, expected));
   });
 
+  it('runs the unique Chromium host-dependency step as the direct Playwright command', () => {
+    const steps = parse(VALID_WORKFLOW).jobs['browser-smoke'].steps
+      .filter((step) => step.name === 'Install Chromium host dependencies');
+    expect(steps).toHaveLength(1);
+    expect(steps[0].run).toBe('npx playwright install-deps chromium');
+  });
+
   it('allows representation changes and independent check ordering without changing shell decisions', () => {
     const workflow = parse(VALID_WORKFLOW);
     const classifier = workflow.jobs['classify-changes'];
