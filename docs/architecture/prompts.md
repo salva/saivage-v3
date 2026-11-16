@@ -488,6 +488,35 @@ inspection and review records; Analyst resolves requests within permitted contro
 Oversight performs bounded diagnosis/advice or successful no-action. Neutral
 project-guidance fragments are not role implementation or global enforcement.
 
+For `classic` and `classic-typed`, the separate physical
+`agents/_shared/planner.md` hosts carry the same clarified method for both project
+and goal nodes. The project Planner decides ordinary whole-project technical and
+architectural approaches, sequencing and tradeoffs, weighing intent, impact,
+reversibility, materiality and binding constraints. Material objective or explicit
+binding acceptance changes and genuinely external choices remain owner decisions.
+The goal Planner makes local decisions within its brief and returns genuine
+cross-scope issues with evidence, impact and the needed decision. Both retain
+independent work and required acceptance: diagnosis uses available original
+evidence and known effects, and an in-scope response can replan, choose an
+alternative or delegate correction. A failed tactic, blocked child or locally
+absent tool is not by itself a whole-project blocker; actual missing authority,
+input, decision or capability and safely evidenced lack of an admissible path
+remain honest grounds for blocking.
+
+This method is composed with the actual node, generated result contract and
+selected tools; equal role-host bytes do not make the two profiles' complete
+node/tool compositions identical. Saivage durable publication uncertainty remains
+fatal before any follow-up in the affected owner/process, including reporting,
+inspection or cleanup and lock or admission release. An uncertain external or
+native target is not probed, reconciled or retried; independent analysis or work
+requires an unaffected context, independent inputs and existing authority. A new
+clone or session does not establish independence, and refused output cannot be
+obtained by rerouting. These instructions do not expand grants, weaken acceptance,
+or authorize service or deployment actions. Existing primary and summary retention
+mechanics above are unchanged. This is a source-level clarification for the pair,
+not a claim about the other profiles or an update to installed materialized or
+custom hosts; adoption remains separate.
+
 Typed nodes retain reproduction before repair, verify-owned acceptance, informed
 retry/exhaustion, research classification/exhaustive outstanding scope, data
 technical-versus-policy boundaries and component/system architecture reviews.

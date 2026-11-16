@@ -1251,6 +1251,31 @@ authority; genuine accepted constraints and independent assessment remain bindin
 and requirement changes still need their authorized owner. This creates no new
 authority, notification guarantee, retry obligation or runtime gate.
 
+In the source `classic` and `classic-typed` shared Planner roles, the project
+Planner owns ordinary whole-project technical, architectural, sequencing and
+tradeoff decisions. Apparent tension in directions calls for judgment about actual
+owner intent, accepted objectives, benefit, cost, impact, reversibility, materiality
+and binding constraints. A material change to the objective or explicit binding
+acceptance, or a genuinely external decision, instead calls for a focused owner
+choice with a recommendation; unaffected authorized work can continue. The goal
+Planner owns local decomposition and repair within its accepted brief, returning
+genuinely cross-scope remedies or needed requirement decisions to its parent with
+evidence, impact and the decision needed while retaining independent obligations.
+
+At child return or recovery these two roles diagnose causes using useful available
+original evidence and known effects, then assess remedies against the brief and
+authority. They can replan, choose a genuinely different in-scope approach or
+delegate correction to the responsible owner, followed by required acceptance.
+A changed tactic under unchanged requirements needs no new brief; a locally absent
+tool is not necessarily a missing remedy when authorized delegation provides it.
+One failed tactic or blocked child alone is not a project blocker. Genuine missing
+input, decision, authority or capability, or safely evidenced absence of an
+admissible path, can warrant an honest blocker; alternatives are considered
+proportionately, without an exhaustive-search requirement or forced success.
+These are role instructions, not additional grants, independent self-approval or
+a guarantee of model behavior. The other profiles are not claimed to have this
+clarification, and source changes alone do not update installed prompts.
+
 Executor's versioned-work guidance favors meaningful source, small faithful
 fixtures/goldens, pinned deterministic generators and concise reproducible research
 and provenance. Credentials, secret/runtime configuration, generated runtime state,

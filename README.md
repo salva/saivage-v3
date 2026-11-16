@@ -29,6 +29,11 @@ Give Saivage an objective, constraints and acceptance criteria, then explicitly
 start a Run. Configured Planners delegate and sequence work, Executors implement,
 investigate and test, and configured Reviewers assess evidence. Parents coordinate
 correction; the root Planner assesses remaining authorized work before completion.
+In the `classic` and `classic-typed` source prompts, the root Planner also owns
+ordinary project-level technical and sequencing decisions, while goal Planners
+coordinate within their accepted briefs. Material objective or binding acceptance
+changes still need the owner's decision; source prompts do not automatically update
+installed or custom hosts.
 Workflows can also use non-LLM actions for finite commands. Output-capable actions
 can publish factual reports through the ordinary record owner using
 [`output_record`](docs/guides/configuration.md); command stdout and returned text

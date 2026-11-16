@@ -210,6 +210,12 @@ explanation. [System requirements](../spec/system-specification.md),
 [exact UI contracts](../spec/operator-ui-contracts.md) and
 [operating procedures](../runbook/index.md) have separate owners.
 
+The `classic` and `classic-typed` shared Planner hosts describe project-level
+ordinary decision-making and goal-local coordination and repair within accepted
+scope. Their [effective prompt composition](prompts.md#author-at-the-effective-owner)
+is role guidance, not a new runtime or recovery owner; dispatch, tool admission
+and independent acceptance remain with their existing owners.
+
 ## Ownership and dependency direction
 
 | Owner | Owns | Does not own |
