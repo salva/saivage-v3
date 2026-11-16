@@ -65,7 +65,7 @@ materialization. Fresh init creates `.saivage/saivage.yaml`, materialized prompt
 under `.saivage/config/prompts/`, project identity, the root card and required
 configured sessions. No project work starts.
 
-Default profile is `classic`. Choose `init --profile classic-typed` or
+Default profile is `classic-typed`. Choose `init --profile classic` or
 `init --profile paad-typed` instead **before configuration exists** if desired;
 see [profile differences](configuration.md#choose-a-fresh-profile). Existing YAML
 and prompt destinations are preserved, not upgraded by another init. Unexpected

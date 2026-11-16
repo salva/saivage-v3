@@ -161,7 +161,11 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
     const session = cardAgentSessionId('executor', child.id);
     const active = service.getCurrentInstructions(session);
-    expect(active.bindings).toHaveLength(1);
+    expect(active.bindings).toMatchObject([
+      {kind:'workflow_node',node_id:'red'},
+      {kind:'workflow_node',node_id:'green'},
+      {kind:'workflow_node',node_id:'refactor'},
+    ]);
     expect(JSON.stringify(active)).not.toContain('Private dynamic');
     cards.deleteSubtrees([child.id], () => true);
     expect(service.getCurrentInstructions(session)).toEqual({ ...active,

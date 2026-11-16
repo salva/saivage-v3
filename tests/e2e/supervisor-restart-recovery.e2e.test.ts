@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   appendFileSync,
+  cpSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -13,6 +14,8 @@ import { join } from 'node:path';
 
 import type { App } from '../../src/boot/app.js';
 import { CardService } from '../../src/cards/card-service.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import {
   readConversation,
@@ -300,6 +303,9 @@ describe('Supervisor restart full-chain recovery', () => {
     const port = await listen(provider);
     try {
       const config = productionTestConfig(port, (value) => {
+        const classic=resolveSystemTemplate('classic');
+        value.card_types=effectiveSaivageConfigSchema.parse(structuredClone(classic.config)).card_types;
+        cpSync(classic.promptRoot,join(projectRoot,'.saivage/config/prompts'),{recursive:true});
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
@@ -565,6 +571,9 @@ describe('Supervisor restart full-chain recovery', () => {
     let secondApp: App | null = null;
     try {
       const config = productionTestConfig(providerPort, (value) => {
+        const classic=resolveSystemTemplate('classic');
+        value.card_types=effectiveSaivageConfigSchema.parse(structuredClone(classic.config)).card_types;
+        cpSync(classic.promptRoot,join(projectRoot,'.saivage/config/prompts'),{recursive:true});
         value.card_types.project = {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },

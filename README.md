@@ -118,14 +118,14 @@ Then follow the [tutorial](docs/guides/getting-started.md) in a disposable targe
 inside the isolated deployment. It separates these decisions:
 
 1. **Initialize** a fresh target with the built `bin/saivage.js init`. The default
-   is `classic`; optional `classic-typed`,
+   is `classic-typed`; explicit `classic` remains available, while
    [paad-typed](src/config/system-templates/paad-typed/README.md) and
    [newloop](src/config/system-templates/newloop/README.md) use identical typed
    configurations. Newloop foregrounds critical intent examination, design,
    progressive planning, delivery and evidence-grounded assessment for code **or
    other assets**, without adding stages or gates. PAAD retains its separate
-   five-path adaptation; newloop has eight original prose deltas. This is source
-   guidance, not proof of model compliance or improved output quality.
+   five-path adaptation; newloop has eight original prose deltas in the current
+   source. This is source guidance, not proof of model compliance or improved output quality.
    [newloop2](src/config/system-templates/newloop2/README.md) instead owns an explicit
    alignment → delivery → integrated acceptance → debt loop, with whole-objective
    reconciliation at root and selective evidence-based reentry. It trades extra

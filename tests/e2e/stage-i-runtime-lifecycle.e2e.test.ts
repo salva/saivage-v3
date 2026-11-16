@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardService } from '../helpers/canonical-project.js';
+import { CardService, testAutonomousCompaction } from '../helpers/classic-project.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -14,8 +14,8 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { type AgentMessage, MODEL_RECOVERY_NOTICE_TEXT } from '../../src/schemas/index.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
-import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { initProjectTree } from '../helpers/classic-project.js';
+import { scriptedAdmissionProvider } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';

@@ -155,14 +155,18 @@ Rollback needs a separately authorized matching complete-state/release decision.
    Preserve customization, credentials, identity, operator objectives, source and docs.
 3. Author one complete current configuration. `agents`, `analyst_agent` and
    `models.routes` are named catalogs, not old role-key overlays. Supply the complete
-   closed `card_types` map including `project`, or omit the whole map for bundled
-   classic definitions; there is no deep merge or invalid-map fallback. Each child
-   type, scoped agent, route, operation, record and prompt must resolve.
+   closed `card_types` map including `project`, or omit the whole map for the
+   registry's current `classic-typed` default; there is no deep merge or invalid-map
+   fallback. Each child type, scoped agent, route, operation, record and prompt must
+   resolve. Hand-authored inputs relying on omission or bundled prompt fallback can
+   resolve differently or fail under a new release; the default does not establish
+   retained-state compatibility or safe installed adoption.
 4. Reconcile the actual selected role/node/edge/fragment hosts, not just bundled
    source. Preserve instance guidance. A shipped prompt update does not replace
-   materialized prompts. Typed-only references in a hand-authored map need their
-   selected classic-typed files in the instance prompt tree; bundled classic contains
-   only its own compiler-observed closure. Follow [prompt architecture](../architecture/prompts.md).
+   materialized prompts. The non-native bundled fallback uses the registry's
+   current `classic-typed` closure, not a cross-profile union; selected references
+   must resolve through the actual instance and bundled roots. Follow
+   [prompt architecture](../architecture/prompts.md).
 5. Check the participating-identity predicate below and all cumulative durable
    differences before using retained state. Compile/start success alone is insufficient.
 6. Start a genuinely new process only when authorized. Inspect installed Debug Graphs

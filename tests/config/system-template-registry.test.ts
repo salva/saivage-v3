@@ -13,13 +13,13 @@ import { minimalSystemTemplate,secondSystemTemplate } from '../fixtures/system-t
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 // @ts-expect-error Packaging tooling is JavaScript without a TypeScript declaration.
-import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, assertNewloopPromptParity, collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
+import { assertPaadTypedConfigurationEquality, assertNewloopConfigurationEquality, collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
 
 describe('system template registry',()=>{
   it('registers the profiles with isolated module-relative prompt roots',()=>{
     expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed','classic-git','newloop','newloop2']);
     expect(new Set(SYSTEM_TEMPLATES.map(template=>template.promptRoot)).size).toBe(SYSTEM_TEMPLATES.length);
-    expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic');
+    expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic-typed');
     for(const template of SYSTEM_TEMPLATES){
       const moduleDirectory=join(fileURLToPath(new URL('.',import.meta.url)),'..','..','src','config','system-templates',template.name);
       expect(resolve(template.promptRoot)).toBe(resolve(join(moduleDirectory,'prompts')));
@@ -103,34 +103,36 @@ describe('system template registry',()=>{
     expect(Object.isFrozen(classic.config.card_types!.project!.permitted_child_types)).toBe(true);
     expect(Object.isFrozen(classic.config.agents)).toBe(true);
     expect(Object.isFrozen(DEFAULT_SAIVAGE_CONFIG)).toBe(true);
-    expect(DEFAULT_SAIVAGE_CONFIG).not.toBe(classic.config);
-    expect(DEFAULT_SAIVAGE_CONFIG).toEqual(effectiveSaivageConfigSchema.parse(structuredClone(classic.config)));
+    const typed=resolveSystemTemplate('classic-typed');
+    expect(DEFAULT_SAIVAGE_CONFIG).not.toBe(typed.config);
+    expect(DEFAULT_SAIVAGE_CONFIG).toEqual(effectiveSaivageConfigSchema.parse(structuredClone(typed.config)));
     const typedDerived=effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic-typed').config));
     typedDerived.card_types.project!.permitted_child_types.pop();
     expect(resolveSystemTemplate('classic-typed').config.card_types!.project!.permitted_child_types).toHaveLength(8);
     expect(effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic-typed').config)).card_types.project!.permitted_child_types).toHaveLength(8);
   });
 
-  it('keeps distinct classic-family card graphs and byte-identical shared prompt closures',()=>{
+  it('keeps distinct classic-family card graphs and independently compiles each assessment',()=>{
     const classic=resolveSystemTemplate('classic');
     const typed=resolveSystemTemplate('classic-typed');
     expect(typed.config.card_types).not.toEqual(classic.config.card_types);
-    expect(()=>assertClassicFamilyPromptParity({templates:SYSTEM_TEMPLATES})).not.toThrow();
-    const assessments=SYSTEM_TEMPLATES.filter(template=>template.name!=='newloop2').map(template=>{
+    for (const template of SYSTEM_TEMPLATES.filter(template=>template.name!=='newloop2')) {
        const workflow=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot}).cardTypes.get('project')!;
       const node=workflow.states.get('node:assess-completion')!;
       if(node.kind!=='node')throw new Error('Missing project assessment');
-      return workflow.processPrompts.get(agentExecution(node).prompt.promptId)!.text;
-    });
-    expect(new Set(assessments).size).toBe(1);
+      const execution=agentExecution(node);
+      expect(execution.prompt.promptId).toBe('assess-completion');
+      expect(workflow.processPrompts.get(execution.prompt.promptId)!.text.length).toBeGreaterThan(0);
+      expect(execution.selectedAgentPrompt.reference).toBe('planner');
+    }
   });
 
-  it('reuses the complete frozen typed config with the same selected closure and only bounded prose deltas',()=>{
+  it('reuses the complete frozen typed config with an independently selected PAAD closure',()=>{
     const typed=resolveSystemTemplate('classic-typed');const paad=resolveSystemTemplate('paad-typed');
     expect(paad.config).toBe(typed.config);
     expect(Object.isFrozen(paad.config)).toBe(true);
-    expect(collectTemplatePromptClosure({template:paad})).toEqual(collectTemplatePromptClosure({template:typed}));
-    expect(()=>assertPaadTypedPromptParity()).not.toThrow();
+    expect(collectTemplatePromptClosure({template:paad})).toContain('process/project/specialized-plan.md');
+    expect(()=>assertPaadTypedConfigurationEquality()).not.toThrow();
   });
 
   it('materializes fresh typed classic config declarations and freezes the complete graph',()=>{
@@ -151,13 +153,13 @@ describe('system template registry',()=>{
     expect(Object.isFrozen(first.models.routes)).toBe(true);
   });
 
-  it('keeps newloop on the identical deeply frozen typed config and exact eight-delta closure',()=>{
+  it('keeps newloop on the identical deeply frozen typed config with independent closure',()=>{
     const typed=resolveSystemTemplate('classic-typed');const newloop=resolveSystemTemplate('newloop');
     expect(newloop.config).toBe(typed.config);
     expect(Object.isFrozen(newloop.config.card_types!.project!.workflow.nodes)).toBe(true);
     expect(Object.isFrozen(newloop.config.agents)).toBe(true);
-    expect(collectTemplatePromptClosure({template:newloop})).toEqual(collectTemplatePromptClosure({template:typed}));
-    expect(()=>assertNewloopPromptParity()).not.toThrow();
+    expect(collectTemplatePromptClosure({template:newloop})).toContain('process/project/specialized-plan.md');
+    expect(()=>assertNewloopConfigurationEquality()).not.toThrow();
   });
 
   it('compiles each selected Executor with its observed guidance closure and one rendered outcome contract',()=>{

@@ -1,13 +1,14 @@
 import { expect, it } from '@jest/globals';
 import { MCP_OPERATOR_CALLER as caller } from '../../src/mcp/manager-api.js';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
+import { DEFAULT_SAIVAGE_CONFIG, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
@@ -92,6 +93,7 @@ it.each([true, false])('restarts through ordinary production card composition (E
             preparedOldCall = { serverName: 'local', bindingId: old.bindingId, catalogId: old.catalogId, toolName: 'echo', args: { value: 'never-resend' } };
             call('call-A', 'mcp_tool_call', { serverName: 'local', bindingId: old.bindingId, catalogId: old.catalogId, toolName: 'echo', args: { value: 'A' } }); break;
           case 3:
+            expect(result.error).toBeUndefined();
             expect(result).toMatchObject({ success: true, data: { result: { _meta: { catalog: 'A', session: 1 } } }, content: [{ type: 'text', text: 'known:A' }] });
             nativeA = result; version = 'B'; control(executorControls ? 'restart' : 'denied-executor'); break;
           case 4:
@@ -130,6 +132,9 @@ it.each([true, false])('restarts through ordinary production card composition (E
   try {
     const mcpPort = await listen(mcp); const providerPort = await listen(provider);
     writeProductionConfig(root, productionTestConfig(providerPort, config => {
+      const classic=resolveSystemTemplate('classic');
+      config.card_types=effectiveSaivageConfigSchema.parse(structuredClone(classic.config)).card_types;
+      cpSync(classic.promptRoot,join(root,'.saivage/config/prompts'),{recursive:true});
       config.agents.executor = { ...config.agents.executor!, capabilities:{format_version:2,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_tool_call',...(executorControls?['mcp_server_control']:[])]}]}, skills: false };
       // Preserve default Reviewer selection in the denied scenario.
       if (!executorControls) config.agents.reviewer!.capabilities.grants.push({tools:['mcp_server_control','mcp_tools','mcp_tool_call']});

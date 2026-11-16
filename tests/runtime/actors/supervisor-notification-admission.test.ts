@@ -31,13 +31,12 @@ import {
   CardService,
   initProjectTree,
   TEST_RUNTIME_WORKFLOWS,
-} from '../../helpers/canonical-project.js';
+} from '../../helpers/classic-project.js';
+import { testAutonomousCompaction, createTestPromptTemplateRegistry } from '../../helpers/classic-project.js';
 import {
   scriptedAdmissionProvider,
-  testAutonomousCompaction,
 } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
-import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import type { CardActivationInput, CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { ProviderTurnFailure } from '../../../src/contracts/index.js';

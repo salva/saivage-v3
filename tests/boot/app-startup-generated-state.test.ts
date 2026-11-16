@@ -60,6 +60,8 @@ import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { cardHeadFile, providerExchangeFile } from '../../src/persistence/layout.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 
+// Startup fixtures now compile and admit the full typed default workflow closure.
+jest.setTimeout(30_000);
 const roots: string[] = [];
 const apps: App[] = [];
 afterEach(async () => {
@@ -902,7 +904,7 @@ function explicitFixtureFamilyConfig() {
     ...project,
     permitted_child_types: [...project.permitted_child_types, 'fixture-leaf'],
   };
-  config.card_types['fixture-leaf'] = structuredClone(config.card_types.code!);
+  config.card_types['fixture-leaf'] = structuredClone(config.card_types.doc!);
   return effectiveSaivageConfigSchema.parse(config);
 }
 function selectedStandardConfig(): Record<string, unknown> {
@@ -919,7 +921,7 @@ function renamedExecutorConfig() {
   const config = structuredClone(TEST_SAIVAGE_CONFIG);
   config.agents['executor-v2'] = { ...config.agents.executor! };
   config.card_types.code!.workflow.notification_recipient = 'executor-v2';
-  agentExecution(config.card_types.code!.workflow.nodes.execute!).agent = 'executor-v2';
+  for (const node of Object.values(config.card_types.code!.workflow.nodes)) agentExecution(node).agent = 'executor-v2';
   config.mcpServers = {
     admission_probe: {
       format_version: 1, policy: { controllerCardId: 'project', exposure: 'subtree' },

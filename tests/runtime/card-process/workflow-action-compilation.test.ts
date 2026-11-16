@@ -55,6 +55,7 @@ const inspect: OperationDefinition = {
 const plugin: OperationPlugin = { namespace: 'acme-analysis', operations: { inspect } };
 function fixture() {
   const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
+  config.card_types.code = structuredClone(config.card_types.doc!);
   const workflow = config.card_types.code!.workflow;
   const execute = workflow.nodes.execute!;
   if (execute.execution.kind !== 'agent') throw new Error('Expected fixture agent.');
@@ -115,6 +116,7 @@ describe('workflow4 typed action compilation', () => {
   });
   function stdoutFixture() {
     const config = effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG));
+    config.card_types.code = structuredClone(config.card_types.doc!);
     const type = config.card_types.code!;
     type.records['check-report.md'] = { format: 'markdown', schema: 'check-report.v1', bootstrap: false };
     const old = type.workflow.nodes.execute!;
@@ -154,7 +156,7 @@ describe('workflow4 typed action compilation', () => {
   });
   it('rejects output authority on agents, no-output plugins and hooks while leaving unbound requirements narrow', () => {
     const agent = stdoutFixture();
-    agent.card_types.code!.workflow.nodes.execute!.execution = structuredClone(TEST_SAIVAGE_CONFIG.card_types.code!.workflow.nodes.execute!.execution);
+    agent.card_types.code!.workflow.nodes.execute!.execution = structuredClone(TEST_SAIVAGE_CONFIG.card_types.doc!.workflow.nodes.execute!.execution);
     expect(() => compile(agent)).toThrow(/requires an action with declared output/);
     const other = fixture(); other.card_types.code!.workflow.nodes.inspect!.output_record = 'status.md';
     expect(() => compile(other)).toThrow(/requires an action with declared output/);

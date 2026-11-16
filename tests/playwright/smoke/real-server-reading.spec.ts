@@ -1,6 +1,6 @@
 import { agentExecution, directEdge } from '../../helpers/workflow-execution.js';
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,8 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import type { App } from '../../../src/boot/app.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../../src/config/system-templates/registry.js';
+import { DEFAULT_SAIVAGE_CONFIG, resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 import { createResolvedConfigAuthority } from '../../../src/config/index.js';
 import { CardService } from '../../../src/cards/card-service.js';
 import { appendConversationBatch, readConversationCatalog, readConversation } from '../../../src/persistence/conversation-file.js';
@@ -474,7 +475,9 @@ test('rejected workspace request has public location bytes in Request, safe-orig
 test.beforeAll(async () => {
   const port = await listen(sink);
   root = mkdtempSync(join(tmpdir(), 'reading-real-server-'));
+  const classic=resolveSystemTemplate('classic');
   const config = productionTestConfig(port, config => {
+    config.card_types=effectiveSaivageConfigSchema.parse(structuredClone(classic.config)).card_types;
     for (const [name, agent] of Object.entries(config.agents)) agent.capabilities = structuredClone(DEFAULT_SAIVAGE_CONFIG.agents[name]!.capabilities);
     config.providers.fixture!.capabilities = { ...config.providers.fixture!.capabilities, transportProtocol: 'openai-responses', imageInput: true };
     config.oversight.enabled = false;
@@ -489,6 +492,7 @@ test.beforeAll(async () => {
   writeProductionConfig(root, config);
   // Preserve actual bundled image guidance and compose an explicit fragment seam.
   const promptRoot = join(root, '.saivage/config/prompts');
+  cpSync(classic.promptRoot,promptRoot,{recursive:true});
   mkdirSync(join(promptRoot, 'agents/_shared'), { recursive: true });
   mkdirSync(join(promptRoot, 'fragments/_shared'), { recursive: true });
   mkdirSync(join(promptRoot, 'process/_shared'), { recursive: true });

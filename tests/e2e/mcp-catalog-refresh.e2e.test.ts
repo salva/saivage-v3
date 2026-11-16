@@ -1,9 +1,11 @@
 import { expect, it } from '@jest/globals';
 import { mcpInvocationStatsKey } from '../../src/mcp/invocation-stats.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import {
@@ -111,6 +113,9 @@ it('uses ordinary opted-in card refresh with frozen gateways, retained observati
   try {
     const mcpPort = await listen(mcp); const providerPort = await listen(provider);
     writeProductionConfig(root, productionTestConfig(providerPort, config => {
+      const classic=resolveSystemTemplate('classic');
+      config.card_types=effectiveSaivageConfigSchema.parse(structuredClone(classic.config)).card_types;
+      cpSync(classic.promptRoot,join(root,'.saivage/config/prompts'),{recursive:true});
       config.agents.executor = { ...config.agents.executor!, capabilities: {format_version:2,grants:[{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['status.md']}]},{tools:['mcp_tools','mcp_catalog_refresh','mcp_tool_call']}]}, skills: false };
       config.agents.reviewer = { ...config.agents.reviewer!, capabilities: {format_version:2,grants:[{tools:['read'],resources:[{kind:'record',scopes:['all'],patterns:['*']}]},{tools:['write'],resources:[{kind:'record',scopes:['self'],patterns:['review.md','review-*.md']}]}]}, skills: false };
       config.card_types.project = {

@@ -86,13 +86,14 @@ they do not authorize provider calls, deployment or state adoption.
 
 ## Choose a fresh profile
 
-Run `saivage init --profile NAME` from the fresh target directory:
+Run `saivage init --profile NAME` from the fresh target directory, or omit
+`--profile` for `classic-typed`:
 
 | Profile | Choose it for | Difference |
 | --- | --- | --- |
-| `classic` (default) | A simpler first project | Planning/review on project and goal; most leaf types use one execute node |
-| `classic-typed` | Specialized work loops | Typed code/test/research/data/doc/ops and architecture graphs using the ordinary engine |
-| `paad-typed` | The same typed graphs with optional adapted planning guidance | Five selected prose paths differ, not tools, routing or outcomes; [attribution and scope](../architecture/prompts.md#optional-paad-typed-guidance) |
+| `classic` | A simpler first project | Planning/review on project and goal; most leaf types use one execute node |
+| `classic-typed` (default) | Specialized work loops | Typed code/test/research/data/doc/ops and architecture graphs using the ordinary engine |
+| `paad-typed` | The same typed graphs with optional adapted planning guidance | Five current source prose paths differ, not tools, routing or outcomes; [attribution and scope](../architecture/prompts.md#optional-paad-typed-guidance) |
 | `classic-git` | Native source ownership on classic graphs | Requires all four explicit `--git-*` provisioning options and clean-repository commissioning described above; not an OFF-profile toggle |
 | `newloop` | Intent-to-delivery quality for code or other assets | Identical typed configuration; eight prose paths foreground critical analysis, progressive planning and substantive assessment; [method and limits](../architecture/prompts.md#optional-newloop-guidance) |
 | `newloop2` | Explicit early challenge, integrated acceptance and debt decision | Independent nine-type graph, selective reentry, shared native-OFF capabilities; extra goal handoffs, not proven model quality. [Exact loop and limits](../spec/system-specification.md#newloop2-explicit-review-loop) |
@@ -108,9 +109,12 @@ improvements. Newloop remains native-Git OFF and enables no optional quality too
 
 `init` with existing configuration preserves it and existing prompt destinations;
 it is not a profile switch/upgrade. Omitting `card_types` selects the complete
-bundled classic type map, not a merge with a partial custom map. Supply a complete
+bundled classic-typed type map, not a merge with a partial custom map. Supply a complete
 closed map when defining it yourself. Verify the compiled result in **System →
 Installed workflows** after an authorized fresh start, not merely saved YAML.
+Hand-authored inputs relying on omitted maps or bundled prompt fallback can resolve
+differently or fail under a new release; a changed source default does not establish
+safe adoption of retained state.
 
 ## Wire provider, routes and summary
 

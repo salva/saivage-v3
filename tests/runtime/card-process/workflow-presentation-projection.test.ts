@@ -14,7 +14,7 @@ describe('compact workflow presentation', () => {
     const config = structuredClone(TEST_SAIVAGE_CONFIG);
     config.card_types.project!.workflow.nodes.plan!.record_prompts = [{ record: 'brief.md', selection: 'accepted', presence: 'required', prompt: { reference: 'changed-record', compactable: false, compaction_key: 'token=graph-metadata-canary' } }];
     config.card_types.project!.records['status.md']!.initialization = { format_version: 1, template: 'token=scaffold-canary' };
-    const compiled = compileProjectWorkflows(config, { defaultPromptRoot: resolveSystemTemplate('classic').promptRoot });
+    const compiled = compileProjectWorkflows(config, { defaultPromptRoot: resolveSystemTemplate('classic-typed').promptRoot });
     const registry = new ProviderRegistry(config);
     const bound = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const inputs = projectCompiledGraphs(bound).graphs.find(graph => graph.card_type === 'project')!.nodes.find(node => node.node_id === 'plan')!.record_prompts;

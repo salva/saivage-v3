@@ -17,11 +17,11 @@ export const TEST_WORKFLOWS=compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
 const TEST_PROVIDER_REGISTRY=new ProviderRegistry(TEST_SAIVAGE_CONFIG);
 export const TEST_RUNTIME_WORKFLOWS=bindRuntimeWorkflows(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),new ModelRouter(TEST_PROVIDER_REGISTRY),TEST_PROVIDER_REGISTRY,TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
 
-export function initProjectTree(projectRoot: string): { projectRoot: string } {
+export function initProjectTree(projectRoot: string, workflows = TEST_WORKFLOWS): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
   if (readProjectIdentity(projectRoot) === null) createProjectIdentity(projectRoot, projectRoot.split('/').at(-1) || 'saivage-project');
   if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json'))) {
-    publishInitialProjectRuntime(projectRoot, TEST_WORKFLOWS);
+    publishInitialProjectRuntime(projectRoot, workflows);
   }
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
   const skills = join(projectRoot, '.saivage', 'skills', 'index.json');
@@ -34,8 +34,8 @@ export function testConfigAuthority(projectRoot: string, env: Readonly<Record<st
 }
 
 export class CardService extends ProductionCardService {
-  constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'|'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, io?: ReplacementFileIo) {
-    super(projectRoot, TEST_WORKFLOWS,freshness, io);
+  constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'|'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, io?: ReplacementFileIo, workflows = TEST_WORKFLOWS) {
+    super(projectRoot, workflows,freshness, io);
   }
   override create(input: Omit<Parameters<ProductionCardService['create']>[0], 'bootstrap_author'> & { bootstrap_author?: import('../../src/schemas/index.js').RecordAuthor }) {
     const author: import('../../src/schemas/index.js').RecordAuthor = input.created_by.startsWith('external:')

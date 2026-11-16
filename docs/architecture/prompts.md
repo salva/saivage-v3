@@ -763,17 +763,18 @@ empirical model wisdom, compliance or improved output quality.
 
 ## Shipped profiles and customization
 
-`classic` is default; explicitly provisioned `classic-git` adds native source
-ownership to classic graphs; `classic-typed` supplies typed graphs; opt-in `paad-typed`
-uses the same frozen typed config with five prose differences; opt-in `newloop`
-uses that exact config with eight original prose differences for intent-to-delivery
+`classic-typed` is the default and supplies typed graphs; explicit `classic`
+supplies simpler graphs, while provisioned `classic-git` adds native source
+ownership to classic graphs. Opt-in `paad-typed` uses the same frozen typed config
+with five current source prose differences; opt-in `newloop`
+uses that exact config with eight current original prose differences for intent-to-delivery
 quality across code and other assets. Neither variant changes tools, records,
 routes, identities or native-Git OFF policy. Packaging compiles
 each registered template standalone, observes the complete selected artifact closure
-and requires physical source/copied output equality. Classic-family shared
-agent/fragment membership/bytes and common shared process bytes are checked;
-typed-only paths are allowed. Newloop has its own bounded config/path/byte parity
-check, separate from PAAD's five-path check. There is no union tree or maintained
+and checks each physical source and copied output against its own closure. Source/
+output byte fidelity is qualified per profile. PAAD and newloop retain typed
+configuration equality checks, including ordered tools, but no cross-profile prompt
+path or byte equality is required. There is no union tree or maintained
 numeric closure count.
 All closures include five shared roles, six project-guidance fragments, the shared
 operator-policy-overrides fragment and graph-selected process hosts. Fresh
@@ -820,7 +821,8 @@ Fragments are trusted prompt syntax under the host policy, not opaque Markdown.
 
 ### Optional paad-typed guidance
 
-The complete physical path set matches classic-typed; bytes outside these paths match:
+In the current source the physical path set matches classic-typed and bytes outside
+these five paths match; this is descriptive, not a relative packaging constraint:
 
 | Path under `prompts/` | Local adaptation |
 | --- | --- |
@@ -843,8 +845,8 @@ it neither replaces Saivage's GPL nor claims endorsement or measured quality.
 Newloop foregrounds a coherent responsibility loop: critically examine accepted
 intent and current facts, choose an appropriate design/approach, progressively plan
 and deliver, then revise and assess from actual evidence. It is not five mandatory
-stages. The complete standalone physical path set equals classic-typed; only these
-eight paths under `prompts/` differ:
+stages. In the current source the standalone physical path set equals classic-typed
+and these eight paths under `prompts/` differ; this is not a relative packaging constraint:
 
 | Path | Effective responsibility |
 | --- | --- |
@@ -857,7 +859,7 @@ eight paths under `prompts/` differ:
 | `process/project/specialized-recover.md` | Root recovery with objective and historical-review limits. |
 | `process/_shared/specialized-review.md` | Integrated goal/project assessment and supported verdict. |
 
-All other bytes match classic-typed: Analyst/Oversight, architecture nodes, project
+Currently all other bytes match classic-typed: Analyst/Oversight, architecture nodes, project
 assessment, notification handling, correction/transition hosts and all seven shared
 fragments. Direct includes and exactly one generated contract token per workflow
 role remain unchanged. Reusable method belongs to prepared roles, today's task to
@@ -936,9 +938,10 @@ An authorized installed change stops the service, reconciles actual selected
 materialized/custom hosts and fragments while preserving project guidance, and
 starts a genuinely new process. Prompt-only same-contract content adoption needs
 no generated reset; whole-release participating-identity/durable differences are
-separate blockers requiring their own authorized procedure. Hand-authored typed
-configs must supply their typed-only hosts: the runtime bundled default closure is
-classic, not an implicit cross-profile fallback. Removed path/key forms are never
+separate blockers requiring their own authorized procedure. The non-native bundled
+default closure is now classic-typed, not a cross-profile fallback. Hand-authored
+inputs relying on omitted maps or fallback can resolve differently or fail under a
+new release; this does not establish safe retained-state adoption. Removed path/key forms are never
 read, moved or normalized. Source completion authorizes no installed operation.
 
 ## Source map
@@ -956,4 +959,4 @@ read, moved or normalized. Source completion authorizes no installed operation.
 | `src/runtime/actors/compaction/summarizer.ts` | Refine instruction/source composition and source-owned attempt evidence. |
 | `src/application/read-models/agent-operator-read-model.ts` | Current loaded instructions and exact historical/image inspection. |
 | `src/config/system-templates/<name>/prompts/**` | Per-template complete bundled closure. |
-| `scripts/copy-system-template-prompts.js` | Compiler-derived closure/parity and byte-preserving package copying. |
+| `scripts/copy-system-template-prompts.js` | Per-profile compiler-derived closure and byte-preserving package copying; typed configuration equality checks. |

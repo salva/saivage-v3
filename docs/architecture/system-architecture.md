@@ -310,7 +310,7 @@ distinguishes the failing boundary.
 `ResolvedConfigAuthority` reads and parses YAML, interpolates its ordinary values
 (preserving [literal data](../reference/configuration.md#owners-and-selected-input)),
 then strictly decodes source config, resolves
-omitted `card_types` to the complete classic map (no per-key merge), validates the
+omitted `card_types` to the complete registry-default classic-typed map (no per-key merge), validates the
 required effective map and calls `compileProjectWorkflows`. Deleted selectors and
 old model shapes fail, not normalize. The same decoder serves mutation
 preconditions without compiling current graphs; a correcting candidate is fully
@@ -348,7 +348,7 @@ scan/loader/manifest.
 `createClassicConfig` constructs fresh typed declarations then freezes once;
 `OVERSIGHT_ALLOWED_TOOL_NAMES` is the shared contracts-owned allowlist. PAAD and
 newloop directly reuse the same frozen typed config, not runtime inheritance.
-Newloop's independent prompt closure differs in exactly eight paths: the three shared
+Newloop's independent prompt closure currently differs in eight paths: the three shared
 Planner, Executor and Reviewer roles and five process hosts. Graphs, identities, ordered
 tools/routes, permissions and records remain equal. The always-prepared roles own the
 reusable method; the five newloop current-node hosts state today's task, products,
@@ -358,15 +358,17 @@ as task orientation. This is source and package closure only.
 Config-absent init materializes the selected
 complete prompt closure/marker and YAML last; existing config preserves them.
 Runtime follows the instance, not the selected init-profile label. The default
-bundled prompt/card-type source remains classic where the instance omits overrides.
+non-native bundled prompt root and omitted card-type map derive from the registry's
+`classic-typed` default. Hand-authored omission or fallback inputs may resolve
+differently or fail under a new release; this does not certify retained-state adoption.
 
 The compiler exact-selects project-card/project-shared/bundled-card/bundled-shared
 hosts and direct fragments. Global scope uses shared tiers only. It freezes role
 tokens and eagerly renders process text; a typed `global` card is not a global
 host. Packaging compiles each template standalone and checks exact physical
-source/package closure, classic-family shared bytes, PAAD's five explicit
-differences and newloop's eight explicit differences. Newloop parity independently
-checks config, selected paths and unchanged bytes; it adds no overlay framework.
+source and output closure. Source/output byte fidelity is qualified independently;
+PAAD and newloop configuration checks retain ordered-tool equality with typed.
+No cross-profile prompt byte or selected-path equality is required.
 Compiled composition runs through build, not routine alone. These checks qualify
 source/package instructions and legal paths, not model compliance or improved
 quality. Installed adoption remains separate.
@@ -381,8 +383,8 @@ without inventing activation-local earlier results. Three project/goal Reviewer
 nodes fence consumed descendants, not whole workspace or own record tuples.
 Architecture remains a leaf without descendant context. See the
 [exact newloop2 contract](../spec/system-specification.md#newloop2-explicit-review-loop).
-Its selected physical closure is independently compiled/copied/recompiled; old
-classic/PAAD/newloop config/path/byte parity checks remain separate and unchanged.
+Its selected physical closure is independently compiled/copied/recompiled; PAAD
+and newloop retain their typed configuration checks, not relative prompt parity.
 Across these four typed profiles, code `green / still_red → green` and research
 `explore / evidence_ready → assess` are promptless authored edges; the three test
 routes into `verify` retain their shared evidence-qualification prompt. The first
@@ -1948,7 +1950,7 @@ remaining/target shortfall; `whole_work_size_known` is false. See
 ### Agent tools
 
 Rows compare alphabetically normalized membership of the registered default
-`classic`, not operational order. The fixed `shipped-role-inventories` claim
+`classic-typed`, not operational order. The fixed `shipped-role-inventories` claim
 instead compares ordered inventories across all five OFF profiles. The verifier
 materializes all six registered templates through a freshly emitted, statically linked
 observer; it supplies synthetic provisioning to `classic-git`, not a real project.

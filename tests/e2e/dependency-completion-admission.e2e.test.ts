@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
-import { CardService } from '../helpers/canonical-project.js';
+import { CardService, testAutonomousCompaction } from '../helpers/classic-project.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
@@ -13,10 +13,9 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { initProjectTree } from '../helpers/classic-project.js';
 import {
   scriptedAdmissionProvider,
-  testAutonomousCompaction,
 } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 

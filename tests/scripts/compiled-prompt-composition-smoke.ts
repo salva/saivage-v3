@@ -155,15 +155,15 @@ try {
   const { card_types: _defaultCardTypes, ...globals } = structuredClone(baseConfig);
   const classicTestConfig = effectiveSaivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(classic.config.card_types) });
   const typedTestConfig = effectiveSaivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(classicTyped.config.card_types) });
-  const classicWorkflows = compileProjectWorkflows(classicTestConfig, { projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
+  const classicWorkflows = compileProjectWorkflows(classicTestConfig, { defaultPromptRoot: classic.promptRoot, projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
   const typedWorkflows = compileProjectWorkflows(typedTestConfig, { defaultPromptRoot: classicTyped.promptRoot, projectRoot, artifactObserver: observeInside('classic-typed', classicTyped.promptRoot) });
   const classicSourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', 'classic', 'prompts');
   const typedSourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', 'classic-typed', 'prompts');
   const classicSourceWorkflows = compileProjectWorkflows(classicTestConfig, { defaultPromptRoot: classicSourceRoot, projectRoot, artifactObserver: observeInside('classic source', classicSourceRoot) });
   const typedSourceWorkflows = compileProjectWorkflows(typedTestConfig, { defaultPromptRoot: typedSourceRoot, projectRoot, artifactObserver: observeInside('classic-typed source', typedSourceRoot) });
-  const derivedDefaultWorkflows = compileProjectWorkflows(structuredClone(DEFAULT_SAIVAGE_CONFIG), { projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
+  const derivedDefaultWorkflows = compileProjectWorkflows(structuredClone(DEFAULT_SAIVAGE_CONFIG), { projectRoot, artifactObserver: observeInside('classic-typed', classicTyped.promptRoot) });
   const renderAgentPrompts = (workflows: ReturnType<typeof compileProjectWorkflows>) => [...workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states.values()].filter((state) => state.kind === 'node').map((state) => state.kind === 'node' ? renderCompiledPrompt({ kind: 'workflow-agent', cardType }, agentExecution(state).agent.name, agentExecution(state).selectedAgentPrompt.compiled, { contractDescription: 'contract' }) : ''));
-  if (JSON.stringify(renderAgentPrompts(classicWorkflows)) !== JSON.stringify(renderAgentPrompts(derivedDefaultWorkflows))) throw new Error('Derived default rendered prompt baseline changed.');
+  if (JSON.stringify(renderAgentPrompts(typedWorkflows)) !== JSON.stringify(renderAgentPrompts(derivedDefaultWorkflows))) throw new Error('Derived default rendered prompt baseline changed.');
   const analystText = renderCompiledPrompt({ kind: 'global-agent' }, typedWorkflows.analyst.name, typedWorkflows.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
   if (analystText.includes('{{')) throw new Error('Unresolved Analyst template syntax.');
   const oversightText = renderCompiledPrompt({ kind: 'global-agent' }, typedWorkflows.oversight.name, typedWorkflows.oversightPrompt.compiled, { vocabularySnippet: 'vocabulary' });

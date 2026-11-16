@@ -408,8 +408,7 @@ describe('shipped project Planner semantic composition', () => {
     expect([...histories.keys()].sort()).toEqual(['planner', 'reviewer']);
   });
 
-  it('selects each bundled shared role with one generated node contract and byte parity across template families', () => {
-    const renderedSources = new Map<string, string>();
+  it('selects each bundled shared role with one generated node contract independently', () => {
     for (const templateName of ['classic', 'classic-typed'] as const) {
       const template = resolveSystemTemplate(templateName);
       const compiled = compile(template);
@@ -420,22 +419,16 @@ describe('shipped project Planner semantic composition', () => {
         if (!selected) throw new Error(`Missing ${templateName}/${role} node.`);
         const contract = describeNodeResultContract(selected.process, `node:${selected.state.nodeId}`);
         const instruction = compiled.registry.render({ kind: 'workflow-agent', cardType: selected.cardType }, agentExecution(selected.state).agent.name, { contractDescription: contract });
-        const source = readFileSync(agentExecution(selected.state).selectedAgentPrompt.path, 'utf8');
         expect(agentExecution(selected.state).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: role });
         expect(instruction.split(contract)).toHaveLength(2);
-        renderedSources.set(`${templateName}:${role}`, source);
       }
     }
-    for (const role of ['planner', 'executor', 'reviewer'] as const)
-      expect(renderedSources.get(`classic:${role}`)).toBe(renderedSources.get(`classic-typed:${role}`));
   });
 
-  it('keeps one shared strategic Planner instruction for project and goal', () => {
-    const rendered = (['classic', 'classic-typed'] as const).flatMap((templateName) => {
+  it.each(['classic', 'classic-typed'] as const)('keeps one shared strategic Planner instruction for project and goal in %s', (templateName) => {
       const template = resolveSystemTemplate(templateName);
       const compiled = compile(template);
-      return (['project', 'goal'] as const).map((cardType) => renderedNode(template, compiled, cardType, 'plan'));
-    });
+    const rendered = (['project', 'goal'] as const).map((cardType) => renderedNode(template, compiled, cardType, 'plan'));
 
     for (const value of rendered) {
       expect(agentExecution(value.node).selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });

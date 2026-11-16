@@ -541,7 +541,7 @@ function renamedCardAgentWorkflows(): CompiledProjectWorkflows {
   const value = config();
   value.agents['executor-v2'] = { ...value.agents.executor! };
   value.card_types.code!.workflow.notification_recipient = 'executor-v2';
-  agentExecution(value.card_types.code!.workflow.nodes.execute!).agent = 'executor-v2';
+  for (const node of Object.values(value.card_types.code!.workflow.nodes)) agentExecution(node).agent = 'executor-v2';
   return compileProjectWorkflows(value);
 }
 function renamedAnalystWorkflows(): CompiledProjectWorkflows {

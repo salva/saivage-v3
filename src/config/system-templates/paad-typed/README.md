@@ -2,7 +2,7 @@
 
 Choose this optional profile when you want the existing typed workflows with
 additional pushback, scope-alignment and architecture-review guidance. On a
-config-absent target, select `saivage init --profile paad-typed`; `classic` is
+config-absent target, select `saivage init --profile paad-typed`; `classic-typed` is
 still the default. See [profile selection](../../../../docs/guides/configuration.md#choose-a-fresh-profile)
 and [prompt composition](../../../../docs/architecture/prompts.md#optional-paad-typed-guidance).
 
@@ -35,7 +35,7 @@ official expansion. No upstream endorsement is implied.
 
 ## What changes—and what does not
 
-Only five prompt paths deliberately differ from classic-typed:
+In the current source, five prompt paths deliberately differ from classic-typed:
 
 - `agents/_shared/planner.md`: evidence-grounded brief pushback and bidirectional
   scope alignment before delegation, within existing requirement authority.
@@ -50,7 +50,7 @@ Only five prompt paths deliberately differ from classic-typed:
   intent and operational/persistence lens preserving immutable component evidence.
 
 Existing typed workflows, records, tools, outcomes, independent review and ordinary
-repair remain authoritative. Analyst, Oversight and all six neutral guidance
+repair remain authoritative. In the current source, Analyst, Oversight and all six neutral guidance
 fragments are unchanged. Upstream mandatory TDD rewriting, specialist fan-out,
 human choices at every critique, reports/counters and branch procedures are not
 adopted. There is no new review scheduler, validator pass or BLOCKED reason.

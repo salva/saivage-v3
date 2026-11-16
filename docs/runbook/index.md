@@ -66,7 +66,7 @@ Run target-local commands from the exact project root with the identified releas
 
 | Task | Command/location |
 |---|---|
-| Fresh init (native Git OFF) | `saivage init [--profile classic\|classic-typed\|paad-typed\|newloop]` (`classic` default) |
+| Fresh init (native Git OFF) | `saivage init [--profile classic\|classic-typed\|paad-typed\|newloop\|newloop2]` (`classic-typed` default) |
 | Fresh native Git init | `saivage init --profile classic-git` plus all four explicit [provisioning options](../guides/configuration.md); clean-repository commissioning required |
 | Start server | `saivage start --project-root <absolute-root> --config <absolute-yaml> --host <host> --port <port>` |
 | Read/control live runtime | `saivage status`, `pause`, `resume`, `stop` |

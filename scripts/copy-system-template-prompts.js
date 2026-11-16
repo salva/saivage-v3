@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SYSTEM_TEMPLATES, materializeSystemTemplate } from '../src/config/system-templates/registry.js';
@@ -53,64 +53,20 @@ export function collectTemplatePromptClosure({ template, promptRoot = template.p
   return Object.freeze([...selected].sort());
 }
 
-/** Compare the independently compiled classic family's selected shared artifacts. */
-export function assertClassicFamilyPromptParity({ templates = SYSTEM_TEMPLATES } = {}) {
-  const family = ['classic', 'classic-typed'].map((name) => {
-    const template = templates.find((entry) => entry.name === name);
-    if (!template) throw new Error(`Classic prompt family requires system template '${name}'.`);
-    return { template, closure: collectTemplatePromptClosure({ template }) };
-  });
-  const [classic, typed] = family;
-  const sharedGuidance = (path) => path.startsWith('agents/_shared/') || path.startsWith('fragments/_shared/');
-  const classicGuidance = new Set(classic.closure.filter(sharedGuidance));
-  const typedGuidance = new Set(typed.closure.filter(sharedGuidance));
-  for (const [selected, other] of [[classic, typed], [typed, classic]]) {
-    const otherGuidance = selected === classic ? typedGuidance : classicGuidance;
-    for (const path of selected.closure.filter(sharedGuidance)) {
-      if (!otherGuidance.has(path)) {
-        throw new Error(`Classic prompt family membership differs: '${selected.template.name}' selects '${path}' but '${other.template.name}' does not.`);
-      }
-    }
-  }
-  const typedPaths = new Set(typed.closure);
-  const comparedPaths = classic.closure.filter((path) => sharedGuidance(path)
-    || (path.startsWith('process/_shared/') && typedPaths.has(path)));
-  for (const path of comparedPaths) {
-    if (!readFileSync(join(classic.template.promptRoot, path)).equals(readFileSync(join(typed.template.promptRoot, path)))) {
-      throw new Error(`Classic prompt family bytes differ between '${classic.template.name}' and '${typed.template.name}': ${path}`);
-    }
-  }
-}
-
 function assertEqualPaths(actual, expected, message) {
   if (actual.length !== expected.length || actual.some((path, index) => path !== expected[index])) {
     throw new Error(`${message}: ${expected.join(', ')}`);
   }
 }
 
-export const PAAD_TYPED_PROMPT_DELTAS = Object.freeze([
-  'agents/_shared/executor.md',
-  'agents/_shared/planner.md',
-  'agents/_shared/reviewer.md',
-  'process/architecture/architecture-component-review.md',
-  'process/architecture/architecture-system-review.md',
-]);
-
-/** Bounded source-family invariant, not runtime profile inheritance. */
-export function assertPaadTypedPromptParity({ templates = SYSTEM_TEMPLATES } = {}) {
+/** Preserve the currently shared functional configuration, including tool order. */
+export function assertPaadTypedConfigurationEquality({ templates = SYSTEM_TEMPLATES } = {}) {
   const [typed, paad] = ['classic-typed', 'paad-typed'].map((name) => {
     const template = templates.find((entry) => entry.name === name);
-    if (!template) throw new Error(`PAAD typed parity requires system template '${name}'.`);
+    if (!template) throw new Error(`PAAD typed configuration requires system template '${name}'.`);
     return template;
   });
   if (JSON.stringify(typed.config) !== JSON.stringify(paad.config)) throw new Error('PAAD typed configuration differs from classic-typed.');
-  const closure = collectTemplatePromptClosure({ template: typed });
-  assertEqualPaths(collectTemplatePromptClosure({ template: paad }), closure, 'PAAD typed selected membership differs');
-  for (const path of closure) {
-    if (!PAAD_TYPED_PROMPT_DELTAS.includes(path) && !readFileSync(join(typed.promptRoot, path)).equals(readFileSync(join(paad.promptRoot, path)))) {
-      throw new Error(`PAAD typed bytes differ outside intentional deltas: ${path}`);
-    }
-  }
 }
 
 function assertExactTree(root, closure, templateName) {
@@ -118,30 +74,14 @@ function assertExactTree(root, closure, templateName) {
   assertEqualPaths(walkFiles(root), closure, `System template '${templateName}' prompt tree must contain exactly its compiled closure`);
 }
 
-export const NEWLOOP_PROMPT_DELTAS = Object.freeze([
-  'agents/_shared/executor.md',
-  'agents/_shared/planner.md',
-  'agents/_shared/reviewer.md',
-  'process/_shared/specialized-plan.md',
-  'process/project/specialized-plan.md',
-  'process/_shared/specialized-recover.md',
-  'process/project/specialized-recover.md',
-  'process/_shared/specialized-review.md',
-]);
-
-/** Exact bounded source relationship; no runtime overlay or inheritance. */
-export function assertNewloopPromptParity({ templates = SYSTEM_TEMPLATES } = {}) {
+/** Preserve the currently shared functional configuration, including tool order. */
+export function assertNewloopConfigurationEquality({ templates = SYSTEM_TEMPLATES } = {}) {
   const [typed, newloop] = ['classic-typed', 'newloop'].map((name) => {
     const template = templates.find((entry) => entry.name === name);
-    if (!template) throw new Error(`Newloop parity requires system template '${name}'.`);
+    if (!template) throw new Error(`Newloop configuration requires system template '${name}'.`);
     return template;
   });
   if (JSON.stringify(typed.config) !== JSON.stringify(newloop.config)) throw new Error('Newloop configuration differs from classic-typed.');
-  const closure = collectTemplatePromptClosure({ template: typed });
-  assertEqualPaths(collectTemplatePromptClosure({ template: newloop }), closure, 'Newloop selected membership differs');
-  assertExactTree(newloop.promptRoot, closure, newloop.name);
-  const changed = closure.filter((path) => !readFileSync(join(typed.promptRoot, path)).equals(readFileSync(join(newloop.promptRoot, path))));
-  assertEqualPaths(changed, [...NEWLOOP_PROMPT_DELTAS].sort(), 'Newloop must differ at exactly its eight intentional deltas');
 }
 
 function copyTree(sourceRoot, outputRoot, closure, templateName) {
@@ -179,9 +119,8 @@ export function copySystemTemplatePrompts({ templates = SYSTEM_TEMPLATES, distRo
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES });
-    assertPaadTypedPromptParity({ templates: SYSTEM_TEMPLATES });
-    assertNewloopPromptParity({ templates: SYSTEM_TEMPLATES });
+    assertPaadTypedConfigurationEquality({ templates: SYSTEM_TEMPLATES });
+    assertNewloopConfigurationEquality({ templates: SYSTEM_TEMPLATES });
     const packaged = copySystemTemplatePrompts();
     console.log(packaged.map((entry) => `Copied ${entry.count} '${entry.name}' prompt artifacts to ${relative(repoRoot, entry.outputRoot)}`).join('\n'));
   } catch (error) {

@@ -72,7 +72,7 @@ describe('compiled Debug graph projection', () => {
           outcome: 'admit_review',
           runtime_owned: false,
           condition: 'default',
-          prompt: { reference: 'plan-to-review', compactable: true },
+          prompt: { reference: 'specialized-plan-to-review', compactable: true },
           target: { kind: 'node', node_id: 'review' },
         }),
         expect.objectContaining({ route_id: 'revision_required', test: null, source_node_id: 'review', outcome: 'revision_required', target: { kind: 'node', node_id: 'plan' } }),

@@ -14,7 +14,7 @@ import { cardAgentSessionId, globalAgentSessionId } from '../../../src/schemas/c
 import { parseActivationOpenPayload } from '../../../src/schemas/activation-instructions.js';
 import { projectWorkflowPresentation } from '../../../src/runtime/card-process/workflow-presentation-projection.js';
 import { AgentOperatorReadModelService } from '../../../src/application/read-models/agent-operator-read-model.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../../src/config/system-templates/registry.js';
+import { DEFAULT_SAIVAGE_CONFIG, resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { projectEffectiveConfigForOutbound } from '../../../src/config/effective-config-outbound.js';
 import {
   gitWorkflowSchema,
@@ -46,7 +46,7 @@ test('native ref and source path admission preserves exact control and punctuati
 });
 
 function configured(): SaivageConfig {
-  const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+  const config = effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config));
   config.agents[config.analyst_agent]!.capabilities.grants = config.agents[config.analyst_agent]!.capabilities.grants.map((grant)=>({...grant,tools:grant.tools.filter((name)=>name !== 'run_command' && !name.startsWith('mcp_'))})).filter((grant)=>grant.tools.length>0);
   for (const grant of config.agents.executor!.capabilities.grants) if (grant.tools.some((name)=>['write','edit','webfetch'].includes(name))) grant.resources!.push({kind:'record',scopes:['self'],patterns:['git-correction.md']});
   for (const definition of Object.values(config.card_types))
@@ -311,6 +311,7 @@ describe('workflow5 correction participant structural closure', () => {
   });
   test('OFF same-name node is ordinary product topology; workflow4 is strictly rejected', () => {
     const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+    config.card_types.code = structuredClone(config.card_types.doc!);
     const workflow = config.card_types.code!.workflow;
     workflow.nodes['git-rebase-correction'] = workflow.nodes.execute!;
     delete workflow.nodes.execute;

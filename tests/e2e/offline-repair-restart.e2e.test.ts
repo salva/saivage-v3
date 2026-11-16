@@ -16,6 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { App } from '../../src/boot/app.js';
 import { CardService } from '../../src/cards/card-service.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import {
   compileProjectWorkflows,
   cardProcessEntryForStatus,
@@ -69,11 +71,16 @@ afterEach(async () => {
   jest.restoreAllMocks();
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
-function fixture(port: number, customize?: Parameters<typeof productionTestConfig>[1]) {
+function fixture(port: number, customize?: Parameters<typeof productionTestConfig>[1], profile: 'classic-typed'|'classic' = 'classic-typed') {
   const outside = mkdtempSync(join(tmpdir(), 'repair-restart-'));
   roots.push(outside);
   const root = join(outside, 'project');
-  const config = productionTestConfig(port, customize);
+  const template=resolveSystemTemplate(profile);
+  const config = productionTestConfig(port, value=>{
+    value.card_types=effectiveSaivageConfigSchema.parse(structuredClone(template.config)).card_types;
+    customize?.(value);
+  });
+  cpSync(template.promptRoot,join(root,'.saivage/config/prompts'),{recursive:true});
   writeProductionConfig(root, config);
   initializeProject(root);
   return {
@@ -499,7 +506,7 @@ it('spawned child discard preserves namespace/sibling/parent; restart launches n
           }
         }
       }
-    });
+    }, 'classic');
     cards = f.cards;
     const child = create(cards);
     childId = child.id;
@@ -547,7 +554,7 @@ it('spawned child discard preserves namespace/sibling/parent; restart launches n
   }
 }, 60_000);
 
-it('spawned project discard preserves child bytes/globals/source/config/log; healthy-card record damage refuses; dangling dependencies fail restart unchanged', async () => {
+it.each(['project-discard', 'record-refusal', 'dangling-dependencies'] as const)('spawned repair preserves unrelated selections: %s', async (scenario) => {
   let calls = 0;
   const provider = createServer((_req, res) => {
     calls++;
@@ -556,55 +563,59 @@ it('spawned project discard preserves child bytes/globals/source/config/log; hea
   });
   const port = await listen(provider);
   try {
-    const f = fixture(port);
-    const child = create(f.cards);
-    writeFileSync(join(f.root, 'source.md'), 'source');
-    appendAppLogEntry(f.root, 'event', () => ({
-      type: 'event',
-      data: {
-        kind: 'runtime_diagnostic',
-        id: 'retained',
-        timestamp: new Date().toISOString(),
-        error_message: 'retained',
-      },
-    }));
-    const kept = snapshot([
-      cardHeadFile(f.root, child.id),
-      globalAgentConversationVersionIndexFile(f.root, 'analyst'),
-      join(f.root, '.saivage/saivage.yaml'),
-      join(f.root, 'source.md'),
-      appLogFile(f.root),
-    ]);
-    breakHeads(f.root, 'project');
-    expect((await repair(f, 'card:project', ['--discard-card'])).code).toBe(0);
-    unchanged(kept);
-    await ready(f.root, () => calls);
-    const g = fixture(port);
-    const owner = create(g.cards);
-    const definition = {
-      filename: 'brief.md',
-      format: 'markdown' as const,
-      schema: 'card-brief.v1',
-      bootstrap: true,
-      declared: true,
-    };
-    writeFileSync(cardRecordHeadFile(g.root, owner.id, definition), 'broken record');
-    const head = snapshot([cardHeadFile(g.root, owner.id)]);
-    expect(
-      (await repair(g, `card:${owner.id}`, ['--discard-card', '--card-type', 'code'])).code,
-    ).not.toBe(0);
-    unchanged(head);
-    const h = fixture(port);
-    const goal = create(h.cards, 'goal');
-    const lost = create(h.cards, 'code', goal.id);
-    const dependent = create(h.cards, 'code', 'project', [lost.id]);
-    const dep = snapshot([cardHeadFile(h.root, dependent.id)]);
-    breakHeads(h.root, goal.id);
-    expect(
-      (await repair(h, `card:${goal.id}`, ['--discard-card', '--card-type', 'goal'])).code,
-    ).toBe(0);
-    await expect(startProductionApp(h.root, TOKEN)).rejects.toThrow(/current linked card graph/);
-    unchanged(dep);
+    if (scenario === 'project-discard') {
+      const f = fixture(port);
+      const child = create(f.cards);
+      writeFileSync(join(f.root, 'source.md'), 'source');
+      appendAppLogEntry(f.root, 'event', () => ({
+        type: 'event',
+        data: {
+          kind: 'runtime_diagnostic',
+          id: 'retained',
+          timestamp: new Date().toISOString(),
+          error_message: 'retained',
+        },
+      }));
+      const kept = snapshot([
+        cardHeadFile(f.root, child.id),
+        globalAgentConversationVersionIndexFile(f.root, 'analyst'),
+        join(f.root, '.saivage/saivage.yaml'),
+        join(f.root, 'source.md'),
+        appLogFile(f.root),
+      ]);
+      breakHeads(f.root, 'project');
+      expect((await repair(f, 'card:project', ['--discard-card'])).code).toBe(0);
+      unchanged(kept);
+      await ready(f.root, () => calls);
+    } else if (scenario === 'record-refusal') {
+      const g = fixture(port);
+      const owner = create(g.cards);
+      const definition = {
+        filename: 'brief.md',
+        format: 'markdown' as const,
+        schema: 'card-brief.v1',
+        bootstrap: true,
+        declared: true,
+      };
+      writeFileSync(cardRecordHeadFile(g.root, owner.id, definition), 'broken record');
+      const head = snapshot([cardHeadFile(g.root, owner.id)]);
+      expect(
+        (await repair(g, `card:${owner.id}`, ['--discard-card', '--card-type', 'code'])).code,
+      ).not.toBe(0);
+      unchanged(head);
+    } else {
+      const h = fixture(port);
+      const goal = create(h.cards, 'goal');
+      const lost = create(h.cards, 'code', goal.id);
+      const dependent = create(h.cards, 'code', 'project', [lost.id]);
+      const dep = snapshot([cardHeadFile(h.root, dependent.id)]);
+      breakHeads(h.root, goal.id);
+      expect(
+        (await repair(h, `card:${goal.id}`, ['--discard-card', '--card-type', 'goal'])).code,
+      ).toBe(0);
+      await expect(startProductionApp(h.root, TOKEN)).rejects.toThrow(/current linked card graph/);
+      unchanged(dep);
+    }
     expect(calls).toBe(0);
   } finally {
     await closeServer(provider);

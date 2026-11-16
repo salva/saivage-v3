@@ -98,7 +98,7 @@ describe('offline urgent cancellation through summary, Analyst and HTTP owners',
       const registry = new ProviderRegistry(config);
       const workflows = bindRuntimeWorkflows(
         compileProjectWorkflows(config, {
-          defaultPromptRoot: resolveSystemTemplate('classic').promptRoot,
+          defaultPromptRoot: resolveSystemTemplate('classic-typed').promptRoot,
         }),
         new ModelRouter(registry),
         registry,

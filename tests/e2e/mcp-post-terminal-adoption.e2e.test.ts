@@ -1,8 +1,9 @@
 import { expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardService } from '../helpers/canonical-project.js';
+import { CardService, CLASSIC_TEST_CONFIG } from '../helpers/classic-project.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { MCP_OPERATOR_CALLER } from '../../src/mcp/access-policy.js';
 import type { App } from '../../src/boot/app.js';
 import {
@@ -85,7 +86,9 @@ it('adopts only after actual compiled child terminal settlement releases its par
   });
   try {
     const port = await listen(provider);
+    cpSync(resolveSystemTemplate('classic').promptRoot,join(root,'.saivage/config/prompts'),{recursive:true});
     writeProductionConfig(root, productionTestConfig(port, config => {
+      config.card_types=structuredClone(CLASSIC_TEST_CONFIG.card_types);
       config.agents.planner!.capabilities.grants.push({ tools: ['mcp_server_set_scope', 'mcp_tools', 'mcp_tool_call'] });
       config.agents.executor!.capabilities.grants.push({ tools: ['mcp_server_register'] });
       // Keep real compiled workflows, owners and tool binding; drop irrelevant

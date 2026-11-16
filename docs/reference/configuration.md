@@ -10,11 +10,11 @@ default effective config. Compilation selects its standalone prompt root, includ
 the real Executor correction participant on every type. Selected role overrides
 must retain the `native-source` (card) or `native-global` capability include.
 
-Registered profiles are `classic` (default), `classic-typed`, `paad-typed`,
+Registered profiles are `classic`, `classic-typed` (default), `paad-typed`,
 `classic-git`, `newloop` and `newloop2`. The original three typed profiles share the exact frozen
 configuration, including graphs, agents, tools, routes, records and permissions;
-PAAD and newloop select independent prompt closures with five and eight prose
-deltas respectively. Newloop applies critical intent examination, progressive
+PAAD and newloop select independent prompt closures with five and eight current source prose
+deltas respectively, not a required cross-profile byte or path equality. Newloop applies critical intent examination, progressive
 planning and evidence-grounded quality assessment to code or other assets, not a
 new workflow format or enforced quality guarantee. All except provision-required
 `classic-git` remain native-Git OFF. See [fresh selection](../guides/configuration.md#choose-a-fresh-profile)
@@ -263,10 +263,12 @@ direct/conditional route and pending-notification declarations, not arbitrary
 fields sharing that name. Prompt references still expand normally. Dynamic MCP connection values
 are also literal, independently of YAML.
 
-The source schema decodes first; an omitted `card_types` gets the complete classic
+The source schema decodes first; an omitted `card_types` gets the complete classic-typed
 map; the effective schema and workflow compiler then validate it. There is no
 partial-map merge. Reconfigure publishes validated next-start YAML and reports
-restart required; it does not hot-load workflows/prompts.
+restart required; it does not hot-load workflows/prompts. Hand-authored inputs relying
+on omission or bundled prompt fallback can resolve differently or fail under a new
+release; this does not establish safe adoption of retained state.
 
 ### Command-specific input selection
 
@@ -329,7 +331,7 @@ with current references remain protected, while historical-only attachments may 
 | `providers` | `{}` | Provider map; empty may parse but cannot supply required runtime candidates |
 | `server` | `{port: 8080, host: '0.0.0.0'}` | Bind defaults, overridable by startup inputs |
 | `compaction` | Required | Enabled literal true, fractions and fixed summarizer |
-| `card_types` | Optional in source | Omission selects complete classic types; required in effective config |
+| `card_types` | Optional in source | Omission selects complete classic-typed types; required in effective config |
 | `mcpServers` | Optional | Outbound server entries; not inbound Analyst settings |
 
 No top-level legacy role-model keys, `analyst_mode`, token field, absolute context

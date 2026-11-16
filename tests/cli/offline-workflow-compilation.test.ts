@@ -153,15 +153,15 @@ describe('offline workflow compilation and publication', () => {
     const bytes = readFileSync(configPath);
     const source = YAML.parse(bytes.toString()) as Record<string, unknown>;
     expect(source).not.toHaveProperty('card_type_set');
-    expect(source.card_types).toEqual(resolveSystemTemplate('classic').config.card_types);
+    expect(source.card_types).toEqual(resolveSystemTemplate('classic-typed').config.card_types);
     expect(
       JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
-    ).toEqual({ template: 'classic', saivage_version: SAIVAGE_VERSION });
-    assertTreeEqual(resolveSystemTemplate('classic').promptRoot, promptsRoot);
+    ).toEqual({ template: 'classic-typed', saivage_version: SAIVAGE_VERSION });
+    assertTreeEqual(resolveSystemTemplate('classic-typed').promptRoot, promptsRoot);
     expect(readFileSync(fragmentPath)).toEqual(
       readFileSync(
         join(
-          resolveSystemTemplate('classic').promptRoot,
+          resolveSystemTemplate('classic-typed').promptRoot,
           'fragments',
           '_shared',
           'project-guidance-common.md',
@@ -180,7 +180,7 @@ describe('offline workflow compilation and publication', () => {
     const markerBytes = readFileSync(markerPath);
     writeFileSync(fragmentPath, 'operator edited guidance');
     log.mockClear();
-    await expect(command(projectRoot, 'init', '--profile', 'classic-typed')).rejects.toThrow('Explicit --profile conflicts');
+    await expect(command(projectRoot, 'init', '--profile', 'classic')).rejects.toThrow('Explicit --profile conflicts');
     await command(projectRoot, 'init');
     expect(log.mock.calls.map(([line]) => line)).toEqual([
       `Project layout already exists at ${projectRoot}`,
@@ -299,10 +299,10 @@ describe('offline workflow compilation and publication', () => {
     );
     expect(
       (YAML.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>).card_types,
-    ).toEqual(resolveSystemTemplate('classic').config.card_types);
+    ).toEqual(resolveSystemTemplate('classic-typed').config.card_types);
     expect(
       JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
-    ).toEqual({ template: 'classic', saivage_version: SAIVAGE_VERSION });
+    ).toEqual({ template: 'classic-typed', saivage_version: SAIVAGE_VERSION });
     expect(existsSync(runtimeProcessLockFile(projectRoot))).toBe(false);
   });
 
@@ -332,7 +332,7 @@ describe('offline workflow compilation and publication', () => {
       'operator file',
     );
     await command(projectRoot, 'init');
-    const template = resolveSystemTemplate('classic');
+    const template = resolveSystemTemplate('classic-typed');
     const promptsRoot = join(projectRoot, '.saivage', 'config', 'prompts');
     expect(readFileSync(join(promptsRoot, 'agents', '_shared', 'analyst.md'), 'utf8')).toBe(
       operatorOverride,
@@ -351,11 +351,11 @@ describe('offline workflow compilation and publication', () => {
     expect(readFileSync(join(promptsRoot, 'agents', '_shared', 'analyst.md'), 'utf8')).toBe(
       'operator edited',
     );
-    expect(existsSync(join(promptsRoot, 'process', '_shared', 'plan.md'))).toBe(true);
+    expect(existsSync(join(promptsRoot, 'process', '_shared', 'specialized-plan.md'))).toBe(true);
     expect(existsSync(join(projectRoot, '.saivage', 'saivage.yaml'))).toBe(true);
     expect(
       JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
-    ).toEqual({ template: 'classic', saivage_version: SAIVAGE_VERSION });
+    ).toEqual({ template: 'classic-typed', saivage_version: SAIVAGE_VERSION });
     expect(
       createResolvedConfigAuthority({
         path: join(projectRoot, '.saivage', 'saivage.yaml'),

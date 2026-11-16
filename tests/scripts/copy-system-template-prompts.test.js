@@ -2,320 +2,158 @@
 
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { SYSTEM_TEMPLATES, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { minimalSystemTemplate, secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
-import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, assertNewloopPromptParity, NEWLOOP_PROMPT_DELTAS, PAAD_TYPED_PROMPT_DELTAS, collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
+import { SYNTHETIC_GIT_PROVISIONING } from '../../scripts/system-template-fixtures.js';
+import { assertPaadTypedConfigurationEquality, assertNewloopConfigurationEquality, collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
 
-function fail(message) { throw new Error(message); }
-function assert(condition, message) { if (!condition) fail(message); }
-function expectThrows(run, pattern, message) {
+function assert(condition, message) { if (!condition) throw new Error(message); }
+function expectThrows(run, pattern) {
   try { run(); } catch (error) {
     if (pattern.test(error instanceof Error ? error.message : String(error))) return;
     throw error;
   }
-  fail(message);
+  throw new Error(`Expected failure matching ${pattern}`);
 }
-
 function walkFiles(root, current = root) {
-  const files = [];
-  for (const entry of readdirSync(current, { withFileTypes: true })) {
+  return readdirSync(current, { withFileTypes: true }).flatMap(entry => {
     const path = join(current, entry.name);
-    if (entry.isDirectory()) files.push(...walkFiles(root, path));
-    else if (entry.isFile()) files.push(relative(root, path));
-  }
-  return files.sort();
+    return entry.isDirectory() ? walkFiles(root, path) : [relative(root, path)];
+  }).sort();
 }
-
-function write(root, purpose, scope, id, text) {
-  const path = join(root, purpose, scope, `${id}.md`);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, text);
+function write(root, path, text) {
+  mkdirSync(dirname(join(root, path)), { recursive: true });
+  writeFileSync(join(root, path), text);
 }
-
 function assertTreesEqual(sourceRoot, outputRoot) {
-  const sourceFiles = walkFiles(sourceRoot);
-  const outputFiles = walkFiles(outputRoot);
-  assert(sourceFiles.join('\n') === outputFiles.join('\n'), 'copied prompt file set does not match source tree');
-  for (const file of sourceFiles) {
-    assert(readFileSync(join(sourceRoot, file), 'utf8') === readFileSync(join(outputRoot, file), 'utf8'), `copied prompt content does not match for ${file}`);
-  }
+  const paths = walkFiles(sourceRoot);
+  assert(paths.join('\n') === walkFiles(outputRoot).join('\n'), 'copied prompt file set differs');
+  for (const path of paths) assert(readFileSync(join(sourceRoot, path)).equals(readFileSync(join(outputRoot, path))), `copied bytes differ: ${path}`);
 }
-
-const CLASSIC_CLOSURE = [
-  'fragments/_shared/operator-policy-overrides.md',
-  ...['plan', 'recover', 'assess-completion'].map(id => `process/project/${id}.md`),
-  'agents/_shared/analyst.md', 'agents/_shared/executor.md', 'agents/_shared/oversight.md', 'agents/_shared/planner.md', 'agents/_shared/reviewer.md',
-  ...['common', 'planner', 'executor', 'reviewer', 'analyst', 'oversight'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
-  'process/_shared/changed-record.md', 'process/_shared/changed-record-with-body.md',
-  'process/_shared/correct-execution-result.md', 'process/_shared/correct-plan-result.md', 'process/_shared/correct-review-result.md',
-  'process/_shared/execute.md', 'process/_shared/plan-to-review.md', 'process/_shared/plan.md', 'process/_shared/recover.md',
-  'process/_shared/handle-notifications.md', 'process/_shared/review-to-notifications.md',
-  'process/_shared/review-to-plan.md', 'process/_shared/review.md', 'process/_shared/stopped-recovery.md',
-].sort();
-const TYPED_CLOSURE = [
-  'fragments/_shared/operator-policy-overrides.md',
-  ...['specialized-plan', 'specialized-recover', 'assess-completion'].map(id => `process/project/${id}.md`),
-  'process/_shared/changed-record.md', 'process/_shared/changed-record-with-body.md',
-  ...['analyst', 'executor', 'oversight', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
-  ...['common', 'planner', 'executor', 'reviewer', 'analyst', 'oversight'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
-  ...['correct-execution-result', 'correct-plan-result', 'correct-review-result', 'execute', 'handle-notifications', 'review-to-notifications', 'specialized-plan-to-review', 'specialized-plan', 'specialized-recover', 'specialized-review-to-plan', 'specialized-review', 'stopped-recovery'].map((id) => `process/_shared/${id}.md`),
-  ...['code-red', 'code-green', 'code-refactor', 'code-red-to-green', 'code-to-refactor', 'code-regression-to-green'].map((id) => `process/code/${id}.md`),
-  ...['test-diagnose', 'test-add-coverage', 'test-repair', 'test-verify', 'test-to-add-coverage', 'test-to-repair', 'test-to-verify', 'test-repair-retry'].map((id) => `process/test/${id}.md`),
-  ...['research-explore', 'research-assess', 'research-report', 'research-continue-exploration', 'research-supported-to-report', 'research-refuted-to-report', 'research-inconclusive-to-report'].map((id) => `process/research/${id}.md`),
-  ...['data-schema', 'data-validate', 'data-implement', 'data-to-validate', 'data-to-implement', 'data-revise-schema', 'data-implementation-retry'].map((id) => `process/data/${id}.md`),
-  ...['architecture-draft', 'architecture-component-review', 'architecture-system-review', 'architecture-to-component-review', 'architecture-to-system-review', 'architecture-component-revision', 'architecture-system-revision', 'architecture-notifications-to-draft'].map((id) => `process/architecture/${id}.md`),
-].sort();
-
-function writeFixtureUnion(root) {
-  write(root, 'agents', '_shared', 'analyst', 'analyst {{vocabularySnippet}}');
-  write(root, 'agents', '_shared', 'executor', 'executor {{contractDescription}}');
-  write(root, 'agents', '_shared', 'oversight', 'oversight {{vocabularySnippet}}');
-  write(root, 'agents', '_shared', 'specialist', 'specialist {{> specialist-piece}} {{contractDescription}}');
-  write(root, 'fragments', '_shared', 'specialist-piece', 'SECOND TEMPLATE FRAGMENT');
-  write(root, 'process', '_shared', 'execute', 'execute {{cardType}}');
-  write(root, 'process', '_shared', 'second-execute', 'second execute {{cardType}}');
-  write(root, 'process', '_shared', 'correct-execution-result', 'correct {{cardType}}');
-  write(root, 'process', '_shared', 'stopped-recovery', 'recover {{cardType}}');
-}
-
-function runClassicFamilyPromptParityTest() {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-template-parity-'));
-  const fixtureFamily = (caseName) => SYSTEM_TEMPLATES.map((template) => {
-    const promptRoot = join(root, caseName, template.name);
+function runCopySystemTemplatePromptsTest() {
+  const root = mkdtempSync(join(tmpdir(), 'template-packaging-'));
+  const output = join(root, 'dist');
+  const copyTemplate = (name, label = name) => {
+    const template = resolveSystemTemplate(name);
+    const promptRoot = join(root, label);
     cpSync(template.promptRoot, promptRoot, { recursive: true });
     return { ...template, config: structuredClone(template.config), promptRoot };
-  });
-  const selectFragment = (template, text) => {
-    const analystPath = join(template.promptRoot, 'agents', '_shared', 'analyst.md');
-    writeFileSync(analystPath, `${readFileSync(analystPath, 'utf8')}\n{{> newly-selected}}\n`);
-    write(template.promptRoot, 'fragments', '_shared', 'newly-selected', text);
   };
   try {
-    for (const missing of ['classic', 'classic-typed']) {
-      expectThrows(
-        () => assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES.filter((template) => template.name !== missing) }),
-        new RegExp(`requires system template '${missing}'`, 'u'),
-        `family parity silently skipped missing ${missing}`,
-      );
+    assert(SYSTEM_TEMPLATES.map(template => template.name).join(',') === 'classic,classic-typed,paad-typed,classic-git,newloop,newloop2', 'registry order changed');
+    const packaged = copySystemTemplatePrompts({ distRoot: output });
+    for (const entry of packaged) {
+      const template = resolveSystemTemplate(entry.name);
+      assert(Object.isFrozen(collectTemplatePromptClosure({ template, provisioning: entry.name === 'classic-git' ? SYNTHETIC_GIT_PROVISIONING : undefined })), 'closure must be frozen');
+      assertTreesEqual(template.promptRoot, entry.outputRoot);
     }
+    const classicOutput = packaged.find(entry => entry.name === 'classic').outputRoot;
+    write(classicOutput, 'stale.md', 'stale');
+    copySystemTemplatePrompts({ distRoot: output });
+    assert(!existsSync(join(classicOutput, 'stale.md')), 'stale output survived');
+    assertTreesEqual(resolveSystemTemplate('classic').promptRoot, classicOutput);
 
-    const oversightDrift = fixtureFamily('oversight-drift');
-    const oversightPath = join(oversightDrift[1].promptRoot, 'agents', '_shared', 'oversight.md');
-    writeFileSync(oversightPath, `${readFileSync(oversightPath, 'utf8')}\nfixture byte drift\n`);
-    expectThrows(() => assertClassicFamilyPromptParity({ templates: oversightDrift }), /bytes differ.*classic.*classic-typed.*agents\/_shared\/oversight\.md/u, 'family parity accepted changed Oversight bytes');
-
-    const agentAddition = fixtureFamily('agent-addition');
-    const typed = agentAddition[1];
-    typed.config.agents.executor.prompt.reference = 'newly-selected-agent';
-    write(typed.promptRoot, 'agents', '_shared', 'newly-selected-agent', readFileSync(join(typed.promptRoot, 'agents', '_shared', 'executor.md')));
-    expectThrows(() => assertClassicFamilyPromptParity({ templates: agentAddition }), /membership differs.*agents\/_shared\//u, 'family parity accepted a one-sided selected agent');
-
-    const fragmentAddition = fixtureFamily('fragment-addition');
-    selectFragment(fragmentAddition[0], 'new fragment');
-    expectThrows(() => assertClassicFamilyPromptParity({ templates: fragmentAddition }), /membership differs.*classic.*fragments\/_shared\/newly-selected\.md.*classic-typed/u, 'family parity accepted a one-sided selected fragment');
-
-    const processDrift = fixtureFamily('process-drift');
-    const processPath = join(processDrift[1].promptRoot, 'process', '_shared', 'execute.md');
-    writeFileSync(processPath, `${readFileSync(processPath, 'utf8')}\nfixture byte drift\n`);
-    expectThrows(() => assertClassicFamilyPromptParity({ templates: processDrift }), /bytes differ.*process\/_shared\/execute\.md/u, 'family parity accepted changed common process bytes');
-
-    const typedOnly = fixtureFamily('typed-only');
-    const classicClosure = new Set(collectTemplatePromptClosure({ template: typedOnly[0] }));
-    const typedOnlyPaths = collectTemplatePromptClosure({ template: typedOnly[1] }).filter((path) => path.startsWith('process/') && !classicClosure.has(path));
-    assert(typedOnlyPaths.some((path) => path.startsWith('process/_shared/')), 'fixture has no typed-only shared process path');
-    assert(typedOnlyPaths.some((path) => path.startsWith('process/code/')), 'fixture has no typed card-scoped process path');
-    for (const path of typedOnlyPaths) {
-      const sourcePath = join(typedOnly[1].promptRoot, path);
-      writeFileSync(sourcePath, `${readFileSync(sourcePath, 'utf8')}\nfixture typed-only change\n`);
+    const union = join(root, 'union');
+    for (const [path, text] of Object.entries({
+      'agents/_shared/analyst.md': 'analyst {{vocabularySnippet}}',
+      'agents/_shared/executor.md': 'executor {{contractDescription}}',
+      'agents/_shared/oversight.md': 'oversight {{vocabularySnippet}}',
+      'agents/_shared/specialist.md': 'specialist {{> specialist-piece}} {{contractDescription}}',
+      'fragments/_shared/specialist-piece.md': 'SECOND TEMPLATE FRAGMENT',
+      'process/_shared/execute.md': 'execute {{cardType}}',
+      'process/_shared/second-execute.md': 'second execute {{cardType}}',
+      'process/_shared/correct-execution-result.md': 'correct {{cardType}}',
+      'process/_shared/stopped-recovery.md': 'recover {{cardType}}',
+    })) write(union, path, text);
+    const minimal = minimalSystemTemplate(union);
+    const second = secondSystemTemplate(union);
+    const minimalClosure = collectTemplatePromptClosure({ template: minimal });
+    const secondClosure = collectTemplatePromptClosure({ template: second });
+    assert(!minimalClosure.includes('agents/_shared/specialist.md'), 'minimal selected another template agent');
+    assert(secondClosure.includes('fragments/_shared/specialist-piece.md'), 'direct fragment missing');
+    assert(secondClosure.includes('process/_shared/second-execute.md'), 'second process missing');
+    assert(minimalClosure.join('\n') === collectTemplatePromptClosure({ template: minimal }).join('\n'), 'closure is not deterministic');
+    const custom = [minimal, second].map(template => {
+      const promptRoot = join(root, template.name);
+      for (const path of collectTemplatePromptClosure({ template })) write(promptRoot, path, readFileSync(join(union, path)));
+      return { ...template, promptRoot };
+    });
+    for (const entry of copySystemTemplatePrompts({ templates: custom, distRoot: output })) {
+      assertTreesEqual(custom.find(template => template.name === entry.name).promptRoot, entry.outputRoot);
     }
-    assertClassicFamilyPromptParity({ templates: typedOnly });
+    const outside = join(root, 'outside');
+    write(outside, 'analyst.md', 'outside {{vocabularySnippet}}');
+    const escaped = minimalSystemTemplate(union);
+    escaped.config.agents = structuredClone(escaped.config.agents);
+    escaped.config.agents.analyst.prompt.reference = `../../../${basename(outside)}/analyst`;
+    expectThrows(() => collectTemplatePromptClosure({ template: escaped }), /Invalid|outside the supplied prompt root/u);
+    rmSync(join(union, 'fragments/_shared/specialist-piece.md'));
+    expectThrows(() => collectTemplatePromptClosure({ template: second }), /ENOENT|specialist-piece\.md/u);
 
-    const bothFragments = fixtureFamily('both-fragments');
-    for (const template of bothFragments) selectFragment(template, 'identical newly selected bytes');
-    assertClassicFamilyPromptParity({ templates: bothFragments });
-    write(bothFragments[1].promptRoot, 'fragments', '_shared', 'newly-selected', 'different newly selected bytes');
-    expectThrows(() => assertClassicFamilyPromptParity({ templates: bothFragments }), /bytes differ.*fragments\/_shared\/newly-selected\.md/u, 'family parity did not automatically compare a newly selected shared fragment');
+    const broken = copyTemplate('classic', 'broken');
+    write(broken.promptRoot, 'extra.md', 'unselected');
+    expectThrows(() => copySystemTemplatePrompts({ templates: [broken], distRoot: output }), /must contain exactly its compiled closure/u);
+    rmSync(join(broken.promptRoot, 'extra.md'));
+    const selected = join(broken.promptRoot, 'process/_shared/execute.md');
+    const bytes = readFileSync(selected);
+    rmSync(selected);
+    expectThrows(() => copySystemTemplatePrompts({ templates: [broken], distRoot: output }), /ENOENT|execute\.md/u);
+    writeFileSync(selected, '{{> missing-selected-include}}');
+    expectThrows(() => collectTemplatePromptClosure({ template: broken }), /ENOENT|missing-selected-include/u);
+    writeFileSync(selected, '{{#if broken}}');
+    expectThrows(() => collectTemplatePromptClosure({ template: broken }), /template|Template|token|Token/u);
+    writeFileSync(selected, bytes);
+    broken.config.agents.executor.capabilities.grants = [];
+    expectThrows(() => collectTemplatePromptClosure({ template: broken }), /capabilit|tool|grant|Too small/u);
+
+    for (const [name, check] of [['paad-typed', assertPaadTypedConfigurationEquality], ['newloop', assertNewloopConfigurationEquality]]) {
+      check();
+      expectThrows(() => check({ templates: [] }), /requires system template/u);
+      const changed = copyTemplate(name, `${name}-config-drift`);
+      changed.config.agents.executor.capabilities.grants.reverse();
+      expectThrows(() => check({ templates: [resolveSystemTemplate('classic-typed'), changed] }), /configuration differs/u);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
-function runCopySystemTemplatePromptsTest() {
-  const roots = [];
-  const temporary = (prefix) => { const root = mkdtempSync(join(tmpdir(), prefix)); roots.push(root); return root; };
+function runIndependentPromptEditsTest() {
+  const root = mkdtempSync(join(tmpdir(), 'template-independent-'));
   try {
-    const unionRoot = temporary('saivage-template-union-');
-    writeFixtureUnion(unionRoot);
-    const minimal = minimalSystemTemplate(unionRoot);
-    const second = secondSystemTemplate(unionRoot);
-    const minimalClosure = collectTemplatePromptClosure({ template: minimal });
-    const secondClosure = collectTemplatePromptClosure({ template: second });
-    const expectedMinimal = [
-      'agents/_shared/analyst.md', 'agents/_shared/executor.md', 'agents/_shared/oversight.md',
-      'process/_shared/correct-execution-result.md', 'process/_shared/execute.md', 'process/_shared/stopped-recovery.md',
-    ].sort();
-    const expectedSecond = [
-      'agents/_shared/analyst.md', 'agents/_shared/oversight.md', 'agents/_shared/specialist.md', 'fragments/_shared/specialist-piece.md',
-      'process/_shared/correct-execution-result.md', 'process/_shared/second-execute.md', 'process/_shared/stopped-recovery.md',
-    ].sort();
-    assert(Object.isFrozen(minimalClosure), 'collected closure is not frozen');
-    assert(minimalClosure.join('\n') === expectedMinimal.join('\n'), 'minimal template closure omitted a selected prompt');
-    assert(secondClosure.join('\n') === expectedSecond.join('\n'), 'second template closure omitted a template-only prompt or direct fragment');
-    assert(collectTemplatePromptClosure({ template: minimal }).join('\n') === minimalClosure.join('\n'), 'closure collection is not deterministic');
-
-    const customTemplates = [minimal, second].map((template) => {
-      const promptRoot = temporary(`saivage-template-${template.name}-`);
-      for (const path of collectTemplatePromptClosure({ template })) {
-        const destination = join(promptRoot, path);
-        mkdirSync(dirname(destination), { recursive: true });
-        cpSync(join(unionRoot, path), destination);
+    // Both paths were formerly subject to cross-profile byte equality.
+    for (const path of ['process/project/specialized-plan.md', 'agents/_shared/oversight.md']) {
+      const templates = ['classic', 'classic-typed', 'paad-typed', 'newloop'].map(name => {
+        const template = resolveSystemTemplate(name);
+        const promptRoot = join(root, path.replaceAll('/', '-'), name);
+        cpSync(template.promptRoot, promptRoot, { recursive: true });
+        return { ...template, promptRoot };
+      });
+      const typed = templates.find(template => template.name === 'classic-typed');
+      const target = join(typed.promptRoot, path);
+      writeFileSync(target, `${readFileSync(target, 'utf8')}\n<!-- independent fixture annotation -->\n`);
+      assertPaadTypedConfigurationEquality({ templates });
+      assertNewloopConfigurationEquality({ templates });
+      const output = copySystemTemplatePrompts({ templates, distRoot: join(root, 'dist') });
+      for (const entry of output) {
+        const template = templates.find(template => template.name === entry.name);
+        assertTreesEqual(template.promptRoot, entry.outputRoot);
+        const original = resolveSystemTemplate(entry.name).promptRoot;
+        const changed = walkFiles(original).filter(file => !readFileSync(join(original, file)).equals(readFileSync(join(entry.outputRoot, file))));
+        assert(changed.join('\n') === (entry.name === 'classic-typed' ? path : ''), `${entry.name} unexpectedly changed`);
       }
-      return { ...template, promptRoot };
-    });
-    const customDist = temporary('saivage-template-custom-dist-');
-    copySystemTemplatePrompts({ templates: customTemplates, distRoot: customDist });
-    for (const template of customTemplates) {
-      assertTreesEqual(template.promptRoot, join(customDist, 'src', 'config', 'system-templates', template.name, 'prompts'));
     }
-
-    const outside = temporary('saivage-template-outside-');
-    const escapedRoot = temporary('saivage-template-escaped-');
-    writeFixtureUnion(escapedRoot);
-    writeFileSync(join(outside, 'analyst.md'), 'outside {{vocabularySnippet}}');
-    const escaped = minimalSystemTemplate(escapedRoot);
-    const escapedAnalyst = structuredClone(escaped.config.agents.analyst);
-    escaped.config.agents = { ...structuredClone(escaped.config.agents), analyst: { ...escapedAnalyst, prompt: { reference: `../../../${basename(outside)}/analyst` } } };
-    expectThrows(
-      () => collectTemplatePromptClosure({ template: escaped }),
-      /Invalid|outside the supplied prompt root/u,
-      'closure accepted a prompt reference that escapes the template root',
-    );
-
-    const fragmentPath = join(unionRoot, 'fragments', '_shared', 'specialist-piece.md');
-    rmSync(fragmentPath);
-    expectThrows(
-      () => collectTemplatePromptClosure({ template: second }),
-      /ENOENT|specialist-piece\.md/u,
-      'closure accepted a missing selected direct fragment',
-    );
-
-    const emptyRoot = temporary('saivage-template-empty-');
-    expectThrows(
-      () => collectTemplatePromptClosure({ template: minimalSystemTemplate(emptyRoot) }),
-      /ENOENT|analyst\.md/u,
-      'closure accepted a missing selected agent artifact',
-    );
-
-    const classicRoot = resolveSystemTemplate('classic').promptRoot;
-    const typedRoot = resolveSystemTemplate('classic-typed').promptRoot;
-    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed,classic-git,newloop,newloop2', 'registered template order changed');
-    const paad = resolveSystemTemplate('paad-typed');
-    assert(collectTemplatePromptClosure({ template: paad }).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed selected closure differs');
-    assert(walkFiles(paad.promptRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed has missing or unselected artifacts');
-    assertPaadTypedPromptParity();
-    const newloop = resolveSystemTemplate('newloop');
-    assertNewloopPromptParity();
-    assert(NEWLOOP_PROMPT_DELTAS.length === 8, 'newloop delta set changed');
-    assert(collectTemplatePromptClosure({ template: newloop }).join('\n') === TYPED_CLOSURE.join('\n'), 'newloop selected closure differs');
-    for (const path of PAAD_TYPED_PROMPT_DELTAS) assert(!readFileSync(join(paad.promptRoot, path)).equals(readFileSync(join(typedRoot, path))), `intentional delta is absent: ${path}`);
-    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic') }).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic closure differs from the source-declared lock');
-    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the source-declared lock');
-    assert(walkFiles(classicRoot).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic source tree contains an unselected or missing artifact');
-    assert(walkFiles(typedRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed source tree contains an unselected or missing artifact');
-    assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES });
-
-    const distRoot = temporary('saivage-template-dist-');
-    copySystemTemplatePrompts({ distRoot });
-    assertTreesEqual(resolveSystemTemplate('classic-git').promptRoot, join(distRoot, 'src/config/system-templates/classic-git/prompts'));
-    const paadOutput = join(distRoot, 'src', 'config', 'system-templates', 'paad-typed', 'prompts');
-    assertTreesEqual(paad.promptRoot, paadOutput);
-    assertTreesEqual(newloop.promptRoot, join(distRoot, 'src/config/system-templates/newloop/prompts'));
-    const newloop2 = resolveSystemTemplate('newloop2');
-    assert(walkFiles(newloop2.promptRoot).join('\n') === collectTemplatePromptClosure({template:newloop2}).join('\n'), 'newloop2 physical tree must equal its independently compiled closure');
-    assertTreesEqual(newloop2.promptRoot, join(distRoot, 'src/config/system-templates/newloop2/prompts'));
-    const plannerPath = 'agents/_shared/planner.md';
-    const notice = readFileSync(join(paad.promptRoot, plannerPath), 'utf8').split('MIT License')[1];
-    assert(notice && readFileSync(join(paadOutput, plannerPath), 'utf8').endsWith(notice), 'carried attribution did not survive packaging');
-    const classicOutput = join(distRoot, 'src', 'config', 'system-templates', 'classic', 'prompts');
-    const typedOutput = join(distRoot, 'src', 'config', 'system-templates', 'classic-typed', 'prompts');
-    assertTreesEqual(classicRoot, classicOutput);
-    assertTreesEqual(typedRoot, typedOutput);
-    copySystemTemplatePrompts({ distRoot });
-    assertTreesEqual(classicRoot, classicOutput);
-    assertTreesEqual(typedRoot, typedOutput);
-    writeFileSync(join(classicOutput, 'stale.md'), 'stale');
-    writeFileSync(join(typedOutput, 'process', '_shared', 'stale.md'), 'stale');
-    copySystemTemplatePrompts({ distRoot });
-    assert(!existsSync(join(classicOutput, 'stale.md')), 'stale output file survived copy');
-    assert(!existsSync(join(typedOutput, 'process', '_shared', 'stale.md')), 'stale nested output file survived copy');
-    assertTreesEqual(classicRoot, classicOutput);
-    assertTreesEqual(typedRoot, typedOutput);
-
-    const mutatedSource = temporary('saivage-template-source-');
-    cpSync(classicRoot, mutatedSource, { recursive: true });
-    const mutated = { ...resolveSystemTemplate('classic'), promptRoot: mutatedSource };
-    writeFileSync(join(mutatedSource, 'extra.md'), 'unselected');
-    expectThrows(() => copySystemTemplatePrompts({ templates: [mutated], distRoot }), /must contain exactly its compiled closure/u, 'copy accepted an extra unselected source artifact');
-    rmSync(join(mutatedSource, 'extra.md'));
-    rmSync(join(mutatedSource, 'process', '_shared', 'execute.md'));
-    expectThrows(() => copySystemTemplatePrompts({ templates: [mutated], distRoot }), /ENOENT|execute\.md/u, 'copy accepted a missing selected source artifact');
-
-    const paadSource = temporary('saivage-paad-source-');
-    const newloopSource = temporary('saivage-newloop-source-');
-    cpSync(newloop.promptRoot, newloopSource, { recursive: true });
-    const changedNewloop = { ...newloop, promptRoot: newloopSource };
-    const newloopFamily = [resolveSystemTemplate('classic-typed'), changedNewloop];
-    writeFileSync(join(newloopSource, 'extra.md'), 'unselected');
-    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /must contain exactly its compiled closure/u, 'newloop accepted an extra artifact');
-    rmSync(join(newloopSource, 'extra.md'));
-    const neutralNewloop = join(newloopSource, 'fragments/_shared/project-guidance-common.md');
-    writeFileSync(neutralNewloop, `${readFileSync(neutralNewloop, 'utf8')}\ndrift`);
-    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /exactly its eight intentional deltas/u, 'newloop accepted outside-delta drift');
-    cpSync(join(newloop.promptRoot, 'fragments/_shared/project-guidance-common.md'), neutralNewloop);
-    const newloopConfigDrift = { ...changedNewloop, config: structuredClone(newloop.config) };
-    newloopConfigDrift.config.agents.executor.capabilities.grants.reverse();
-    expectThrows(() => assertNewloopPromptParity({ templates: [newloopFamily[0], newloopConfigDrift] }), /configuration differs/u, 'newloop accepted ordered-tool drift');
-    const newloopPlanner = join(newloopSource, 'agents/_shared/planner.md');
-    const newloopPlannerBytes = readFileSync(newloopPlanner);
-    cpSync(join(typedRoot, 'agents/_shared/planner.md'), newloopPlanner);
-    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /exactly its eight intentional deltas/u, 'newloop accepted a missing intentional delta');
-    writeFileSync(newloopPlanner, `${newloopPlannerBytes.toString()}\n{{> newloop-extra}}\n`);
-    write(newloopSource, 'fragments', '_shared', 'newloop-extra', 'Extra selected artifact.');
-    expectThrows(() => assertNewloopPromptParity({ templates: newloopFamily }), /selected membership differs/u, 'newloop accepted extra selected membership');
-    rmSync(newloopPlanner);
-    expectThrows(() => collectTemplatePromptClosure({ template: changedNewloop }), /ENOENT|planner\.md/u, 'newloop accepted a missing selected artifact');
-    cpSync(paad.promptRoot, paadSource, { recursive: true });
-    const changedPaad = { ...paad, promptRoot: paadSource };
-    const family = [resolveSystemTemplate('classic-typed'), changedPaad];
-    writeFileSync(join(paadSource, 'extra.md'), 'unselected');
-    expectThrows(() => copySystemTemplatePrompts({ templates: [changedPaad], distRoot }), /must contain exactly its compiled closure/u, 'PAAD accepted an unselected artifact');
-    rmSync(join(paadSource, 'extra.md'));
-    const neutral = join(paadSource, 'fragments/_shared/project-guidance-common.md');
-    writeFileSync(neutral, `${readFileSync(neutral, 'utf8')}\ndrift`);
-    expectThrows(() => assertPaadTypedPromptParity({ templates: family }), /bytes differ outside intentional deltas/u, 'PAAD parity accepted neutral-hook drift');
-    cpSync(join(paad.promptRoot, 'fragments/_shared/project-guidance-common.md'), neutral);
-    const configDrift = { ...changedPaad, config: structuredClone(paad.config) };
-    configDrift.config.agents.executor.capabilities.grants.reverse();
-    expectThrows(() => assertPaadTypedPromptParity({ templates: [family[0], configDrift] }), /configuration differs/u, 'PAAD parity accepted ordered-tool drift');
-    const plannerBytes = readFileSync(join(paadSource, plannerPath));
-    writeFileSync(join(paadSource, plannerPath), `${plannerBytes.toString()}\n{{> paad-extra}}\n`);
-    write(paadSource, 'fragments', '_shared', 'paad-extra', 'Selected but not in the typed family closure.');
-    expectThrows(() => assertPaadTypedPromptParity({ templates: family }), /selected membership differs/u, 'PAAD delta exception permitted arbitrary selected fragments');
-    writeFileSync(join(paadSource, plannerPath), plannerBytes);
-    rmSync(join(paadSource, 'fragments/_shared/paad-extra.md'));
-    rmSync(join(paadSource, plannerPath));
-    expectThrows(() => copySystemTemplatePrompts({ templates: [changedPaad], distRoot }), /ENOENT|planner\.md/u, 'PAAD accepted a missing intentional delta artifact');
   } finally {
-    for (const root of roots) rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
 if (typeof globalThis.test === 'function') {
-  globalThis.test('enforces compiled classic-family membership and byte parity without equating typed workflows', runClassicFamilyPromptParityTest);
-  globalThis.test('collects each template closure and copies exact per-template trees idempotently', runCopySystemTemplatePromptsTest);
+  globalThis.test('packages independently compiled exact closures and rejects invalid bindings and artifacts', runCopySystemTemplatePromptsTest);
+  globalThis.test('allows one-sided typed host and shared-role changes with exact source/output fidelity', runIndependentPromptEditsTest);
 } else {
-  runClassicFamilyPromptParityTest();
   runCopySystemTemplatePromptsTest();
+  runIndependentPromptEditsTest();
   console.log('copy-system-template-prompts test passed');
 }

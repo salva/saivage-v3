@@ -15,8 +15,35 @@ function root(){const value=mkdtempSync(join(tmpdir(),'resolved-config-current-'
 function materializeClassicTypedPrompts(projectRoot:string){cpSync(resolveSystemTemplate('classic-typed').promptRoot,join(projectRoot,'.saivage','config','prompts'),{recursive:true});}
 
 describe('restart-only resolved configuration authority',()=>{
-  it('resolves omitted and explicit classic definitions to the same effective configuration',()=>{const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;const omitted=createTestConfigAuthority(root(),{config:globals}).loadEffective();const explicit=createTestConfigAuthority(root(),{config:DEFAULT_SAIVAGE_CONFIG}).loadEffective();expect(omitted.config).toEqual(DEFAULT_SAIVAGE_CONFIG);expect(explicit.config).toEqual(DEFAULT_SAIVAGE_CONFIG);expect(omitted.workflows.cardTypeVocabulary).toEqual(explicit.workflows.cardTypeVocabulary);expect([...omitted.workflows.cardTypes.keys()]).toEqual([...explicit.workflows.cardTypes.keys()]);});
-  it('selects a complete immutable-cloned specialized map without changing the default',()=>{const projectRoot=root();materializeClassicTypedPrompts(projectRoot);const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;const specialized=createTestConfigAuthority(projectRoot,{config:{...globals,card_types:specializedCardTypes()}}).loadEffective();expect(specialized.config.card_types).toEqual(resolveSystemTemplate('classic-typed').config.card_types);expect(specialized.workflows.cardTypeVocabulary).toEqual(['project','goal','architecture','code','test','doc','data','research','ops']);specialized.config.card_types.project!.permitted_child_types.pop();expect(resolveSystemTemplate('classic-typed').config.card_types!.project!.permitted_child_types).toHaveLength(8);expect(createTestConfigAuthority(root(),{config:globals}).loadEffective().config).toEqual(DEFAULT_SAIVAGE_CONFIG);});
+  it('resolves omitted card types to the complete typed default',()=>{
+    const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;
+    const omitted=createTestConfigAuthority(root(),{config:globals}).loadEffective();
+    const explicit=createTestConfigAuthority(root(),{config:DEFAULT_SAIVAGE_CONFIG}).loadEffective();
+    expect(omitted.config).toEqual(DEFAULT_SAIVAGE_CONFIG);
+    expect(omitted.config.card_types).toEqual(resolveSystemTemplate('classic-typed').config.card_types);
+    expect(omitted.workflows.cardTypeVocabulary).toEqual(explicit.workflows.cardTypeVocabulary);
+    expect(omitted.workflows.cardTypes.get('code')!.states.has('node:red')).toBe(true);
+  });
+  it('preserves an explicit classic map instead of merging default typed nodes',()=>{
+    const projectRoot=root();
+    cpSync(resolveSystemTemplate('classic').promptRoot,join(projectRoot,'.saivage/config/prompts'),{recursive:true});
+    const config={...structuredClone(DEFAULT_SAIVAGE_CONFIG),card_types:structuredClone(resolveSystemTemplate('classic').config.card_types)};
+    const classic=createTestConfigAuthority(projectRoot,{config}).loadEffective();
+    expect(classic.config.card_types).toEqual(resolveSystemTemplate('classic').config.card_types);
+    expect(classic.workflows.cardTypes.get('code')!.states.has('node:execute')).toBe(true);
+    expect(classic.workflows.cardTypes.get('code')!.states.has('node:red')).toBe(false);
+  });
+  it('selects a complete detached custom map without merging defaults',()=>{
+    const projectRoot=root();materializeClassicTypedPrompts(projectRoot);
+    const card_types=specializedCardTypes();
+    card_types.project!.permitted_child_types=['goal'];
+    const custom={project:card_types.project!,goal:{...card_types.goal!,permitted_child_types:[]}};
+    const selected=createTestConfigAuthority(projectRoot,{config:{...structuredClone(DEFAULT_SAIVAGE_CONFIG),card_types:custom}}).loadEffective();
+    expect(Object.keys(selected.config.card_types)).toEqual(['project','goal']);
+    selected.config.card_types.project!.permitted_child_types.pop();
+    expect(resolveSystemTemplate('classic-typed').config.card_types!.project!.permitted_child_types).toHaveLength(8);
+    expect(custom.project.permitted_child_types).toEqual(['goal']);
+  });
   it('rejects the deleted card_type_set selector as an unknown source key without fallback or merge',()=>{const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;expect(()=>createTestConfigAuthority(root(),{config:{...globals,card_type_set:'standard'}}).loadEffective()).toThrow(/card_type_set/);expect(()=>createTestConfigAuthority(root(),{config:{...globals,card_type_set:'unknown'}}).loadEffective()).toThrow(/card_type_set/);expect(()=>createTestConfigAuthority(root(),{config:{...globals,card_type_set:'standard',card_types:structuredClone(DEFAULT_SAIVAGE_CONFIG.card_types)}}).loadEffective()).toThrow(/card_type_set/);});
   it('preserves explicit nested model-equivalence arrays exactly',()=>{const config=structuredClone(TEST_SAIVAGE_CONFIG);config.models.equivalents=[['base-model','equivalent-model'],['other-model']];const effective=createTestConfigAuthority(root(),{config}).loadEffective();expect(effective.config.models.equivalents).toEqual([['base-model','equivalent-model'],['other-model']]);});
   it('rejects a legacy string-valued model-equivalence mapping at the selected YAML boundary',()=>{const config={...structuredClone(TEST_SAIVAGE_CONFIG),models:{...structuredClone(TEST_SAIVAGE_CONFIG.models),equivalents:{'base-model':'equivalent-model'}}};const authority=createTestConfigAuthority(root(),{config});expect(()=>authority.loadEffective()).toThrow(/Configuration validation failed: models\/equivalents:/);});

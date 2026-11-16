@@ -55,9 +55,10 @@ do not authorize changes to an installed deployment.
 
 ## Initialize only a fresh target
 
-From the intended target root, `saivage init` defaults to classic. Optional
-`--profile classic-typed` or `--profile paad-typed` selects the complete fresh
-template. Existing YAML means config, prompts and template marker are preserved,
+From the intended target root, `saivage init` defaults to `classic-typed`. Explicit
+`--profile classic`, `classic-typed`, `paad-typed`, `newloop` or `newloop2` selects
+the complete fresh OFF template; `classic-git` requires separate provisioning and
+commissioning. Existing YAML means config, prompts and template marker are preserved,
 not upgraded. Init can write inputs, project identity and a first-publication
 prefix before a later failure. Do not assume failure rolled effects back.
 

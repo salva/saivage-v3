@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
-import { CardService } from '../helpers/canonical-project.js';
+import { CardService, testAutonomousCompaction } from '../helpers/classic-project.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
@@ -17,10 +17,9 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import type { LlmCompleteResult } from '../../src/contracts/index.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { initProjectTree } from '../helpers/classic-project.js';
 import {
   scriptedAdmissionProvider,
-  testAutonomousCompaction,
 } from '../helpers/llm-test-helpers.js';
 import { parseCanonicalContentPolicyRefusal } from '../../src/schemas/index.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';

@@ -550,10 +550,11 @@ broken fragments, pages, output and prefix checks.
 
 `npm run build` compiles TypeScript, packages every registered prompt closure,
 builds docs/web, then runs `npm run test:compiled-prompt-composition` and
-`npm run test:static-serving`. Packaging compares independently compiled classic/
-classic-typed shared agent/fragment memberships and bytes, plus common process
-prompt bytes; typed-only process paths remain allowed. Composition compares source/
-package bytes and all five selected roles. Routine does not run these build checks.
+`npm run test:static-serving`. Packaging independently compiles each profile,
+checks its exact source and output closure and copies its selected artifacts.
+PAAD/newloop configuration equality includes ordered tools; no cross-profile prompt
+path or byte equality is required. Composition compares source/package bytes and
+all five selected roles. Routine does not run these build checks.
 
 Static smoke uses actual Fastify against freshly built assets: `/docs` redirect,
 landing/linked pages/resources, CSS/JS/conditional icons, missing docs 404, SPA `/`

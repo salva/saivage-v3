@@ -8,7 +8,7 @@ Clear small work can remain concise and finish without ceremonial documents or
 reviews; complex work must not use direct completion to evade necessary scrutiny.
 
 For a config-absent target, select `saivage init --profile newloop`. The default
-remains `classic`; existing `classic-typed` and `paad-typed` profiles are unchanged.
+is `classic-typed`; the explicit `classic` and `paad-typed` profiles remain available.
 See [fresh selection](../../../../docs/guides/configuration.md#choose-a-fresh-profile)
 and [prompt handling](../../../../docs/architecture/prompts.md).
 
@@ -63,7 +63,7 @@ object. Graphs, tools and ordering, agents, routes, child permissions, record
 initialization/feeding and generated result contracts are identical. Native Git
 remains OFF; no provisioning or optional quality tools are enabled.
 
-Only these eight paths under `prompts/` differ from classic-typed:
+In the current source, these eight paths under `prompts/` differ from classic-typed:
 
 | Host                                     | Responsibility                                                                                                         |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -76,7 +76,7 @@ Only these eight paths under `prompts/` differ from classic-typed:
 | `process/project/specialized-recover.md` | Root recovery with complete objective and historical-review limits.                                                    |
 | `process/_shared/specialized-review.md`  | Current integrated goal/project assessment and supported verdict.                                                      |
 
-Every other prompt is byte-identical, including Analyst/Oversight, architecture
+Currently every other prompt is byte-identical, including Analyst/Oversight, architecture
 nodes, project assessment, notification handling, correction/transition hosts and
 all seven shared fragments. Direct includes and one generated contract token per
 workflow role remain unchanged. Reusable method belongs to prepared roles, current

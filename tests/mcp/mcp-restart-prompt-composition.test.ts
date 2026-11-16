@@ -13,13 +13,13 @@ import { BoundAgentToolSet, effectiveCardNodeToolReferences, type CompiledToolRe
 import { surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 // @ts-expect-error Packaging tooling is JavaScript without TypeScript declarations.
-import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
+import { assertPaadTypedConfigurationEquality, collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
 
 it.each(SYSTEM_TEMPLATES)('renders the complete standalone $name role/generated-tools/node closure with unchanged defaults and explicitly configured Reviewer restart', template => {
   const root = mkdtempSync(join(tmpdir(), 'mcp-restart-prompt-'));
   const retrieval = createObservedCollections(root);
   try {
-    expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic');
+    expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic-typed');
     const baseline = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
     const evidence: unknown[] = [];
     for (const configuredReviewer of [false, true]) {
@@ -83,10 +83,8 @@ it.each(SYSTEM_TEMPLATES)('renders the complete standalone $name role/generated-
         evidence.push({ configuredReviewer, role: agent.name, roleText, tools });
       }
     }
-    // Reuse packaging's complete physical/selected closure and bounded-delta
-    // checks rather than making a second prose policy in this test.
-    expect(() => assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES })).not.toThrow();
-    expect(() => assertPaadTypedPromptParity({ templates: SYSTEM_TEMPLATES })).not.toThrow();
+    // Preserve the shared functional configuration without coupling prompt prose.
+    expect(() => assertPaadTypedConfigurationEquality({ templates: SYSTEM_TEMPLATES })).not.toThrow();
     const destination = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
     if (destination) { mkdirSync(destination, { recursive: true }); writeFileSync(join(destination, `restart-${template.name}-closure.json`), JSON.stringify(evidence, null, 2)); }
   } finally { rmSync(root, { recursive: true }); }

@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { publishInitialProjectRuntime, preflightInitialProjectSource, assertInitialProjectPolicy } from '../../src/boot/project-runtime-bootstrap.js';
 import { withDirectMutationComposition } from '../../src/boot/direct-mutation-composition.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
+import { DEFAULT_SAIVAGE_CONFIG, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { compileProjectWorkflowDeclarations, compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../../src/persistence/generated-state.js';
 import { readCard } from '../../src/persistence/card-files.js';
@@ -29,7 +30,7 @@ function fixture(native = true) {
   writeFileSync(join(root, '.gitignore'), '.saivage/\n');
   writeFileSync(join(root, 'source'), 'source\n');
   git(root, 'add', '--all'); git(root, 'commit', '-m', 'fixture');
-  const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+  const config = native ? effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config)) : structuredClone(DEFAULT_SAIVAGE_CONFIG);
   if (!native) return { root, workflows: compileProjectWorkflows(config) };
   config.agents[config.analyst_agent]!.capabilities.grants = config.agents[config.analyst_agent]!.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter(name => name !== 'run_command' && !name.startsWith('mcp_')) })).filter((grant) => grant.tools.length > 0);
   for (const grant of config.agents.executor!.capabilities.grants) if (grant.tools.some((name) => ['write', 'edit', 'webfetch'].includes(name))) grant.resources!.push({ kind: 'record', scopes: ['self'], patterns: ['git-correction.md'] });

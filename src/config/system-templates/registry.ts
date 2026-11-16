@@ -42,7 +42,7 @@ export const SYSTEM_TEMPLATES: readonly RegisteredSystemTemplate[] = Object.free
   NEWLOOP2_TEMPLATE,
 ]);
 
-export const DEFAULT_SYSTEM_TEMPLATE = 'classic' satisfies SystemTemplateName;
+export const DEFAULT_SYSTEM_TEMPLATE = 'classic-typed' satisfies SystemTemplateName;
 
 export function validateSystemTemplates(templates: readonly RegisteredSystemTemplate[]): void {
   const seenNames = new Set<SystemTemplateName>();

@@ -18,7 +18,9 @@ import { projectCompiledGraphs } from '../../../src/runtime/card-process/compile
 import { specializedCardTypes, specializedConfig } from '../../helpers/specialized-config.js';
 
 function source():SaivageConfig{return effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));}
-function failure(change:(value:SaivageConfig)=>void,message:RegExp):void{const value=source();change(value);expect(()=>compileProjectWorkflows(value)).toThrow(message);}
+function classicSource():SaivageConfig{return effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config));}
+const classicPromptRoot=resolveSystemTemplate('classic').promptRoot;
+function failure(change:(value:SaivageConfig)=>void,message:RegExp,profile:'classic'|'default'='default'):void{const value=profile==='classic'?classicSource():source();change(value);expect(()=>compileProjectWorkflows(value,profile==='classic'?{defaultPromptRoot:classicPromptRoot}:{})).toThrow(message);}
 function compiledDeclaration(value:{reference:string;compactable?:boolean;compaction_key?:string}|undefined|null){return value?{promptId:value.reference,compactable:value.compactable??true,...(value.compaction_key===undefined?{}:{compactionKey:value.compaction_key})}:null;}
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
@@ -81,14 +83,15 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(validate({outcome,summary:'result',extra:true})).toBe(false);
     expect(describeNodeResultContract(process,stateId)).toContain(`at most ${EMIT_RESULT_SUMMARY_MAX_CHARS} characters`);
   });
-  it('compiles the classic template source and the derived default identically',()=>{
-    const fromTemplate=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config)));
+  it('compiles the typed template source and the derived default identically',()=>{
+    const template=resolveSystemTemplate('classic-typed');
+    const fromTemplate=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot});
     const derived=compileProjectWorkflows(source());
     expect(fromTemplate).toEqual(derived);
   });
   it('compiles and projects each consuming declaration policy without changing selected prompt text',()=>{
-    const baseline=compileProjectWorkflows(source()).cardTypes.get('goal')!;
-    const config=source();
+    const baseline=compileProjectWorkflows(classicSource(),{defaultPromptRoot:classicPromptRoot}).cardTypes.get('goal')!;
+    const config=classicSource();
     config.agents.planner!.prompt={reference:'planner',compactable:false};
     config.agents.analyst!.prompt={reference:'analyst',compactable:false};
     const project=config.card_types.goal!;
@@ -97,7 +100,7 @@ describe('named-agent card-type workflow compilation',()=>{
     project.workflow.entries.STOPPED.prompt={reference:'stopped-recovery',compactable:false,compaction_key:' entry key '};
     directEdge(project.workflow.nodes.plan!.edges.admit_review!).prompt={reference:'plan-to-review',compactable:false,compaction_key:' edge key '};
     directEdge(project.workflow.nodes.review!.edges.approved!).pending_notifications!.prompt={reference:'review-to-notifications',compactable:false,compaction_key:' notification key '};
-    const compiled=compileProjectWorkflows(config);
+    const compiled=compileProjectWorkflows(config,{defaultPromptRoot:classicPromptRoot});
     const workflow=compiled.cardTypes.get('goal')!;
     const plan=workflow.states.get('node:plan')!;
     if(plan.kind!=='node')throw new Error('Missing compiled plan node.');
@@ -231,7 +234,7 @@ describe('named-agent card-type workflow compilation',()=>{
   });
   it('treats a configured global card type as card-scoped for agents, fragments, processes, and registry rendering',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'workflow-global-card-'));roots.push(projectRoot);
-    const config=source();
+    const config=classicSource();
     config.card_types.project!.permitted_child_types=['global'];
     config.card_types={project:config.card_types.project!,global:structuredClone(config.card_types.code!)};
     const promptRoot=join(projectRoot,'.saivage','config','prompts');
@@ -239,7 +242,7 @@ describe('named-agent card-type workflow compilation',()=>{
     write('agents','global','executor','GLOBAL CARD {{> scope-fragment}} {{contractDescription}}');
     write('fragments','global','scope-fragment','CARD FRAGMENT');
     write('process','global','execute','GLOBAL PROCESS {{cardType}}');
-    const compiled=compileProjectWorkflows(config,{projectRoot});
+    const compiled=compileProjectWorkflows(config,{projectRoot,defaultPromptRoot:classicPromptRoot});
     expect(compiled.cardTypeVocabulary).toEqual(['project','global']);
     const workflow=compiled.cardTypes.get('global')!;const node=workflow.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing global execute node');
     expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'global'},agentExecution(node).agent.name,agentExecution(node).selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('GLOBAL CARD CARD FRAGMENT contract');
@@ -322,7 +325,7 @@ describe('named-agent card-type workflow compilation',()=>{
       kind:'configured-outcome',
       outcome:'admit_review',
       routeId:'admit_review',test:null,inputs:{},
-      prompt:{promptId:'plan-to-review',compactable:true},
+      prompt:{promptId:'specialized-plan-to-review',compactable:true},
       terminalBehavior:null,
     });
     expect(goal.states.get(admitReview.targetStateId)).toBe(goal.states.get('node:review'));
@@ -399,7 +402,10 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(plan).not.toHaveProperty('correctionPromptText');
     expect((compiled.cardTypes as Map<unknown,unknown>).set).toBeUndefined();
     expect(compiled.cardTypes.get('project')).not.toBe(compiled.cardTypes.get('goal'));
-    for(const type of ['architecture','code','test','doc','data','research','ops'] as const)expect(compiled.cardTypes.get(type)?.states.get('node:execute')).toMatchObject({kind:'node',nodeId:'execute'});
+    for(const type of ['doc','ops'] as const)expect(compiled.cardTypes.get(type)?.states.get('node:execute')).toMatchObject({kind:'node',nodeId:'execute'});
+    expect(compiled.cardTypes.get('code')?.states.get('node:red')).toMatchObject({kind:'node',nodeId:'red'});
+    expect(compiled.cardTypes.get('architecture')?.states.get('node:draft')).toMatchObject({kind:'node',nodeId:'draft'});
+    expect(compiled.cardTypes.get('test')?.states.get('node:diagnose')).toMatchObject({kind:'node',nodeId:'diagnose'});
     expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reopen_card','reorder_child','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','read_record_version','websearch','webfetch','list_observed_collections','query_observed_collections']);
     expect(compiled.agents.get('reviewer')?.tools.map((tool)=>tool.name)).not.toContain('mcp_tool_call');
     expect(compiled.agents.get('executor')?.tools.map((tool)=>tool.name)).toContain('mcp_tool_call');
@@ -413,7 +419,7 @@ describe('named-agent card-type workflow compilation',()=>{
     mkdirSync(path,{recursive:true});
     const guidance='When reporting a node result, do not claim done, blocked, or failed from an earlier workflow.';
     writeFileSync(join(path,'executor.md'),`${guidance}\n{{contractDescription}}`);
-    const compiled=compileProjectWorkflows(source(),{projectRoot});
+    const compiled=compileProjectWorkflows(classicSource(),{projectRoot,defaultPromptRoot:classicPromptRoot});
     const process=compiled.cardTypes.get('code')!;
     const stateId='node:execute';
     const node=process.states.get(stateId)!;
@@ -438,7 +444,7 @@ describe('named-agent card-type workflow compilation',()=>{
     mkdirSync(processPath,{recursive:true});
     writeFileSync(join(processPath,'execute.md'),'Selected node prompt');
     writeFileSync(join(processPath,'correct-execution-result.md'),'Selected correction prompt');
-    const compiled=compileProjectWorkflows(source(),{projectRoot});
+    const compiled=compileProjectWorkflows(classicSource(),{projectRoot,defaultPromptRoot:classicPromptRoot});
     const process=compiled.cardTypes.get('code')!;
     const node=process.states.get('node:execute')!;
     if(node.kind!=='node') throw new Error('missing execute node');
@@ -487,7 +493,7 @@ describe('named-agent card-type workflow compilation',()=>{
     write(overrides,'fragments','code','shared-piece','override-code-fragment');
     write(defaults,'process','code','execute','bundled-card-process {{cardType}}');
     write(overrides,'process','_shared','execute','override-shared-process {{cardType}}');
-    const value=source();value.agents.executor!.prompt={reference:'executor',compactable:true};value.agents.reviewer!.prompt={reference:'executor',compactable:true};
+    const value=classicSource();value.agents.executor!.prompt={reference:'executor',compactable:true};value.agents.reviewer!.prompt={reference:'executor',compactable:true};
     const observations:Array<{source:string;path:string}>=[];
     const compiled=compileProjectWorkflows(value,{defaultPromptRoot:defaults,projectRoot:root,artifactObserver:(artifact)=>observations.push(artifact)});
     expect(renderCompiledPrompt({kind:'global-agent'},compiled.oversight.name,compiled.oversightPrompt.compiled,{vocabularySnippet:'custom types'})).toBe('oversight custom types');
@@ -590,9 +596,9 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('rejects missing agents, invalid record-write authority, invalid child authority, and graph defects',()=>{
-    failure((value)=>{agentExecution(value.card_types.code!.workflow.nodes.execute!).agent='missing';},/missing agent/);
+    failure((value)=>{agentExecution(value.card_types.code!.workflow.nodes.execute!).agent='missing';},/missing agent/,'classic');
     failure((value)=>{setRecordWriteGrants(value.agents.executor!,[]);},/self write/);
-    failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges={loop:{target:{node:'execute'},prompt:{reference:'execute',compactable:true}}};},/no path to a terminal/);
+    failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges={loop:{target:{node:'execute'},prompt:{reference:'execute',compactable:true}}};},/no path to a terminal/,'classic');
   });
 
   it('requires one card-scoped designated recipient and explicit valid alternatives for nonrecipient DONE edges',()=>{
@@ -614,13 +620,13 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('uses intentionally local export and latest-node promotion validation',()=>{
-    failure((value)=>{directEdge(value.card_types.code!.workflow.nodes.execute!.edges.done!).target={terminal:'DONE',promote:'current',export_records:['brief.md']};},/without a source-node requirement/);
-    const value=source();
+    failure((value)=>{directEdge(value.card_types.code!.workflow.nodes.execute!.edges.done!).target={terminal:'DONE',promote:'current',export_records:['brief.md']};},/without a source-node requirement/,'classic');
+    const value=classicSource();
     const code=value.card_types.code!;
     code.workflow.nodes.verify=structuredClone(code.workflow.nodes.execute!);
     code.workflow.nodes.execute!.edges.done={target:{node:'verify'},prompt:{reference:'execute',compactable:true}};
     code.workflow.nodes.verify!.edges.done={target:{terminal:'DONE',promote:{latest_node:'execute'},export_records:['status.md']}};
-    const process=compileProjectWorkflows(value).cardTypes.get('code')!;
+    const process=compileProjectWorkflows(value,{defaultPromptRoot:classicPromptRoot}).cardTypes.get('code')!;
     const verify=process.states.get('node:verify')!;
     if(verify.kind!=='node') throw new Error('missing verify node');
     const done=verify.on.get('result:done')!;
@@ -643,26 +649,26 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(saivageConfigSchema.safeParse({...structuredClone(DEFAULT_SAIVAGE_CONFIG),agents:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents),executor:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents.executor!),record_writes:['status?.md']}}}).success).toBe(false);
 
     for(const [mode,gate,needsWrite] of [['clean','exists',true],['clean','updated',true],['continue','updated',true],['continue','exists',false]] as const){
-      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),capabilities:{format_version:2,grants:[{tools:['edit'],resources:[{kind:'record',scopes:['self'],patterns:['notes.md']}]}]},skills:false};const execute=value.card_types.code!.workflow.nodes.execute!;agentExecution(execute).agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges)){const target=directEdge(edge).target;if('terminal'in target)target.export_records=['notes.md'];}
+      const value=classicSource();value.agents.matrix={...structuredClone(value.agents.executor!),capabilities:{format_version:2,grants:[{tools:['edit'],resources:[{kind:'record',scopes:['self'],patterns:['notes.md']}]}]},skills:false};const execute=value.card_types.code!.workflow.nodes.execute!;agentExecution(execute).agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges)){const target=directEdge(edge).target;if('terminal'in target)target.export_records=['notes.md'];}
       value.card_types.code!.records['status.md']!.initialization=null;
       execute.initialize_records=[];
-      if(needsWrite)expect(()=>compileProjectWorkflows(value)).toThrow(/requires the write tool/);else expect(()=>compileProjectWorkflows(value)).not.toThrow();
-      if(needsWrite){value.agents.matrix!.capabilities.grants[0]!.tools.push('write');const node=compileProjectWorkflows(value).cardTypes.get('code')!.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');expect(node.requirements[0]!.definition).toMatchObject({name:'notes.md',schema:'authored-record.v1',declared:false});}
+      if(needsWrite)expect(()=>compileProjectWorkflows(value,{defaultPromptRoot:classicPromptRoot})).toThrow(/requires the write tool/);else expect(()=>compileProjectWorkflows(value,{defaultPromptRoot:classicPromptRoot})).not.toThrow();
+      if(needsWrite){value.agents.matrix!.capabilities.grants[0]!.tools.push('write');const node=compileProjectWorkflows(value,{defaultPromptRoot:classicPromptRoot}).cardTypes.get('code')!.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');expect(node.requirements[0]!.definition).toMatchObject({name:'notes.md',schema:'authored-record.v1',declared:false});}
     }
   });
 
   it('requires descendant-context records across the transitive declared closure without glob coupling',()=>{
-    const value=source();setRecordWriteGrants(value.agents.reviewer!,[{kind:'record',scopes:['self'],patterns:['review.md']}]);
-    expect(()=>compileProjectWorkflows(value)).not.toThrow();
+    const value=classicSource();setRecordWriteGrants(value.agents.reviewer!,[{kind:'record',scopes:['self'],patterns:['review.md']}]);
+    expect(()=>compileProjectWorkflows(value,{defaultPromptRoot:classicPromptRoot})).not.toThrow();
     delete value.card_types.architecture!.records['status.md'];
     value.card_types.architecture!.workflow.nodes.execute!.record_prompts = [];
     value.card_types.architecture!.workflow.nodes.execute!.initialize_records = [];
-    expect(()=>compileProjectWorkflows(value)).toThrow(/descendant_context record 'status.md'.*architecture/);
+    expect(()=>compileProjectWorkflows(value,{defaultPromptRoot:classicPromptRoot})).toThrow(/descendant_context record 'status.md'.*architecture/);
   });
 
   it('marks configured same-node outcomes as semantic reentry without another destination locator',()=>{
-    const value=source();value.card_types.code!.workflow.nodes.execute!.edges.retry={target:{node:'execute'},prompt:{reference:'execute',compactable:true}};
-    const process=compileProjectWorkflows(value).cardTypes.get('code')!;const node=process.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing execute node');
+    const value=classicSource();value.card_types.code!.workflow.nodes.execute!.edges.retry={target:{node:'execute'},prompt:{reference:'execute',compactable:true}};
+    const process=compileProjectWorkflows(value,{defaultPromptRoot:classicPromptRoot}).cardTypes.get('code')!;const node=process.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing execute node');
     const route=node.on.get('result:retry')!;
     expect(route).toEqual({
       targetStateId:'node:execute',

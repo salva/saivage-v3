@@ -105,6 +105,7 @@ describe('startup workflow binding authority', () => {
 
   it('rejects a zero-operational-tool card participant when only a tool-unsupported model can serve it', () => {
     const source = config();
+    source.card_types.code = structuredClone(source.card_types.doc!);
     source.models.routes.empty = { candidates: ['empty-model'], temperature: 0.2, max_tokens: 200 };
     source.agents.empty = { prompt: { reference: 'executor', compactable: true }, capabilities:{format_version:2,grants:[]}, model_route: 'empty', skills: false, session: 'card' };
     source.providers.test!.models = [...(source.providers.test!.models ?? []), 'empty-model'];

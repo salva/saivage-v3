@@ -71,7 +71,7 @@ describe('configuration-owned card types',()=>{
     delete (agentExecution(omitted.card_types.project!.workflow.nodes.plan!).correction_prompt as {compactable?:boolean}).compactable;
     const parsed=effectiveSaivageConfigSchema.parse(omitted);
     expect(parsed.agents.planner!.prompt).toEqual({reference:'planner',compactable:true});
-    expect(agentExecution(parsed.card_types.project!.workflow.nodes.plan!).prompt).toEqual({reference:'plan',compactable:true});
+    expect(agentExecution(parsed.card_types.project!.workflow.nodes.plan!).prompt).toEqual({reference:'specialized-plan',compactable:true});
     expect(agentExecution(parsed.card_types.project!.workflow.nodes.plan!).correction_prompt).toEqual({reference:'correct-plan-result',compactable:true});
 
     const staticFalse=structuredClone(projectOnly());

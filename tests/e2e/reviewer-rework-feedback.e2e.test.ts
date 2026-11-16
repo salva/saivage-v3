@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
-import { CardService, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { CardService, TEST_WORKFLOWS, testAutonomousCompaction } from '../helpers/classic-project.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -15,10 +15,9 @@ import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { createObservedCollections } from '../../src/retrieval/index.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { initProjectTree } from '../helpers/classic-project.js';
 import {
   scriptedAdmissionProvider,
-  testAutonomousCompaction,
 } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import type { AgentMembershipFreshnessTarget } from '../../src/contracts/index.js';
