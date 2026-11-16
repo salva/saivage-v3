@@ -1102,9 +1102,12 @@ Oversight's allowlist has no command/MCP/skill/record-write/child/lifecycle auth
 Its only intervention is the shared notification input/result port, admitted under
 the exact active check signal, for a card with compiled child-capable designated
 recipient. Another participant cannot borrow that signal. Observation/materiality
-guidance compares recurring delivery gaps with objectives and inspected earlier/current
-evidence even when local progress exists, favoring useful bounded advice or successful
-no-action rather than micromanagement or new strategy ownership. This
+guidance compares inspected evidence with the current owner's objective and accepted
+direction when available, including integrated delivery, bounded remainder and
+handoff. It distinguishes necessary repair, research, gates and refusals from optional
+expansion displacing the milestone. Local progress does not settle that comparison;
+an unchanged remainder alone does not require advice. A supported concern can prompt
+a targeted Planner decision, otherwise no-action succeeds. This
 [convergence policy](prompts.md#convergence-within-existing-role-decisions) adds no
 detector or scheduling guarantee. Analyst uses the same notification contract under its own audited runtime-
 cancellation admission, never an agent-name-inferred fallback.

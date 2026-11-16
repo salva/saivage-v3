@@ -10,8 +10,8 @@ are the adoption unit; source edits do not hot-update installed custom hosts.
 
 Selected `read_agent_session` tool help owns diagnostic-first navigation, exact
 visible-entry inspection, coverage limitations and lossless hex-slice decoding
-for Analyst and Oversight; the redundant Analyst role-level context-paging sentence
-is removed. This is not a recovery skill or an automatic update of materialized
+for Analyst and Oversight; the redundant role-level context-paging sentences
+are removed. This is not a recovery skill or an automatic update of materialized
 role files; the selected bound tool definition delivers the guidance with each
 prepared request. Offline compositions establish delivery structure, not model
 understanding or live incident resolution.
@@ -609,16 +609,31 @@ subtree completion; checkpoint and optional diagnostics do not supply approval.
 Reviewer independently assesses the requested combined outcome/current input against
 every assigned criterion, retaining applicable unchanged evidence rather than
 automatically restarting broad checks at every edit. Historical verdicts and isolated
-green pieces are not fresh acceptance. During existing bounded checks, Oversight
-distinguishes successful readiness-only paraphrasing from work resolving real gates
-or refused results, and compares inspected evidence to objectives and delivery gaps
-even when patches, commits or checks show local progress. Qualified normal advice
-acknowledges that progress and asks the nearest eligible responsible Planner to
-reassess approach, decomposition or ownership. Healthy research narrowing uncertainty,
-truthful red cycles and deep review remain legitimate; partial observation, elapsed
-time or difficulty alone establish no futility. No new actionable concern means
-successful no-action. Advice gains no strategy, acceptance or guaranteed-attention
-authority.
+green pieces are not fresh acceptance. During bounded checks, Oversight uses the
+current owner's objective and accepted plan or requirements when available, rather
+than treating proposals or commentary as accepted direction. It compares inspected
+earlier and current evidence for movement toward integrated delivery, a bounded
+remainder and a meaningful completion or handoff boundary. Patches and passing checks
+are progress, but do not alone establish a reduced remainder. Necessary repair,
+correctness or release gates, research and real refusals or dependencies are distinct
+from optional expansion displacing the milestone; accepted requirements and refusals
+remain binding. Missing, partial, stale or conflicting evidence is qualified, not
+replaced by an invented baseline.
+
+Where a concrete recurring gap supports a useful next decision, qualified normal
+advice asks the nearest eligible responsible Planner to decide, for example, how to
+clarify the remainder from existing records, reuse evidence, reconsider optional
+expansion, or select an integration or handoff boundary. These are alternatives
+fitted to evidence, not a checklist. The Planner retains the decision. Healthy
+research, truthful red cycles and deep review remain legitimate; an unchanged
+remainder alone does not require advice. No new actionable concern means successful
+no-action. Advice gains no strategy, acceptance or guaranteed-attention authority.
+
+The selected Oversight role is rendered afresh from the compiled registry for each
+check, independently of compaction. The configured global conversation is retained,
+but comparison depends on the ordinary history or summary available and targeted
+reads; neither fresh preparation nor a summary guarantees complete memory. Global
+ingress provides no automatic card bootstrap or accepted-plan feed.
 
 These are role/node instruction policies, not new runtime gates, outcomes, progress
 detectors, retention rules or durable contracts. Static composition does not prove

@@ -33,7 +33,7 @@ import {
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { readProviderExchangeEntries } from '../../../src/persistence/provider-exchange-log.js';
-import { parseActivationOpenPayload } from '../../../src/schemas/index.js';
+import { parseActivationOpenPayload, parseConversationSessionId } from '../../../src/schemas/index.js';
 import { SummaryPolicyRefusalError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 import { InvocationService } from '../../../src/agents/invocation-service.js';
@@ -46,6 +46,10 @@ import { compileProjectWorkflows } from '../../../src/runtime/card-process/card-
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
 import { formatVocabularySnippet } from '../../../src/tools/prompt-api.js';
+import {
+  composeContextProjection,
+  providerConversationFromComposedContext,
+} from '../../../src/runtime/actors/context/composition-projector.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -118,7 +122,7 @@ function assertPreparedCheck(root: string): void {
 }
 
 describe('OversightSession owned check settlement', () => {
-  it.each(['classic', 'classic-typed', 'paad-typed', 'newloop'])(
+  it.each(['classic', 'classic-typed', 'paad-typed', 'classic-git', 'newloop', 'newloop2'])(
     'prepares the selected %s global role again on a later no-action check',
     async (profile) => {
       const root = projectRoot();
@@ -183,6 +187,42 @@ describe('OversightSession owned check settlement', () => {
               2,
             ),
           );
+          if (calls === 2) {
+            const projection = providerConversationFromComposedContext(
+              composeContextProjection({
+                sourceSessionId: parseConversationSessionId(input.sessionId),
+                effectiveHistory: {
+                  summaryText:
+                    'The previous scripted Oversight check returned "No action needed."',
+                  historyMessageId: 'synthetic-history-summary',
+                  sourceVersion: 1,
+                  coveredThroughMessageId: 'synthetic-previous-check-end',
+                  requiredModelFacts: {
+                    latestRecovery: null,
+                    latestContentPolicyRefusal: null,
+                    latestRecordObservations: [],
+                  },
+                  protectedPrompts: [],
+                },
+                dynamicBlocks: [],
+                uncoveredRows: readConversation(root, 'agent:oversight:global').sourceRows
+                  .filter((row) => row.role === 'user' && row.kind === 'text')
+                  .slice(-1),
+              }),
+            );
+            writeFileSync(
+              join(directory, `oversight-${profile}-synthetic-summary-projection.json`),
+              JSON.stringify(
+                {
+                  provenance:
+                    'Synthetic effective-history input, not an actual compaction or model summary; existing context projector with the actual current ingress suffix.',
+                  providerConversation: projection,
+                },
+                null,
+                2,
+              ),
+            );
+          }
         }
         return finalMessage();
       });
