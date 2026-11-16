@@ -122,6 +122,76 @@ async function parked(f: ReturnType<typeof fixture>, owner: Awaited<ReturnType<t
 }
 
 describe('newloop2 real owner semantic flows', () => {
+  it('compacts an actual Planner session and prepares its next real resume-assess invocation', async () => {
+    const f = fixture([...frame(), ...aligned(), ...decision('deliver', 'blocked', 'Verification evidence unavailable; alignment remains applicable.')]);
+    await expect((await f.launch()).settlement.promise).resolves.toMatchObject({ status: 'blocked' });
+    const prepared = f.requests.filter(input => input.agentName === 'planner').at(-1)!;
+    for (let ordinal = 1; ordinal <= 4; ordinal++) {
+      const inputId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
+      appendActivationMarker({ projectRoot: f.root }, prepared.sessionId, {
+        event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
+        agent_name: 'planner', card_id: 'project', input_id: inputId,
+      });
+      appendConversationBatch({ projectRoot: f.root }, [
+        buildUserContextMessage(prepared.sessionId, inputId, 'process_transition', 0, {
+          role: 'user', content: 'Later ordinary factual narrative. '.repeat(700),
+        }),
+      ]);
+    }
+    const source = readCurrentConversationSegment(f.root, prepared.sessionId)!;
+    const preparedCompaction = prepareCompaction(
+      { ...testAutonomousCompaction.compactionConfig, tail_fraction: 0.05 },
+      prepared.systemPrompt, prepared.tools, 24000, 200,
+    );
+    const preparedContext = buildPreparedInvocationContext({
+      ...prepared.preparedContext, instructionText: prepared.systemPrompt,
+      terminalToolNames: prepared.terminalToolNames,
+      compiledTools: prepared.compiledToolContracts, preparedCompaction,
+    });
+    const input = { ...prepared, preparedCompaction, preparedContext,
+      providerConversation: providerConversationProjection(source.conversation, composedPreparedBlocks(preparedContext)),
+    };
+    const summaryRequests: unknown[] = [];
+    const compacted = await compact({
+      strategy: 'preventive', summaryRefusal: null, conversations: { projectRoot: f.root }, input,
+      summarizerProvider: {
+        candidate: { provider: 'test', account: null, model: 'test-model' },
+        contextWindowTokens: 100000, maxOutputTokens: 10000,
+        materializeImage: async () => { throw new Error('No images'); },
+        serializeSummaryRequest: deterministicSummarySerialization,
+        completeTurn: async request => {
+          summaryRequests.push(request);
+          return { result: { kind: 'message', content: 'Historical narrative summarized; exact earlier acceptance must be read for applicability.' }, provider_exchanges: [] };
+        },
+        projectProviderExchanges: () => undefined,
+      },
+      signal: new AbortController().signal, progress: noCompactionProgress,
+    });
+    expect(compacted.kind).toBe('compacted');
+    expect(readHistoricalConversationSegment(f.root, prepared.sessionId, source.entry.version).rows).toEqual(source.rows);
+    const beforeReentry = f.requests.length;
+    f.script([
+      ...decision('resume-assess', 'deliver', 'Supplied missing input resolves delivery blocker; original aligned approach and accepted unaffected evidence remain applicable.'),
+      ...decision('deliver', 'blocked', 'Verification evidence unavailable; alignment remains applicable.'),
+    ]);
+    await expect((await f.launch()).settlement.promise).resolves.toMatchObject({ status: 'blocked' });
+    const actualAfterCompaction = f.requests.slice(beforeReentry);
+    expect(selectedNode(actualAfterCompaction[0]!)).toEqual({ card: 'project', node: 'resume-assess' });
+    expect(actualAfterCompaction[0]!.agentName).toBe('planner');
+    expect(actualAfterCompaction[0]!.providerConversation.messages.some(message =>
+      message.kind === 'synthetic_context' && message.origin === 'history_summary',
+    )).toBe(true);
+    expect(actualAfterCompaction[0]!.preparedContext.prefix.instructionText).toBe(actualAfterCompaction[0]!.systemPrompt);
+    expect(actualAfterCompaction[0]!.providerConversation.messages.some(message =>
+      message.kind === 'synthetic_context' && message.block_identity === 'current-bootstrap:project',
+    )).toBe(true);
+    const directory = processEnvironmentEvidence();
+    if (directory) writeFileSync(join(directory, 'newloop2-planner-compaction.json'), JSON.stringify({
+      kind: 'actual Planner compact() with scripted summary and subsequent actual Supervisor primary preparation',
+      input, summaryRequests, actualAfterCompaction,
+    }, null, 2));
+  });
+
   it('completes a small non-code objective with distinct current author and Reviewer evidence and reused sessions', async () => {
     const f = fixture(fresh());
     const owner = await f.launch();

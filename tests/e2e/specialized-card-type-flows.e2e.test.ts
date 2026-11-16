@@ -822,7 +822,7 @@ else throw new Error('Unknown fixture mode');
     assertRecordedNodeInstructions(root, inputs);
   });
 
-  it.each([['classic', false], ['paad-typed', false], ['newloop', false], ['newloop', true]] as const)('prepares %s goal Planner and independent Reviewer with its own brief, current contract and direct parent direction (revision=%s)', async (profile, revision) => {
+  it.each([['classic', false, false], ['classic-typed', false, false], ['paad-typed', false, false], ['newloop', false, false], ['newloop', true, false], ['newloop', false, true]] as const)('prepares %s goal Planner and independent Reviewer with its own brief, current contract and direct parent direction (revision=%s, notification=%s)', async (profile, revision, notification) => {
     let goalId = ''; let parentCalls = 0; let goalCalls = 0; let reviewerCalls = 0;
     const direction = 'Assess this goal only against its accepted brief. No implementation or descendant work is requested; return actual scoped evidence.';
     const run = harness('goal', async input => {
@@ -844,6 +844,19 @@ else throw new Error('Unknown fixture mode');
       expect(input.preparedContext!.stableBlocks.find(block=>block.id.startsWith('parent-direction:'))!.content).toContain(JSON.stringify(direction));
       if (input.agentName === 'reviewer') {
         reviewerCalls++;
+        if (notification && reviewerCalls === 2) await run.supervisor.submitNotification(
+          testNotificationAuthority(), goalId, {
+            id: '33333333-3333-4333-8333-333333333333',
+            content: direction, created_at: new Date().toISOString(),
+          }, 'normal',
+        );
+        if (notification && [3, 5].includes(reviewerCalls)) return complete(tool(`goal-notification-review-${reviewerCalls}`, 'write', {
+          path: `record:///review.md?card=${goalId}`,
+          content: `Fresh independent review ${reviewerCalls} of the bounded assessment-only brief and accepted status.`,
+        }));
+        if (notification && [4, 6].includes(reviewerCalls)) return complete(tool(`goal-notification-approved-${reviewerCalls}`, 'emit_result', {
+          outcome: 'approved', summary: 'Scoped assessment independently approved.',
+        }));
         if (revision && reviewerCalls === 1) return complete(tool('goal-review-gap', 'write', {path:`record:///review.md?card=${goalId}`, content:'The assessment omits why direct evidence suffices for the accepted bounded scope. Revise that reasoning; do not invent implementation work.'}));
         if (revision && reviewerCalls === 2) return complete(tool('goal-revise', 'emit_result', {outcome:'revision_required',summary:'Explain the bounded direct-evidence assessment.'}));
         if (revision && reviewerCalls === 3) return complete(tool('goal-fresh-review', 'write', {path:`record:///review.md?card=${goalId}`, content:'Fresh independent review of the revised assessment confirms adequate direct evidence for this assessment-only brief; no implementation is claimed.'}));
@@ -856,6 +869,16 @@ else throw new Error('Unknown fixture mode');
       expect(input.agentName).toBe('planner');
       if (goalCalls === 1) return complete(tool('goal-status','write',{path:`record:///status.md?card=${goalId}`,content:'Accepted goal requests assessment only. No implementation or decomposition is necessary; no work is added to manufacture alignment.'}));
       if (goalCalls === 2) return complete(tool('goal-review-admission','emit_result',{outcome:'admit_review',summary:'Assessment complete without unnecessary decomposition; ready for scoped independent review.'}));
+      if (notification && [3, 4].includes(goalCalls)) {
+        expect(input.preparedContext!.stableBlocks[1]!.id).toBe(`node-activation:${goalId}:handle-notifications`);
+        expect(input.providerConversation.messages.some(message => message.content === direction)).toBe(true);
+        if (goalCalls === 3) return complete(tool('goal-notification-status', 'write', {
+          path: `record:///status.md?card=${goalId}`, content: 'Scoped goal assessment returned; no implementation acceptance claimed.',
+        }));
+        return complete(tool('goal-notification-admission', 'emit_result', {
+          outcome: 'admit_review', summary: 'Reconcile finite parent assessment objective.',
+        }));
+      }
       if (revision && goalCalls === 3) return complete(tool('goal-revised-status','write',{path:`record:///status.md?card=${goalId}`,content:'Revised assessment: the accepted assignment asks only whether decomposition is necessary, not implementation. Its supplied scope and direct examination establish no missing delivery obligation. No unsupported implementation acceptance is claimed.'}));
       if (revision && goalCalls === 4) return complete(tool('goal-fresh-admission','emit_result',{outcome:'admit_review',summary:'Revised evidence rationale ready for fresh review; historical review is not new acceptance.'}));
       throw new Error('Unexpected goal call');
@@ -863,7 +886,7 @@ else throw new Error('Unknown fixture mode');
     goalId = run.child.id;
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
-    expect(goalCalls).toBe(revision ? 4 : 2); expect(reviewerCalls).toBe(revision ? 4 : 2); expect(parentCalls).toBe(5);
+    expect(goalCalls).toBe(revision || notification ? 4 : 2); expect(reviewerCalls).toBe(notification ? 6 : revision ? 4 : 2); expect(parentCalls).toBe(5);
   });
 
   it('newloop delivers design before implementation, corrects a failed tactic locally, and replans the remaining documentation objective after root review', async () => {
@@ -2921,3 +2944,4 @@ else throw new Error('Unknown fixture mode');
   });
 });
 import { templateConfig } from '../helpers/system-template-config.js';
+import { testNotificationAuthority } from '../helpers/capability-grants.js';

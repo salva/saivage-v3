@@ -11,6 +11,7 @@ import { resolveSystemTemplate, type SystemTemplateDefinition } from '../../src/
 import {
   compileProjectWorkflows,
   describeNodeResultContract,
+  nodeResultToolDefinition,
   processNodeOutcomes,
   type CompiledCardTypeWorkflow,
   type CompiledNodeContract,
@@ -23,6 +24,25 @@ import { buildUserContextMessage } from '../../src/runtime/actors/conversation-s
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import type { ContextBlock } from '../../src/contracts/index.js';
 import type { CardActivationInput } from '../../src/runtime/actors/card-activation-owner.js';
+import { templateConfig } from '../helpers/system-template-config.js';
+import { BoundAgentToolSet, effectiveCardNodeToolReferences, surfaceToolContracts } from '../../src/tools/runtime-tool-catalog.js';
+import { surfaceToolDefinitions, EMIT_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { compileInvocationToolContract } from '../../src/runtime/actors/context/context-blocks.js';
+import { createObservedCollections } from '../../src/retrieval/index.js';
+import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import { NodeExecution } from '../../src/runtime/actors/node-execution.js';
+import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
+import { bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { ProviderRegistry } from '../../src/agents/provider.js';
+import { ModelRouter } from '../../src/agents/model-router.js';
+import { CardService } from '../../src/cards/card-service.js';
+import { publishTestProjectRuntime } from '../helpers/initial-project-fixture.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
+import { randomUUID } from 'node:crypto';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -129,6 +149,192 @@ function renderedNode(template: SystemTemplateDefinition, compiled: ReturnType<t
 }
 
 describe('shipped project Planner semantic composition', () => {
+  it.each(['classic', 'classic-typed', 'paad-typed', 'classic-git', 'newloop'].flatMap(
+    profile => (['project', 'goal'] as const).map(cardType => ({ profile, cardType })),
+  ))('prepares actual $profile/$cardType Planner entry and corrective continuation at a synthetic activation boundary', async ({ profile, cardType }) => {
+    const template = resolveSystemTemplate(profile);
+    const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${profile}-${cardType}-actor-entry-`));
+    roots.push(projectRoot);
+    const config = effectiveSaivageConfigSchema.parse({
+      ...templateConfig(template),
+      models: structuredClone(TEST_SAIVAGE_CONFIG.models),
+      providers: structuredClone(TEST_SAIVAGE_CONFIG.providers),
+      compaction: structuredClone(TEST_SAIVAGE_CONFIG.compaction),
+    });
+    config.providers.test!.capabilities = {
+      ...config.providers.test!.capabilities, transportProtocol: 'openai-responses', imageInput: true,
+    };
+    const compiled = compileProjectWorkflows(config, { projectRoot, defaultPromptRoot: template.promptRoot });
+    publishTestProjectRuntime(projectRoot, compiled);
+    const store = new CardService(projectRoot, compiled);
+    const card = cardType === 'project' ? store.read('project')! : store.create({
+      type: 'goal', parent: 'project', title: 'Delivery goal',
+      bootstrap_content: 'FULL ACCEPTED BRIEF\nwith all configured content',
+      created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' }, depends_on: [],
+    });
+    const registry = new ProviderRegistry(config);
+    const workflows = bindRuntimeWorkflows(compiled, new ModelRouter(registry), registry,
+      config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
+    const process = compiled.cardTypes.get(cardType)!;
+    const prompts = createPromptTemplateRegistry(compiled);
+    const processes = createTestProcessRunner(projectRoot);
+    let calls = 0;
+    let phaseCalls = 0;
+    let phase = 'initial';
+    let selectedNodeId = 'plan';
+    const end = new Error('bounded actor preparation fixture complete');
+    const provider = scriptedAdmissionProvider(async input => {
+      calls++;
+      phaseCalls++;
+      const selectedNode = requireNode(process, selectedNodeId);
+      const contract = describeNodeResultContract(process, `node:${selectedNodeId}`);
+      expect(input.systemPrompt).toBe(prompts.render({ kind: 'workflow-agent', cardType }, 'planner', { contractDescription: contract }));
+      expect(input.preparedContext!.stableBlocks.map(block => block.id)).toEqual([
+        `card-activation:${card.id}`, `node-activation:${card.id}:${selectedNodeId}`,
+        ...(cardType === 'goal' ? [`parent-direction:${activationId}`] : []),
+      ]);
+      const brief = store.readRecordCurrent(card.id, 'brief.md');
+      if (brief.kind !== 'found' || !brief.value.projection?.accepted) throw new Error('Missing synthetic accepted brief');
+      const bootstrap = input.providerConversation.messages.find(message =>
+        message.kind === 'synthetic_context' && message.block_identity === `current-bootstrap:${card.id}`,
+      );
+      expect(bootstrap).toBeDefined();
+      expect(JSON.parse(bootstrap!.content.slice(bootstrap!.content.indexOf('\n') + 1)).content).toBe(brief.value.projection.accepted.content);
+      if (phaseCalls === 2) expect(input.providerConversation.messages.some(
+        message => message.content.includes(requirePrompt(process, agentExecution(selectedNode).correctionPrompt.promptId)),
+      )).toBe(true);
+      const directory = env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+      if (directory) {
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, `planner-actual-${profile}-${cardType}-${phase}-turn-${phaseCalls}.json`), JSON.stringify({
+          kind: 'actual NodeExecution/AgentExecutor/ConversationLLMActor provider input; synthetic activation host, no Supervisor/native commissioning',
+          profile, cardType, lifetime: `${phase}/${phaseCalls === 1 ? 'entry' : 'actual plain-text corrective continuation'}`,
+          config, input,
+        }, null, 2));
+      }
+      if (phaseCalls === 1) return { result: { kind: 'message', content: 'plain text' }, provider_exchanges: [] };
+      throw end;
+    });
+    const actor = new ConversationLLMActor({
+      agentId: `agent:planner:${card.id}`, purpose: { kind: 'autonomous-card', cardId: card.id },
+      gate: new RuntimeGate(), provider, conversations: { projectRoot },
+      compactor: testAutonomousCompaction.compactor,
+      summarizerProvider: testAutonomousCompaction.summarizerProvider,
+      fatalPort: testApplicationFatalPort,
+    });
+    let activationId = randomUUID();
+    const execution = new NodeExecution({
+      projectRoot, cardId: card.id, store, workflows, promptTemplates: prompts,
+      conversations: { projectRoot }, compactionConfig: testAutonomousCompaction.compactionConfig,
+      processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+      mcpToolInvocation: unusedMcpToolInvocation, retrieval: createObservedCollections(projectRoot),
+      parentControl: {} as never, notifyCard: () => { throw new Error('not invoked'); },
+    }, {
+      createLlm: () => actor, selectLlm() {}, freshInputId: randomUUID,
+      assertCurrentActivation() {}, assertCurrentNode() {}, assertPromotionAvailable() {},
+      promotedResult: () => null, claimResultHandoff() {}, claimedNodeInterruption: () => false,
+      retainSettlementFailure(error) { throw error; },
+    });
+    try {
+      for (const entry of ['BACKLOG', 'STOPPED'] as const) {
+        phase = entry === 'BACKLOG' ? 'initial' : 'stopped-reentry';
+        phaseCalls = 0;
+        activationId = randomUUID();
+        const target = process.states.get(`entry:${entry}`)!.on.get('entry:route')!.targetStateId;
+        if (!target.startsWith('node:')) throw new Error('Expected node entry');
+        selectedNodeId = target.slice('node:'.length);
+        if (entry === 'STOPPED') store.acceptRecord(card.id, 'brief.md',
+          `${cardType}/FULL ACCEPTED BRIEF\nwith all configured content`, { kind: 'agent', agent: 'analyst' });
+        await expect(execution.execute({
+        process, stateId: target, node: requireNode(process, selectedNodeId), nodeOrdinal: 0, signal: new AbortController().signal,
+        transition: { context: { source: `entry:${entry}`, event: 'entry:route', target, reentered: false }, acceptedResult: null },
+        input: {
+          card, activationId, entry,
+          caller: cardType === 'project' ? { kind: 'root' } : {
+            kind: 'parent', cardId: 'project', sessionId: 'agent:planner:project',
+            sourceInputId: randomUUID(), toolCallId: 'fixture-goal', toolName: 'activate_card',
+            instructions: 'Plan the bounded goal.',
+          },
+          notificationDelivery: { hasPendingNotifications: () => false, selectNotifications: () => [], removeNotifications() {} },
+          recordMutations: { admit() { throw new Error('not invoked'); }, mutate() { throw new Error('not invoked'); } },
+          claimResult() {},
+        },
+      })).rejects.toThrow(end.message);
+      expect(phaseCalls).toBe(2);
+      }
+      expect(calls).toBe(4);
+    } finally {
+      await processes.processRunner.terminateScopeTree({
+        rootScope: processes.runtimeProcessRootScope, categories: ['runtime_card'],
+        reason: 'test cleanup', graceMs: 50,
+      });
+    }
+  });
+
+  it.each(['classic', 'classic-typed', 'paad-typed', 'classic-git', 'newloop', 'newloop2'])(
+    'captures complete static rendered %s project/goal bindings through the selected compiler and binder',
+    (profile) => {
+      const template = resolveSystemTemplate(profile);
+      const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${profile}-static-bindings-`));
+      roots.push(projectRoot);
+      const selectedPaths = new Set<string>();
+      const config = effectiveSaivageConfigSchema.parse(templateConfig(template));
+      const workflows = compileProjectWorkflows(config, {
+        projectRoot, defaultPromptRoot: template.promptRoot,
+        artifactObserver: ({ path }) => selectedPaths.add(resolve(path)),
+      });
+      const registry = createPromptTemplateRegistry(workflows);
+      const bindings = (['project', 'goal'] as const).map(cardType => {
+        const process = workflows.cardTypes.get(cardType)!;
+        const cardId = cardType === 'project' ? 'project' : 'card-a';
+        const nodes = [...process.states].flatMap(([stateId, node]) => {
+          if (node.kind !== 'node' || node.execution.kind !== 'agent') return [];
+          const execution = agentExecution(node);
+          const refs = effectiveCardNodeToolReferences(execution.agent.tools, node.childCreationTypes);
+          const surface = new BoundAgentToolSet(refs).bind({
+            scope: 'card', agentName: execution.agent.name, projectRoot, cardId,
+            sessionId: `agent:${execution.agent.name}:${cardId}`,
+            retrieval: createObservedCollections(projectRoot),
+            mcpToolInvocation: unusedMcpToolInvocation,
+            processScope: {}, processOwnerId: 'offline-static-bindings',
+            childCreationTypes: node.childCreationTypes,
+            childActivationTypes: node.childActivationTypes,
+            cardTypeVocabulary: [...workflows.cardTypes.keys()],
+            nativeGit: workflows.gitPolicy !== null,
+            checkpointSource: async () => { throw new Error('static binder does not execute native tools'); },
+          } as never);
+          const contract = describeNodeResultContract(process, stateId);
+          const role = registry.render({ kind: 'workflow-agent', cardType }, execution.agent.name, { contractDescription: contract });
+          const terminalTool = nodeResultToolDefinition(process, stateId);
+          const tools = [...surfaceToolDefinitions(surface), terminalTool];
+          expect(role.split(contract)).toHaveLength(2);
+          expect(tools.at(-1)!.function.name).toBe('emit_result');
+          return [{
+            stateId, agent: execution.agent.name, role, contract,
+            node: requirePrompt(process, execution.prompt.promptId),
+            correction: requirePrompt(process, execution.correctionPrompt.promptId),
+            tools, compiledToolContracts: [
+              ...surfaceToolContracts(surface),
+              compileInvocationToolContract(terminalTool, EMIT_RESULT_POLICY_TEMPLATE),
+            ],
+            outcomes: processNodeOutcomes(process, stateId),
+            recordRequirements: node.requirements,
+            childCreationTypes: [...node.childCreationTypes], childActivationTypes: [...node.childActivationTypes],
+          }];
+        });
+        expect(nodes.filter(node => node.agent === 'planner').length).toBeGreaterThan(0);
+        return { cardType, nodes, processPrompts: [...process.processPrompts], routes: [...process.states].map(([id, state]) => ({ id, routes: [...state.on] })) };
+      });
+      const evidence = env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+      if (evidence) {
+        mkdirSync(evidence, { recursive: true });
+        writeFileSync(join(evidence, `static-${profile}-project-goal.json`), JSON.stringify({
+          kind: 'static rendered bindings', profile, selectedPaths: [...selectedPaths].sort(), config, bindings,
+        }, null, 2));
+      }
+    },
+  );
+
   it.each([
     { profile: 'newloop', cardType: 'goal', visits: [['plan', 'admit_review'], ['review', 'revision_required'], ['plan', 'admit_review'], ['review', 'approved']] },
     { profile: 'newloop2', cardType: 'project', visits: [['frame-plan', 'ready'], ['alignment', 'aligned'], ['deliver', 'candidate_ready'], ['objective-assessment', 'candidate_ready'], ['integrated-acceptance', 'accepted'], ['debt-assessment', 'clear']] },

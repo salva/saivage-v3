@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
-import { compileProjectWorkflows, bindRuntimeWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
+import { compileProjectWorkflows, bindRuntimeWorkflows, describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
 import { CardService } from '../../../src/cards/card-service.js';
@@ -92,7 +92,7 @@ function fixture(profile: Profile, steps: Step[], hooks: Partial<Pick<Parameters
     runtimeProcessRootScope: processes.runtimeProcessRootScope, promptTemplates: createPromptTemplateRegistry(compiled) });
   cleanups.push(async () => { if (started) await supervisor.stopProject(); await processes.processRunner.terminateScopeTree({ rootScope: processes.runtimeProcessRootScope, categories: ['runtime_card'], reason: 'test cleanup', graceMs: 50 }); rmSync(root, { recursive: true, force: true }); });
   const launch = async () => {
-    await supervisor.start();
+    if (!started) await supervisor.start();
     started = true;
     const internal = supervisor as unknown as { beginStartProject(): Promise<{ accepted: boolean; launch: { owner: CardActivationOwner } }>; launchStartedProject(plan: unknown): void };
     const prepared = await internal.beginStartProject();
@@ -102,7 +102,9 @@ function fixture(profile: Profile, steps: Step[], hooks: Partial<Pick<Parameters
     return prepared.launch.owner;
   };
   const record = (name: string) => { const read = cards.readRecordCurrent('project', name); if (read.kind !== 'found') throw new Error('Missing project'); return read.value.projection; };
-  return { root, config, compiled, cards, supervisor, requests, atEnd, launch, record };
+  return { root, config, compiled, cards, supervisor, requests, atEnd, launch, record,
+    script(next: Step[]) { steps.splice(0, steps.length, ...next); cursor = 0; },
+  };
 }
 
 describe.each(profiles)('%s actual project objective reconciliation', profile => {
@@ -449,6 +451,25 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     expect(JSON.stringify(primary)).toContain('Deliver evidenced beta');
     const generated = prepared.tools.find(tool => tool.function.name === 'emit_result')!.function.parameters as { properties: { outcome: { enum: string[] } } };
     expect([...generated.properties.outcome.enum].sort()).toEqual(['admit_review', 'blocked', 'complete_direct', 'complete_reviewed', 'failed', 'replan']);
-    capture(`${profile}-strict-compaction`, { input, summaryRequests, successor, successorRequest });
+    const beforeReentry = f.requests.length;
+    const reentryState = f.compiled.cardTypes.get('project')!.states.get('entry:BLOCKED')!.on.get('entry:route')!.targetStateId;
+    if (!reentryState.startsWith('node:')) throw new Error('Expected BLOCKED node entry');
+    const reentryNode = reentryState.slice('node:'.length);
+    f.script([write(reentryNode, 'Current obligations retained after compaction.'), result(reentryNode, 'blocked')]);
+    await expect((await f.launch()).settlement.promise).resolves.toMatchObject({ status: 'blocked' });
+    const actualAfterCompaction = f.requests.slice(beforeReentry);
+    expect(actualAfterCompaction.length).toBe(2);
+    expect(actualAfterCompaction.every(request => nodeOf(request) === reentryNode)).toBe(true);
+    expect(actualAfterCompaction[0]!.providerConversation.messages.some(message =>
+      message.kind === 'synthetic_context' && message.origin === 'history_summary',
+    )).toBe(true);
+    const currentContract = describeNodeResultContract(f.compiled.cardTypes.get('project')!, reentryState);
+    expect(actualAfterCompaction[0]!.systemPrompt).toBe(createPromptTemplateRegistry(f.compiled).render(
+      { kind: 'workflow-agent', cardType: 'project' }, 'planner', { contractDescription: currentContract },
+    ));
+    capture(`${profile}-strict-compaction`, {
+      kind: 'actual Planner compact() with scripted summary, projected successor and subsequent actual Supervisor reentry provider inputs',
+      input, summaryRequests, successor, successorRequest, actualAfterCompaction,
+    });
   });
 });

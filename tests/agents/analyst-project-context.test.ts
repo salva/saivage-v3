@@ -8,9 +8,8 @@ import { AnalystSession } from '../../src/runtime/actors/analyst-session.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import type { CardService as CardServiceType } from '../../src/cards/store-api.js';
 import { surfaceToolDefinitions, type InvocationSurface } from '../../src/tools/invocation.js';
-import { BoundAgentToolSet, surfaceToolContracts } from '../../src/tools/runtime-tool-catalog.js';
-import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
-import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { surfaceToolContracts } from '../../src/tools/runtime-tool-catalog.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { formatVocabularySnippet } from '../../src/tools/prompt-api.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { sha256Hex } from '../../src/schemas/index.js';
@@ -22,6 +21,15 @@ import {
 } from '../helpers/llm-test-helpers.js';
 import { ANALYST_ORIENTATION_MAX_BYTES } from '../../src/application/read-models/analyst-orientation.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { templateConfig } from '../helpers/system-template-config.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
+import { createAnalystOperationSurface } from '../../src/application/analyst-operation-surface.js';
+import { publishTestProjectRuntime } from '../helpers/initial-project-fixture.js';
+import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
+import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -67,65 +75,68 @@ function buildSession(
 }
 
 describe('Analyst project context', () => {
-  it('prepares the selected global role and compiled tool authority again on a later submission', async () => {
+  it.each([
+    ...['classic', 'classic-typed', 'paad-typed', 'classic-git', 'newloop', 'newloop2'].map(profile => ({ profile, restartAvailable: false })),
+    { profile: 'classic', restartAvailable: true },
+  ])('prepares the selected $profile global role again with restartAvailable=$restartAvailable', async ({ profile, restartAvailable }) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-selected-composition-'));
     roots.push(projectRoot);
-    initProjectTree(projectRoot);
-    const store = new CardService(projectRoot);
-    const cardTypeVocabulary = [...TEST_WORKFLOWS.cardTypes.keys()];
-    const prompts = createTestPromptTemplateRegistry();
+    const template = resolveSystemTemplate(profile);
+    const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)), {
+      projectRoot, defaultPromptRoot: template.promptRoot,
+    });
+    publishTestProjectRuntime(projectRoot, workflows);
+    const store = new ProductionCardService(projectRoot, workflows);
+    const cardTypeVocabulary = [...workflows.cardTypes.keys()];
+    const prompts = createPromptTemplateRegistry(workflows);
+    const restartCapability = restartAvailable
+      ? { available: true as const, port: {
+        schedule: () => { throw new Error('restart must not execute'); },
+        acknowledge: () => { throw new Error('restart must not execute'); },
+      } }
+      : { available: false as const };
     const processes = new ManagedProcessGroupRegistry();
-    const surface = new BoundAgentToolSet(TEST_WORKFLOWS.analyst.tools).bind({
-      retrieval: createObservedCollections(projectRoot),
-      scope: 'global',
-      agentName: TEST_WORKFLOWS.analyst.name,
-      projectRoot,
-      store,
-      processRunner: {} as never,
-      processScope: processes.createDirectScope(
-        processes.rootScope,
-        'analyst-composition',
-        'operator_session',
-      ),
-      processOwnerId: 'agent:analyst:global',
-      mcpToolInvocation: {} as never,
-      analystToolContext: {
-        projectRoot,
-        store,
-        restartCapability: { available: false },
-        actor: 'analyst',
-        surface: 'web-chat',
-        cardTypeVocabulary,
-        runtime: {},
+    const surface = createAnalystOperationSurface({
+      workflows, author: { kind: 'agent', agent: 'analyst' },
+      allowedTools: workflows.analyst.tools.map(({ name }) => name),
+      context: {
+        projectRoot, store, sessionId: 'agent:analyst:global',
+        retrieval: createObservedCollections(projectRoot),
+        processRunner: {} as never,
+        processScope: processes.createDirectScope(processes.rootScope, 'analyst-composition', 'operator_session'),
+        mcpToolInvocation: {} as never,
+        restartCapability, cardTypeVocabulary,
+        runtime: { getStatus: () => ({ status: 'stopped', currentCardId: null }) },
+        assertGlobalSourceWrite: () => { throw new Error('source writes not expected'); },
         captureExecutingLlmSnapshots: () => new Map(),
       } as never,
-      observationToolContext: {
-        agentName: TEST_WORKFLOWS.analyst.name,
-        projectRoot,
-        store,
-        processRunner: {} as never,
-        eventQueries: {} as never,
-        runtime: {} as never,
-        queueNotification: async () => {
-          throw new Error('no notification expected');
-        },
-        captureExecutingLlmSnapshots: () => new Map(),
-      },
-      cardTypeVocabulary,
+      submitNotification: async () => { throw new Error('no notification expected'); },
+      cancelCard: async () => { throw new Error('no cancellation expected'); },
+      currentProcessPosition: () => null,
     });
     let calls = 0;
+    let compactions = 0;
+    const captureCompaction = profile === 'classic' && !restartAvailable;
     const provider = scriptedAdmissionProvider(async (input) => {
       calls++;
-      const expectedRole = prompts.render({ kind: 'global-agent' }, TEST_WORKFLOWS.analyst.name, {
+      const expectedRole = prompts.render({ kind: 'global-agent' }, workflows.analyst.name, {
         vocabularySnippet: formatVocabularySnippet(cardTypeVocabulary),
       });
       expect(input.systemPrompt).toBe(expectedRole);
       expect(input.tools).toEqual(surfaceToolDefinitions(surface));
       expect(input.tools.map((tool) => tool.function.name)).toEqual(
-        TEST_WORKFLOWS.analyst.tools.map((tool) => tool.name),
+        workflows.analyst.tools.map((tool) => tool.name),
       );
       expect(input.compiledToolContracts).toEqual(surfaceToolContracts(surface));
+      if (calls === 2) {
+        const result = input.providerConversation.messages.find(row => row.kind === 'tool_result' && row.tool_call_id === 'inspect-cards');
+        expect(result).toBeDefined();
+        expect(JSON.parse(result!.content)).toMatchObject({ success: true });
+      }
       expect(input.preparedContext!.prefix.instructionText).toBe(expectedRole);
+      if (captureCompaction && calls === 3) expect(input.providerConversation.messages.some(
+        row => row.kind === 'synthetic_context' && row.origin === 'history_summary',
+      )).toBe(true);
       expect(input.preparedContext!.stableBlocks.map((block) => block.id)).toEqual([
         'analyst.project_tree',
         'analyst.workspace_focus',
@@ -134,10 +145,10 @@ describe('Analyst project context', () => {
       if (directory) {
         mkdirSync(directory, { recursive: true });
         writeFileSync(
-          join(directory, `analyst-submission-${calls}.json`),
+          join(directory, `analyst-${profile}-restart-${restartAvailable}-submission-turn-${calls}.json`),
           JSON.stringify(
             {
-              agentName: input.agentName,
+              profile, restartAvailable, agentName: input.agentName,
               sessionId: input.sessionId,
               systemPrompt: input.systemPrompt,
               tools: input.tools,
@@ -150,6 +161,12 @@ describe('Analyst project context', () => {
           ),
         );
       }
+      if (calls === 1) return {
+        result: { kind: 'tool_calls' as const, tool_calls: [{
+          id: 'inspect-cards', type: 'function' as const,
+          function: { name: 'list_cards', arguments: '{}' },
+        }] }, provider_exchanges: [],
+      };
       return {
         result: { kind: 'message' as const, content: 'Inspection complete.' },
         provider_exchanges: [],
@@ -158,18 +175,38 @@ describe('Analyst project context', () => {
     const session = new AnalystSession({
       cardTypeVocabulary,
       sessionId: 'agent:analyst:global',
-      agentName: TEST_WORKFLOWS.analyst.name,
+      agentName: workflows.analyst.name,
       modelParams: { temperature: 0, maxTokens: 1000 },
       capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
       routeUsableInputTokens: 80_000,
       promptTemplates: prompts,
-      restartCapability: { available: false },
+      restartCapability,
       provider,
       conversations: { projectRoot },
-      compactionPolicy: testCompactionPolicy,
-      compactor: testCompactor,
-      summarizerProvider: unusedSummarizerProvider,
+      compactionPolicy: captureCompaction ? { ...testCompactionPolicy, tail_fraction: 0.001 } : testCompactionPolicy,
+      compactor: captureCompaction ? {
+        shouldCompact: () => calls === 2 && compactions === 0,
+        compact: async (input) => {
+          const result = await testCompactor.compact(input);
+          expect(result.kind).toBe('compacted');
+          compactions++;
+          return result;
+        },
+      } : testCompactor,
+      summarizerProvider: captureCompaction ? {
+        ...unusedSummarizerProvider,
+        serializeSummaryRequest: deterministicSummarySerialization,
+        completeTurn: async (input) => {
+          const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+          if (directory) writeFileSync(join(directory, `analyst-classic-summary-orientation-${compactions}.json`), JSON.stringify({
+            kind: 'actual compactor execution with scripted summarizer; not model judgment',
+            input,
+          }, null, 2));
+          return { result: { kind: 'message', content: 'Inspection complete.' }, provider_exchanges: [] };
+        },
+        projectProviderExchanges: () => {},
+      } : unusedSummarizerProvider,
       cardStore: store,
       runtimeCurrent,
       runtimeProjectionChanged() {},
@@ -177,9 +214,10 @@ describe('Analyst project context', () => {
       shutdownProcesses: async () => {},
       fatalPort: testApplicationFatalPort,
     });
-    await session.submit({ userContent: 'Inspect the project.' });
+    await session.submit({ userContent: 'Inspect the project.', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: { tab: 'overview' } } });
     await session.submit({ userContent: 'Inspect it again.' });
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
+    if (captureCompaction) expect(compactions).toBe(1);
   });
 
   it('derives the bounded orientation snapshot from one validated list without per-card parent reads', async () => {

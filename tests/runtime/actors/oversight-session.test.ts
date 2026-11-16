@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { OversightSession } from '../../../src/runtime/actors/oversight-session.js';
+import { CardService } from '../../../src/cards/card-service.js';
+import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import type { ProviderTurnCompletion } from '../../../src/contracts/index.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { surfaceToolDefinitions, type InvocationSurface } from '../../../src/tools/invocation.js';
@@ -132,18 +134,19 @@ describe('OversightSession owned check settlement', () => {
         { projectRoot: root, defaultPromptRoot: template.promptRoot },
       );
       const prompts = createPromptTemplateRegistry(workflows);
+      const store = new CardService(root, workflows);
       const surface = new BoundAgentToolSet(workflows.oversight.tools).bind({
         scope: 'global',
         agentName: workflows.oversight.name,
         projectRoot: root,
-        store: {} as never,
+        store,
         processRunner: {} as never,
         processOwnerId: 'agent:oversight:global',
         mcpToolInvocation: {} as never,
         observationToolContext: {
           agentName: workflows.oversight.name,
           projectRoot: root,
-          store: {} as never,
+          store,
           processRunner: {} as never,
           eventQueries: {} as never,
           runtime: {} as never,
@@ -155,6 +158,8 @@ describe('OversightSession owned check settlement', () => {
         cardTypeVocabulary: [...workflows.cardTypes.keys()],
       });
       let calls = 0;
+      let compactions = 0;
+      const captureCompaction = profile === 'classic';
       const provider = scriptedAdmissionProvider(async (input) => {
         calls++;
         const expectedRole = prompts.render({ kind: 'global-agent' }, workflows.oversight.name, {
@@ -166,7 +171,15 @@ describe('OversightSession owned check settlement', () => {
           workflows.oversight.tools.map((tool) => tool.name),
         );
         expect(input.compiledToolContracts).toEqual(surfaceToolContracts(surface));
+        if (calls === 2) {
+          const result = input.providerConversation.messages.find(row => row.kind === 'tool_result' && row.tool_call_id === 'inspect-cards');
+          expect(result).toBeDefined();
+          expect(JSON.parse(result!.content)).toMatchObject({ success: true });
+        }
         expect(input.preparedContext!.prefix.instructionText).toBe(expectedRole);
+        if (captureCompaction && calls === 3) expect(input.providerConversation.messages.some(
+          row => row.kind === 'synthetic_context' && row.origin === 'history_summary',
+        )).toBe(true);
         expect(input.preparedContext!.stableBlocks).toEqual([]);
         const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
         if (directory) {
@@ -187,7 +200,7 @@ describe('OversightSession owned check settlement', () => {
               2,
             ),
           );
-          if (calls === 2) {
+          if (calls === 3) {
             const projection = providerConversationFromComposedContext(
               composeContextProjection({
                 sourceSessionId: parseConversationSessionId(input.sessionId),
@@ -224,6 +237,12 @@ describe('OversightSession owned check settlement', () => {
             );
           }
         }
+        if (calls === 1) return {
+          result: { kind: 'tool_calls', tool_calls: [{
+            id: 'inspect-cards', type: 'function',
+            function: { name: 'list_cards', arguments: '{}' },
+          }] }, provider_exchanges: [],
+        };
         return finalMessage();
       });
       const createCheck = () =>
@@ -241,16 +260,42 @@ describe('OversightSession owned check settlement', () => {
           capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
           candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
           routeUsableInputTokens: 80_000,
-          compactionPolicy: testCompactionPolicy,
-          compactor: testCompactor,
-          summarizerProvider: unusedSummarizerProvider,
+          compactionPolicy: captureCompaction ? { ...testCompactionPolicy, tail_fraction: 0.001 } : testCompactionPolicy,
+          compactor: captureCompaction ? {
+            shouldCompact: () => calls === 2 && compactions === 0,
+            compact: async (input) => {
+              const result = await testCompactor.compact(input);
+              expect(result.kind).toBe('compacted');
+              compactions++;
+              return result;
+            },
+          } : testCompactor,
+          summarizerProvider: captureCompaction ? {
+            ...unusedSummarizerProvider,
+            serializeSummaryRequest: deterministicSummarySerialization,
+            completeTurn: async (input) => {
+              const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+              if (directory) writeFileSync(join(directory, `oversight-classic-summary-orientation-${compactions}.json`), JSON.stringify({
+                kind: 'actual compactor execution with scripted summarizer; not model judgment',
+                input,
+              }, null, 2));
+              return finalMessage();
+            },
+            projectProviderExchanges: () => {},
+          } : unusedSummarizerProvider,
           runtimeProjectionChanged() {},
           fatalPort: testApplicationFatalPort,
           cardTypeVocabulary: [...workflows.cardTypes.keys()],
         });
       await expect(createCheck().run()).resolves.toBe('succeeded');
+      const firstInstructions = readConversation(root, 'agent:oversight:global').physicalRows.flatMap(row => {
+        const marker = row.kind === 'activity' ? parseActivationOpenPayload(row.content, row.session_id, row.timestamp) : null;
+        return marker ? [marker.instructions] : [];
+      });
+      expect(firstInstructions).toHaveLength(1);
       await expect(createCheck().run()).resolves.toBe('succeeded');
-      expect(calls).toBe(2);
+      expect(calls).toBe(3);
+      if (captureCompaction) expect(compactions).toBe(1);
       const markers = readConversation(root, 'agent:oversight:global').physicalRows.flatMap(
         (row) => {
           const marker =
@@ -260,8 +305,8 @@ describe('OversightSession owned check settlement', () => {
           return marker ? [marker] : [];
         },
       );
-      expect(markers).toHaveLength(2);
-      expect(markers[1]!.instructions).toEqual(markers[0]!.instructions);
+      expect(markers).toHaveLength(captureCompaction ? 1 : 2);
+      expect(markers.at(-1)!.instructions).toEqual(firstInstructions[0]);
     },
   );
 
