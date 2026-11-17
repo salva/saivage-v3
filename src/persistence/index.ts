@@ -1,6 +1,10 @@
 export { appendAppLogEntry, readAppLogEntries } from './app-log.js';
 export { observeRecordProjection } from './record-observation.js';
 export { initializeRecordBaseline } from './authored-record-files.js';
+export { readWorkGcRecord } from './authored-record-files.js';
+export { readWorkGcCard, readWorkGcNotification } from './card-files.js';
+export { readWorkGcConversation } from './conversation-file.js';
+export { readWorkGcExecutionPaths } from './card-execution-log.js';
 export { publishFreshFile } from './replace-file.js';
 export type { AppLogPublicationContext } from './app-log.js';
 export {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -11,6 +12,8 @@ import {
   cardParentId,
   childCardId,
   nextCardSegment,
+  uuidV4Schema,
+  positiveSafeIntegerSchema,
 } from '../schemas/index.js';
 import {
   cardAgentSessionId,
@@ -109,6 +112,66 @@ interface ActiveCardTraversalRow {
   readonly activeDescendantCount: number;
 }
 export class CardSelectionInvalidError extends Error {}
+
+/** GC projects only current traversal and content selections, never history admission. */
+export function readWorkGcCard(projectRoot: string, cardId: string) {
+  cardIdSchema.parse(cardId);
+  const head = z
+    .object({
+      format_version: z.literal(1),
+      kind: z.literal('card-head'),
+      card_id: z.literal(cardId),
+      ordinary: z.object({ entry_id: uuidV4Schema, version: positiveSafeIntegerSchema }),
+      pending: z.array(uuidV4Schema),
+    })
+    .parse(parseJson(readCanonicalBytes(cardHeadFile(projectRoot, cardId))));
+  if (new Set(head.pending).size !== head.pending.length)
+    throw new Error('Ambiguous GC pending selection.');
+  const artifact = z
+    .object({
+      format_version: z.literal(7),
+      kind: z.enum(['card-version', 'card-tombstone']),
+      card_id: z.literal(cardId),
+      entry_id: z.literal(head.ordinary.entry_id),
+      version: z.literal(head.ordinary.version),
+      card: z.unknown(),
+    })
+    .parse(
+      parseJson(readCanonicalBytes(cardHistoryFile(projectRoot, cardId, head.ordinary.entry_id))),
+    );
+  if (artifact.kind === 'card-tombstone') {
+    if (cardId === 'project') throw new Error('GC project cannot be tombstoned.');
+    return null;
+  }
+  const card = z
+    .object({
+      id: z.literal(cardId),
+      type: z.string().min(1),
+      title: z.string(),
+      status_text: z.string().nullable(),
+      child_membership: z.array(cardIdSchema),
+    })
+    .parse(artifact.card);
+  if (
+    new Set(card.child_membership).size !== card.child_membership.length ||
+    card.child_membership.some((child) => cardParentId(child) !== cardId)
+  )
+    throw new Error('Ambiguous GC child membership.');
+  return { ...card, pending: head.pending };
+}
+
+export function readWorkGcNotification(projectRoot: string, cardId: string, id: string): string {
+  uuidV4Schema.parse(id);
+  return z
+    .object({
+      format_version: z.literal(1),
+      kind: z.literal('card-message'),
+      card_id: z.literal(cardId),
+      notification: z.object({ id: z.literal(id), content: z.string() }),
+    })
+    .parse(parseJson(readCanonicalBytes(cardMailboxFile(projectRoot, cardId, id)))).notification
+    .content;
+}
 
 function readExactCard(
   projectRoot: string,

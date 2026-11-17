@@ -165,7 +165,9 @@ offline migration requires an explicit identified-project request and its full g
 ## Documentation authorities
 
 Optional [explicit work reclamation](docs/runbook/work-gc.md) protects current
-concrete semantic references while strictly validating complete required history. Preview
+concrete semantic references using only necessary current retention projections, not a
+history integrity audit. Card compaction horizons retain recent work; old-mtime files
+and files referenced only by excluded shell syntax can still be lost. Preview
 before a separate irreversible delete: historical-only attachments may disappear,
 not canonical history. Unknown reference scope or operational protections may still retain everything; no
 reclaim amount is guaranteed. It is not an installation/startup step, automatic

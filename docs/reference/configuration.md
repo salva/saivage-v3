@@ -317,8 +317,10 @@ response and cannot certify deletion effects. Phases/count limits are in the run
 Follow the
 [preview-first procedure](../runbook/work-gc.md); each delete computes a new selection.
 Protection follows current semantic roots, not historical provenance, without a new
-configuration option. Complete required history remains strictly validated; old files
-with current references remain protected, while historical-only attachments may vanish.
+configuration option. GC consumes only necessary current retention projections, not a
+complete history audit. Current concrete references protect old files, but historical-only
+attachments can disappear. Card horizons and excluded shell sources affect eligibility;
+see the procedure for their limits and loss risks.
 
 ### YAML keys
 

@@ -12,15 +12,15 @@ it('emits transitions immediately, throttles counts, preserves omitted versus ze
   expect(sink).toHaveBeenCalledTimes(1);
   time++; reporter.update({ observed_count: 3 });
   reporter.phase('settling');
-  reporter.phase('validation_marking', { validated_cards: 0 });
-  reporter.increment('validated_cards');
+  reporter.phase('retention_marking', { inspected_cards: 0 });
+  reporter.increment('inspected_cards');
   reporter.phase('selection', { candidates_processed: 0 });
   expect(sink.mock.calls.map(([value]) => value)).toEqual([
     { phase: 'inventory', elapsed_ms: 0, observed_count: 0, first_global_protection: null },
     { phase: 'inventory', elapsed_ms: 1000, observed_count: 3, observed_logical_bytes: 5, first_global_protection: null },
     { phase: 'settling', elapsed_ms: 1000, observed_count: 3, observed_logical_bytes: 5, first_global_protection: null },
-    { phase: 'validation_marking', elapsed_ms: 1000, observed_count: 3, observed_logical_bytes: 5, validated_cards: 0, first_global_protection: null },
-    { phase: 'selection', elapsed_ms: 1000, observed_count: 3, observed_logical_bytes: 5, validated_cards: 1, candidates_processed: 0, first_global_protection: null },
+    { phase: 'retention_marking', elapsed_ms: 1000, observed_count: 3, observed_logical_bytes: 5, inspected_cards: 0, first_global_protection: null },
+    { phase: 'selection', elapsed_ms: 1000, observed_count: 3, observed_logical_bytes: 5, inspected_cards: 1, candidates_processed: 0, first_global_protection: null },
   ]);
   for (const [value] of sink.mock.calls) expect(WorkGcProgressSchema.parse(value)).toEqual(value);
 });
@@ -46,17 +46,17 @@ it('keeps the first mark sticky through throttled numeric updates and phase chan
   const sink = jest.fn();
   const reporter = createWorkGcProgress(sink, () => time)!;
   const first = { reason: 'reference_scope_unknown', source: 'conversation_content' } as const;
-  reporter.phase('validation_marking', { validated_cards: 0 });
+  reporter.phase('retention_marking', { inspected_cards: 0 });
   reporter.update({ first_global_protection: first });
-  reporter.increment('validated_cards');
+  reporter.increment('inspected_cards');
   reporter.update({ first_global_protection: { reason: 'operational_root', source: 'operational_input' } });
   expect(sink).toHaveBeenCalledTimes(1);
   time = 1000;
-  reporter.increment('validated_cards');
+  reporter.increment('inspected_cards');
   reporter.phase('selection');
   expect(sink.mock.calls.map(([value]) => value)).toEqual([
-    { phase: 'validation_marking', elapsed_ms: 0, validated_cards: 0, first_global_protection: null },
-    { phase: 'validation_marking', elapsed_ms: 1000, validated_cards: 2, first_global_protection: first },
-    { phase: 'selection', elapsed_ms: 1000, validated_cards: 2, first_global_protection: first },
+    { phase: 'retention_marking', elapsed_ms: 0, inspected_cards: 0, first_global_protection: null },
+    { phase: 'retention_marking', elapsed_ms: 1000, inspected_cards: 2, first_global_protection: first },
+    { phase: 'selection', elapsed_ms: 1000, inspected_cards: 2, first_global_protection: first },
   ]);
 });

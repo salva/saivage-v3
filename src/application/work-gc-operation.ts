@@ -56,11 +56,18 @@ function workflowInputs(workflows: CompiledProjectWorkflows): unknown {
   });
 }
 
-export function workGcOperationalInputs(
-  config: SaivageConfig,
-  workflows: CompiledProjectWorkflows,
-) {
-  return { config, operations: operationalValue(workflows.operations) };
+export function workGcOperationalInputs(config: SaivageConfig) {
+  // Compiled card inputs and selected prompt paths are projected by their owner.
+  // Model/provider metadata and raw workflow declarations are not dependencies.
+  return {
+    mcp: Object.values(config.mcpServers ?? {}).flatMap((server) =>
+      server.transport === 'stdio'
+        ? [{ command: server.command, args: server.args, env: server.env }]
+        : [],
+    ),
+    quality: Object.values(config.agents).map((agent) => agent.quality_tools),
+    git: config.git_workflow?.enabled ? { source_roots: config.git_workflow.source_roots } : null,
+  };
 }
 
 export function workGcCompletedResponse(
@@ -171,7 +178,7 @@ export function runWorkGcOperation(input: {
     collect: async (inventory, signal) => {
       signal.throwIfAborted();
       failureReason = 'operational_inputs_invalid';
-      progress?.phase('validation_marking');
+      progress?.phase('retention_marking');
       const fresh = input.configAuthority.loadEffective();
       const operationalWorkflows = workflowInputs(fresh.workflows);
       if (
@@ -193,7 +200,7 @@ export function runWorkGcOperation(input: {
           // Executable dependencies live in the selected configuration/operation definitions.
           // Expanded role instructions are checked for composition consistency above; their
           // retained conversation selections are independently marked by the canonical owner.
-          operationalInputs: workGcOperationalInputs(fresh.config, fresh.workflows),
+          operationalInputs: workGcOperationalInputs(fresh.config),
           protection: input.processRunner.workGcProtection(),
           assertCollecting: () => signal.throwIfAborted(),
           fatal: failFatally,

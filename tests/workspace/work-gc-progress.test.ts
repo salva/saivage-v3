@@ -9,11 +9,13 @@ import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js
 import { inventoryWorkGarbage, collectWorkGarbage } from '../../src/workspace/work-garbage-collector.js';
 import { createWorkGcProgress } from '../../src/application/work-gc-progress.js';
 import type { WorkGcProgress } from '../../src/contracts/work-gc.js';
+import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
 
 let root: string;
 afterEach(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 it.each(['dry_run', 'delete'] as const)('observes existing completed inspections and every %s classification, not reserved temporary entries', async mode => {
   root = mkdtempSync(join(tmpdir(), 'gc-counts-')); initProjectTree(root);
+  compactWorkGcCard(root, TEST_WORKFLOWS);
   appendConversationBatch({ projectRoot: root }, [agentMessageSchema.parse({
     id: randomUUID(), session_id: 'agent:planner:project', role: 'user', kind: 'text',
     content: 'A retained current observation.',
@@ -50,10 +52,10 @@ it.each(['dry_run', 'delete'] as const)('observes existing completed inspections
     deleted_count: mode === 'delete' ? 1 : 0 });
   expect(snapshots.at(-1)).toMatchObject({ phase: 'selection', candidates_processed: 6,
     first_global_protection: null,
-    observed_count: 6, observed_logical_bytes: 24, validated_cards: 1,
+    observed_count: 6, observed_logical_bytes: 24, inspected_cards: 1,
     ...(mode === 'dry_run' ? { would_delete_count: 1, would_delete_logical_bytes: 4 }
       : { deleted_count: 1, deleted_logical_bytes: 4 }) });
-  expect(snapshots.at(-1)!.validated_segments).toBeGreaterThan(0);
-  expect(snapshots.at(-1)!.validated_records).toBeGreaterThan(0);
-  expect(new Set(snapshots.map(value => value.phase))).toEqual(new Set(['inventory', 'validation_marking', 'selection']));
+  expect(snapshots.at(-1)!.inspected_sessions).toBeGreaterThan(0);
+  expect(snapshots.at(-1)!.inspected_records).toBeGreaterThan(0);
+  expect(new Set(snapshots.map(value => value.phase))).toEqual(new Set(['inventory', 'retention_marking', 'selection']));
 });

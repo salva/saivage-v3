@@ -167,10 +167,10 @@ Only valid terminal response plus EOF establishes the reported outcome, not HTTP
 200 or any snapshot. There is no old encoding fallback. Progress is transient,
 lossy, content/identity/path-free, monotonic elapsed milliseconds with optional
 cumulative nonnegative safe-integer counters: `observed_count`,
-`observed_logical_bytes`, `opaque_entries`, `validated_cards`, `validated_records`,
-`validated_segments`, `candidates_processed`, `would_delete_count`,
+`observed_logical_bytes`, `opaque_entries`, `inspected_cards`, `inspected_records`,
+`inspected_sessions`, `candidates_processed`, `would_delete_count`,
 `would_delete_logical_bytes`, `deleted_count`, `deleted_logical_bytes`.
-Phases are `inventory`, online-only `settling`, `validation_marking`, `selection`;
+Phases are `inventory`, online-only `settling`, `retention_marking`, `selection`;
 phase changes emit immediately, loop-driven count observations at most once per
 second. Inspection counters follow completed owner reads, candidate counts follow
 classification, and deletion counters follow known successes. Omission is not
@@ -196,15 +196,16 @@ an observer. CLI stderr renders its reason/source explicitly, or
 `first_global_protection=null`; stdout remains one strict final response.
 
 Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
-while execution continues, then holds/parks and freshly consumes canonical sources,
-marking explicit and recognized inferred references before checking each candidate
-at use. Current live card content, pending notification bodies, selected record
+while execution continues. Online collection then holds/parks; offline collection
+uses the separately confirmed lifecycle exclusion. When retention marking is needed,
+it freshly consumes necessary canonical selections and marks explicit and recognized
+inferred references before checking each candidate at use. Current live card content, pending notification bodies, selected record
 baseline/open draft/latest accepted content, current conversation effective summary,
 retained protected instruction contents and semantic source-row payloads protect work.
 Unfinished execution selections, retained process-owner captures, operational
 dependencies and exact aliases also protect work. Historical content, internal
-observations and producer provenance alone do not protect attachments. Strict
-invalid required evidence blocks collection; GC never repairs/truncates it. Unknown
+observations and producer provenance alone do not protect attachments. Invalid
+required evidence consumed by GC blocks collection; GC never repairs/truncates it. Unknown
 ownership or surviving writer effects cause retention/refusal, not guessed safety.
 Only eligible regular files under work without recognized protections can be removed;
 directories, publication temporaries and canonical/attic/backup data remain untouched.
@@ -226,8 +227,8 @@ scope, and the whole remaining suffix is matched. The matcher is the same one th
 project glob tools use: `*` and `?` stay within one path segment, a whole `**` segment
 crosses zero or more levels, matching is case-sensitive, brackets and braces are
 literal, and URI percent-decoding applies before matching while native percent names
-are not decoded. Shell-expression text (`${...}`, `$(...)`) is not evaluated and keeps
-its conservative handling.
+are not decoded. Unresolved substitutions (`${...}`, `$(...)`) in recognized
+non-shell references are not evaluated; their scope remains conservative.
 
 The candidates for a glob are the ordinary files and directories that inventory admitted
 under approved work namespaces, each physical entry counted once across overlapping
@@ -255,7 +256,7 @@ match more than 50 entries, can make old still-needed work eligible for later ex
 deletion. No error rate is estimated, and an age cutoff does not protect against this
 risk. Needed work is kept by an explicit concrete reference. Recognized aliases whose
 scope cannot be resolved remain conservative; this inference exception weakens neither
-strict history/native validation nor writer exclusion or candidate checks.
+required GC selection decoding nor writer exclusion or candidate checks.
 
 Only a missing lifecycle lock selects offline CLI GC: exact interactive maintained
 writer-quiescence confirmation precedes existing bound lifecycle exclusion and
@@ -267,10 +268,41 @@ Preview publishes/releases that lock but has no collector effects; offline resul
 follow successful release. Lock-release uncertainty is fatal before further output
 or cleanup for every owner, including app, initializer and repair.
 
-Strict extraction consumes each session index and every indexed segment completely,
-as well as linked card history, selected record predecessors and complete execution
-evidence, independently of marking. Only the current segment's already-derived
-owning selection supplies conversation roots; GC does not recompute compaction.
+GC uses owner-local projections of current membership, heads, latest selected
+accepted records and configured current conversation segments; it does not traverse
+predecessors or old segments, reconstruct history, or validate unrelated schema,
+hashes or provenance. Required containing JSON must parse, and required selection,
+JSONL framing, row classification and unfinished-execution associations must be
+decodable; malformed required data refuses without truncation. Irrelevant malformed
+fields in valid JSON need not refuse. Ordinary consumers remain strict.
+
+For each reached live card, the horizon is the minimum current compacted-genesis
+timestamp across unique configured card-session agents. An empty agent set, an
+established empty session or ordinary genesis gives no horizon and protects the
+whole card work area. That card's current content can still protect another card's
+or global work. Missing required selections refuse; optional absent Oversight
+remains legitimate. A card file is retained when its mtime is at or after `before`
+if supplied, at or after its horizon, or covered by a reference or other protection.
+Horizon/no-horizon retention counts as `retained.protected`.
+Omitting `before` removes only that cutoff. Global work follows its own cutoff and
+protection rules; unreached and tombstoned owners remain opaque. Eligibility uses
+mtime, while ctime participates only in fresh identity checks. A needed file with a
+preserved old mtime can be deleted; rollback cannot restore it.
+
+Known shell sources are excluded: `run_command` arguments' `command`,
+`shell.run` action `config.script` (including its literal wrapper, in node actions
+and `afterActivationCommit`), and execution scripts and launcher argv. Retained
+`run_command.cwd` is conversation content, subject to the concrete-artifact and
+administrative-root rules above. Compiled action cwd, artifacts, environment
+literals and `inputs.args`, and configured MCP stdio command and args are
+operational inputs. Explicitly shell-labelled Markdown fences are masked;
+unlabelled text still receives ordinary lexical inference. Non-shell quoted, bare,
+structured, wildcard and executable-argument references remain eligible for inference.
+Unresolved recognized substitutions retain conservatively, not by prefix inference.
+Needed work referenced only from excluded shell syntax can be deleted.
+
+Empty or entirely recent inventory and genuine whole-work protection can skip
+remaining projection and extraction; a completed collection is not an integrity audit.
 Current concrete references protect old files regardless of age. Ignoring content
 administrative-root mentions can make old files eligible despite intended blanket
 retention. Separately authorized deletion may irreversibly remove historical-only
@@ -2215,7 +2247,7 @@ A missing or empty cwd and canonical `project:///` select the project root; plai
 Scoped URL classification precedes native filesystem resolution. Malformed scoped URLs, scoped URL query/fragment cwd values, unknown scoped schemes, and the `record`, `tmp`, and `work` schemes fail before launch. Colon, percent, query and fragment characters in native absolute filenames are filesystem characters, not URL syntax. Relative and explicit project paths retain parent-segment and escaping-symlink rejection; native absolute paths use ordinary native normalization. OS accessibility failures retain ordinary runner behavior.
 The one shared card/global tool definition states the scratch contract independently of the selected agent prompt: normally keep source edits, builds, and tests in the project workspace. Card-scoped invocations receive absolute `SAIVAGE_CARD_WORK_ROOT` equal to `.saivage/work/cards/<cardId>` and `SAIVAGE_CARD_SHELL_ROOT` equal to its `shell` child. After resolving/admitting cwd, the tool recursively creates that exact shell directory with ordinary Node defaults before spawning; a creation failure fails the tool without launching. It neither clears nor inspects existing contents. Purpose-named children, for example `"$SAIVAGE_CARD_SHELL_ROOT/install-check"`, are the default for disposable copies, extraction areas, caches, and intermediate command work. The directory is shared across commands and later activations; cwd still defaults to the project root, and HOME, TMPDIR and caches are not implicitly redirected. When the assigned task needs external work, such as clean installation, relocation, or dependency isolation, an appropriate purpose-named directory outside the checkout is permitted within already-authorized task/deployment scope, without granting unrelated machine changes, global installs, or destructive cleanup. Preserve unrelated files, manage only task-owned work/resources, and keep needed evidence and its location clear before disposing of owned temporary artifacts. External files gain no `work:///` locators or automatic `gc-work` coverage.
 Keep `.saivage` durable state project-local; `processes/` and `tmp/` beneath the card work root remain reserved, and project-root `.card-*-work` siblings must not be invented. Global/non-card invocations receive neither card variable and create no card subtree; task-justified external work remains available within their own authority. Cwd choice changes neither process scope, project-owned captures nor workspace-tool write permissions. This organization provides no sandbox or exclusive writer guarantee.
-`shell` is ordinary concrete work, not a reserved administrative root. Availability, its name and card existence never protect files from explicit work GC: old unreferenced files are eligible, while current concrete file/subtree references protect only that scope. A whole-shell reference can protect that subtree but not sibling captures/tmp; a card-root mention alone protects neither. Prefer needed purpose-child/artifact references. No automatic cleanup occurs on command/card completion, re-entry or startup; GC keeps directories. Existing sibling work stays valid without conversion or relocation, and separately consented generated-state reset still includes the entire work root.
+`shell` is ordinary concrete work, not a reserved administrative root. Availability, its name and card existence alone do not protect files from explicit work GC; the card horizon and other protections also apply. Old unreferenced files can be eligible, while current concrete file/subtree references protect only that scope. A whole-shell reference can protect that subtree but not sibling captures/tmp; a card-root mention alone protects neither. Prefer needed purpose-child/artifact references. No automatic cleanup occurs on command/card completion, re-entry or startup; GC keeps directories. Existing sibling work stays valid without conversion or relocation, and separately consented generated-state reset still includes the entire work root.
 Supported agent-prompt replacement does not replace configured tool definitions.
 This command environment locator does not grant workspace-tool writes into `.saivage` and does not change `tmp:///` or `work:///` behavior.
 The managed-process registry consumes child `error` events immediately from spawn return, so a handled OS launch failure cannot independently crash the runtime, and it never registers a process group without a positive leader PID.

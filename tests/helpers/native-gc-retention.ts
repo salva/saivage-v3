@@ -12,6 +12,7 @@ import { cardExecutionFile, cardMailboxFile, cardConversationVersionIndexFile, g
 import { cardAgentSessionId, globalAgentSessionId, genericRecordDefinition, type ConversationSessionId, type RecordDefinition } from '../../src/schemas/index.js';
 import { inventoryWorkGarbage } from '../../src/workspace/work-garbage-collector.js';
 import { fixtureGit } from './public-native-project.js';
+import { compactWorkGcCard } from './work-gc-compaction.js';
 
 export const nativeGcBefore = new Date(2000).toISOString();
 const recordName = 'gc-capture.md';
@@ -27,6 +28,7 @@ function workflows(root: string) {
 
 /** Public init has exited: these successful bootstrap processes have no live presentation owner. */
 export function seedNativeGcPair(root: string): NativeGcPair {
+  compactWorkGcCard(root, workflows(root));
   const execution = inspectCardExecutions(root, 'project');
   assert.equal(execution.tornSuffixLength, 0);
   const rows = execution.projection;

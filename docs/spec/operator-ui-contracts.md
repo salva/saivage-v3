@@ -339,6 +339,8 @@ No transcript, execution-evidence or historical-selection semantics change.
 Canonical history remains unchanged, but historical-only work attachments may become
 unavailable irreversibly after explicit GC. A retained URL or producer identity does
 not promise retained bytes; current concrete explicit references still protect old files.
+Card compaction horizons can retain additional work, but needed old-mtime files or
+files referenced only by excluded shell syntax can disappear. No new UI control is added.
 
 Outstanding named-agent execution includes overload/backoff, not just wire
 consumption. Provider refresh shows advisory cooling/reason/deadline, not a send

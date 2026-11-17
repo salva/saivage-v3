@@ -235,6 +235,10 @@ type ReferenceOrigin = 'content' | 'operational';
 /** Content identifies concrete artifacts, not administrative containers. Never reads contents. */
 class WorkReferences {
   readonly paths = new Set<string>();
+  readonly resolvedReferences = new Set<string>();
+  private readonly lexicalReferences = new Set<string>();
+  private readonly scopeReferences = new Map<string, string[]>();
+  private readonly textReferences = new Map<string, boolean>();
   #firstGlobalProtection: FirstGlobalProtection | null = null;
   get firstGlobalProtection(): FirstGlobalProtection | null {
     return this.#firstGlobalProtection;
@@ -249,6 +253,8 @@ class WorkReferences {
   constructor(
     readonly projectRoot: string,
     readonly entries: readonly string[],
+    readonly candidates: readonly Candidate[],
+    readonly before: number | undefined,
     readonly check: () => void,
     readonly progress?: WorkGcProgressPort,
   ) {
@@ -295,8 +301,13 @@ class WorkReferences {
   }
 
   private path(path: string, origin: ReferenceOrigin, source: WorkGcProtectionSource): void {
+    if (this.firstGlobalProtection) return;
     path = resolve(path);
+    const key = JSON.stringify([origin, source, path]);
+    if (this.resolvedReferences.has(key)) return;
+    this.resolvedReferences.add(key);
     this.mark(path, origin, source);
+    if (this.firstGlobalProtection) return;
     const actual = this.resolvePath(path, source);
     if (actual !== null) this.mark(actual, origin, source);
   }
@@ -338,12 +349,24 @@ class WorkReferences {
     }
   }
 
+  private referenceBases(value: string, bases: readonly string[]): readonly string[] {
+    return isAbsolute(value) ||
+      /^(?:project|system|work|tmp):\/\//u.test(value) ||
+      (/^file:\/\//u.test(value) && !/[?#]/u.test(value))
+      ? []
+      : bases;
+  }
+
   private async scopes(
     value: string,
     bases: readonly string[],
     origin: ReferenceOrigin,
     source: WorkGcProtectionSource,
   ): Promise<string[]> {
+    if (this.firstGlobalProtection) return [];
+    const key = JSON.stringify([origin, source, value, this.referenceBases(value, bases)]);
+    const previous = this.scopeReferences.get(key);
+    if (previous !== undefined) return previous;
     if (value.includes('${') || value.includes('$(')) {
       await this.token(value, bases, origin, source, true);
       return [];
@@ -390,10 +413,14 @@ class WorkReferences {
         return [];
       }
     } else paths = isAbsolute(value) ? [value] : bases.map((base) => resolve(base, value));
-    return paths.flatMap((path) => {
+    const result: string[] = [];
+    for (const path of paths) {
+      if (this.firstGlobalProtection) break;
       const actual = this.resolvePath(path, source);
-      return actual === null ? [] : [actual];
-    });
+      if (actual !== null) result.push(actual);
+    }
+    this.scopeReferences.set(key, result);
+    return result;
   }
 
   private async glob(
@@ -402,8 +429,12 @@ class WorkReferences {
     origin: ReferenceOrigin,
     source: WorkGcProtectionSource,
   ): Promise<void> {
+    if (this.firstGlobalProtection) return;
     await this.visit();
     if (!input || input.includes('\0')) return;
+    const key = JSON.stringify(['glob', origin, source, input, this.referenceBases(input, bases)]);
+    if (this.lexicalReferences.has(key)) return;
+    this.lexicalReferences.add(key);
     if (input.includes('${') || input.includes('$(')) {
       await this.token(input, bases, origin, source, true);
       return;
@@ -430,7 +461,26 @@ class WorkReferences {
       scopes = await this.scopes(prefix, bases, origin, source);
       pattern = pattern.slice(slash + 1);
     }
+    if (this.firstGlobalProtection) return;
     const matcher = globToRegExp(pattern);
+    let useful = false;
+    for (const candidate of this.candidates) {
+      await this.visit();
+      if (this.before !== undefined && candidate.mtimeMs >= this.before) continue;
+      const path = join(this.root, candidate.path);
+      if (
+        !this.protects(path) &&
+        scopes.some((scope) => {
+          for (let entry = path; entry !== scope && within(scope, entry); entry = dirname(entry))
+            if (matcher.test(normalizeRel(relative(scope, entry)))) return true;
+          return false;
+        })
+      ) {
+        useful = true;
+        break;
+      }
+    }
+    if (!useful) return;
     const matched = new Set<string>();
     for (const entry of this.entries) {
       await this.visit();
@@ -456,19 +506,21 @@ class WorkReferences {
     source: WorkGcProtectionSource,
     exact = false,
   ): Promise<void> {
+    if (this.firstGlobalProtection) return;
     await this.visit();
     if (!token || token.includes('\0')) return;
+    const key = JSON.stringify([
+      'token',
+      origin,
+      source,
+      token,
+      exact,
+      this.referenceBases(token, bases),
+    ]);
+    if (this.lexicalReferences.has(key)) return;
+    this.lexicalReferences.add(key);
     if (token.includes('${') || token.includes('$(')) {
-      const prefix = token.split(/\$/u)[0]!;
-      if (prefix.includes('/'))
-        await this.token(
-          prefix.endsWith('/') ? prefix : dirname(prefix),
-          bases,
-          origin,
-          source,
-          true,
-        );
-      else this.protectAll('reference_scope_unknown', source);
+      this.protectAll('reference_scope_unknown', source);
       return;
     }
     if (
@@ -540,12 +592,40 @@ class WorkReferences {
     source: WorkGcProtectionSource,
     pathValue = false,
     scopes: readonly string[] = bases,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    if (this.firstGlobalProtection) return false;
     await this.visit();
     if (pathValue) {
       await this.token(text, bases, origin, source, true);
-      return;
+      return false;
     }
+    const key = JSON.stringify([origin, source, text, bases, scopes]);
+    const previous = this.textReferences.get(key);
+    if (previous !== undefined) return previous;
+    // Only explicitly shell-labelled Markdown fences are excluded; unlabelled text
+    // keeps ordinary lexical inference. A closing fence must match its opener.
+    let fence: { delimiter: string; length: number; shell: boolean } | null = null;
+    text = text
+      .split(/(?<=\n)/u)
+      .map((line) => {
+        const match = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)/u.exec(line);
+        if (fence) {
+          const masked = fence.shell ? '\n' : line;
+          if (
+            match &&
+            match[1]![0] === fence.delimiter &&
+            match[1]!.length >= fence.length &&
+            match[2]!.trim() === ''
+          )
+            fence = null;
+          return masked;
+        }
+        if (!match || (match[1]![0] === '`' && match[2]!.includes('`'))) return line;
+        const shell = /^(?:sh|bash|shell|zsh)$/iu.test(match[2]!.trim().split(/\s+/u)[0] ?? '');
+        fence = { delimiter: match[1]![0]!, length: match[1]!.length, shell };
+        return shell ? '\n' : line;
+      })
+      .join('');
     // Nested JSON and JSON-escaped strings occur in raw tool arguments and Markdown evidence.
     let parsed: unknown;
     try {
@@ -554,8 +634,9 @@ class WorkReferences {
       /* Ordinary prose need not be JSON. */
     }
     if (parsed !== undefined && (typeof parsed !== 'string' || parsed !== text)) {
-      await this.value(parsed, origin, source, bases, '', scopes);
-      return;
+      const pattern = await this.value(parsed, origin, source, bases, '', scopes);
+      this.textReferences.set(key, pattern);
+      return pattern;
     }
     const decodeQuote = (quoted: string): string => {
       if (quoted.startsWith('"')) {
@@ -582,8 +663,11 @@ class WorkReferences {
         directories.length === 1 && patterns.length === 1
           ? await this.scopes(decodeQuote(directories[0]![2]!), bases, origin, source)
           : bases;
-      for (const field of patterns)
+      if (this.firstGlobalProtection) return false;
+      for (const field of patterns) {
         await this.glob(decodeQuote(field[2]!), pairedScopes, origin, source);
+        if (this.firstGlobalProtection) return false;
+      }
       // Consume only scope/pattern metadata; other assignments remain independent references.
       const consumed = match[0].replace(
         new RegExp(assignment, 'gu'),
@@ -608,6 +692,7 @@ class WorkReferences {
     for (const match of [
       ...text.matchAll(/`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|(?:\]\()([^\r\n]+?)\)/gu),
     ]) {
+      if (this.firstGlobalProtection) return false;
       await this.visit();
       if (match[0].startsWith('"')) {
         const decoded = decodeQuote(match[0]);
@@ -647,22 +732,29 @@ class WorkReferences {
       tokens.add(/[*?]/u.test(match[0]) ? match[0].replace(/[),.;:]+$/u, '') : match[0]);
     }
     for (const token of tokens) {
+      if (this.firstGlobalProtection) break;
       await this.token(token, bases, origin, source);
       const stripped = /[*?]/u.test(token) ? token : token.replace(/[),.;:\]}]+$/u, '');
       if (stripped !== token) await this.token(stripped, bases, origin, source);
     }
+    this.textReferences.set(key, false);
+    return false;
   }
 
-  content(value: unknown, source: WorkGcProtectionSource, bases: readonly string[]): Promise<void> {
-    return this.value(value, 'content', source, bases);
+  async content(
+    value: unknown,
+    source: WorkGcProtectionSource,
+    bases: readonly string[],
+  ): Promise<void> {
+    await this.value(value, 'content', source, bases);
   }
 
-  operational(
+  async operational(
     value: unknown,
     source: WorkGcProtectionSource,
     bases: readonly string[] = [this.projectRoot],
   ): Promise<void> {
-    return this.value(value, 'operational', source, bases);
+    await this.value(value, 'operational', source, bases);
   }
 
   private async value(
@@ -672,20 +764,21 @@ class WorkReferences {
     bases: readonly string[] = [this.projectRoot],
     key = '',
     scopes: readonly string[] = bases,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    if (this.firstGlobalProtection) return false;
     await this.visit();
     if (typeof value === 'string') {
       if (key === 'pattern') {
         await this.glob(value, scopes, origin, source);
-        return;
+        return true;
       }
-      // Command text and argv retain both whole-value and embedded reference inference.
-      if (/(?:script|argv)$/iu.test(key)) {
+      // These operational values are literal program/argument dependencies, not syntax.
+      if (origin === 'operational' && /^(?:command|args|argv|artifacts)$/u.test(key)) {
         await this.token(value, bases, origin, source);
         await this.text(value, bases, origin, source, false, scopes);
-        return;
+        return false;
       }
-      await this.text(
+      return this.text(
         value,
         bases,
         origin,
@@ -694,7 +787,12 @@ class WorkReferences {
         scopes,
       );
     } else if (Array.isArray(value)) {
-      for (const child of value) await this.value(child, origin, source, bases, key, scopes);
+      let pattern = false;
+      for (const child of value) {
+        if (this.firstGlobalProtection) break;
+        pattern = (await this.value(child, origin, source, bases, key, scopes)) || pattern;
+      }
+      return pattern;
     } else if (value && typeof value === 'object') {
       const object = value as Record<string, unknown>;
       const directory =
@@ -710,35 +808,24 @@ class WorkReferences {
           ? await this.scopes(object.cwd, scopes, origin, source)
           : localScopes;
       const localBases = typeof object.cwd === 'string' ? [...bases, ...cwdScopes] : bases;
-      const paired = directory !== null && (await this.hasPattern(object));
+      let pattern = false;
       for (const [name, child] of Object.entries(object)) {
-        if (paired && (name === 'directory' || name === 'cwd')) continue;
+        if (this.firstGlobalProtection) break;
+        if (directory !== null && (name === 'directory' || name === 'cwd')) continue;
         const meaning =
           name === 'literal'
             ? key
             : name === 'value' && typeof object.name === 'string'
               ? object.name
               : name;
-        await this.value(child, origin, source, localBases, meaning, localScopes);
+        pattern =
+          (await this.value(child, origin, source, localBases, meaning, localScopes)) || pattern;
       }
-    }
-  }
-
-  private async hasPattern(value: unknown): Promise<boolean> {
-    await this.visit();
-    if (typeof value === 'string') {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(value);
-      } catch {
-        return false;
-      }
-      return parsed !== value && (await this.hasPattern(parsed));
-    }
-    if (!value || typeof value !== 'object') return false;
-    for (const [name, child] of Object.entries(value)) {
-      if (name === 'pattern' && typeof child === 'string') return true;
-      if (await this.hasPattern(child)) return true;
+      if (!pattern && directory !== null)
+        for (const name of ['directory', 'cwd'])
+          if (typeof object[name] === 'string')
+            await this.value(object[name], origin, source, localBases, name, localScopes);
+      return pattern;
     }
     return false;
   }
@@ -757,11 +844,13 @@ async function markCanonical(
   projectRoot: string,
   context: WorkGcCollectionContext,
   refs: WorkReferences,
-): Promise<Set<string>> {
+): Promise<Map<string, number | null>> {
   const bases = (cardId: string | null): readonly string[] =>
     cardId === null
       ? [projectRoot]
       : [projectRoot, join(refs.root, 'cards', cardId), join(refs.root, 'cards', cardId, 'tmp')];
+  await refs.operational(context.operationalInputs, 'operational_input');
+  if (refs.firstGlobalProtection) return new Map();
   const owners = await inspectWorkGcCanonicalState(
     projectRoot,
     context.workflows,
@@ -769,13 +858,13 @@ async function markCanonical(
     {
       content: (value, cardId, source) => refs.content(value, source, bases(cardId)),
       operational: (value, cardId, source) => refs.operational(value, source, bases(cardId)),
+      done: () => refs.firstGlobalProtection !== null,
     },
     context.progress,
   );
   context.assertCollecting();
   await setImmediate();
   context.assertCollecting();
-  await refs.operational(context.operationalInputs, 'operational_input');
   return owners;
 }
 
@@ -812,10 +901,10 @@ export async function collectWorkGarbage(
   options: WorkGcOptions,
   context: WorkGcCollectionContext,
 ): Promise<WorkGcResult> {
-  context.progress?.phase('validation_marking', {
-    validated_cards: 0,
-    validated_records: 0,
-    validated_segments: 0,
+  context.progress?.phase('retention_marking', {
+    inspected_cards: 0,
+    inspected_records: 0,
+    inspected_sessions: 0,
   });
   const check = context.assertCollecting;
   check();
@@ -824,16 +913,27 @@ export async function collectWorkGarbage(
   const refs = new WorkReferences(
     inventory.projectRoot,
     inventory.entries,
+    inventory.candidates,
+    options.before,
     check,
     context.progress,
   );
+  const needsMarking = inventory.candidates.some(
+    (candidate) => options.before === undefined || candidate.mtimeMs < options.before,
+  );
   if (context.protection.retainAll) refs.protectAll('process_owner_uncertain', 'process_owner');
-  for (const path of context.protection.capturePaths) {
+  for (const path of !needsMarking || context.protection.retainAll
+    ? []
+    : context.protection.capturePaths) {
+    if (refs.firstGlobalProtection) break;
     await setImmediate();
     check();
     refs.operationalPath(dirname(path), 'process_capture');
   }
-  const owners = await markCanonical(inventory.projectRoot, context, refs);
+  const owners =
+    needsMarking && !refs.firstGlobalProtection
+      ? await markCanonical(inventory.projectRoot, context, refs)
+      : new Map<string, number | null>();
   await setImmediate();
   check();
   const retained = { protected: 0, recent: 0, stale: 0, opaque: 0, target: 0 };
@@ -886,12 +986,27 @@ export async function collectWorkGarbage(
     let descriptor: number | undefined;
     try {
       check();
+      if (refs.firstGlobalProtection) {
+        retained.protected++;
+        classified?.();
+        continue;
+      }
+      if (!needsMarking && options.before !== undefined && candidate.mtimeMs >= options.before) {
+        retained.recent++;
+        classified?.();
+        continue;
+      }
       if (candidate.owner !== null && !owners.has(candidate.owner)) {
         retained.opaque++;
         classified?.();
         continue;
       }
-      if (refs.protects(path)) {
+      if (
+        refs.protects(path) ||
+        (candidate.owner !== null &&
+          (owners.get(candidate.owner) === null ||
+            candidate.mtimeMs >= owners.get(candidate.owner)!))
+      ) {
         retained.protected++;
         classified?.();
         continue;

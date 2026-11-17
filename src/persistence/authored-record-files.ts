@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import {
   sha256Hex,
+  uuidV4Schema,
+  positiveSafeIntegerSchema,
   type AgentName,
   type RecordAuthor,
   type CardRecord,
@@ -89,6 +92,46 @@ function bytes(value: RecordHead | AuthoredRecordVersionArtifact): Buffer {
 }
 function parseJson(data: Buffer): unknown {
   return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(data));
+}
+
+/** Current GC content only; hashes, provenance and accepted predecessors are not roots. */
+export function* readWorkGcRecord(
+  projectRoot: string,
+  cardId: string,
+  definition: Pick<RecordDefinition, 'filename' | 'bootstrap'>,
+): Generator<string> {
+  const head = z
+    .object({
+      format_version: z.literal(3),
+      kind: z.literal('record-head'),
+      card_id: z.literal(cardId),
+      record_name: z.literal(definition.filename),
+      baseline: z.object({ content: z.string() }).nullable(),
+      draft: z.object({ content: z.string() }).nullable(),
+      accepted: z.object({ entry_id: uuidV4Schema, version: positiveSafeIntegerSchema }).nullable(),
+    })
+    .parse(parseJson(readCanonicalBytes(cardRecordHeadFile(projectRoot, cardId, definition))));
+  if (definition.bootstrap && head.accepted === null)
+    throw new Error('Required GC bootstrap accepted selection is missing.');
+  if (head.baseline) yield head.baseline.content;
+  if (head.draft) yield head.draft.content;
+  if (head.accepted) {
+    yield z
+      .object({
+        format_version: z.literal(6),
+        kind: z.literal('accepted-record'),
+        card_id: z.literal(cardId),
+        record_name: z.literal(definition.filename),
+        entry_id: z.literal(head.accepted.entry_id),
+        version: z.literal(head.accepted.version),
+        accepted: z.object({ content: z.string() }),
+      })
+      .parse(
+        parseJson(
+          readCanonicalBytes(cardAcceptedRecordFile(projectRoot, cardId, head.accepted.entry_id)),
+        ),
+      ).accepted.content;
+  }
 }
 function readHead(
   projectRoot: string,

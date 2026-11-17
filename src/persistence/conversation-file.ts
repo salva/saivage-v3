@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { mkdirSync, readFileSync } from 'node:fs';
 
 import {
@@ -11,6 +12,8 @@ import {
 import {
   agentMessageSchema,
   conversationSessionIdentity,
+  uuidV4Schema,
+  positiveSafeIntegerSchema,
   type AgentMessage,
   type CompactedHistory,
   type ConversationSessionId,
@@ -29,6 +32,7 @@ import {
   consumeGrowingFile,
   inspectGrowingFile,
   readCanonicalBytes,
+  readCanonicalBytesOrMissing,
   type CanonicalReadInstrumentation,
   type GrowingFileIo,
 } from './growing-file.js';
@@ -45,6 +49,96 @@ import {
 } from './layout.js';
 import { publishFreshFile, type PublicationTemporaryIdFactory } from './replace-file.js';
 import { publishHeadFile } from './publish-head.js';
+import { rowWorkReferences } from './work-gc-protection.js';
+
+/** Only the current selected segment supplies retention roots and a horizon. */
+export function readWorkGcConversation(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+  optional = false,
+): { horizon: number | null; references: Iterable<unknown> } {
+  const loc = location(projectRoot, sessionId);
+  const bytes = readCanonicalBytesOrMissing(loc.indexPath);
+  if (bytes === null) {
+    if (optional) return { horizon: null, references: [] };
+    throw new Error('Required GC conversation index is missing.');
+  }
+  const index = z
+    .object({
+      format_version: z.literal(13),
+      kind: z.literal('conversation-version-index'),
+      session_id: z.literal(sessionId),
+      versions: z.custom<unknown[]>(Array.isArray),
+      current_version: positiveSafeIntegerSchema.nullable(),
+      current_filename: z.string().nullable(),
+    })
+    .parse(JSON.parse(decode(loc.indexPath, bytes)));
+  if (index.current_version === null || index.current_filename === null) {
+    if (index.current_version !== null || index.current_filename !== null || index.versions.length)
+      throw new Error('Ambiguous empty GC conversation selection.');
+    return { horizon: null, references: [] };
+  }
+  const entry = z
+    .object({
+      entry_id: uuidV4Schema,
+      version: z.literal(index.current_version),
+      filename: z.literal(index.current_filename),
+    })
+    .parse(index.versions.at(-1));
+  const match = /^([1-9][0-9]*)-([0-9a-f-]+)\.jsonl$/u.exec(entry.filename);
+  if (!match || versionFilename(entry.version, uuidV4Schema.parse(match[2])) !== entry.filename)
+    throw new Error('Invalid GC conversation selection path.');
+  const path = loc.versionPath(entry.filename);
+  const text = decode(path, readCanonicalBytes(path));
+  if (!text.endsWith('\n')) throw new Error('GC refuses torn conversation evidence.');
+  function* rows(): Generator<unknown> {
+    for (const line of text.slice(0, -1).split('\n')) {
+      const envelope = z
+        .object({
+          version: z.literal(13),
+          type: z.literal('conversation-segment'),
+          rows: z.custom<unknown[]>(Array.isArray).refine((rows) => rows.length > 0),
+        })
+        .parse(JSON.parse(line));
+      yield* envelope.rows;
+    }
+  }
+  const source = rows();
+  const genesis = z
+    .object({
+      format_version: z.literal(13),
+      kind: z.enum(['ordinary_segment_genesis', 'compacted_segment_genesis']),
+      id: uuidV4Schema,
+      entry_id: z.literal(entry.entry_id),
+      session_id: z.literal(sessionId),
+      segment_version: z.literal(entry.version),
+      timestamp: z.string().datetime(),
+      compaction: z.unknown(),
+    })
+    .parse(source.next().value);
+  function* references(): Generator<unknown> {
+    if (genesis.kind === 'compacted_segment_genesis') {
+      const history = z
+        .object({
+          summaryText: z.string(),
+          protectedPrompts: z.custom<unknown[]>(Array.isArray),
+        })
+        .parse(genesis.compaction);
+      yield history.summaryText;
+      for (const prompt of history.protectedPrompts)
+        yield z.object({ message: z.object({ content: z.string() }) }).parse(prompt).message
+          .content;
+    }
+    for (const value of source) {
+      z.object({ session_id: z.literal(sessionId) }).parse(value);
+      yield* rowWorkReferences(value);
+    }
+  }
+  return {
+    horizon: genesis.kind === 'compacted_segment_genesis' ? Date.parse(genesis.timestamp) : null,
+    references: references(),
+  };
+}
 
 export interface ConversationFileContext {
   readonly projectRoot: string;

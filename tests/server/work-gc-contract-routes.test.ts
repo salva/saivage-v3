@@ -97,7 +97,7 @@ it('bypasses transport reporting and cleanup after an injected throwing fatal po
   const destroy = jest.spyOn(stream.body, 'destroy');
   const finish = jest.spyOn(stream, 'finish');
   const optional = jest.spyOn(stream, 'optional');
-  const progress = { phase: 'validation_marking', elapsed_ms: 0,
+  const progress = { phase: 'retention_marking', elapsed_ms: 0,
     first_global_protection: { reason: 'process_owner_uncertain', source: 'process_owner' } } as const;
   const collect: RuntimeApplication['collectWorkGarbage'] = (_request, _signal, observe, onFatal) => {
     observe?.(progress);

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runWorkGcOperation, workGcFailureResponse } from '../../src/application/work-gc-operation.js';
@@ -9,13 +9,17 @@ import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import type { ResolvedConfigAuthority } from '../../src/config/index.js';
 import type { ProcessRunner } from '../../src/runtime/runtime-api.js';
+import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
+import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'gc-operation-')); roots.push(root); initProjectTree(root);
+  compactWorkGcCard(root, TEST_WORKFLOWS);
   const path = join(root, '.saivage/work/cards/project/tmp/unselected');
   mkdirSync(join(root, '.saivage/work/cards/project/tmp'), { recursive: true }); writeFileSync(path, 'data');
+  utimesSync(path, 1, 1);
   const loadEffective = jest.fn(() => ({ config: TEST_SAIVAGE_CONFIG, workflows: TEST_WORKFLOWS, warnings: [] }));
   const input: Parameters<typeof runWorkGcOperation>[0] = {
     request: { mode: 'dry_run' }, signal: new AbortController().signal,
@@ -42,6 +46,28 @@ it('composes fresh inputs with actual engine preview and deletion, preserving ef
   expect(deleted.result).toMatchObject({ would_delete_count: 0, deleted_count: 1, deleted_logical_bytes: 4 });
   expect(existsSync(path)).toBe(false);
   expect(loadEffective).toHaveBeenCalledTimes(2);
+});
+it('projects compiled shell hooks once, excludes raw scripts, and preserves literal args and MCP executable dependencies', async () => {
+  const { input, loadEffective } = fixture(), config = structuredClone(TEST_SAIVAGE_CONFIG);
+  const base = join(input.projectRoot, '.saivage/work/cards/project/tmp');
+  for (const name of ['script-only.txt', 'literal', 'mcp-program']) {
+    const path = join(base, name); writeFileSync(path, 'data'); utimesSync(path, 1, 1);
+  }
+  config.card_types.project!.workflow.after_activation_commit = {
+    statuses: ['done'],
+    execution: { kind: 'action', action: 'shell.run', contract_version: 1,
+      config: { script: `cat ${join(base, 'script-only.txt')}`, cwd: 'action-scope' },
+      inputs: { args: { literal: [join(base, 'literal')] } } },
+  };
+  config.mcpServers = { dependency: { format_version: 1, transport: 'stdio',
+    command: join(base, 'mcp-program'), args: [], disabled: false, autostart: false,
+    policy: { controllerCardId: 'project', exposure: 'card' } } };
+  const workflows = compileProjectWorkflows(config);
+  loadEffective.mockReturnValue({ config, workflows, warnings: [] });
+  const result = await runWorkGcOperation({ ...input, config, workflows });
+  expect(result).toMatchObject({ disposition: 'completed', result: {
+    first_global_protection: null, would_delete_count: 2, retained: { protected: 2 },
+  } });
 });
 it('refuses changed selected configuration without reconciling or deleting', async () => {
   const { input, path, loadEffective } = fixture();

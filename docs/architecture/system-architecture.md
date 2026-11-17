@@ -554,7 +554,7 @@ qualified grammar for compilation, lifecycle, execution evidence and API project
 Execution envelope3 also has logical native start/finish and sequential command
 start/finish rows owned by GitWorkflow. These carry actual native bindings and completed observations,
 not action descriptors or provider turns. The existing complete execution reader
-validates associations; work GC protects exact captures/private-index paths of
+validates associations; work GC instead folds necessary unfinished associations and protects exact captures/private-index paths of
 unfinished invocations, not completed historical producer provenance alone.
 Incomplete attempts authorize no continuation. Evidence publication uncertainty
 crosses the application fatal boundary before native follow-up or cleanup. This
@@ -725,23 +725,36 @@ structured failed tool result does not prove containment or a safe write footpri
 
 The collector in `src/workspace/work-garbage-collector.ts` performs yielding
 synchronous work-only inventory and one shared preview/delete selection loop. Under
-the applicable exclusion, persistence owners inspect the fresh linked graph, all
-indexed segments, selected records (including baseline/draft and accepted predecessors), pending
-messages and execution evidence without initialization or torn-tail repair. Only
+the applicable exclusion, persistence owners project the fresh current linked graph,
+configured current segments, selected records (baseline/draft and latest accepted),
+pending messages and necessary unfinished execution evidence without initialization or torn-tail repair. Only
 GC may discover names one level deep in reached active-card record roots; exact
-head grammar/round-trip precedes strict owning reads. Previous slots, accepted
+head filename round-trip precedes GC-only owning reads. Previous slots, accepted
 siblings and reserved publication temporaries are not inspected. Exact alias
 metadata may protect work without outside-work discovery. Fresh candidate identity,
 size, timestamps and protection checks immediately precede the final effect switch:
 would-delete attribution or unlink plus directory durability. All directories stay.
 No persistent inventory/report, new durable family or format bump is introduced.
-Validation and work liveness are separate. `persistence/work-gc-protection.ts`
-projects semantic payloads from the current segment's already validated
-`ValidatedConversation`: effective summary, retained protected instruction contents
-and source rows. It neither recomputes compaction nor imports provider composition.
+`readWorkGcCard`, `readWorkGcNotification`, `readWorkGcRecord`,
+`readWorkGcConversation` and `readWorkGcExecutionPaths` own these narrow reads.
+Conversation envelopes and row kinds must be decoded; the execution owner folds
+start/process/finish associations to select unfinished paths. Unneeded valid-JSON
+fields are not full-schema validated. Online collection retains normal effective
+configuration loading and comparison with the running composition;
+`workGcOperationalInputs` selects executable dependencies rather than recursively
+feeding raw workflow and model/provider metadata into marking. Compiled action
+projection omits `shell.run` scripts for both node actions and the hook, while
+keeping other inputs. Prompt paths are marked; prompt content is not read merely
+for marking. Ordinary configuration and composition checks still apply.
+Retention projection and ordinary validation are separate. `persistence/work-gc-protection.ts`
+projects necessary semantic payloads from the current segment: effective summary,
+retained protected instruction contents and source rows. It neither reconstructs
+conversation history nor imports provider composition.
 Current card/notification bodies and selected baseline/draft/latest accepted record
 content contribute roots; historical content and observation/provenance wrappers do
-not. Complete history and execution validation still runs. Only unfinished execution
+not. GC does not traverse predecessors or old segments, or validate unrelated hashes,
+provenance and schema fields. Required JSON, selections, framing and associations
+must decode; ordinary readers remain strict. Only unfinished execution
 artifact/capture selections contribute execution roots; authored-output provenance
 alone does not retain its producer's captures. Existing process and operational
 owners retain their protections. The canonical inspector supplies distinct content
@@ -757,6 +770,17 @@ eligibility. Glob inference changes separately, as described below. Operational 
 keep existing root-valued protection. Resolution still runs for ignored lexical
 roots; unknown scope remains conservative. Current concrete references to older
 files still protect them; administrative content mentions do not.
+The minimum current compacted-genesis timestamp across unique configured card
+sessions is the card horizon; an empty set, empty session or ordinary genesis
+gives no horizon and protects that card's whole work area. Other cards' and global
+references can still be reached from that card. Eligibility uses mtime against the
+horizon and optional cutoff, while ctime remains part of fresh identity checks.
+Unreached or tombstoned owners are opaque. Empty/recent inventory or genuine
+whole-work protection can skip remaining extraction; this is not an integrity pass.
+Known shell command/script sources and explicitly shell-labelled Markdown fences
+are excluded from inference, but literal non-shell arguments and unlabelled prose
+retain their ordinary inference. Old-mtime or shell-only-referenced needed files
+may be deleted.
 The complete pure process-result validator and settlement projection live under
 `contracts/process-result-validation.ts` and `contracts/tool-result-projection.ts`;
 runtime composition keeps its existing semantics and shares that validator. Completed,
@@ -808,9 +832,9 @@ At the reference resolver only, filesystem errors leaving scope unknown from eit
 `realpathSync` or its ENOENT fallback `lstatSync`, including ENAMETOOLONG, retain all
 for that collection. Missing suffix/ancestor handling and dangling-alias protection
 remain; unexpected non-filesystem exceptions propagate. This boundary does not catch
-canonical validation, inventory, candidate or publication failures. Retain-all never
-skips required canonical/history/native reads, and recognized unknown aliases stay
-conservative even when unrelated prose guesses are excluded.
+required projection, inventory, candidate or publication failures. Retain-all can
+skip remaining retention reads and is not an integrity certificate. Recognized unknown
+aliases stay conservative even when unrelated prose guesses are excluded.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
 only the verified live lock endpoint/auth, with no fallback after delegation failure.
@@ -1867,9 +1891,9 @@ reference scope. Canonical callbacks carry semantic source labels for current ca
 pending notification, selected record, current conversation, unfinished execution
 and workflow inputs; process captures/ownership and operational configuration keep
 their own labels. Content versus operational origin still determines retention;
-labels do not. Recursive extraction carries the label without extra reads, provenance
-joins or changed validation order. Later marks cannot replace the first and never
-skip extraction, metadata resolution, strict history validation, yields or cancellation.
+labels do not. Recursive extraction carries the label without extra reads or provenance
+joins. Later marks cannot replace the first; a sufficient global mark stops remaining
+extraction and metadata resolution. It does not bypass cancellation or certify history.
 The same mark is retained without an observer and sent through existing throttled
 progress. Null/first-only observations are not completion or per-file necessity
 certificates; no new durable family, registry or diagnostic operation is introduced.

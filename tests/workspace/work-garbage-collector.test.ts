@@ -38,21 +38,25 @@ const { collectWorkGarbage, inventoryWorkGarbage } = await import('../../src/wor
 const { OPERATIONAL_RESULT_POLICY_TEMPLATE } = await import('../../src/tools/invocation.js');
 const { toolRowPolicies } = await import('../helpers/row-policy-fixtures.js');
 const { composeContextProjection, providerConversationFromComposedContext } = await import('../../src/runtime/actors/context/composition-projector.js');
-const { inspectWorkGcCanonicalState } = await import('../../src/persistence/current-generated-graph.js');
+const { inspectWorkGcCanonicalState, workGcActionInputs } = await import('../../src/persistence/current-generated-graph.js');
 const { cardAgentSessionId } = await import('../../src/schemas/index.js');
+const { compactWorkGcCard } = await import('../helpers/work-gc-compaction.js');
 
 const roots: string[] = [];
 afterEach(() => {
   jest.restoreAllMocks(); syncBuiltinESMExports();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(): string {
+function fixture(compacted = true): string {
   const root = mkdtempSync(join(tmpdir(), 'work-gc-test-'));
   roots.push(root);
   initProjectTree(root);
+  if (compacted) compactWorkGcCard(root, TEST_WORKFLOWS);
   return root;
 }
 function work(root: string, name: string, content = 'abcd', time = 1000): string {
+  const owner = /^cards\/(project|card-[a-z-]+)\//u.exec(name)?.[1];
+  if (owner && owner !== 'project' && new CardService(root).read(owner)) compactWorkGcCard(root, TEST_WORKFLOWS, owner);
   const path = join(root, '.saivage/work', name);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
@@ -106,6 +110,144 @@ function toolExchange(tool: string, content: string, argumentsText = '{}') {
 }
 
 describe('work GC two-phase selection', () => {
+  it.each(['empty', 'ordinary', 'no_agents'] as const)('retains the card work area without a %s compaction boundary', async kind => {
+    const root = fixture(false);
+    const paths = [work(root, 'cards/project/tmp/old'), work(root, 'tmp/stash/global-old')];
+    if (kind === 'ordinary') appendConversationBatch({ projectRoot: root }, [message('ordinary genesis')]);
+    if (kind !== 'no_agents')
+      compactWorkGcCard(root, TEST_WORKFLOWS, 'project', agent => agent === 'planner' ? null : '2026-10-25T00:00:00Z');
+    const workflows = kind === 'no_agents' ? {
+      ...TEST_WORKFLOWS, cardTypes: new Map([...TEST_WORKFLOWS.cardTypes].map(([type, workflow]) =>
+        [type, { ...workflow, states: new Map() }])),
+    } : TEST_WORKFLOWS;
+    await parity(root, paths, [paths[0]!], { workflows });
+  });
+
+  it('uses the minimum of every unique configured session and retains equality using mtime, not new ctime', async () => {
+    const root = fixture(false), early = Date.parse('2026-10-25T00:00:00Z');
+    let sessions = 0;
+    compactWorkGcCard(root, TEST_WORKFLOWS, 'project', () =>
+      new Date(early + sessions++ * 1000).toISOString());
+    expect(sessions).toBeGreaterThan(1);
+    const paths = [
+      work(root, 'cards/project/tmp/older', 'data', early - 1),
+      work(root, 'cards/project/tmp/equal', 'data', early),
+      work(root, 'cards/project/tmp/newer', 'data', early + 1),
+      work(root, 'tmp/stash/global', 'data', early + 1),
+    ];
+    const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
+    expect(result).toMatchObject({ would_delete_count: 2, retained: { protected: 2 } });
+    expect(lstatSync(paths[0]!).ctimeMs).toBeGreaterThan(early);
+    const cutoff = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: early - 1 }, context());
+    expect(cutoff).toMatchObject({ would_delete_count: 0, retained: { recent: 4 } });
+    const horizons = await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, {
+      content: async () => {}, operational: async () => {},
+    });
+    expect(horizons.get('project')).toBe(early);
+  });
+
+  it('keeps cross-card and global references from a wholly horizon-retained card', async () => {
+    const root = fixture(), cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
+      created_by: 'analyst', depends_on: [] });
+    const paths = [work(root, 'cards/project/tmp/own', 'data', Date.now()),
+      work(root, `cards/${child.id}/tmp/selected`), work(root, 'tmp/stash/selected'),
+      work(root, `cards/${child.id}/tmp/control`)];
+    baseline(root, JSON.stringify({ paths: [`work:///cards/${child.id}/tmp/selected`, 'work:///tmp/stash/selected'] }));
+    await parity(root, paths, paths.slice(0, 3));
+  });
+
+  it.each(['```BaSh extra\nshell-only.txt\n```', '~~~zsh\nshell-only.txt\n~~~',
+    '~~~shell\nshell-only.txt', '```sh\n~~~\nshell-only.txt\n```'])(
+    'masks only matching explicit shell fences: %s', async fence => {
+      const root = fixture(), paths = ['shell-only.txt', 'prose.txt', 'inline.txt', 'unlabelled.txt']
+        .map(name => work(root, `cards/project/tmp/${name}`));
+      baseline(root, JSON.stringify({ nested: `${fence}\nprose.txt \`inline.txt\`\n\`\`\`\nunlabelled.txt\n\`\`\`` }));
+      const unclosed = fence === '~~~shell\nshell-only.txt';
+      await parity(root, paths, unclosed ? [] : paths.slice(1));
+    });
+
+  it('ignores known shell arguments and ignored current row contents before alias resolution, but retains literal prose', async () => {
+    const root = fixture(), paths = ['shell-only.txt', 'literal.txt', 'control']
+      .map(name => work(root, `cards/project/tmp/${name}`));
+    const rows = toolExchange('run_command', JSON.stringify({ success: false, error: 'literal.txt' }),
+      JSON.stringify({ command: 'cat tmp:///project/shell-only.txt', cwd: 'tmp:///project/context' }));
+    appendConversationBatch({ projectRoot: root }, rows);
+    const current = readCurrentConversationSegment(root, 'agent:planner:project')!;
+    const path = cardConversationVersionFile(root, 'project', 'planner', current.entry.filename);
+    appendFileSync(path, JSON.stringify({ version: 13, type: 'conversation-segment', rows: [
+      { session_id: 'agent:planner:project', kind: 'provider_private', content: 'tmp:///project/ignored-only' },
+    ] }) + '\n');
+    const realpath = fs.realpathSync;
+    const resolutions: string[] = [];
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((input: any, ...args: any[]) => {
+      resolutions.push(String(input)); return (realpath as any)(input, ...args);
+    }) as typeof realpath);
+    expect(await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context()))
+      .toMatchObject({ would_delete_count: 2, retained: { protected: 1 } });
+    expect(resolutions.some(value => value.includes('shell-only') || value.includes('ignored-only'))).toBe(false);
+    expect(paths.every(existsSync)).toBe(true);
+  });
+
+  it.each(['empty', 'recent'] as const)('does no canonical read or alias resolution for an unconditionally %s inventory', async kind => {
+    const root = fixture();
+    if (kind === 'recent') work(root, 'cards/project/tmp/recent', 'data', 2000);
+    const found = await inventory(root);
+    const read = jest.spyOn(fs, 'readFileSync'), realpath = jest.spyOn(fs, 'realpathSync');
+    expect(await collectWorkGarbage(found, { mode: 'dry_run', before: 1000 }, context({
+      operationalInputs: { path: '/must-not-resolve' }, protection: { retainAll: false, capturePaths: ['/must-not-resolve'] },
+    }))).toMatchObject({ would_delete_count: 0 });
+    expect(read).not.toHaveBeenCalled(); expect(realpath).not.toHaveBeenCalled();
+  });
+
+  it('reads each current owner selection once and never resolves discarded current provenance or finished payloads', async () => {
+    const root = fixture(), cards = new CardService(root);
+    work(root, 'cards/project/tmp/control');
+    cards.acceptRecord('project', 'review-extra.md', 'first accepted', { kind: 'agent', agent: 'analyst' });
+    cards.acceptRecord('project', 'review-extra.md', 'current accepted', { kind: 'agent', agent: 'analyst' });
+    const headPath = join(root, '.saivage/cards/project/card-head.json');
+    const head = JSON.parse(readFileSync(headPath, 'utf8'));
+    const cardPath = join(root, '.saivage/cards/project/card-history', `${head.ordinary.entry_id}.json`);
+    const recordPath = cardRecordHeadFile(root, 'project', definition());
+    const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+    const acceptedPath = join(cardRecordsRoot(root, 'project'), 'accepted', `${record.accepted.entry_id}.json`);
+    const discarded = join(root, 'discarded-current-only');
+    const card = JSON.parse(readFileSync(cardPath, 'utf8'));
+    card.change = { path: discarded }; card.card.git = { path: discarded };
+    writeFileSync(cardPath, JSON.stringify(card) + '\n');
+    record.schema = { path: discarded };
+    writeFileSync(recordPath, JSON.stringify(record) + '\n');
+    const accepted = JSON.parse(readFileSync(acceptedPath, 'utf8'));
+    accepted.predecessor = { path: discarded };
+    accepted.accepted.author = { path: discarded };
+    accepted.accepted.content_sha256 = false;
+    writeFileSync(acceptedPath, JSON.stringify(accepted) + '\n');
+    const invocation_id = randomUUID();
+    writeFileSync(cardExecutionFile(root, 'project'), JSON.stringify({
+      version: 3, type: 'card-execution', rows: [
+        { kind: 'invocation_started', invocation_id, card_id: 'project', artifact_paths: [discarded],
+          shell: { script: discarded, argv: [discarded] } },
+        { kind: 'invocation_finished', invocation_id, card_id: 'project', process: { path: discarded } },
+      ],
+    }) + '\n');
+    writeFileSync(join(root, '.saivage/cards/project/card-head.prev.json'), 'poisoned previous slot');
+    const reads = new Map<string, number>(), resolutions: string[] = [];
+    const read = fs.readFileSync, realpath = fs.realpathSync;
+    jest.spyOn(fs, 'readFileSync').mockImplementation(((path: any, ...args: any[]) => {
+      reads.set(String(path), (reads.get(String(path)) ?? 0) + 1);
+      return (read as any)(path, ...args);
+    }) as typeof read);
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      resolutions.push(String(path)); return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    expect(await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context()))
+      .toMatchObject({ would_delete_count: 1 });
+    for (const path of [headPath, cardPath, recordPath, acceptedPath]) expect(reads.get(path)).toBe(1);
+    expect([...reads.keys()].some(path => path.endsWith('.prev.json'))).toBe(false);
+    expect(resolutions).not.toContain(discarded);
+    expect(() => cards.read('project')).toThrow();
+  });
+
   async function parity(root: string, paths: readonly string[], kept: readonly string[],
     overrides: Partial<WorkGcCollectionContext> = {}) {
     const bytes = await canonicalBytes(root);
@@ -351,12 +493,15 @@ describe('work GC two-phase selection', () => {
     await parity(root, [selected, exact, control], [selected, exact]);
   });
 
-  it('keeps command and argv reference inference alongside exact punctuation-bearing path fields', async () => {
+  it('omits owned shell scripts but keeps literal action args and non-shell executable argv', async () => {
     const root = fixture(), files = ['script-output.txt', 'noextension', 'one.asm', 'control'].map(name =>
       work(root, `cards/project/tmp/${name}`));
-    await parity(root, files, files.slice(0, 3), { operationalInputs: {
-      script: 'cat tmp:///project/script-output.txt',
-      argv: ['tmp:///project/noextension', 'tmp:///project/*.asm'],
+    await parity(root, files, files.slice(1, 3), { operationalInputs: {
+      action: workGcActionInputs({ operation: TEST_WORKFLOWS.operations.get('shell.run')!,
+        config: { script: 'cat tmp:///project/script-output.txt' },
+        inputs: { args: { literal: ['tmp:///project/*.asm'] } } }),
+      mcp: { command: join(root, '.saivage/work/cards/project/tmp/noextension'),
+        args: ['tmp:///project/noextension'] },
     } });
   });
 
@@ -411,7 +556,7 @@ describe('work GC two-phase selection', () => {
   });
 
   it.each(['conversation_content', 'record_content', 'pending_notification', 'operational_input', 'process_owner', 'process_capture'] as const)(
-    'attributes the first sufficient global mark to %s without leaking input or skipping later work', async source => {
+    'attributes the first sufficient global mark to %s without leaking input', async source => {
       const root = fixture(), sentinel = 'PRIVATE-attribution-sentinel';
       const candidate = work(root, `cards/project/tmp/${sentinel}`);
       symlinkSync(join(root, 'missing'), join(root, sentinel));
@@ -426,8 +571,7 @@ describe('work GC two-phase selection', () => {
       let time = 0;
       const progress = createWorkGcProgress(value => snapshots.push(value), () => time += 1001);
       const overrides = {
-        // A later operational root must never overwrite an earlier content/process mark.
-        operationalInputs: { root: root, config: sentinel },
+        operationalInputs: source === 'operational_input' ? { root, config: sentinel } : {},
         protection: { retainAll: source === 'process_owner', capturePaths: source === 'process_capture' ? [join(root, 'capture')] : [] },
       };
       const found = await inventory(root);
@@ -464,7 +608,7 @@ describe('work GC two-phase selection', () => {
     });
   });
 
-  it('continues reference extraction after its first global mark and propagates later unexpected metadata failure', async () => {
+  it('stops reference extraction after its first global mark before later metadata', async () => {
     const root = fixture();
     work(root, 'cards/project/tmp/control');
     const reference = join(root, 'later-reference');
@@ -477,8 +621,107 @@ describe('work GC two-phase selection', () => {
       return (realpath as any)(path, ...args);
     }) as typeof realpath);
     const progress = { phase() {}, increment() {}, update(value: unknown) { marks.push(value); } };
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context({ progress }))).rejects.toBe(failure);
-    expect(marks).toEqual([{ first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' } }]);
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context({ progress })))
+      .resolves.toMatchObject({ retained: { protected: 1 }, would_delete_count: 0 });
+    expect(marks.filter(value => 'first_global_protection' in (value as object)))
+      .toEqual([{ first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' } }]);
+  });
+
+  it('stops metadata resolution immediately after the lexical path itself marks all work', async () => {
+    const root = fixture();
+    work(root, 'cards/project/tmp/control');
+    const found = await inventory(root);
+    const realpath = jest.spyOn(fs, 'realpathSync').mockImplementation(() => {
+      throw new Error('Metadata after lexical whole-work protection');
+    });
+    expect(await collectWorkGarbage(found, { mode: 'dry_run' },
+      context({ operationalInputs: { path: root } }))).toMatchObject({
+      first_global_protection: { reason: 'operational_root', source: 'operational_input' },
+      retained: { protected: 1 }, would_delete_count: 0,
+    });
+    expect(realpath).not.toHaveBeenCalled();
+  });
+
+  it.each(['matching_first', 'nonmatching_first'] as const)(
+    'deduplicates absolute workflow globs and alias scopes without merging relative inputs (%s)', async order => {
+    const root = fixture(), cards = new CardService(root);
+    const children = [0, 1].map(index => cards.create({
+      type: 'code', parent: 'project', title: `Child ${index}`, bootstrap_content: 'brief',
+      created_by: 'analyst', depends_on: [],
+    }));
+    const selected = ['dedup-one.bin', 'dedup-two.bin'].map(name =>
+      work(root, `cards/project/tmp/shared/${name}`));
+    const control = work(root, 'cards/project/tmp/shared/control');
+    const relative = children.map(child => work(root, `cards/${child.id}/tmp/relative-literal`));
+    const alias = join(root, 'shared-alias');
+    symlinkSync(dirname(control), alias);
+    const workflow = TEST_WORKFLOWS.cardTypes.get('code')!;
+    const execution = {
+      kind: 'action' as const, operation: TEST_WORKFLOWS.operations.get('shell.run')!,
+      config: { script: 'printf ok', cwd: 'gc-operation-cwd' },
+      inputs: { args: { literal: [`${alias}/dedup-*.bin`, 'relative-literal'] } },
+    };
+    const workflows = { ...TEST_WORKFLOWS, cardTypes: new Map(TEST_WORKFLOWS.cardTypes)
+      .set('code', { ...workflow, afterActivationCommit: { statuses: ['done'], execution } }) };
+    const found = await inventory(root), realpath = fs.realpathSync, test = RegExp.prototype.test;
+    const { globToRegExp } = await import('../../src/workspace/glob-matcher.js');
+    const matcher = globToRegExp('dedup-*.bin'), scope = dirname(control);
+    const first = order === 'matching_first' ? selected[0]! : control;
+    // Reorder only metadata from the real inventory. Exercise both probe paths;
+    // leave the complete entry inventory in its actual opendir order.
+    const candidates = [...found.candidates].sort((a, b) =>
+      Number(join(root, '.saivage/work', b.path) === first) -
+      Number(join(root, '.saivage/work', a.path) === first));
+    const probeInputs: string[] = [];
+    for (const candidate of candidates) {
+      const path = join(root, '.saivage/work', candidate.path);
+      if (dirname(path) !== scope) continue;
+      const input = path.slice(scope.length + 1);
+      probeInputs.push(input);
+      if (test.call(matcher, input)) break;
+    }
+    const fullMatchInputs = found.entries.filter(path => dirname(path) === scope)
+      .map(path => path.slice(scope.length + 1));
+    const matcherCalls = new Map<RegExp, string[]>();
+    let scopeResolutions = 0;
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (String(path).replace(/\/$/u, '') === alias) scopeResolutions++;
+      return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    jest.spyOn(RegExp.prototype, 'test').mockImplementation(function(this: RegExp, input: string) {
+      if (this.source === matcher.source) {
+        const calls = matcherCalls.get(this) ?? [];
+        calls.push(input);
+        matcherCalls.set(this, calls);
+      }
+      return test.call(this, input);
+    });
+    expect(await collectWorkGarbage({ ...found, candidates }, { mode: 'dry_run' }, context({ workflows })))
+      .toMatchObject({ retained: { protected: 4 }, would_delete_count: 1 });
+    expect(scopeResolutions).toBe(1);
+    // Exactly one actual matcher performs the candidate prefix and one complete
+    // inventory pass. Repeated cards/arguments must add neither another matcher
+    // nor another pass; the probe length itself depends on candidate order.
+    expect(matcherCalls.size).toBe(1);
+    expect([...matcherCalls.values()]).toEqual([[...probeInputs, ...fullMatchInputs]]);
+    expect([...selected, control, ...relative].every(existsSync)).toBe(true);
+  });
+
+  it('does no glob matching when its resolved scope contains only already-protected candidates', async () => {
+    const root = fixture();
+    const scope = dirname(work(root, 'cards/project/tmp/covered/ignored-one.bin'));
+    work(root, 'cards/project/tmp/outside');
+    const { globToRegExp } = await import('../../src/workspace/glob-matcher.js');
+    const pattern = globToRegExp('ignored-*.bin').source, test = RegExp.prototype.test;
+    let globChecks = 0;
+    jest.spyOn(RegExp.prototype, 'test').mockImplementation(function(this: RegExp, input: string) {
+      if (this.source === pattern) globChecks++;
+      return test.call(this, input);
+    });
+    expect(await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context({
+      operationalInputs: [{ path: scope }, { directory: scope, pattern: 'ignored-*.bin' }],
+    }))).toMatchObject({ retained: { protected: 1 }, would_delete_count: 1 });
+    expect(globChecks).toBe(0);
   });
 
   it.each(['unreferenced', 'purpose', 'shell', 'card', 'sibling'] as const)(
@@ -659,7 +902,8 @@ describe('work GC two-phase selection', () => {
       const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
       const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
       appendFileSync(path, '{malformed}\n');
-      await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context(overrides))).rejects.toThrow();
+      await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context(overrides)))
+        .resolves.toMatchObject({ retained: { protected: 1 }, deleted_count: 0 });
       expect(existsSync(candidate)).toBe(true);
     });
 
@@ -684,8 +928,8 @@ describe('work GC two-phase selection', () => {
           if (version < segmentCount!) {
             const entryId = randomUUID();
             publishCompactedConversationSegment({ projectRoot: root }, session, {
-              identity: { genesisId: randomUUID(), entryId, segmentVersion: version + 1,
-                timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(version + 1, entryId) },
+              identity: { genesisId: randomUUID(), entryId, segmentVersion: segment.entry.version + 1,
+                timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(segment.entry.version + 1, entryId) },
               history: { summaryText: 'bounded summary', protectedPrompts: [],
                 requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } },
               cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
@@ -709,7 +953,7 @@ describe('work GC two-phase selection', () => {
     });
     const result = await collectWorkGarbage(found, { mode: 'dry_run' }, context({ assertCollecting: () => { visits++; } }));
     expect(found.candidates).toHaveLength(candidates!);
-    expect(segmentReads).toBe(sessions * segmentCount!);
+    expect(segmentReads).toBe(sessions);
     expect(result.retained.protected).toBe(cardCount!);
     expect(result.would_delete_count).toBe(candidates! - cardCount!);
     expect(membership).toBeLessThanOrEqual(candidates! * 6);
@@ -742,7 +986,7 @@ describe('work GC two-phase selection', () => {
     const current = await collectWorkGarbage(found, { mode: 'dry_run' }, context({ operationalInputs: [segment.index, segment.genesis, segment.rows] }));
     expect(current).toEqual(old);
     expect(observed).toEqual(oldUnion);
-    expect(resolutions).toBeLessThan(oldResolutions);
+    expect(resolutions).toBeLessThanOrEqual(oldResolutions);
     expect(current.retained.protected).toBe(selected.length);
     const sources: unknown[] = [];
     await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async value => { sources.push(value); }, operational: async () => {} });
@@ -1006,10 +1250,10 @@ describe('work GC two-phase selection', () => {
     const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const facts = deriveRequiredModelFacts({ inherited: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] },
       coveredRows: [row], source: segment.conversation });
-    const { protectedPrompts } = selectConversationProtection({ inherited: [], rows: [row], sourceVersion: 1, cutoffCount: 1 });
+    const { protectedPrompts } = selectConversationProtection({ inherited: [], rows: [row], sourceVersion: 2, cutoffCount: 1 });
     const entryId = randomUUID();
     publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
-      identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(2, entryId) },
+      identity: { genesisId: randomUUID(), entryId, segmentVersion: 3, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(3, entryId) },
       history: { summaryText: 'Prior task: tmp:///project/effective-summary.txt', protectedPrompts: [...protectedPrompts], requiredModelFacts: facts },
       cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
     });
@@ -1028,7 +1272,8 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(retained)).toBe(true); expect(existsSync(summarized)).toBe(true); expect(existsSync(garbage)).toBe(false);
     const oldest = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
     appendFileSync(oldest, '{malformed}\n'); const bytes = readFileSync(oldest);
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).rejects.toThrow();
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } })))
+      .resolves.toMatchObject({ deleted_count: 0 });
     expect(readFileSync(oldest)).toEqual(bytes);
   });
   it('releases completed bootstrap captures but retains an incomplete native index through strict canonical reads', async () => {
@@ -1041,6 +1286,7 @@ describe('work GC two-phase selection', () => {
     const { readCardExecutions } = await import('../../src/persistence/card-execution-log.js');
     const { readCard } = await import('../../src/persistence/card-files.js');
     const fresh = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: process.env }).loadEffective();
+    compactWorkGcCard(root, fresh.workflows, 'project', new Date(Date.now() + 1000).toISOString());
     const bootstrap = readCardExecutions(root, 'project');
     expect(bootstrap.find(row => row.kind === 'native_started')?.binding).toEqual({ origin: 'bootstrap' });
     const starts = bootstrap.filter(row => row.kind === 'native_process_started');
@@ -1358,7 +1604,7 @@ describe('work GC two-phase selection', () => {
     const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
     appendFileSync(path, '{torn');
     const bytes = readFileSync(path);
-    await expect(collectWorkGarbage(found, { mode: 'delete' }, context())).rejects.toThrow(/tail repair/);
+    await expect(collectWorkGarbage(found, { mode: 'delete' }, context())).rejects.toThrow(/torn conversation/);
     expect(readFileSync(path)).toEqual(bytes);
     expect(existsSync(protectedPath) && existsSync(garbage)).toBe(true);
   });
@@ -1380,7 +1626,7 @@ describe('work GC two-phase selection', () => {
     appendConversationBatch({ projectRoot: root }, [row]);
     const entryId = randomUUID();
     publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
-      identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(2, entryId) },
+      identity: { genesisId: randomUUID(), entryId, segmentVersion: 3, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(3, entryId) },
       history: { summaryText: 'Old exchange summarized without a path.', protectedPrompts: [],
         requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } },
       cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
@@ -1400,32 +1646,39 @@ describe('work GC two-phase selection', () => {
     expect(await canonicalBytes(root)).toEqual(before);
   });
 
-  it.each(['card', 'record', 'conversation'] as const)('still refuses malformed consumed historical %s before deletion', async kind => {
+  it.each(['card', 'record', 'conversation'] as const)('never opens malformed historical %s during GC', async kind => {
     const root = fixture(), cards = new CardService(root);
     const candidate = work(root, 'cards/project/tmp/garbage');
     cards.editCard('project', { title: 'historical-card-marker' });
+    const historicalCard = JSON.parse(readFileSync(join(root, '.saivage/cards/project/card-head.json'), 'utf8')).ordinary.entry_id;
     cards.editCard('project', { title: 'current title' });
     cards.acceptRecord('project', 'review-extra.md', 'historical-record-marker', { kind: 'agent', agent: 'analyst' });
+    const historicalRecord = JSON.parse(readFileSync(cardRecordHeadFile(root, 'project', definition()), 'utf8')).accepted.entry_id;
     cards.acceptRecord('project', 'review-extra.md', 'current record', { kind: 'agent', agent: 'analyst' });
     const row = message('historical-conversation-marker');
     appendConversationBatch({ projectRoot: root }, [row]);
     const old = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const entryId = randomUUID();
     publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
-      identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(2, entryId) },
+      identity: { genesisId: randomUUID(), entryId, segmentVersion: 3, timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(3, entryId) },
       history: { summaryText: 'summary', protectedPrompts: [], requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } },
       cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
     });
-    const consumed = await canonicalBytes(root);
     const path = kind === 'conversation' ? cardConversationVersionFile(root, 'project', 'planner', old.entry.filename)
-      : [...consumed].find(([, bytes]) => bytes.toString().includes(`historical-${kind}-marker`))![0];
+      : kind === 'card' ? join(root, '.saivage/cards/project/card-history', `${historicalCard}.json`)
+      : join(cardRecordsRoot(root, 'project'), 'accepted', `${historicalRecord}.json`);
     expect(path).toBeDefined();
     writeFileSync(path, '{malformed historical}\n');
-    const unlink = jest.spyOn(fs, 'unlinkSync');
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).rejects.toThrow();
-    expect(unlink).not.toHaveBeenCalled();
+    const read = fs.readFileSync;
+    const spy = jest.spyOn(fs, 'readFileSync').mockImplementation(((input: any, ...args: any[]) => {
+      if (String(input) === path) throw new Error('Historical GC read');
+      return (read as any)(input, ...args);
+    }) as typeof read);
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context()))
+      .resolves.toMatchObject({ deleted_count: 1 });
+    spy.mockRestore();
     expect(readFileSync(path, 'utf8')).toBe('{malformed historical}\n');
-    expect(existsSync(candidate)).toBe(true);
+    expect(existsSync(candidate)).toBe(false);
   });
 
   it('never inspects filtered record/temp entries or enumerates canonical history siblings', async () => {
@@ -1501,7 +1754,7 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(second)).toBe(true);
   });
 
-  it.each(['record', 'index', 'execution', 'segment'] as const)('fails strict %s corruption even after retain-all before any unlink', async kind => {
+  it.each(['record', 'index', 'execution', 'segment'] as const)('skips %s consumption after whole-work protection', async kind => {
     const root = fixture();
     const candidate = work(root, 'cards/project/tmp/garbage');
     appendConversationBatch({ projectRoot: root }, [message('Retained evidence')]);
@@ -1513,13 +1766,16 @@ describe('work GC two-phase selection', () => {
     writeFileSync(path, '{broken}\n');
     const bytes = readFileSync(path);
     const unlink = jest.spyOn(fs, 'unlinkSync');
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).rejects.toThrow();
+    const read = jest.spyOn(fs, 'readFileSync');
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } })))
+      .resolves.toMatchObject({ deleted_count: 0, retained: { protected: 1 } });
+    expect(read).not.toHaveBeenCalled();
     expect(unlink).not.toHaveBeenCalled();
     expect(readFileSync(path)).toEqual(bytes);
     expect(existsSync(candidate)).toBe(true);
   });
 
-  it.each(['record', 'index', 'segment'] as const)('fails missing required %s even after retain-all without repair or unlink', async kind => {
+  it.each(['record', 'index', 'segment'] as const)('does not consume missing %s after whole-work protection', async kind => {
     const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
     appendConversationBatch({ projectRoot: root }, [message('Retained evidence')]);
     const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
@@ -1528,7 +1784,8 @@ describe('work GC two-phase selection', () => {
       : cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
     unlinkSync(path);
     const unlink = jest.spyOn(fs, 'unlinkSync');
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).rejects.toThrow();
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } })))
+      .resolves.toMatchObject({ deleted_count: 0, retained: { protected: 1 } });
     expect(unlink).not.toHaveBeenCalled();
     expect(existsSync(path)).toBe(false);
     expect(existsSync(candidate)).toBe(true);

@@ -1,10 +1,11 @@
 import { afterEach, expect, it } from '@jest/globals';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, utimesSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree, CardService } from '../helpers/canonical-project.js';
+import { initProjectTree, CardService, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { acquireRuntimeLifecycleLock, readRuntimeLockStatus, releaseRuntimeLifecycleLock } from '../../src/runtime/lock.js';
 import { appendCardExecutions } from '../../src/persistence/card-execution-log.js';
@@ -21,11 +22,12 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'gc-offline-')); roots.push(root);
   initProjectTree(root);
+  compactWorkGcCard(root, TEST_WORKFLOWS);
   createTestConfigAuthority(root, { relativePath: '.saivage/saivage.yaml' });
   return root;
 }
 function work(root: string, path: string) {
-  const full = join(root, '.saivage/work', path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, 'fixture'); return full;
+  const full = join(root, '.saivage/work', path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, 'fixture'); utimesSync(full, 1, 1); return full;
 }
 async function cli(root: string, options: { separate?: boolean; delete?: boolean; before?: string; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
   const entry = resolve(options.fault ? 'tests/fixtures/offline-gc-child.ts' : 'src/cli.ts');
@@ -86,7 +88,7 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
     expect(WorkGcResponseSchema.parse(result.response).result!.first_global_protection).toBeNull();
     expect(result.output).toContain('first_global_protection=null');
     expect(result.output).toContain('GC inventory elapsed_ms=');
-    expect(result.output).toContain('GC validation_marking elapsed_ms=');
+    expect(result.output).toContain('GC retention_marking elapsed_ms=');
     expect(result.output).toContain('GC selection elapsed_ms=');
     expect(result.output).not.toContain('"disposition"');
     expect(result.output).toContain('Delete is irreversible');
@@ -189,6 +191,7 @@ it.each(['identity', 'bootstrap', 'malformed', 'torn'] as const)('offline %s fai
     path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
     writeFileSync(path, fault === 'torn' ? '{"torn":' : '{"malformed":true}\n');
   }
+  work(root, 'cards/project/tmp/required-selection-control');
   const bytes = existsSync(path) ? readFileSync(path) : null;
   const result = await cli(root);
   expect(result.code).toBe(1); expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
@@ -197,6 +200,7 @@ it.each(['identity', 'bootstrap', 'malformed', 'torn'] as const)('offline %s fai
 
 it('strict missing selected index fails without initialization or recovery and releases exclusion', async () => {
   const root = fixture(), path = globalAgentConversationVersionIndexFile(root, 'analyst'); unlinkSync(path);
+  work(root, 'cards/project/tmp/required-index-control');
   const result = await cli(root);
   expect(result.code).toBe(1);
   expect(result.response).toEqual({ mode: 'dry_run', disposition: 'refused', reason: 'collection_failed',
@@ -212,6 +216,7 @@ it('missing required selected segment reports only safe ENOENT metadata after lo
   const selected = readCurrentConversationSegment(root, 'agent:analyst:global')!;
   const path = globalAgentConversationVersionFile(root, 'analyst', selected.entry.filename);
   unlinkSync(path);
+  work(root, 'cards/project/tmp/required-segment-control');
   const result = await cli(root);
   expect(result.code).toBe(1);
   expect(result.response).toEqual({ mode: 'dry_run', disposition: 'refused', reason: 'collection_failed',

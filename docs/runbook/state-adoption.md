@@ -42,9 +42,10 @@ title-only edit contract; source changes do not replace installed custom prompts
 Provider priority, notification urgency, sibling order and activation are unchanged.
 Source completion authorizes no deployment, migration, reset, start or Run.
 
-The card command shell-area convention needs no retained-state conversion: `shell`
-was and remains ordinary concrete card work, existing references/GC meaning and
-sibling work stay unchanged, and directory absence is legitimate lazy absence.
+The card command shell-area convention alone needs no retained-state conversion:
+`shell` was and remains ordinary concrete card work, sibling work stays unchanged,
+and directory absence is legitimate lazy absence. Later GC horizon and shell-source
+rules affect eligibility as described in the [work-GC procedure](./work-gc.md).
 Adopt matching runtime/tool help and deliberately reconcile selected materialized
 Executor hosts across the six profiles; source edits do not hot-update custom hosts.
 Do not relocate retained artifacts or infer whole-release compatibility from this
@@ -130,7 +131,8 @@ repair or migration. Live-server collection supports paused/stopped execution;
 only a missing lock permits interactive offline GC under bound exclusion and
 maintained writer-quiescence confirmation. It neither commissions source nor settles
 historical calls/running cards, and successful collection is not startup compatibility
-certification. These permissions do not authorize deployment, init, reset or Run.
+certification: GC projects only what its retention decisions need and can skip
+projections when no decision requires them. These permissions do not authorize deployment, init, reset or Run.
 GC has no elapsed deadline; interruption/lost response never authorizes replay.
 
 | Situation | Appropriate decision |

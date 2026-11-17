@@ -55,12 +55,13 @@ without an explicit scope is not, by itself, retention of all work.
 Card `run_command` lazily supplies `.saivage/work/cards/<card-id>/shell` as
 `SAIVAGE_CARD_SHELL_ROOT`. This remains an ordinary concrete child, not a reserved
 root or retention exemption. Neither directory creation, the variable nor card
-existence protects its files. For example, a current
+existence alone protects its files; the card's compaction horizon may retain them.
+For example, a retained current non-shell
 `work:///cards/card-n/shell/install-check` reference protects only that subtree;
 `work:///cards/card-n/shell` protects all shell work but not sibling scratch or
 captures, while `work:///cards/card-n` alone protects neither. Prefer needed
 purpose-child/artifact references over the whole shell subtree. Old unreferenced
-shell files are eligible just like ordinary sibling work; those siblings remain
+shell files can be eligible just like ordinary sibling work; those siblings remain
 valid without relocation. Existing process-owner, unfinished-execution and capture
 protections still apply. GC keeps directories, and command/card completion, re-entry
 and startup perform no automatic cleanup. Task-owned explicit cleanup remains
@@ -75,11 +76,36 @@ saivage gc-work --delete --before 2026-10-01T00:00:00Z --target-bytes 1073741824
 ```
 
 These are examples, not recommended universal retention thresholds. Omit `--before`
-for no age restriction; otherwise it must be RFC3339 with an explicit zone and
-regular-file **mtime must be strictly earlier**. Equality/newer files remain.
+to remove the optional cutoff; the card horizon still applies. Otherwise it must be
+RFC3339 with an explicit zone and regular-file **mtime must be strictly earlier**.
+Equality/newer files remain.
 `--target-bytes` is an optional nonnegative safe integer: a best-effort remaining
 **accounted logical-byte** target, not desired bytes freed. Omit it to select all
 eligible files. Oldest mtime comes first, with relative-path tie-break.
+
+For each reached live card, GC uses the minimum current compacted-genesis timestamp
+across its unique configured card-session agents. An empty agent set, an established
+empty session or ordinary genesis means no horizon and retains the entire card work
+area. Otherwise a card file is eligible only strictly before both its horizon and
+any supplied cutoff, and only without another protection. Horizon and no-horizon
+retention count as `retained.protected`. Global work uses separate
+cutoff and protection rules. Unreached or tombstoned card work stays opaque. The
+clock is mtime, not access time or ctime; ctime is used for fresh identity checking.
+Files introduced with preserved old mtimes can be deleted despite still being needed.
+
+GC does not infer references from `run_command`'s `command`, `shell.run`'s
+`config.script` (including literal wrappers in node actions and the
+`afterActivationCommit` hook), execution scripts or launcher argv. It considers
+`run_command`'s `cwd`, action cwd, artifacts, environment literals and literal
+`inputs.args`, as well as configured MCP stdio program and argument values, under
+their respective content or operational protection rules.
+Explicitly shell-labelled Markdown fences (`sh`, `bash`, `shell`, `zsh`,
+case-insensitive first info token) are masked using matching delimiters; an
+unclosed fence masks the remaining body. Surrounding prose, unlabelled blocks,
+inline backticks and non-shell text still receive ordinary inference, including
+quoted and bare paths, nested JSON, structured references and wildcards.
+Unlabelled snippets are not classified as shell; their lexical references can still
+protect work. A file referenced only by excluded shell syntax can be deleted.
 
 Omitting both effect flags is exactly `--dry-run`. Combining `--dry-run` and
 `--delete` fails before a runtime request. Unknown options/invalid values fail;
@@ -152,22 +178,26 @@ certify whole-project startup compatibility or authorize start/Run.
    Oversight check precede marking. Already active independent HTTP MCP lifecycle
    calls/reconciliation refuse this attempt before pause, rather than being joined
    or automatically retried. Read-only views and project Stop remain available.
-3. Fresh strict canonical reads validate linked card/accepted history, every indexed
-   conversation segment and complete action/native evidence. Marking instead uses
+3. Fresh GC-only projections read current linked membership and selections, not
+   predecessors, old segments or a complete history/native audit. Marking uses
    current card content and pending message bodies; selected record baseline, open
    draft and latest accepted content; current conversation effective summary,
    retained protected instruction contents and semantic source-row payloads; and
    unfinished execution artifact/capture/private-index selections. Existing retained
    process captures and operational dependencies also protect their existing scopes.
    Content file/directory and known alias references follow the concrete-artifact
-   rule above; ignored administrative mentions never skip strict reads.
+   rule above.
    Historical content, internal observations and producer provenance
-   alone do not. The free-text limitation above does not relax strict validation.
+   alone do not. Required JSON, selections, framing, classifications and unfinished
+   associations must decode; invalid required data refuses without truncation.
+   Unrelated malformed fields in valid JSON need not refuse. Ordinary readers remain strict.
    Unresolved native source continuations refuse; GC performs no Git inspection,
-   checkpoint or return to force settlement. Corrupt/missing required evidence or torn tails refuse without repair.
+   checkpoint or return to force settlement. Corrupt/missing required selections or torn tails refuse without repair.
    Unknown surviving process/service write footprints retain all potentially
    affected work or refuse collection; Pause is not an OS filesystem freeze.
-   Unrelated human/program writers must be quiescent in the affected domain.
+   Unrelated human/program writers must be quiescent in the affected domain. Empty or
+   entirely recent inventory or genuine whole-work protection can skip remaining
+   projections; completion does not certify canonical integrity.
 4. The same selection algorithm rechecks each exact candidate's identity, size,
    mtime/ctime, protections and cancellation immediately before its effect. Changed,
    replaced, disappeared or newly created files are not substituted or recrawled.
@@ -184,15 +214,15 @@ total-request deadline or duration setting; connection establishment remains fin
 Nested extraction and candidate loops yield cooperatively, but individual synchronous
 reads, JSON parsing and regex operations are indivisible. No cancellation latency
 or throughput is promised. Some ambiguous single-line path-like prose still protects all
-candidates through the unknown-scope rules. Examples: a shell substitution (`${...}` or
-`$(...)`) with no literal directory before it; a `#` fragment in a `project`, `system`,
+candidates through the unknown-scope rules. Examples: an unresolved substitution
+(`${...}` or `$(...)`) in a recognized non-shell reference; a `#` fragment in a `project`, `system`,
 `work` or `tmp` URI in prose that has no `*` or `?`; and a `?` or `#` in such a URI used
 as an exact structured path field or as paired `directory`/`cwd` scope metadata. A
 completed preview may then reclaim zero bytes. By contrast, a `?` in an inferred URI or
 quoted path is glob syntax: it is matched against entries within its scope, and a glob
 matching more than 50 entries contributes nothing rather than protecting all candidates. An unresolved recognized reference, including a path-length filesystem
-error during exact alias metadata resolution, also retains all; this never bypasses
-strict required history/native validation. Conversely, missed prose filenames can
+error during exact alias metadata resolution, also retains all; a sufficient global
+mark can skip remaining selection reads. Conversely, missed prose filenames can
 leave needed work eligible: useful reclamation is not proof of safe inference.
 The decoded-multiline correction removes one false global-retention trigger; it
 neither excludes other global-protection causes nor certifies candidates unneeded.
@@ -210,20 +240,21 @@ count updates at most once per second in existing work loops. There are no timer
 heartbeats, percentages, ETA or known total-work denominators. Slow/broken stderr
 can drop observations without cancelling collection or suppressing final output.
 
-The phases are `inventory`, online-only `settling`, `validation_marking`, and
+The phases are `inventory`, online-only `settling`, `retention_marking`, and
 `selection`. Inventory is not a settled hold; settling describes an attempt to
 park/join owners, not completed exclusion. Offline initial configuration loading
 still precedes inventory. Elapsed milliseconds use an operation-local monotonic
 clock. Optional cumulative counts/logical bytes describe work already observed:
-inventory's accounted files/opaque entries; completed card, record-history and
-segment inspections; classified candidates; hypothetical preview removals or
+inventory's accounted files/opaque entries; completed necessary card, record and
+session projections; classified candidates; hypothetical preview removals or
 known-success deletions. Omitted means not yet observed/applicable; zero means
 observed zero. They contain no paths, identities or content, and do not change
 selection or certify completion. An indivisible synchronous read can be silent;
 the last phase can include later settlement/release silence.
-Validated cards count reached active cards, not tombstones; records count completed
-selected-history inspection, not absent lazy records; segments count strict complete
-inspection. Inventory skips reserved temporary entries without counting them.
+`inspected_cards` counts completed reached active cards, not tombstones;
+`inspected_records` counts completed selected-record projections, not absent lazy
+records; `inspected_sessions` counts completed necessary session projections. These
+are not validation certificates. Inventory skips reserved temporary entries without counting them.
 
 Every progress snapshot and non-null final/partial result includes
 `first_global_protection`: null or exactly `{reason,source}`. The first sufficient

@@ -1,55 +1,80 @@
-import {
-  parseToolCallMessageForModel,
-  ToolResultSchema,
-  validateProcessToolResult,
-  type ValidatedConversation,
-} from '../contracts/index.js';
-import type { AgentMessage } from '../schemas/index.js';
+import { z } from 'zod';
 
-/** Work liveness, not provider composition or a second compaction selection. */
-export function* conversationWorkReferences(
-  conversation: ValidatedConversation,
-): Generator<unknown> {
-  const history = conversation.effectiveCompactedHistory;
-  if (history) {
-    yield history.summaryText;
-    for (const prompt of history.protectedPrompts) yield prompt.message.content;
-  }
-  for (const row of conversation.sourceRows) yield* rowWorkReferences(row);
-}
-
-function* rowWorkReferences(row: AgentMessage): Generator<unknown> {
-  switch (row.kind) {
+/** GC payload selection, independent of ordinary conversation/model validation. */
+export function* rowWorkReferences(value: unknown): Generator<unknown> {
+  const { kind } = z.object({ kind: z.string() }).parse(value);
+  const row = value as Record<string, unknown>;
+  switch (kind) {
     case 'text':
     case 'record_prompt':
     case 'model_repair':
-      yield row.content;
+      yield z.string().parse(row.content);
       return;
-    case 'tool_call':
-      yield parseToolCallMessageForModel(JSON.parse(row.content)).arguments;
+    case 'tool_call': {
+      const call = z
+        .object({
+          tool_calls: z
+            .array(
+              z.object({
+                function: z.object({ name: z.string(), arguments: z.string() }),
+              }),
+            )
+            .length(1),
+        })
+        .parse(JSON.parse(z.string().parse(row.content))).tool_calls[0]!.function;
+      if (z.string().parse(row.tool) !== call.name)
+        throw new Error('Ambiguous GC tool-call owner.');
+      const args: unknown = JSON.parse(call.arguments);
+      if (call.name === 'run_command') {
+        const { command: _command, ...siblings } = z.record(z.unknown()).parse(args);
+        yield siblings;
+      } else yield args;
       return;
+    }
     case 'tool_result': {
-      const result = ToolResultSchema.parse(JSON.parse(row.content));
+      const result = z
+        .object({
+          success: z.boolean(),
+          error: z.unknown(),
+          data: z.unknown(),
+          content: z.unknown(),
+        })
+        .parse(JSON.parse(z.string().parse(row.content)));
       if (!result.success) {
-        yield result.error;
+        yield z.string().parse(result.error);
         yield result.data;
         return;
       }
-      if (
-        row.tool === 'run_command' ||
-        row.tool === 'wait_process' ||
-        row.tool === 'kill_process'
-      ) {
-        const data = validateProcessToolResult(result.data);
-        // The same two stream-liveness conditions as the runtime primary projection.
-        const { stdout_url, stderr_url, ...inline } = data;
-        yield inline;
-        if (data.status === 'running' || !data.stdout_complete) yield stdout_url;
-        if (data.status === 'running' || !data.stderr_complete) yield stderr_url;
+      const tool = z.string().parse(row.tool);
+      if (tool === 'run_command' || tool === 'wait_process' || tool === 'kill_process') {
+        const data = z
+          .object({
+            status: z.enum(['running', 'exited', 'killed', 'failed']),
+            stdout_complete: z.boolean(),
+            stderr_complete: z.boolean(),
+            stdout: z.string(),
+            stderr: z.string(),
+          })
+          .parse(result.data);
+        yield [data.stdout, data.stderr];
+        const raw = result.data as Record<string, unknown>;
+        if (data.status === 'running' || !data.stdout_complete)
+          yield { url: z.string().parse(raw.stdout_url) };
+        if (data.status === 'running' || !data.stderr_complete)
+          yield { url: z.string().parse(raw.stderr_url) };
       } else {
         yield result.data;
-        for (const block of result.content ?? [])
-          yield block.type === 'text' ? block.text : block.image;
+        if (result.content !== undefined)
+          for (const value of z.custom<unknown[]>(Array.isArray).parse(result.content)) {
+            const block = z
+              .object({
+                type: z.enum(['text', 'image']),
+                text: z.unknown(),
+                image: z.unknown(),
+              })
+              .parse(value);
+            yield block.type === 'text' ? z.string().parse(block.text) : block.image;
+          }
       }
       return;
     }
@@ -61,9 +86,7 @@ function* rowWorkReferences(row: AgentMessage): Generator<unknown> {
     case 'content_policy_refusal':
     case 'content_policy_retry':
       return;
-    default: {
-      const kind: never = row.kind;
-      throw new Error(`Unhandled GC conversation row kind: ${String(kind)}`);
-    }
+    default:
+      throw new Error('Unknown GC conversation row kind.');
   }
 }

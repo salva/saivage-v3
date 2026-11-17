@@ -151,7 +151,7 @@ export async function handleGcWork(
         {
           progress,
           workflows: effective.workflows,
-          operationalInputs: workGcOperationalInputs(effective.config, effective.workflows),
+          operationalInputs: workGcOperationalInputs(effective.config),
           protection: { retainAll: false, capturePaths: [] },
           assertCollecting: () => controller.signal.throwIfAborted(),
           fatal: (error) => ownedFatalPort.publicationOutcomeUnknown(error),

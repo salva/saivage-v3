@@ -23,6 +23,22 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+**Minimal work-GC retention projection** — source parent
+`8b90171c622ed0cf3d354a2f4fe70233e6b1ed1a`; implementation is present in
+`persistence/current-generated-graph.ts`, its owner-local GC projections and
+`workspace/work-garbage-collector.ts`. GC now uses current necessary selections,
+card compaction horizons and source-aware shell exclusions, not a history audit.
+Optional deletion can lose needed old-mtime or shell-only-referenced work; code
+rollback cannot recover deleted files. Progress vocabulary is transient.
+No durable bytes, selections, layout or retained canonical meaning change:
+card head/artifact 1/7, record head/accepted 3/6, conversation 13 and execution 3
+remain unchanged. This change alone needs no conversion or discriminator bump.
+Installed applicability and whole-release compatibility are unknown; no deployment,
+live GC, migration or reset is authorized.
+
+Earlier entries below describe their own source boundaries; in particular their
+historical work-GC validation descriptions do not describe this newer projection.
+
 Child activation result formatting from actual implementation source parent
 `f6d93ccccf0058797f037151c37fdb6d488754d1` removes the outer summary only
 from newly produced normal done/failed/blocked tool data; the full typed result

@@ -13,7 +13,7 @@ it('consumes the declared stream incrementally, reports progress, and waits for 
   const observer = vi.fn();
   let settled = false;
   const call = gcWork({ mode: 'dry_run' }, undefined, observer).then(value => { settled = true; return value; });
-  const progress = { phase: 'validation_marking', elapsed_ms: 0, observed_count: 0,
+  const progress = { phase: 'retention_marking', elapsed_ms: 0, observed_count: 0,
     first_global_protection: { reason: 'reference_scope_unknown', source: 'conversation_content' } };
   source.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'progress', progress }) + '\n'));
   await vi.waitFor(() => expect(observer).toHaveBeenCalledWith(progress));

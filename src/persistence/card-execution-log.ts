@@ -19,6 +19,100 @@ import {
 } from './growing-file.js';
 import { publishFreshFile } from './replace-file.js';
 
+/** Fold only invocation/process associations; decode paths only for unfinished owners. */
+export function readWorkGcExecutionPaths(projectRoot: string, cardId: string): string[] {
+  const bytes = readCanonicalBytesOrMissing(cardExecutionFile(projectRoot, cardId));
+  if (bytes === null) return [];
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (!text.endsWith('\n')) throw new Error('GC refuses torn execution evidence.');
+  const starts = new Map<
+    string,
+    {
+      native: boolean;
+      artifacts: unknown;
+      files: unknown[];
+      processes: Set<string>;
+      open: string | null;
+      finished: boolean;
+    }
+  >();
+  for (const line of text.slice(0, -1).split('\n')) {
+    const envelope = z
+      .object({
+        version: z.literal(3),
+        type: z.literal('card-execution'),
+        rows: z.custom<unknown[]>(Array.isArray).refine((rows) => rows.length > 0),
+      })
+      .parse(JSON.parse(line));
+    for (const value of envelope.rows) {
+      const row = z
+        .object({
+          kind: z.enum([
+            'invocation_started',
+            'native_started',
+            'process_started',
+            'native_process_started',
+            'native_process_finished',
+            'invocation_finished',
+            'native_finished',
+          ]),
+          card_id: z.literal(cardId),
+          invocation_id: uuidV4Schema,
+        })
+        .parse(value);
+      const payload = value as Record<string, unknown>;
+      if (row.kind === 'invocation_started' || row.kind === 'native_started') {
+        if (starts.has(row.invocation_id)) throw new Error('Duplicate GC invocation.');
+        starts.set(row.invocation_id, {
+          native: row.kind === 'native_started',
+          artifacts: payload.artifact_paths,
+          files: [],
+          processes: new Set(),
+          open: null,
+          finished: false,
+        });
+        continue;
+      }
+      const invocation = starts.get(row.invocation_id);
+      if (!invocation || invocation.finished) throw new Error('Unassociated GC execution row.');
+      if (row.kind.startsWith('native_') !== invocation.native)
+        throw new Error('GC execution kind mismatch.');
+      if (row.kind === 'process_started' || row.kind === 'native_process_started') {
+        const id = z.string().min(1).parse(payload.process_id);
+        if (invocation.processes.has(id) || (invocation.native && invocation.open !== null))
+          throw new Error('Ambiguous GC process association.');
+        invocation.processes.add(id);
+        invocation.open = id;
+        invocation.files.push(payload.files);
+      } else if (row.kind === 'native_process_finished') {
+        if (invocation.open !== z.string().min(1).parse(payload.process_id))
+          throw new Error('Unassociated GC native process finish.');
+        invocation.open = null;
+      } else {
+        if (invocation.native && invocation.open !== null)
+          throw new Error('GC native invocation finished with open process.');
+        invocation.finished = true;
+        invocation.artifacts = null;
+        invocation.files = [];
+        invocation.processes.clear();
+      }
+    }
+  }
+  const paths: string[] = [];
+  for (const invocation of starts.values()) {
+    if (invocation.finished) continue;
+    paths.push(...z.array(relativePath).parse(invocation.artifacts));
+    for (const files of invocation.files)
+      paths.push(
+        ...z
+          .array(z.object({ path: relativePath }))
+          .parse(files)
+          .map((file) => file.path),
+      );
+  }
+  return paths;
+}
+
 const boundedText = z
   .string()
   .refine((value) => Buffer.byteLength(value) <= 4096, 'Execution text exceeds 4096 bytes.');

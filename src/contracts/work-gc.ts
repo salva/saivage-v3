@@ -41,14 +41,14 @@ export type WorkGcProtectionSource = FirstGlobalProtection['source'];
 export const WorkGcProgressSchema = z
   .object({
     first_global_protection: FirstGlobalProtectionSchema.nullable(),
-    phase: z.enum(['inventory', 'settling', 'validation_marking', 'selection']),
+    phase: z.enum(['inventory', 'settling', 'retention_marking', 'selection']),
     elapsed_ms: count,
     observed_count: count.optional(),
     observed_logical_bytes: count.optional(),
     opaque_entries: count.optional(),
-    validated_cards: count.optional(),
-    validated_records: count.optional(),
-    validated_segments: count.optional(),
+    inspected_cards: count.optional(),
+    inspected_records: count.optional(),
+    inspected_sessions: count.optional(),
     candidates_processed: count.optional(),
     would_delete_count: count.optional(),
     would_delete_logical_bytes: count.optional(),

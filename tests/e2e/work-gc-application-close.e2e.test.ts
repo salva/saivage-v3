@@ -1,5 +1,5 @@
 import { expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
@@ -16,6 +16,7 @@ import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { deferred } from '../../src/runtime/actors/deferred.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
 
 it.each([
   ['natural', 'paused'], ['close', 'paused'],
@@ -27,6 +28,7 @@ it.each([
   const config = structuredClone(TEST_SAIVAGE_CONFIG);
   config.providers.test!.apiKey = 'synthetic'; config.providers.test!.baseUrl = 'https://provider.invalid/v1';
   const authority = createTestConfigAuthority(root, { config }), effective = authority.loadEffective();
+  compactWorkGcCard(root, effective.workflows);
   const registry = new ProviderRegistry(effective.config);
   const workflows = bindRuntimeWorkflows(effective.workflows, new ModelRouter(registry), registry,
     effective.config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
@@ -116,6 +118,7 @@ it.each([
         category: 'service_infrastructure', ownerId: 'bootstrap-fixture', ownerKind: 'runtime' });
       const scratch = join(root, '.saivage/work/cards/project/tmp');
       mkdirSync(scratch, { recursive: true }); const control = join(scratch, 'unselected'); writeFileSync(control, 'scratch');
+      utimesSync(control, 1, 1);
       try {
         expect(app.processRunner.workGcProtection().retainAll).toBe(true);
         const preview = await app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal);

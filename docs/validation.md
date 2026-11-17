@@ -61,14 +61,22 @@ contention can trigger real containment, which must not be treated as success.
 
 `web:test:operator-smoke` includes `native-git.spec.ts`: public classic-git init,
 actual server/local scripted providers and real Git delivery, correction and
-terminated-command browser evidence. The full retained transcript may conservatively
-protect all work during GC; that scenario verifies zero effects and unchanged
-selected captures/index/ref, not selective collection. The owning
+terminated-command browser evidence. Its correction case asserts a GC preview and
+deletion of two selected files while checking preserved captures/index/ref and
+unchanged unlinked evidence. This describes test assertions, not a current run result.
+The owning
 `tests/workspace/work-garbage-collector.test.ts` separately uses fresh public
-commissioning with empty configured conversations/minimal bootstrap records,
+commissioning, compacted configured card sessions, minimal bootstrap records,
 actual sequential bootstrap captures and a strict-valid incomplete native artifact
 selection to verify selective retention plus deletion of an unselected control.
 Neither witness changes GC reference interpretation or certifies model compliance.
+
+`tests/persistence/work-gc-projections.test.ts` exercises necessary owner-local
+decoding and refusal without truncation; `tests/workspace/work-garbage-collector.test.ts`
+checks current-selection I/O without old-history reads, compaction horizons,
+source-aware shell exclusion and retained non-shell inference, including glob
+thresholds. These are bounded fixture checks, not a performance, security or
+release-wide guarantee; ordinary consumer validation remains a separate concern.
 
 `tests/cli/native-public-lifecycle.test.ts` exercises the selected native bundle's
 public reset collision-before-delete/fresh namespace, rootless no-replay refusal,

@@ -27,6 +27,7 @@ import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRunt
 import { initializeRecordBaseline } from '../../src/persistence/authored-record-files.js';
 import { genericRecordDefinition } from '../../src/schemas/index.js';
 import { initProjectTree, CardService as TestCardService } from '../helpers/canonical-project.js';
+import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
@@ -68,6 +69,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
     initProjectTree(root);
     const authority = createTestConfigAuthority(root, { relativePath: '.saivage/saivage.yaml' });
     const effective = authority.loadEffective();
+    compactWorkGcCard(root, effective.workflows);
     const registry = new ProviderRegistry(effective.config);
     const workflows = bindRuntimeWorkflows(effective.workflows, new ModelRouter(registry), registry,
       effective.config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
@@ -98,12 +100,14 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       const retained = join(root, '.saivage/work/cards/project/tmp/evidence.txt');
       mkdirSync(dirname(garbage), { recursive: true });
       writeFileSync(garbage, 'disposable'); writeFileSync(retained, 'historical evidence');
+      utimesSync(garbage, 1, 1); utimesSync(retained, 1, 1);
       const generic = genericRecordDefinition('review-evidence.md');
       initializeRecordBaseline(root, cards.read('project')!, { filename: 'review-evidence.md',
         format: generic.format, schema: generic.schema, bootstrap: false, declared: false },
       () => 'Keep [evidence](tmp:///project/evidence.txt).');
       const historical = join(root, '.saivage/work/cards/project/tmp/accepted-history.txt');
       writeFileSync(historical, 'old accepted evidence');
+      utimesSync(historical, 1, 1);
       const author = new TestCardService(root);
       author.acceptRecord('project', 'review-history.md', 'tmp:///project/accepted-history.txt', { kind: 'agent', agent: 'analyst' });
       author.acceptRecord('project', 'review-history.md', 'Current assessment has no work URL.', { kind: 'agent', agent: 'analyst' });
@@ -150,12 +154,12 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       }
       const progress = jest.spyOn(process.stderr, 'write').mockImplementation(text => {
         expect(output.mock.calls).toHaveLength(0);
-        expect(String(text)).toMatch(/^GC (inventory|settling|validation_marking|selection) elapsed_ms=\d+/u);
+        expect(String(text)).toMatch(/^GC (inventory|settling|retention_marking|selection) elapsed_ms=\d+/u);
         return true;
       });
       await run(['node', 'saivage', 'gc-work', ...flags]);
       expect([...new Set(progress.mock.calls.map(([text]) => String(text).split(' ')[1]))])
-        .toEqual(['inventory', 'settling', 'validation_marking', 'selection']);
+        .toEqual(['inventory', 'settling', 'retention_marking', 'selection']);
       progress.mockRestore();
       reports.push(JSON.parse(output.mock.calls.at(-1)![0] as string));
       output.mockRestore();
@@ -179,6 +183,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       // Make the preceding deletion fixture equivalent again, without replaying a preview.
       if (!existsSync(garbage)) writeFileSync(garbage, 'disposable');
       if (!existsSync(historical)) writeFileSync(historical, 'old accepted evidence');
+      utimesSync(garbage, 3, 3); utimesSync(historical, 3, 3);
       const originalRun = app.runWorkGc.bind(app);
       const atInventory = jest.spyOn(app, 'runWorkGc').mockImplementation(input => originalRun({ ...input,
         inventory: async signal => { const found = await input.inventory(signal); appendFileSync(join(filterRoot, 'filter-stale'), 'changed'); return found; },
@@ -398,6 +403,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
           expect(partial).toMatchObject({ disposition: 'interrupted', reason: 'cancelled', result: {
             first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' }, would_delete_count: 0 } });
         } finally { globalProgress.mockRestore(); globalOutput.mockRestore(); }
+        author.acceptRecord('project', 'review-global.md', 'Current assessment without the unknown alias.', { kind: 'agent', agent: 'analyst' });
         const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
         const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
         appendFileSync(path, '{torn');
