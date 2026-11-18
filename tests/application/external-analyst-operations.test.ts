@@ -1,6 +1,6 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
-import { ExternalAnalystOperations } from '../../src/application/external-analyst-operations.js';
+import { ExternalAnalystExecutionError, ExternalAnalystOperations } from '../../src/application/external-analyst-operations.js';
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { toolSucceeded, WorkGcBusyError } from '../../src/contracts/index.js';
 import { deferred } from '../../src/runtime/actors/deferred.js';
@@ -15,10 +15,16 @@ import { createAnalystOperationSurface, recordExternalToolCall, projectCardArtif
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { externalToolCallSchema } from '../../src/contracts/index.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
-import { invokeTool, projectExternalToolResult } from '../../src/tools/tool-api.js';
+import { allowsReachedObject, BoundAgentToolSet, invokeTool, projectExternalToolResult, surfaceToolDefinitions, type InvocationSurface } from '../../src/tools/tool-api.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
+import { bindQualityToolExecution } from '../../src/runtime/quality-tool-execution.js';
+import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import type { OperationAuthor } from '../../src/schemas/index.js';
+import type { ToolContext } from '../../src/tools/execution-api.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
@@ -65,16 +71,41 @@ it('waits for accepted external tool effects and receipts without cancelling or 
   await operations.invoke('demo', {});
   expect(executor).toHaveBeenCalledTimes(2);
 });
-function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvocation, omittedTools: string[] = []) {
+it('dispatches an ordinary executor rejection to the owner without recording a settled receipt', async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'external-owner-failure-'));
+  roots.push(projectRoot);
+  initProjectTree(projectRoot);
+  const original = new Error('Private executor failure detail');
+  const onOwnerFailure = jest.fn<(error: unknown) => void>();
+  const executor = jest.fn(async () => { throw original; });
+  const tool = defineTool({ name: 'demo', description: 'Controlled rejection.', inputSchema: z.object({}).strict(),
+    resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, executor });
+  const operations = new ExternalAnalystOperations({
+    projectRoot, projectIdentityDigest: 'a'.repeat(64), principal: 'fixture',
+    surface: { agentName: 'analyst', tools: new Map([['demo', tool]]), providers: [] },
+    processRunner: {} as never, directScope: {} as never, fatalPort: testApplicationFatalPort,
+    onOwnerFailure, assertIngressAllowed() {},
+  });
+  await expect(operations.invoke('demo', {})).rejects.toMatchObject({
+    constructor: ExternalAnalystExecutionError,
+    message: 'External Analyst operation failed; effects may have occurred.',
+  });
+  expect(executor).toHaveBeenCalledTimes(1);
+  expect(onOwnerFailure).toHaveBeenCalledTimes(1);
+  expect(onOwnerFailure.mock.calls[0]?.[0]).toBe(original);
+  await operations.awaitAcceptedOperations();
+  expect(new EventQueryService(projectRoot).queryExternalToolCalls()).toEqual([]);
+});
+
+const externalAuthor = { kind: 'external-agent', principal: 'operator-one' } as const;
+
+function surfaceFixture(workflows: ReturnType<typeof compileProjectWorkflows>, mcpToolInvocation = unusedMcpToolInvocation) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'external-analyst-'));
-  roots.push(projectRoot); initProjectTree(projectRoot);
-  const config = structuredClone(TEST_SAIVAGE_CONFIG);
-  config.agents.analyst!.capabilities.grants.push({ tools: ['view_image'], resources: [{ kind: 'workspace' }] });
-  config.agents.analyst!.capabilities.grants = config.agents.analyst!.capabilities.grants
-    .map((grant) => ({ ...grant, tools: grant.tools.filter((name) => !omittedTools.includes(name)) }))
-    .filter(({ tools }) => tools.length > 0);
-  const workflows = compileProjectWorkflows(config);
+  roots.push(projectRoot); initProjectTree(projectRoot, workflows);
   const store = new CardService(projectRoot,workflows);
+  const registry = new ManagedProcessGroupRegistry();
+  const processRunner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
+  const qualityProcessParentScope = processRunner.createContainerScope(registry.rootScope, 'analyst-fixture');
   const notifyCard = jest.fn((cardId: string, notification: Parameters<CardService['enqueueNotification']>[1]) => {
     store.enqueueNotification(cardId, notification);
     return {ok:true as const, notificationId:notification.id};
@@ -83,28 +114,135 @@ function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvoca
     ...notifyCard(cardId,notification), queued:true as const, cardId,
     interruption:{status:'not_requested' as const},
   }));
-  const surface = createAnalystOperationSurface({
-    workflows, author:{kind:'external-agent',principal:'operator-one'}, allowedTools,
-    submitNotification,
-    cancelCard:async()=>{throw new Error('Unexpected cancellation.');}, currentProcessPosition:()=>null,
-    context:{
+  const currentProcessPosition = () => null;
+  const bind = (author: OperationAuthor, allowedTools: readonly string[]) => {
+    const internal = author.kind === 'agent';
+    const sessionId = `agent:${workflows.analyst.name}:global`;
+    const ownerId = internal ? sessionId : `external:${author.principal}`;
+    const context = {
       projectRoot, store, configAuthority:testConfigAuthority(projectRoot),
       retrieval:createObservedCollections(projectRoot),
       cardTypeVocabulary:workflows.cardTypeVocabulary,
-      interventionReadiness:{assertInterventionReady(){}}, processRunner:{} as never,
-      processScope:{} as never, mcpToolInvocation,
-      restartCapability:{available:false}, eventQueries:new EventQueryService(projectRoot),
+      interventionReadiness:{assertInterventionReady(){}}, processRunner,
+      processScope: processRunner.createDirectScope(qualityProcessParentScope, ownerId, 'operator_session'),
+      qualityProcessParentScope, mcpToolInvocation,
+      ...(internal ? { sessionId } : {}),
+      restartCapability:{available:false as const}, eventQueries:new EventQueryService(projectRoot),
       captureExecutingLlmSnapshots:()=>new Map(),
       runtime:{notifyCard,startProject:async()=>{throw new Error('Unexpected Run.');},pause(){},resume(){},hasWorkGcMaintenanceHold:()=>false,
-        stopProject:async()=>({status:'stopped',contained:false}),
-        getStatus:()=>({status:'stopped',currentCardId:null,pid:123,startedAt:'2026-10-20T00:00:00.000Z'})},
-    },
-  });
+        stopProject:async()=>({status:'stopped' as const,contained:false}),
+        getStatus:()=>({status:'stopped' as const,currentCardId:null,pid:123,startedAt:'2026-10-20T00:00:00.000Z'})},
+    } satisfies Omit<ToolContext, 'actor' | 'surface' | 'policyAgentName' | 'analystMutations'>;
+    const surface = createAnalystOperationSurface({
+      workflows, author, allowedTools, submitNotification, currentProcessPosition, context,
+      cancelCard:async()=>{throw new Error('Unexpected cancellation.');},
+    });
+    return { surface, context, ownerId };
+  };
+  return { projectRoot, store, bind, submitNotification, currentProcessPosition };
+}
+
+function fixture(allowedTools: string[], mcpToolInvocation = unusedMcpToolInvocation, omittedTools: string[] = []) {
+  const config = structuredClone(TEST_SAIVAGE_CONFIG);
+  config.agents.analyst!.capabilities.grants.push({ tools: ['view_image'], resources: [{ kind: 'workspace' }] });
+  config.agents.analyst!.capabilities.grants = config.agents.analyst!.capabilities.grants
+    .map((grant) => ({ ...grant, tools: grant.tools.filter((name) => !omittedTools.includes(name)) }))
+    .filter(({ tools }) => tools.length > 0);
+  const { projectRoot, store, bind, submitNotification } = surfaceFixture(compileProjectWorkflows(config), mcpToolInvocation);
+  const { surface } = bind(externalAuthor, allowedTools);
   const call = (tool:string,args:unknown) => invokeTool(surface,tool,args,{
     kind:'external',principal:'operator-one',invocationId:randomUUID(),signal:new AbortController().signal,
   });
   return {projectRoot,store,surface,call,submitNotification};
 }
+
+const optionalTools = [
+  'mcp_servers', 'mcp_catalog_refresh', 'mcp_server_register', 'mcp_server_set_scope',
+  'mcp_server_replace', 'mcp_server_unregister',
+  'code_quality_javascript_eslint', 'code_quality_typescript_eslint', 'code_quality_python_ruff',
+] as const;
+
+it.each(['default', 'reduced', 'optional'] as const)('binds the exact compiled %s selections for both authors', async (selection) => {
+  const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+  const analyst = config.agents[config.analyst_agent]!;
+  if (selection === 'reduced') {
+    analyst.skills = false;
+    analyst.capabilities.grants = [
+      { tools: ['get_card'], resources: [{ kind: 'card', scopes: ['all'] }] },
+      { tools: ['read'], resources: [{ kind: 'record', scopes: ['all'], patterns: ['brief.md'] }] },
+      { tools: ['get_status'] },
+    ];
+  }
+  if (selection === 'optional') {
+    analyst.capabilities.grants.push({ tools: [...optionalTools] });
+    const common = { cwd: '.', native_config: 'quality.config', source_paths: ['src'], exclusions: [], timeout_ms: 1_000, terminate_grace_ms: 0 };
+    const eslint = { ...common, node_binary: process.execPath, eslint_module: 'node_modules/eslint/bin/eslint.js' };
+    analyst.quality_tools = {
+      format_version: 1,
+      code_quality_javascript_eslint: eslint,
+      code_quality_typescript_eslint: { ...eslint, tsconfig: 'tsconfig.json', typescript_eslint_module: 'node_modules/typescript-eslint/index.js', typescript_module: 'node_modules/typescript/lib/typescript.js' },
+      code_quality_python_ruff: { ...common, ruff_binary: '/fixture/bin/ruff' },
+    };
+  }
+  const workflows = compileProjectWorkflows(config);
+  const f = surfaceFixture(workflows);
+  const full = workflows.analyst.tools;
+  const selectionNames = selection === 'reduced' ? ['get_card', 'read']
+    : selection === 'optional' ? [...optionalTools] : full.map(({ name }) => name);
+  const selected = full.filter(({ name }) => selectionNames.includes(name));
+  expect(selected.map(({ name }) => name)).toEqual(selectionNames);
+  expect(full.filter(({ name }) => optionalTools.some(tool => tool === name)).map(({ name }) => name))
+    .toEqual(selection === 'optional' ? [...optionalTools] : []);
+
+  const surfaces: InvocationSurface[] = [];
+  for (const author of [{ kind: 'agent', agent: workflows.analyst.name }, externalAuthor] as const) {
+    const { surface, context, ownerId } = f.bind(author, selectionNames);
+    expect([...surface.tools.keys()]).toEqual(selectionNames);
+    const analystToolContext: ToolContext = {
+      ...context, policyAgentName: workflows.analyst.name,
+      actor: author.kind === 'agent' ? author.agent : `external:${author.principal}`,
+      surface: author.kind === 'agent' ? 'web-chat' : 'mcp',
+    };
+    const definitions = new BoundAgentToolSet(selected).bind({
+      ...context, scope: 'global', agentName: workflows.analyst.name, processOwnerId: ownerId,
+      analystToolContext,
+      observationToolContext: {
+        ...context, agentName: workflows.analyst.name, currentProcessPosition: f.currentProcessPosition,
+        queueNotification: async () => { throw new Error('Unexpected notification in bind-only fixture.'); },
+      },
+      ...(workflows.analyst.qualityTools ? { quality: bindQualityToolExecution({
+        projectRoot: f.projectRoot, bindings: workflows.analyst.qualityTools, operations: workflows.operations,
+        processRunner: context.processRunner, parentScope: context.qualityProcessParentScope,
+        ownerId: analystToolContext.actor, sessionId: analystToolContext.sessionId,
+      }) } : {}),
+    });
+    expect(surfaceToolDefinitions(surface)).toEqual(surfaceToolDefinitions(definitions));
+    surfaces.push(surface);
+  }
+  expect(surfaceToolDefinitions(surfaces[0]!)).toEqual(surfaceToolDefinitions(surfaces[1]!));
+  for (const surface of surfaces) {
+    if (selection === 'default')
+      expect(surface.tools.get('read')!.description).toContain('Direct objects: workspace; records all *.');
+    if (selection === 'reduced') {
+      const read = surface.tools.get('read')!;
+      expect(read.description).toContain('Direct objects: records all brief.md.');
+      expect(read.description).not.toContain('Direct objects: workspace');
+      writeFileSync(join(f.projectRoot, 'workspace.txt'), 'Ordinary synthetic workspace text.');
+      const readPath = (path: string) => read.executor(read.inputSchema.parse({ path }), new AbortController().signal);
+      expect(await readPath('record:///brief.md?card=project')).toMatchObject({ providerOutcome: { kind: 'succeeded' } });
+      expect(await readPath('workspace.txt')).toMatchObject({
+        providerOutcome: { kind: 'failed', error: expect.stringContaining('not authorized') },
+      });
+    }
+    if (selection === 'optional') {
+      for (const name of ['code_quality_javascript_eslint', 'code_quality_typescript_eslint', 'code_quality_python_ruff']) {
+        const schema = surface.tools.get(name)!.inputSchema;
+        expect(schema.safeParse({}).success).toBe(true);
+        expect(schema.safeParse({ path: 'src' }).success).toBe(false);
+      }
+    }
+  }
+});
 
 it('intersects the external ceiling with actual configured global tools without inventing omitted tools', async () => {
   const f = fixture(['create_card', 'get_card'], unusedMcpToolInvocation, ['create_card']);
@@ -156,7 +294,7 @@ it('rejects guessed omitted tools and effective webfetch/write conjunctions with
   const f=fixture(['webfetch']);
   expect([...f.surface.tools.keys()]).toEqual(['webfetch']);
   const entered=jest.spyOn(f.store,'acceptRecord');
-  const fetch=jest.spyOn(globalThis,'fetch');
+  const fetch=jest.spyOn(globalThis,'fetch').mockRejectedValue(new Error('Network must not be reached.'));
   expect(await f.call('webfetch',{url:42})).toMatchObject({kind:'rejected_before_execution',providerOutcome:{kind:'failed',error:'Tool arguments do not match the selected tool schema.'}});
   expect(await f.call('write',{path:'record:///brief.md?card=project',content:'unauthorized'})).toMatchObject({kind:'unsupported_tool'});
   const services=createAnalystMutationServices({store:f.store,configAuthority:testConfigAuthority(f.projectRoot),
@@ -164,6 +302,17 @@ it('rejects guessed omitted tools and effective webfetch/write conjunctions with
     notifyCard:()=>{throw new Error('Unexpected notification.');},submitNotification:async()=>{throw new Error('Unexpected notification.');},cancelCard:async()=>{throw new Error('Unexpected cancellation.');}});
   expect(services.recordMutations.admitWrite('record:///brief.md?card=project')).toMatchObject({ok:false,audit_outcome:'denied',result:{data:{reason:'tool_not_authorized'}}});
   expect(services.recordMutations.write('record:///brief.md?card=project','unauthorized',['write','webfetch'])).toMatchObject({success:false,data:{reason:'tool_not_authorized'}});
+  const destination = 'record:///brief.md?card=project';
+  const record = f.store.readRecordCurrent('project', 'brief.md');
+  expect(record.kind).toBe('found');
+  expect(allowsReachedObject({ anchorCardId: null, tools: f.store.workflows.analyst.tools },
+    'webfetch', { kind: 'record', cardId: 'project', name: 'brief.md' })).toBe(true);
+  expect(await f.call('webfetch', { url: 'http://127.0.0.1:1/fixture', save_as: destination })).toMatchObject({
+    kind: 'executed', execution: { providerOutcome: {
+      kind: 'failed', data: { code: 'record_mutation_denied', reason: 'tool_not_authorized' },
+    } },
+  });
+  expect(f.store.readRecordCurrent('project', 'brief.md')).toEqual(record);
   expect(entered).not.toHaveBeenCalled();
   expect(fetch).not.toHaveBeenCalled();
 });

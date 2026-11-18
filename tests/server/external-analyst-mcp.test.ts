@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { createServer, request as httpRequest } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { startApp, type App } from '../../src/boot/app.js';
 import { AnalystDisabledError } from '../../src/runtime/runtime-api.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
@@ -13,13 +14,17 @@ import { surfaceToolDefinitions } from '../../src/tools/tool-api.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
-import { globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
+import { cardHeadFile, cardHistoryFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
+import { cardTombstoneArtifactSchema } from '../../src/persistence/canonical-card-artifacts.js';
+import { listControlActions } from '../../src/persistence/control-action-audit.js';
 import { productionTestConfig, writeProductionConfig, initializeProject, listen, closeServer, appOrigin, waitFor, readJsonRequest, sendFinalMessage, sendToolCall } from '../helpers/production-composition-e2e.js';
+import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
+import type { CardService } from '../../src/cards/card-service.js';
 
 const apps:App[]=[]; const roots:string[]=[]; const clients:Client[]=[];
 afterEach(async()=>{for(const client of clients.splice(0))await client.close();for(const app of apps.splice(0))await app.stop();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 
-async function fixture(mode:'external'|'both'='external',providerPort=1, customize?: Parameters<typeof productionTestConfig>[1],mainHost='127.0.0.1',analystMcpHost?:string,analystMcpPort?:number) {
+async function fixture(mode:'external'|'both'='external',providerPort=1, customize?: Parameters<typeof productionTestConfig>[1],mainHost='127.0.0.1',analystMcpHost?:string,analystMcpPort?:number,selectedTools?:readonly string[]) {
   const root=mkdtempSync(join(tmpdir(),'external-mcp-'));roots.push(root);
   let port=analystMcpPort;
   if(port===undefined) {
@@ -36,7 +41,7 @@ async function fixture(mode:'external'|'both'='external',providerPort=1, customi
   const index=globalAgentConversationVersionIndexFile(root,config.analyst_agent);
   const before=readFileSync(index);
   const app=await startApp({projectRoot:root,createRuntime:false,analystMode:mode,analystMcpHost,analystMcpPort:String(port),
-    analystMcpPrincipal:'test-operator',analystMcpTools:'read,get_card,get_tree,get_status,write,webfetch,queue_notification,start_project,pause_runtime,resume_runtime,stop_project,restart_server,run_command,wait_process,kill_process,mcp_tools,mcp_tool_call,list_observed_collections,query_observed_collections'+(mode==='external'?',view_image,mcp_catalog_refresh':''),
+    analystMcpPrincipal:'test-operator',analystMcpTools:selectedTools?.join(',') ?? ('read,get_card,get_tree,get_status,write,webfetch,queue_notification,start_project,pause_runtime,resume_runtime,stop_project,restart_server,run_command,wait_process,kill_process,mcp_tools,mcp_tool_call,list_observed_collections,query_observed_collections'+(mode==='external'?',view_image,mcp_catalog_refresh':'')),
     env:{NODE_ENV:'test',LOG_LEVEL:'silent',SAIVAGE_HOST:mainHost,SAIVAGE_PORT:'0',SAIVAGE_API_TOKEN:'rest-synthetic-secret',SAIVAGE_ANALYST_MCP_TOKEN:'mcp-synthetic-secret'}});
   apps.push(app);
   const endpoint=app.server.analystMcpEndpoint!;
@@ -44,6 +49,14 @@ async function fixture(mode:'external'|'both'='external',providerPort=1, customi
   clients.push(client);
   await client.connect(new StreamableHTTPClientTransport(new URL(endpoint),{requestInit:{headers:{authorization:'Bearer mcp-synthetic-secret'}}}));
   return {root,app,client,endpoint,index,before};
+}
+
+function settleCard(cards: CardService, id: string, status: 'blocked' | 'failed'): void {
+  cards.setStatus(id, 'running');
+  cards.commitActivationOutcome(id, status === 'blocked'
+    ? { status, summary: 'Fixture blocked', result: workflowResult('BLOCKED', 'Fixture blocked') }
+    : { status, summary: 'Fixture failed', result: runtimeFailure('Fixture failed') },
+  '2026-08-15T00:00:00.000Z');
 }
 
 async function reserveAddress(host:string) {
@@ -70,7 +83,13 @@ it.each(['external','both'] as const)('serves a real SDK at an explicitly select
   expect((await f.client.listResources()).resources.map(resource=>resource.uri)).toContain('saivage://analyst/context');
   const context=await f.client.readResource({uri:'saivage://analyst/context'});
   expect(JSON.parse((context.contents[0] as {text:string}).text)).toMatchObject({mode});
-  expect(await f.client.callTool({name:'get_status',arguments:{}})).toMatchObject({isError:false});
+  expect(await f.client.callTool({name:'get_status',arguments:{}})).toMatchObject({
+    isError: false,
+    structuredContent: { result: { data: {
+      runtime: { status: 'stopped' }, runtimeSummary: { status: 'stopped', currentCardId: null },
+      runningProcesses: 0, statusCounts: expect.any(Object), counts: { total: 1 },
+    } } },
+  });
   const operations=f.app.server.runtimeApplication.externalAnalystOperations!;
   const invoke=jest.spyOn(operations,'invoke');
   try {
@@ -167,6 +186,187 @@ it('serves the real SDK client without an internal Analyst route, preserving his
   expect(new EventQueryService(f.root).queryExternalToolCalls()).toEqual(expect.arrayContaining([expect.objectContaining({principal:'test-operator',tool:'write',outcome:'ok'})]));
   expect(await f.client.callTool({name:'restart_server',arguments:{}})).toMatchObject({structuredContent:{result:{data:{restart:'confirmation_required'}}}});
 },60_000);
+
+it('executes only the selected mutation subset over TCP, with canonical effects, audit, and receipts', async () => {
+  const selection = ['create_card', 'reorder_child', 'reopen_card', 'cancel_card', 'delete_card', 'read', 'edit'];
+  const f = await fixture('external', 1, undefined, '127.0.0.1', undefined, undefined, selection);
+  const application = f.app.server.runtimeApplication;
+  const cards = application.cardStore;
+  const compiled = cards.workflows.analyst.tools;
+  const expectedNames = compiled.filter(({ name }) => selection.includes(name)).map(({ name }) => name);
+  expect(expectedNames).toEqual(selection);
+  expect(compiled.map(({ name }) => name)).toContain('get_status');
+  const { tools } = await f.client.listTools();
+  expect(tools.map(({ name }) => name)).toEqual(expectedNames);
+  expect(tools).toEqual(surfaceToolDefinitions(application.externalAnalystOperations!.surface)
+    .map(({ function: { name, description, parameters } }) => ({ name, description, inputSchema: { ...parameters, type: 'object' } })));
+  const resource = await f.client.readResource({ uri: 'saivage://analyst/context' });
+  expect(JSON.parse((resource.contents[0] as { text: string }).text)).toMatchObject({ mode: 'external', principal: 'test-operator' });
+
+  const transcript = readConversation(f.root, 'agent:analyst:global');
+  const calls = new EventQueryService(f.root);
+  const readHead = (id: string) => readFileSync(cardHeadFile(f.root, id));
+  const call = (name: string, args: Record<string, unknown>) => f.client.callTool({ name, arguments: args });
+  const childInput = { parent: 'project', type: 'code', title: 'First wire child', bootstrap_content: 'Initial wire requirements' };
+  const initialRoot = readHead('project');
+  const beforeAudit = listControlActions(f.root);
+
+  const unauthenticated = await fetch(f.endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-11-25' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_card', arguments: childInput } }),
+  });
+  await unauthenticated.text();
+  expect(unauthenticated.status).toBe(401);
+  expect(readHead('project')).toEqual(initialRoot);
+  expect(cards.listChildren('project')).toEqual([]);
+  expect(calls.queryExternalToolCalls()).toEqual([]);
+  expect(listControlActions(f.root)).toEqual(beforeAudit);
+
+  for (const [name, args] of [
+    ['get_status', {}],
+    ['unknown_fixture_tool', {}],
+    ['create_card', { ...childInput, depends_on: ['not a card id'] }],
+  ] as const) {
+    await expect(call(name, args)).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+  }
+  expect(listControlActions(f.root)).toEqual(beforeAudit);
+  expect(readHead('project')).toEqual(initialRoot);
+  expect(cards.listChildren('project')).toEqual([]);
+
+  const expectDenial = async (name: string, args: Record<string, unknown>, reason: string) => {
+    expect(await call(name, args)).toMatchObject({
+      isError: true, structuredContent: { result: { data: { code: 'analyst_mutation_denied', reason } } },
+    });
+  };
+  await expectDenial('create_card', { ...childInput, depends_on: ['card-missing'] }, "dependency 'card-missing' does not exist");
+  await expectDenial('cancel_card', { cardId: 'project' }, 'root project card cannot be cancelled');
+  await expectDenial('delete_card', { ids: ['project'] }, 'root project card cannot be deleted');
+  expect(readHead('project')).toEqual(initialRoot);
+  expect(cards.listChildren('project')).toEqual([]);
+
+  const author = { kind: 'external-agent', principal: 'test-operator' };
+  for (const [id, title] of [['card-a', childInput.title], ['card-b', 'Second wire child']] as const) {
+    expect(await call('create_card', { ...childInput, title })).toMatchObject({
+      isError: false, structuredContent: { result: { data: { card: { id, lifecycle: { status: 'backlog' } } } } },
+    });
+    expect(cards.read(id)).toMatchObject({ id, title, created_by: 'external:test-operator', lifecycle: { status: 'backlog' } });
+    expect(cards.readRecordCurrent(id, 'brief.md')).toMatchObject({
+      kind: 'found', value: { projection: { accepted: { author, content: childInput.bootstrap_content }, draft: null } },
+    });
+  }
+  expect(cards.listChildren('project')).toEqual(['card-a', 'card-b']);
+  expect(await call('reorder_child', { parentId: 'project', orderedChildIds: ['card-b', 'card-a'] })).toMatchObject({
+    isError: false, structuredContent: { result: { data: { changed: 2 } } },
+  });
+  expect(cards.read('project')).toMatchObject({ active_child_order: ['card-b', 'card-a'] });
+  expect(cards.listChildren('project')).toEqual(['card-b', 'card-a']);
+
+  settleCard(cards, 'card-a', 'blocked');
+  settleCard(cards, 'card-b', 'failed');
+  expect(cards.read('card-a')?.lifecycle.status).toBe('blocked');
+  expect(cards.read('card-b')?.lifecycle.status).toBe('failed');
+  expect(await call('cancel_card', { cardId: 'card-a' })).toMatchObject({
+    isError: false, structuredContent: { result: { data: { status: 'cancelled', cancelled_card_ids: ['card-a'] } } },
+  });
+  expect(cards.read('card-a')?.lifecycle.status).toBe('cancelled');
+  expect(await call('reopen_card', { cardId: 'card-b' })).toMatchObject({
+    isError: false, structuredContent: { result: { data: { card: { id: 'card-b', lifecycle: { status: 'changed' } } } } },
+  });
+  expect(cards.read('card-b')?.lifecycle.status).toBe('changed');
+
+  const path = 'record:///brief.md?card=card-b';
+  const new_string = 'Edited wire requirements';
+  const beforeEdit = cards.readRecordCurrent('card-b', 'brief.md');
+  if (beforeEdit.kind !== 'found' || !beforeEdit.value.projection) throw new Error('Missing current brief before edit.');
+  expect(await call('edit', { path, old_string: childInput.bootstrap_content, new_string })).toMatchObject({ isError: false });
+  const edited = cards.readRecordCurrent('card-b', 'brief.md');
+  expect(edited).toMatchObject({
+    kind: 'found', value: { projection: { accepted: { author, content: new_string }, draft: null } },
+  });
+  if (edited.kind !== 'found' || !edited.value.projection) throw new Error('Missing current brief after edit.');
+  expect(edited.value.projection.headId).not.toBe(beforeEdit.value.projection.headId);
+  expect(await call('read', { path })).toMatchObject({
+    isError: false, structuredContent: { result: { data: {
+      head_id: edited.value.projection.headId, content_author: author, content: { content: new_string },
+    } } },
+  });
+
+  const ids = ['card-b', 'card-a'];
+  expect(await call('delete_card', { ids })).toMatchObject({
+    isError: false, structuredContent: { result: { data: { deleted: ['card-a', 'card-b'], top_level_deleted: ids } } },
+  });
+  expect(cards.listChildren('project')).toEqual([]);
+  expect(cards.read('project')).toMatchObject({ active_child_order: ids, child_membership: ['card-a', 'card-b'] });
+  for (const id of ids) {
+    expect(cards.read(id)).toBeNull();
+    const head = JSON.parse(readHead(id).toString('utf8'));
+    const tombstone = cardTombstoneArtifactSchema.parse(JSON.parse(readFileSync(cardHistoryFile(f.root, id, head.ordinary.entry_id), 'utf8')));
+    expect(tombstone.change.changed_by_actor).toBe('external:test-operator');
+  }
+
+  const audit = listControlActions(f.root);
+  for (const [action, safety_class, target_id, outcome] of [
+    ['card.create', 'low', null, 'denied'],
+    ['card.create', 'low', null, 'ok'],
+    ['card.reorder_child', 'low', 'project', 'ok'],
+    ['card.cancel', 'destructive', 'project', 'denied'],
+    ['card.cancel', 'destructive', 'card-a', 'ok'],
+    ['card.reopen', 'low', 'card-b', 'ok'],
+    ['record.edit', 'low', path, 'ok'],
+    ['card.delete', 'destructive', 'project', 'denied'],
+    ['card.delete', 'destructive', ids.join(','), 'ok'],
+  ]) {
+    expect(audit).toContainEqual(expect.objectContaining({ actor: 'external:test-operator', surface: 'mcp', action, safety_class, target_id, outcome }));
+  }
+  const receipts = calls.queryExternalToolCalls();
+  expect(receipts.map(({ tool, execution, outcome }) => [tool, execution, outcome])).toEqual([
+    ['<unsupported>', 'rejected_before_execution', 'error'],
+    ['<unsupported>', 'rejected_before_execution', 'error'],
+    ['create_card', 'rejected_before_execution', 'error'],
+    ['create_card', 'executed', 'denied'],
+    ['cancel_card', 'executed', 'denied'],
+    ['delete_card', 'executed', 'denied'],
+    ['create_card', 'executed', 'ok'],
+    ['create_card', 'executed', 'ok'],
+    ['reorder_child', 'executed', 'ok'],
+    ['cancel_card', 'executed', 'ok'],
+    ['reopen_card', 'executed', 'ok'],
+    ['edit', 'executed', 'ok'],
+    ['read', 'executed', 'ok'],
+    ['delete_card', 'executed', 'ok'],
+  ]);
+  expect(new Set(receipts.map(({ id }) => id)).size).toBe(receipts.length);
+  for (const receipt of receipts) expect(receipt).toMatchObject({
+    principal: 'test-operator', project_identity_digest: new URL(f.endpoint).pathname.split('/').at(-1),
+  });
+  expect(JSON.stringify(receipts)).not.toContain(new_string);
+  expect(application.runtimeApi.getStatus().status).toBe('stopped');
+  expect(readConversation(f.root, 'agent:analyst:global')).toEqual(transcript);
+  expect(readFileSync(f.index)).toEqual(f.before);
+}, 60_000);
+
+it('reopens a legitimately failed root over TCP without launching work or adding an Analyst turn', async () => {
+  const f = await fixture('external', 1, undefined, '127.0.0.1', undefined, undefined, ['reopen_card']);
+  const { cardStore: cards, runtimeApi } = f.app.server.runtimeApplication;
+  const transcript = readConversation(f.root, 'agent:analyst:global');
+  settleCard(cards, 'project', 'failed');
+  expect(cards.read('project')?.lifecycle.status).toBe('failed');
+  expect(runtimeApi.getStatus().status).toBe('stopped');
+  expect(await f.client.callTool({ name: 'reopen_card', arguments: { cardId: 'project' } })).toMatchObject({
+    isError: false, structuredContent: { result: { data: { card: { id: 'project', lifecycle: { status: 'changed' } } } } },
+  });
+  expect(cards.read('project')?.lifecycle.status).toBe('changed');
+  expect(runtimeApi.getStatus().status).toBe('stopped');
+  expect(listControlActions(f.root)).toContainEqual(expect.objectContaining({
+    actor: 'external:test-operator', surface: 'mcp', action: 'card.reopen', safety_class: 'low', target_id: 'project', outcome: 'ok',
+  }));
+  expect(new EventQueryService(f.root).queryExternalToolCalls()).toEqual([expect.objectContaining({
+    principal: 'test-operator', tool: 'reopen_card', execution: 'executed', outcome: 'ok',
+  })]);
+  expect(readConversation(f.root, 'agent:analyst:global')).toEqual(transcript);
+  expect(readFileSync(f.index)).toEqual(f.before);
+}, 60_000);
 
 it.each(['external','both'] as const)('executes observed tools through authenticated MCP in %s mode without adding an internal turn',async(mode)=>{
   const f=await fixture(mode);
@@ -386,18 +586,37 @@ it('uses the actual Supervisor for external Run, Pause, Resume and Stop with scr
   });
   const port=await listen(provider);
   try {
-    const f=await fixture('external',port);
+    const f=await fixture('external',port,undefined,'127.0.0.1',undefined,undefined,
+      ['start_project','pause_runtime','resume_runtime','stop_project','get_status','reopen_card']);
+    const { cardStore: cards, runtimeApi } = f.app.server.runtimeApplication;
+    const dormant = cards.create({ parent: 'project', type: 'code', title: 'Dormant intervention target',
+      bootstrap_content: 'Synthetic dormant work', created_by: 'analyst', bootstrap_author: { kind: 'agent', agent: 'analyst' }, depends_on: [] });
+    settleCard(cards, dormant.id, 'blocked');
     expect(await f.client.callTool({name:'start_project',arguments:{}})).toMatchObject({isError:false});
     await waitFor(()=>entered,'real root Planner provider entry');
     expect(f.app.server.runtimeApplication.runtimeApi.getActorRuntimeReadModel().cards).toEqual(expect.arrayContaining([expect.objectContaining({cardId:'project'})]));
     expect(await f.client.callTool({name:'pause_runtime',arguments:{}})).toMatchObject({isError:false,structuredContent:{result:{data:{status:'pausing'}}}});
+    expect(runtimeApi.getStatus().status).toBe('pausing');
+    expect(await f.client.callTool({ name: 'reopen_card', arguments: { cardId: dormant.id } })).toMatchObject({
+      isError: true, structuredContent: { result: { data: { code: 'intervention_not_ready' } } },
+    });
+    expect(cards.read(dormant.id)?.lifecycle.status).toBe('blocked');
     release();
     await waitFor(()=>f.app.server.runtimeApplication.runtimeApi.getStatus().status==='paused','settled cooperative Pause');
+    expect(await f.client.callTool({ name: 'reopen_card', arguments: { cardId: dormant.id } })).toMatchObject({ isError: false });
+    expect(cards.read(dormant.id)?.lifecycle.status).toBe('changed');
+    expect(runtimeApi.getStatus().status).toBe('paused');
+    expect(new EventQueryService(f.root).queryExternalToolCalls().filter(({ tool }) => tool === 'reopen_card'))
+      .toEqual(['denied', 'ok'].map(outcome => expect.objectContaining({ principal: 'test-operator', execution: 'executed', outcome })));
+    expect(listControlActions(f.root)).toEqual(expect.arrayContaining(['denied', 'ok'].map(outcome => expect.objectContaining({
+      actor: 'external:test-operator', surface: 'mcp', action: 'card.reopen', safety_class: 'low', target_id: dormant.id, outcome,
+    }))));
     expect(await f.client.callTool({name:'resume_runtime',arguments:{}})).toMatchObject({isError:false,structuredContent:{result:{data:{status:'running'}}}});
     await waitFor(()=>requests===2,'resumed original Planner provider entry');
     expect(await f.client.callTool({name:'stop_project',arguments:{}})).toMatchObject({isError:false});
     expect(f.app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
     expect(await f.client.callTool({name:'get_status',arguments:{}})).toMatchObject({isError:false});
+    expect(readFileSync(f.index)).toEqual(f.before);
   } finally {release();releaseLater();await closeServer(provider);}
 },60_000);
 

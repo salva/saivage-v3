@@ -1,5 +1,7 @@
 import { expect, it } from '@jest/globals';
 import { resolveAnalystStartup } from '../../src/config/analyst-mode.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
+import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 
 const external={analystMode:'external',analystMcpPort:'8090',analystMcpPrincipal:'local-client',analystMcpTools:'read,write'};
@@ -14,6 +16,32 @@ it('requires consistent explicit startup selection and never echoes invalid secr
     [{...external,analystMcpPort:'0'},'synthetic-secret'],
     [{...external,analystMcpPrincipal:'client/unsafe'},'synthetic-secret'],
   ] as const)expect(()=>resolveAnalystStartup(inputs,token,TEST_WORKFLOWS)).toThrow();
+});
+
+it('selects the entire compiled default Analyst inventory by exact name', () => {
+  const workflows = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG);
+  const names = workflows.analyst.tools.map(({ name }) => name);
+  expect(names.length).toBeGreaterThan(6);
+  expect(resolveAnalystStartup({ ...external, analystMcpTools: names.join(',') }, 'synthetic-secret', workflows))
+    .toMatchObject({ mode: 'external', tools: names });
+});
+
+it('selects a reduced custom inventory and rejects names outside its exact compiled grants', () => {
+  const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+  config.agents[config.analyst_agent]!.skills = false;
+  config.agents[config.analyst_agent]!.capabilities.grants = [
+    { tools: ['get_card'], resources: [{ kind: 'card', scopes: ['all'] }] },
+    { tools: ['read'], resources: [{ kind: 'workspace' }] },
+  ];
+  const workflows = compileProjectWorkflows(config);
+  const names = workflows.analyst.tools.map(({ name }) => name);
+  expect(names).toEqual(['get_card', 'read']);
+  expect(resolveAnalystStartup({ ...external, analystMcpTools: names.join(',') }, 'synthetic-secret', workflows))
+    .toMatchObject({ mode: 'external', tools: names });
+  for (const analystMcpTools of [undefined, '', '*', 'unknown_tool', 'write', 'read,read', 'read, get_card', 'read ']) {
+    expect(() => resolveAnalystStartup({ ...external, analystMcpTools }, 'synthetic-secret', workflows))
+      .toThrow('External Analyst tools must be a nonempty unique list of configured canonical names.');
+  }
 });
 
 it.each(['external', 'both'])('resolves dedicated concrete IPs and independent port in %s mode', (analystMode) => {
