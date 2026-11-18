@@ -41,6 +41,7 @@ function harness(args: {
   useRealCorrection?: boolean;
   protectedCorrection?: boolean;
   executeContinuationHook?: boolean;
+  recordRejections?: number;
 }) {
   const events: string[] = [];
   const handoffs: unknown[] = [];
@@ -176,7 +177,7 @@ function harness(args: {
   if (args.reviewerPreparationError) internals.captureReviewerPair = () => { throw args.reviewerPreparationError; };
   if (args.terminalVariant === 'records') {
     let validationCount = 0;
-    recordInternals.validateRecords = () => validationCount++ === 0
+    recordInternals.validateRecords = () => validationCount++ < (args.recordRejections ?? 1)
       ? { violations: ['required record is invalid'] }
       : { candidates: new Map() };
   }
@@ -371,6 +372,31 @@ describe('AgentNodeExecution contract repair behavior', () => {
       toolCallId: 'invalid-15',
       result: executedNoneSettlement(toolFailed('emit_result was not accepted: the node corrective budget is exhausted.')),
     }]);
+  });
+
+  it('exhausts two stale-record results plus fourteen missing-terminal rearms without an extra exchange', async () => {
+    const test = harness({
+      initial: terminal('stale-1'),
+      continuations: [terminal('stale-2'), ...Array.from({ length: 15 }, () => resultOutcome)],
+      terminalVariant: 'records',
+      recordRejections: 2,
+    });
+    const failure = test.run();
+    await expect(failure).rejects.toMatchObject({
+      name: 'NodeCorrectiveBudgetExceededError',
+      rearmCount: MAX_NODE_CORRECTIVE_REARMS,
+      rearmLimit: 16,
+    });
+    expect(test.appendedToolResults.map(({ toolCallId }) => toolCallId)).toEqual(['stale-1', 'stale-2']);
+    expect(test.appendedToolResults.every(({ result }) =>
+      JSON.stringify(result).includes('Record validation failed.'),
+    )).toBe(true);
+    expect(test.plainTextCorrections).toHaveLength(14);
+    expect(test.plainTextCorrections.at(-1)).toContain('remaining before this node fails: 0.');
+    expect(test.events.filter(event => event === 'turn')).toHaveLength(1);
+    expect(test.events.filter(event => event.startsWith('append:') || event === 'continue-plain-text')).toHaveLength(16);
+    expect(test.settledToolResults).toEqual([]);
+    expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
   });
 
   it('throws an actor provider error and still cleans up the failed activation', async () => {

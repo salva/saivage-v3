@@ -379,7 +379,7 @@ function seedUnmatched(
     event: 'activation_open',
     instructions: { kind: 'unavailable', reason: 'not_recorded' },
     agent_name: 'planner',
-    card_id: 'project',
+    card_id: test.input.card.id,
     input_id: inputId,
   });
   appendLlmTurnToolCallBatch(
@@ -679,8 +679,9 @@ describe('AgentNodeExecution static preparation', () => {
   });
 
   it('settles one strict-valid final unmatched call immediately before a fresh activation', async () => {
-    const test = harness({ kind: 'capacity', systemPrompt: 'system' });
+    const test = harness({ kind: 'capacity', systemPrompt: 'system' }, 'goal', true);
     seedUnmatched(test);
+    const prior = readConversation(test.projectRoot, test.sessionId).physicalRows;
     await expect(test.run()).rejects.toThrow('turn sentinel');
     const rows = readConversation(test.projectRoot, test.sessionId).physicalRows;
     const result = rows.findIndex(
@@ -703,6 +704,24 @@ describe('AgentNodeExecution static preparation', () => {
     });
     expect(rows[result + 1]).toMatchObject({ kind: 'activity' });
     expect(rows.some((row) => row.kind === 'model_recovered')).toBe(false);
+    expect(rows.slice(0, prior.length)).toEqual(prior);
+    expect(rows.filter(row => row.kind === 'tool_call')).toHaveLength(1);
+    expect(rows.filter(row => row.kind === 'tool_result')).toHaveLength(1);
+    const activation = parseActivationOpenPayload(
+      rows[result + 1]!.content, test.sessionId, rows[result + 1]!.timestamp,
+    )!;
+    expect(activation.input_id).not.toBe('00000000-0000-4000-8000-000000000031');
+    expect(activation.instructions).toMatchObject({
+      kind: 'prepared',
+      activation_id: test.input.activationId,
+      parent_direction: { text: expect.stringContaining('Plan the bounded goal.') },
+    });
+    const input = (test.llm.turn.mock.calls as unknown as [[{
+      providerConversation: { messages: Array<{ content: string }> };
+    }]])[0]![0];
+    const visible = input.providerConversation.messages.map(({ content }) => content).join('\n');
+    expect(visible).toContain('External or domain effects may or may not have happened.');
+    expect(visible).toContain('Plan the bounded goal.');
   });
 
   it.each([

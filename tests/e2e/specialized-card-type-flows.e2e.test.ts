@@ -23,7 +23,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../src/utils/prompt-api.js';
 import { specializedConfig } from '../helpers/specialized-config.js';
-import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import {
@@ -42,7 +42,11 @@ import {
 } from '../../src/schemas/conversation-session-id.js';
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
 import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
-import { parseActivationOpenPayload } from '../../src/schemas/index.js';
+import { canonicalJson, parseActivationOpenPayload, sha256Hex } from '../../src/schemas/index.js';
+import { MAX_NODE_CORRECTIVE_REARMS } from '../../src/runtime/actors/agent-executor.js';
+import { appendActivationMarker } from '../../src/runtime/actors/conversation-session.js';
+import { appendLlmTurnToolCallBatch } from '../../src/runtime/actors/llm-delivery-log.js';
+import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import {
   foldConversation,
   foldHistoricalConversationRows,
@@ -354,6 +358,241 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
 }
 
 describe('specialized production card-type flows', () => {
+  it('exhausts the default goal invocation, then ordinarily reopens the same child with a full fresh allowance and current BLOCKED evidence', async () => {
+    expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic-typed');
+    expect(MAX_NODE_CORRECTIVE_REARMS).toBe(16);
+    let childId = '';
+    let parentCalls = 0;
+    let invocation = 0;
+    let childCalls = 0;
+    let failedVersion = 0;
+    let failedSelection: unknown;
+    const starts: LlmInvocationInput[] = [];
+    let activationBlockId = '';
+    const counts: number[] = [];
+    const direction = 'Diagnosis: the accepted status describes prior work, not this invocation. All remaining authorized paths depend on unavailable external input. Preserve prior accepted work; write a current bounded status and return honest blocked, rather than repeat plain text.';
+    const status = (card: string, id: string, content: string) =>
+      tool(id, 'write', { path: `record:///status.md?card=${card}`, content });
+    const result = (id: string, outcome: string) =>
+      tool(id, 'emit_result', { outcome, summary: 'External input is unavailable; independent accepted work is retained.' });
+    const run = harness('goal', async input => {
+      const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
+      if (cardId === 'project') {
+        parentCalls++;
+        if (parentCalls === 1) return complete(tool('initial-activation', 'activate_card', {
+          card_id: childId, instructions: 'Assess the remaining bounded goal; preserve prior accepted work.',
+        }));
+        if (parentCalls === 2) {
+          expect(childCalls).toBe(17); // Two record refusals, fourteen rearms, then exhaustion with no exchange.
+          expect(input.providerConversation.messages.some(({ content }) => content === direction)).toBe(true);
+          counts.push(childCalls);
+          expect(latestToolResult(input)).toMatchObject({ success: true, data: {
+            card_id: childId, outcome: 'failed', result: { kind: 'runtime-failure' },
+          } });
+          expect(JSON.stringify(latestToolResult(input))).toContain('corrective re-arm budget (16)');
+          const failed = run.cards.read(childId)!;
+          expect(failed.lifecycle.status).toBe('failed');
+          failedVersion = failed.version_seq;
+          failedSelection = run.cards.readCardVersion(childId, failedVersion);
+          return complete(tool('material-diagnosis', 'read', { path: `record:///brief.md?card=${childId}` }));
+        }
+        if (parentCalls === 3) {
+          expect(latestToolResult(input).success).toBe(true);
+          expect(JSON.stringify(latestToolResult(input))).toContain('unavailable external input');
+          return complete(tool('same-owner-reopen', 'reopen_card', { card_id: childId }));
+        }
+        if (parentCalls === 4) {
+          expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: childId, status: 'changed' } });
+          expect(run.cards.read(childId)!.lifecycle.status).toBe('changed');
+          return complete(tool('corrected-activation', 'activate_card', { card_id: childId, instructions: direction }));
+        }
+        if (parentCalls === 5) {
+          counts.push(childCalls);
+          expect(latestToolResult(input)).toMatchObject({ success: true, data: {
+            card_id: childId, outcome: 'blocked', result: { node_id: 'plan', outcome: 'blocked' },
+          } });
+          return complete(status('project', 'parent-current-status', 'Same goal returned current bounded blockage: required external input unavailable. Prior independent accepted work remains valid; no other delegated path is available.'));
+        }
+        expect(parentCalls).toBe(6);
+        return complete(result('parent-blocked', 'blocked'));
+      }
+      expect(cardId).toBe(childId);
+      const parentBlockId = input.preparedContext!.stableBlocks.find(block => block.id.startsWith('parent-direction:'))!.id;
+      if (parentBlockId !== activationBlockId) {
+        activationBlockId = parentBlockId;
+        invocation++;
+        childCalls = 0;
+        starts.push(input);
+      }
+      childCalls++;
+      expect(invocation).toBeLessThanOrEqual(2);
+      const messages = input.providerConversation.messages.map(({ content }) => content).join('\n');
+      if (invocation === 2 && childCalls === 1) {
+        expect(messages).toContain(JSON.stringify(direction));
+        expect(messages).toContain('Still missing the required terminal action.');
+        expect(input.inputId).not.toBe(starts[0]!.inputId);
+      }
+      if (childCalls === 1 || childCalls === 2) {
+        if (childCalls === 2) {
+          expect(latestToolResult(input)).toMatchObject({ success: false, error: 'Record validation failed.' });
+          expect(messages).toContain('remaining before this node fails: 15.');
+        }
+        // Neither failed nor blocked may borrow the previously accepted status.
+        return complete(result(`stale-${invocation}-${childCalls}`, childCalls === 1 ? 'failed' : 'blocked'));
+      }
+      if (childCalls === 3) {
+        expect(latestToolResult(input)).toMatchObject({ success: false, error: 'Record validation failed.' });
+        expect(messages).toContain('remaining before this node fails: 14.');
+      }
+      if (childCalls >= 3 && childCalls <= 17) {
+        const lastCorrection = input.providerConversation.messages.filter(({ content }) =>
+          content.includes('Corrective attempts remaining before this node fails:'),
+        ).at(-1)!.content;
+        expect(lastCorrection).toContain(`remaining before this node fails: ${17 - childCalls}.`);
+      }
+      if (childCalls <= 16) return complete({ kind: 'message', content: 'The terminal result is still missing.' });
+      expect(messages).toContain('remaining before this node fails: 0.');
+      if (invocation === 1) {
+        expect(childCalls).toBe(17);
+        expect(run.supervisor.notifyCard('project', {
+          id: '22222222-2222-4222-8222-222222222222', content: direction,
+          created_at: '2026-11-18T00:00:00.000Z',
+        })).toMatchObject({ ok: true });
+        return complete({ kind: 'message', content: 'Still missing the required terminal action.' });
+      }
+      if (childCalls === 17) return complete(status(childId, 'fresh-current-status',
+        'Current assessment: required external input remains unavailable and every remaining authorized path depends on it. Prior independent accepted work is retained unchanged; no target probing or replacement child is needed. Bounded goal is blocked.'));
+      expect(childCalls).toBe(18);
+      expect(latestToolResult(input).success).toBe(true);
+      return complete(result('fresh-blocked', 'blocked'));
+    }, undefined, 'Prior independent work was accepted. Remaining bounded goal requires unavailable external input; if every authorized path depends on it, report current blockage and retain the accepted work.', DEFAULT_SYSTEM_TEMPLATE);
+    childId = run.child.id;
+    const accepted = run.cards.acceptRecord(childId, 'status.md', 'Prior independent work accepted; remaining scope not yet assessed.', { kind: 'agent', agent: 'analyst' });
+    const priorWork = run.cards.readRecordVersion(childId, 'status.md', accepted.accepted!.source_version);
+    if (priorWork.kind !== 'found') throw new Error('Missing prior accepted work');
+    expect(priorWork.value.projection.accepted).toEqual(accepted.accepted);
+    try {
+      expect((await run.supervisor.startProject()).started).toBe(true);
+      await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+      expect(parentCalls).toBe(6);
+      expect(counts).toEqual([17, 18]);
+      expect(invocation).toBe(2);
+      expect(run.cards.read(childId)!.lifecycle.status).toBe('blocked');
+      expect(run.cards.read('project')!.lifecycle.status).toBe('blocked');
+      expect(run.cards.listChildren('project')).toEqual([childId]);
+      expect(run.cards.readCardVersion(childId, failedVersion)).toEqual(failedSelection);
+      const retainedWork = run.cards.readRecordVersion(childId, 'status.md', accepted.accepted!.source_version);
+      if (retainedWork.kind !== 'found') throw new Error('Missing retained accepted work');
+      // The read envelope includes the current card; the complete historical projection is immutable.
+      expect(retainedWork.value.projection).toEqual(priorWork.value.projection);
+      expect(run.cards.readRecordCurrent(childId, 'status.md')).toMatchObject({
+        kind: 'found', value: { projection: { state: 'closed', accepted: {
+          content: expect.stringContaining('Current assessment:'),
+          author: { kind: 'card-agent', agent: 'planner', card_id: childId },
+        } } },
+      });
+      const rows = readConversation(run.root, cardAgentSessionId('planner', childId)).physicalRows;
+      expect(rows.filter(row => row.kind === 'tool_call' && row.tool === 'emit_result')).toHaveLength(5);
+      expect(rows.filter(row => row.kind === 'tool_result' && row.tool === 'emit_result')).toHaveLength(5);
+      const markers = rows.flatMap(row => {
+        const payload = row.kind === 'activity' ? parseActivationOpenPayload(row.content, row.session_id, row.timestamp) : null;
+        return payload?.instructions.kind === 'prepared' ? [payload.instructions] : [];
+      });
+      expect(markers).toHaveLength(2);
+      expect(markers[1]!.activation_id).not.toBe(markers[0]!.activation_id);
+    } finally { await run.supervisor.stopProject(); }
+  });
+
+  it('mates a historical final unmatched call at actual default goal use, retains uncertainty and completes only independent record coordination', async () => {
+    let childId = '';
+    let parentCalls = 0;
+    let childCalls = 0;
+    let freshInputId = '';
+    const oldInputId = '00000000-0000-4000-8000-000000000031';
+    const direction = 'Coordinate only the independent status record within the accepted brief. Prior operation effects remain unknown; do not read, retry or reconcile its target. Required external input is unavailable, so report honest bounded blockage.';
+    const notice = 'Fresh diagnosis: independent status coordination is authorized; the historical target remains outside this work.';
+    const brief = 'Accepted bounded scope: coordinate the independent status record. Required external input is unavailable. No access to the historical operation target is authorized.';
+    const run = harness('goal', async input => {
+      const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
+      if (cardId === 'project') {
+        parentCalls++;
+        if (parentCalls === 1) return complete(tool('independent-activation', 'activate_card', { card_id: childId, instructions: direction }));
+        if (parentCalls === 2) {
+          expect(latestToolResult(input)).toMatchObject({ success: true, data: { outcome: 'blocked' } });
+          return complete(tool('independent-parent-status', 'write', { path: 'record:///status.md?card=project', content: 'Independent child coordination completed; external prerequisite remains unavailable. Historical effects remain unknown; no target access or replay performed.' }));
+        }
+        expect(parentCalls).toBe(3);
+        return complete(tool('independent-parent-blocked', 'emit_result', { outcome: 'blocked', summary: 'Remaining authorized paths require external input; historical effects remain unknown.' }));
+      }
+      expect(cardId).toBe(childId);
+      childCalls++;
+      const messages = input.providerConversation.messages.map(({ content }) => content).join('\n');
+      expect(messages).toContain('External or domain effects may or may not have happened.');
+      expect(messages).toContain('"outcome_unknown":true');
+      expect(messages).toContain(JSON.stringify(direction));
+      expect(messages).toContain(notice);
+      expect(messages).toContain(brief);
+      if (childCalls === 1) {
+        freshInputId = input.inputId;
+        expect(freshInputId).not.toBe(oldInputId);
+        return complete(tool('read-current-brief', 'read', { path: `record:///brief.md?card=${childId}` }));
+      }
+      if (childCalls === 2) {
+        expect(latestToolResult(input).success).toBe(true);
+        return complete(tool('independent-status', 'write', { path: `record:///status.md?card=${childId}`, content: 'Independent coordination complete under current accepted brief and fresh direction. All remaining authorized paths require unavailable external input. Historical operation effects remain unknown; its target was not inspected or replayed.' }));
+      }
+      expect(childCalls).toBe(3);
+      expect(latestToolResult(input).success).toBe(true);
+      return complete(tool('independent-blocked', 'emit_result', { outcome: 'blocked', summary: 'Independent record coordination complete; external prerequisite unavailable. Historical effects remain unknown.' }));
+    }, undefined, brief, DEFAULT_SYSTEM_TEMPLATE);
+    childId = run.child.id;
+    const sessionId = cardAgentSessionId('planner', childId);
+    const policyBytes = canonicalJson(OPERATIONAL_RESULT_POLICY_TEMPLATE);
+    appendActivationMarker({ projectRoot: run.root }, sessionId, {
+      event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
+      agent_name: 'planner', card_id: childId, input_id: oldInputId,
+    });
+    appendLlmTurnToolCallBatch({ projectRoot: run.root }, {
+      inputId: oldInputId, sessionId, agentName: 'planner',
+    } as never, {
+      id: 'historical-write', type: 'function',
+      function: { name: 'write', arguments: '{"path":"uncertain-target.txt","content":"unknown prior effect"}' },
+    }, {
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      resultPolicyTemplateBytes: policyBytes, resultPolicyTemplateSha256: sha256Hex(policyBytes),
+    });
+    run.cards.enqueueNotification(childId, {
+      id: '11111111-1111-4111-8111-111111111111', content: notice, created_at: '2026-11-18T00:00:00.000Z',
+    });
+    try {
+      expect((await run.supervisor.startProject()).started).toBe(true);
+      await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+      expect(parentCalls).toBe(3);
+      expect(childCalls).toBe(3);
+      const rows = readConversation(run.root, sessionId).physicalRows;
+      const mates = rows.filter(row => row.kind === 'tool_result' && row.tool_call_id === 'historical-write');
+      expect(mates).toHaveLength(1);
+      expect(JSON.parse(mates[0]!.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
+      expect(mates[0]!.context_policy).toMatchObject({ settlement_origin: 'execution_failed', evidence: { kind: 'none' } });
+      const mateIndex = rows.indexOf(mates[0]!);
+      const activation = parseActivationOpenPayload(rows[mateIndex + 1]!.content, sessionId, rows[mateIndex + 1]!.timestamp)!;
+      expect(activation.input_id).toBe(freshInputId);
+      expect(activation.instructions).toMatchObject({ kind: 'prepared', parent_direction: { text: expect.stringContaining(JSON.stringify(direction)) } });
+      const calls = rows.filter(row => row.kind === 'tool_call');
+      expect(calls.filter(row => row.tool_call_id === 'historical-write')).toHaveLength(1);
+      expect(calls.slice(1).map(row => row.tool)).toEqual(['read', 'write', 'emit_result']);
+      for (const call of calls.slice(1)) expect(call.content).not.toContain('uncertain-target.txt');
+      expect(rows.filter(row => row.content === notice)).toHaveLength(1);
+      expect(run.cards.read(childId)!.pending_notifications).toEqual([]);
+      expect(run.cards.read(childId)!.lifecycle.status).toBe('blocked');
+      expect(run.cards.readRecordCurrent(childId, 'status.md')).toMatchObject({
+        kind: 'found', value: { projection: { state: 'closed', accepted: {
+          content: expect.stringContaining('Historical operation effects remain unknown'),
+        } } },
+      });
+    } finally { await run.supervisor.stopProject(); }
+  });
+
   it.each(['classic-typed', 'paad-typed', 'newloop'])('%s research readiness requires explicit handoffs again at report, before parent review', async profile => {
     const counts = new Map<string, number>();
     const accepted = new Map<string, unknown>();

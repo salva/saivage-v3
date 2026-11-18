@@ -502,6 +502,11 @@ reprepares clean requirements, captures refreshed context and corrects the same
 node under original entry baselines. This is not an atomic filesystem snapshot or
 remembered admission. The one joint 16-rearm budget covers malformed/plaintext
 results, pending notifications, stale context, record and other corrective causes.
+It is local to a node task. Following ordinary failed-child settlement, the
+responsible parent can reopen and activate the same child when those operations
+are admitted; the new task starts with a fresh allowance. The default Planner's
+material-new-diagnosis guidance is not a separate lifecycle gate, and the
+ordinary current-record and result requirements still apply.
 
 Acceptance checks records/descendants/freshness/promotion before terminal claim,
 including a synchronous check of the actual required/written bootstrap close intent
