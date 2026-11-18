@@ -510,8 +510,9 @@ fatal before any follow-up in the affected owner/process, including reporting,
 inspection or cleanup and lock or admission release. An uncertain external or
 native target is not probed, reconciled or retried; independent analysis or work
 requires an unaffected context, independent inputs and existing authority. A new
-clone or session does not establish independence, and refused output cannot be
-obtained by rerouting. These instructions do not expand grants, weaken acceptance,
+clone or session does not establish independence. For a provider refusal, a brief
+check for evidently disallowed work precedes retrying the card to resume work and,
+if refused again, cancelling it and recreating the work from scratch under a new card. These instructions do not expand grants, weaken acceptance,
 or authorize service or deployment actions. Existing primary and summary retention
 mechanics above are unchanged. This is a source-level clarification for the pair,
 not a claim about the other profiles or an update to installed materialized or
@@ -558,7 +559,7 @@ ownership is separate from runtime operator authority.
 
 Planner reuse and same-child correction remain autonomous defaults, with supported
 same-assignment replacement possible under that explicit rule, not fake novelty or
-evidence transfer. Project assessment only returns to planning under the shared
+evidence transfer. Refusal-driven recreation under the refusal policy needs no separate operator override. Project assessment only returns to planning under the shared
 child-management policy; it does not repeat a reuse-only prescription or dispatch
 children. Planner's cancellation and actual tool/admission limits remain at their
 lifecycle owners.
@@ -610,9 +611,11 @@ unresolved approval, substantive accepted constraint or unrelated operation auth
 Readiness, timestamps, quoted claims, queued notices and generic continuation supply
 no such proof; unresolved ambiguity is reported, not guessed away. Historical refusals
 remain evidence, not permanent bans on related work or proof of provider error.
-Retry, rephrasing, fresh conversation/card, provider/model switching and delegation
-must not obtain refused output; only genuinely authorized non-refused work may
-proceed. Accepted constraints and independent assessment remain binding. This reusable
+A brief check considers whether the requested work is evidently disallowed; absent
+that, the card is retried to resume work. If refused again, the failed card is
+cancelled and the work recreated from scratch under a new card, with a new identity
+and no inherited acceptance. Refusal facts, the failed attempt and useful outputs
+remain history; the work is not concealed or misrepresented to avoid refusal. Accepted constraints and independent assessment remain binding. This reusable
 method is prepared with the role, not repeated in each node or entrusted to old
 notices or summaries. Current supported Planner grants do allow immediate-child
 brief editing on eligible inactive targets, but no public notices. This is
@@ -645,8 +648,9 @@ earlier and current evidence for movement toward integrated delivery, a bounded
 remainder and a meaningful completion or handoff boundary. Patches and passing checks
 are progress, but do not alone establish a reduced remainder. Necessary repair,
 correctness or release gates, research and real refusals or dependencies are distinct
-from optional expansion displacing the milestone; accepted requirements and refusals
-remain binding. Missing, partial, stale or conflicting evidence is qualified, not
+from optional expansion displacing the milestone; accepted requirements and enforced admission limits
+remain binding; refusal recovery follows the check, retry, then cancel-and-recreate
+policy and does not permit evidently disallowed work. Missing, partial, stale or conflicting evidence is qualified, not
 replaced by an invented baseline.
 
 Where a concrete recurring gap supports a useful next decision, qualified normal
@@ -886,7 +890,7 @@ authority return through truthful BLOCKED with evidence, impact, options and the
 needed decision; parent direction cannot edit a child's accepted brief. Actual
 requirement changes reach their requirement owner. Failed tactics do not imply
 objective failure; conclusive failure remains failure, with no forced success,
-uncertain-effect replay or provider-refusal circumvention.
+uncertain-effect replay.
 
 Assessment relates intent to analysis/design, intent/design to plan, design/plan to
 actual output and useful delivery back to the authorized need. Consistent artifacts
