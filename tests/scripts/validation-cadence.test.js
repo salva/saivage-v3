@@ -18,6 +18,7 @@ const JEST_IGNORE_PATTERNS = [
   TERMINAL_CHILD_IGNORE_REGEX,
   REDACTION_PROGRESS_IGNORE_REGEX,
 ];
+const CANONICAL_JEST = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).jest;
 
 function withFixture(files, testFn) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-validation-cadence-'));
@@ -34,6 +35,8 @@ function withFixture(files, testFn) {
 }
 
 const PACKAGE_SCRIPTS = {
+  ...Object.fromEntries(Object.entries(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).scripts)
+    .filter(([name]) => name === 'pretest' || name === 'check:test-partitions' || name.startsWith('test:focus'))),
   'docs:verify': 'bash scripts/docs-verify.sh',
   'docs:build': 'vitepress build docs',
   typecheck: 'tsc --noEmit',
@@ -73,7 +76,7 @@ const PACKAGE_SCRIPTS = {
 const PACKAGE_JSON = JSON.stringify({
   engines: { node: '>=24 <25', npm: '>=10 <12' },
   scripts: PACKAGE_SCRIPTS,
-  jest: { testPathIgnorePatterns: JEST_IGNORE_PATTERNS },
+  jest: { ...CANONICAL_JEST, testPathIgnorePatterns: JEST_IGNORE_PATTERNS },
 });
 
 const WEB_PACKAGE_JSON = JSON.stringify({
@@ -207,7 +210,7 @@ function packageJson({ scripts = PACKAGE_SCRIPTS, ignorePatterns = JEST_IGNORE_P
   return JSON.stringify({
     engines: { node: '>=24 <25', npm: '>=10 <12' },
     scripts,
-    jest: { testPathIgnorePatterns: ignorePatterns },
+    jest: { ...CANONICAL_JEST, testPathIgnorePatterns: ignorePatterns },
   });
 }
 
@@ -239,6 +242,8 @@ function validFiles(overrides = {}) {
     'scripts/check-existing.js': '#!/usr/bin/env node\n',
     'scripts/check-dependency-freshness.js': '#!/usr/bin/env node\n',
     'scripts/check-export-consumers.js': '#!/usr/bin/env node\n',
+    'scripts/check-test-partitions.js': '#!/usr/bin/env node\n',
+    'scripts/jest-focused.config.cjs': readFileSync(new URL('../../scripts/jest-focused.config.cjs', import.meta.url), 'utf8'),
     'tests/existing.test.js': 'test("ok", () => {});\n',
     'tests/playwright/smoke/playwright.config.ts': "testDir: '.'\ntestMatch: /.*\\.spec\\.ts/\n",
     'tests/playwright/smoke/preview.spec.ts': 'test();\n',
@@ -251,6 +256,20 @@ function validFiles(overrides = {}) {
 }
 
 describe('validation cadence guard', () => {
+  it.each(['pretest', 'check:test-partitions', 'test:focus',
+    ...['storage', 'execution', 'interfaces', 'configuration', 'tooling'].map((name) => `test:focus:${name}`)])
+  ('rejects missing or drifted %s wiring', (name) => {
+    expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, [name]: undefined } }), `script "${name}" must be exactly`);
+    expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, [name]: `${PACKAGE_SCRIPTS[name]} --runInBand` } }), `script "${name}" must be exactly`);
+  });
+  it('rejects focused project contract drift instead of silently copying a second contract', () => {
+    withFixture(validFiles({
+      'scripts/jest-focused.config.cjs': readFileSync(new URL('../../scripts/jest-focused.config.cjs', import.meta.url), 'utf8')
+        + '\nmodule.exports.projects[0].testEnvironment = "jsdom";\n',
+    }), (root) => {
+      expect(verifyValidationCadence({ root }).failures).toContainEqual(expect.stringContaining('must inherit the package Jest contract'));
+    });
+  });
   it('sets isolated native paths at step runtime rather than unavailable job runner context', () => {
     const { jobs } = parse(VALID_WORKFLOW);
     for (const name of ['backend-jest-build', 'browser-smoke']) {

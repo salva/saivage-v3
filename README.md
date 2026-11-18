@@ -195,8 +195,9 @@ materialized prompts or authorize installed-state adoption.
 
 ## Choose validation
 
-Install both root and web dependencies first. Use focused owner tests, then the
-profile appropriate to the change; [Validation](docs/validation.md) owns exact
+Install both root and web dependencies first. Select exact owner tests or focused
+backend sets and any other checks warranted by the change's risk; broader profiles
+remain available when appropriate. [Validation](docs/validation.md) owns selection,
 coverage, prerequisites, specialized recipes and CI interpretation.
 Complete `npm test` includes native quality tests and needs a matching build and
 [isolated native prerequisites](docs/validation.md#isolated-native-quality-prerequisites).
@@ -208,7 +209,9 @@ compile cache or Jest's transform cache; it is not a production runtime flag.
 
 | Command | Select for |
 | --- | --- |
-| `npm run validate:docs` | Documentation build, contract/parity/link/source/cadence checks; no complete backend or UI suite |
+| `npm run test:focus:storage -- --runInBand` | Example focused ordinary backend set; also choose execution, interfaces, configuration or tooling |
+| `npm run test:focus -- --selectProjects storage execution --maxWorkers=2` | Multiple focused sets; not complete `npm test` |
+| `npm run validate:docs` | Documentation build, contract/parity/link/source/cadence checks and selected API Jest; no complete backend or UI suite |
 | `npm run validate:routine` | Backend typecheck, export/persistence guards, architecture Jest and docs; not lint or full backend Jest |
 | `npm run validate:ui-smoke` | Quick operator Vitest and selected browser smoke |
 | `npm run validate:ui` | Web typecheck, complete web Vitest and operator smoke |

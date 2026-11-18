@@ -52,7 +52,7 @@ control: `npm run test:parallel -- --runInBand tests/runtime/actors/supervisor-n
 The package has no worker-limit environment variable; arguments passed to the
 top-level release script do not propagate to its nested Jest command. To execute
 the backend release stage serially, run `npm run check:stamp-producers`,
-`npm run test:parallel -- --runInBand`, `npm run test:redaction-progress`, and
+`npm run check:test-partitions`, `npm run test:parallel -- --runInBand`, `npm run test:redaction-progress`, and
 `npm run test:terminal-child`, retaining all other release stages separately. Report
 this as constituent release gates, not an invocation of the unchanged aggregate
 command. Native operation deadlines
@@ -260,7 +260,7 @@ cadence contract; required coverage and fail-propagating composition are.
 
 | Changed owner | Focused check / follow-through |
 | --- | --- |
-| Backend behavior | `npm run test:direct -- --runInBand --runTestsByPath <test-file>` or `npm run test:parallel -- <Jest arguments>`; broaden as [economical selection and reuse](#economical-selection-and-reuse) judges the risk warrants |
+| Backend behavior | `npm run test:direct -- --runInBand --runTestsByPath <test-file>` or a [focused set](#focused-backend-sets); broaden as [economical selection and reuse](#economical-selection-and-reuse) judges the risk warrants |
 | Backend E2E | `npm run test:e2e` (separate from ordinary Jest) |
 | Real terminal child | `npm run test:terminal-child`, independently when investigating cleanup/runner changes |
 | Export or backend boundary | Semantic export test, export CLI, `npm run test:import-boundaries`, full `npm test`; routine alone is insufficient |
@@ -336,7 +336,7 @@ full-release validation.
 ## Backend execution and terminal ownership
 
 `npm test` is the complete **non-E2E backend** authority: its pretest checks stamp
-producers, then `npm run test:parallel -- --maxWorkers=2` runs ordinary Jest,
+producers and test-partition integrity, then `npm run test:parallel -- --maxWorkers=2` runs ordinary Jest,
 followed on success by `npm run test:redaction-progress` and then
 `npm run test:terminal-child`, both serial. Failure short-circuits later stages.
 `npm run test:direct` and `npm run test:parallel` use the ordinary selection. Its
@@ -355,7 +355,7 @@ JS/TS `testMatch` families are `**/__tests__/**/*.[jt]s?(x)` and
 ESNext/NodeNext/isolatedModules, `.js`-relative mapping and enabled diagnostics.
 Isolated transforms do not replace strict `tsc --noEmit` semantic checking.
 
-The six package Jest launchers pass `--no-compilation-cache` directly to Node
+The package Jest launchers pass `--no-compilation-cache` directly to Node
 for ESM lifetime/headroom, qualified on Node 24.22.0. Use the package commands for
 equivalent focused execution. This V8 in-process compilation-cache option is
 engine-specific, not a stable Node application API; unsupported engines fail rather
@@ -370,6 +370,100 @@ absent from `NODE_OPTIONS`: ordinary standalone Node children spawned with expli
 argv, including the terminal fixture's `--import tsx` invocation, do not inherit
 it through their copied environment. Compiled native witnesses run outside these
 Jest launchers and retain their own invocation policy.
+
+### Focused backend sets
+
+These sets group ordinary Jest test owners, not dependencies or automatic impact
+analysis. Directory names below are under `tests/`:
+
+| Set | Owners |
+| --- | --- |
+| `storage` | `cards`, `persistence`, `workspace` |
+| `execution` | `agents`, `runtime`, `notifications`, `observability` |
+| `interfaces` | `application`, `auth`, `boot`, `cli`, `mcp`, `permissions`, `server`, `tools` |
+| `configuration` | `config`, `contracts`, `schemas`, `quality`, `retrieval` |
+| `tooling` | `architecture`, `scripts`, `utils`, root test/spec files and root `__tests__` |
+
+`configuration` includes native quality tests and therefore needs the
+[native prerequisites and matching build](#isolated-native-quality-prerequisites)
+when running the whole set. A narrow configuration test need not run unrelated
+native tests.
+
+```bash
+npm run test:focus:storage -- --runInBand
+npm run test:focus -- --selectProjects storage execution --maxWorkers=2
+npm run test:focus:configuration -- --runInBand --runTestsByPath tests/config/system-template-registry.test.ts
+npm run test:focus:tooling -- --listTests --json --runInBand
+```
+
+The general command selects all five projects unless narrowed; each named alias
+selects its one project. Arguments after `--` go directly to Jest, and the
+aliases impose no worker setting. Path or name filters narrow the result further;
+a name-only filter matching no cases can exit zero with skipped tests, so inspect
+the selected and executed counts. Empty/path-no-match selections and unknown
+projects fail. Raw Jest configuration or scope overrides are escape hatches, not
+evidence of the named set. Discovery with `--listTests` does not execute tests.
+
+Focused commands share the canonical Jest configuration and ordinary exclusions;
+they do not run the two isolated files, backend E2E, Playwright, web Vitest,
+Node-owned `.cjs` tests or compiled quality programs. Use `test:direct` for exact
+ordinary files and the existing isolated and E2E launchers for those owners.
+Focused iteration does not run the full partition check.
+
+`npm run check:test-partitions` discovers tests without executing their bodies.
+It checks the sets are disjoint and their union equals ordinary discovery, verifies
+each isolated launcher selects its exact file, and compares their combined union
+with non-E2E backend discovery. Run it when changing test layout; `pretest` runs
+it after the stamp check for canonical `npm test`. It checks discovery, not test
+correctness. Inventory counts can change as tests are added.
+
+#### Selection examples
+
+These are starting points, not exhaustive recipes. Trace consumers and interfaces;
+broaden to neighboring sets or complete backend, E2E and UI where impact is
+uncertain or cross-cutting.
+
+* **Work GC:** reference parsing may start with `tests/workspace/work-garbage-collector.test.ts`,
+  `tests/persistence/work-gc-projections.test.ts` and
+  `tests/persistence/work-gc-import-closure.test.ts`. Projection, lifecycle or
+  stream changes can need storage and interfaces, `tests/boot/work-gc-fatal-child.test.ts`,
+  application/CLI/contract/route suites and the `work-gc-running-cli`,
+  `work-gc-offline-cli`, `work-gc-application-close` and `work-gc-throwing-fatal`
+  E2E suites. Native retention changes retain their native fixtures.
+* **Default prompts and config:** select relevant
+  `tests/config/system-template-registry.test.ts`,
+  `tests/config/project-planner-composition.test.ts`,
+  `tests/config/typed-edge-composition.test.ts`,
+  `tests/cli/init-provisioning.test.ts` and
+  `tests/scripts/copy-system-template-prompts.test.js`; shared contracts can
+  involve configuration, execution and interfaces. Packaging or composed invocation
+  changes need a matching build, compiled composition and affected role composition
+  review. Unnamed workflow edits target `classic-typed`, not every profile.
+* **API:** use interfaces or the exact
+  `tests/server/operator-api-contracts.test.ts` and affected handler/application
+  tests. Authentication or listener changes need actual socket, rejection and
+  cleanup witnesses; shared schemas also need configuration and browser consumers.
+  Retain the [external Analyst MCP recipe](#inbound-analyst-mcp-coverage) when applicable.
+* **Web and docs:** select mounted owner files with `npm --prefix web run test -- <files>`
+  and web typecheck for TS/Vue changes; use real browser/build checks when interactions
+  or shipped assets need them. Plain docs call for `validate:docs` and changed guard
+  negative cases, not backend sets by default. Docs validation builds docs and runs
+  selected operator API Jest.
+* **Persistence, bootstrap, actors and tool bindings:** producers and strict consumers
+  can span all four storage, execution, interfaces and configuration sets. Relevant
+  witnesses include `tests/persistence/publication-syscalls.test.ts`,
+  `tests/boot/project-runtime-bootstrap.test.ts`,
+  `tests/boot/publication-fatal-boundaries-child.test.ts`,
+  `tests/runtime/actors/supervisor-startup-publication-fatal.test.ts` and
+  `tests/schemas/quality-tool-bindings.test.ts`, plus affected record/bootstrap/tool
+  consumers and E2E. Broad publication or shared fixture changes can warrant complete
+  backend, affected E2E and isolated terminal/redaction tests. Do not waive fatal
+  no-follow-up, strict persistence, authentication or redaction witnesses.
+
+TypeScript changes also need applicable semantic typechecking; isolated Jest transforms
+do not provide it. Build when compiled, packaged, static or browser consumers need
+matching artifacts. Smaller selections reduce selected work, not necessarily elapsed
+time, and do not prove complete impact or release/CI success.
 
 `workerGracefulExitTimeout:5000` is a finite, concurrent worker-shutdown allowance,
 not a test/hook deadline or speed target. No `forceExit` option is enabled. Jest's

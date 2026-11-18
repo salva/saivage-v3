@@ -2,6 +2,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { isDeepStrictEqual } from 'node:util';
 import { LineCounter, parseDocument } from 'yaml';
 
 const DEFAULT_DOCUMENTED_COMMAND_FILES = [
@@ -910,6 +912,46 @@ function validateFailClosedJestGates({ scripts }) {
   return { checked, failures };
 }
 
+function validateFocusedJestContract({ root, pkg, scripts }) {
+  const checked = ['package.json focused Jest commands and shared configuration'];
+  const failures = [];
+  const command = `${PARALLEL_TEST_COMMAND} --config scripts/jest-focused.config.cjs`;
+  const names = ['storage', 'execution', 'interfaces', 'configuration', 'tooling'];
+  const expected = {
+    pretest: 'npm run check:stamp-producers && npm run check:test-partitions',
+    'check:test-partitions': 'node scripts/check-test-partitions.js',
+    'test:focus': command,
+    ...Object.fromEntries(names.map((name) => [`test:focus:${name}`, `${command} --selectProjects ${name}`])),
+  };
+  for (const [name, value] of Object.entries(expected)) {
+    if (scripts[name] !== value) failures.push(`package.json script "${name}" must be exactly ${value}`);
+  }
+  if (!existsSync(path.join(root, 'scripts/check-test-partitions.js'))) {
+    failures.push('scripts/check-test-partitions.js must exist');
+  }
+  try {
+    const require = createRequire(path.join(root, 'package.json'));
+    const config = require('./scripts/jest-focused.config.cjs');
+    if (!exactSet(config.projects?.map((project) => project.displayName), names)) {
+      failures.push('focused Jest configuration must define exactly the five named projects');
+    }
+    const { workerGracefulExitTimeout, testMatch, ...inherited } = pkg.jest;
+    if (config.workerGracefulExitTimeout !== workerGracefulExitTimeout) {
+      failures.push('focused Jest configuration must inherit global workerGracefulExitTimeout');
+    }
+    for (const project of config.projects ?? []) {
+      const { displayName, rootDir, testMatch: scopedMatches, ...options } = project;
+      if (rootDir !== path.resolve(root) || !isDeepStrictEqual(options, inherited)
+          || !Array.isArray(scopedMatches) || scopedMatches.length === 0) {
+        failures.push(`focused Jest project ${displayName} must inherit the package Jest contract with only scoped testMatch, displayName and rootDir`);
+      }
+    }
+  } catch (error) {
+    failures.push(`cannot consume shared focused Jest configuration: ${error.message}`);
+  }
+  return { checked, failures };
+}
+
 function validateTerminalChildJestContract({ root, pkg, scripts }) {
   const failures = [];
   const checked = [];
@@ -1183,9 +1225,10 @@ export function verifyValidationCadence(options = {}) {
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts });
   const terminalChildJest = validateTerminalChildJestContract({ root, pkg, scripts });
+  const focusedJest = validateFocusedJestContract({ root, pkg, scripts });
   const playwrightOwnership = validatePlaywrightOwnership({ root, scripts });
   const playwrightDocumentation = validatePlaywrightDocumentation({ root });
-  const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...requiredScripts.failures, ...profiles.failures, ...exportConsumerCadence.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
+  const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...requiredScripts.failures, ...profiles.failures, ...exportConsumerCadence.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...focusedJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
   return {
     ok: failures.length === 0,
     failures,
@@ -1202,6 +1245,7 @@ export function verifyValidationCadence(options = {}) {
     docsVerifyEntriesChecked: docsVerify.checked,
     failClosedJestGateEntriesChecked: failClosedJest.checked,
     terminalChildJestContractEntriesChecked: terminalChildJest.checked,
+    focusedJestContractEntriesChecked: focusedJest.checked,
     playwrightOwnershipEntriesChecked: playwrightOwnership.checked,
     playwrightDocumentationEntriesChecked: playwrightDocumentation.checked,
   };

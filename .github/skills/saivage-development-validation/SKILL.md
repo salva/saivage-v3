@@ -7,9 +7,20 @@ description: 'Validate Saivage v3 code, docs, web UI, and live deployment after 
 
 ## Local Validation
 
-Select the README validation profile for the actual change. Documentation-only
-work uses `npm run validate:docs`, plus any focused guard/skill checks in its plan;
-the backend/build recipes below are not mandatory for policy-only documentation.
+Select exact tests or focused sets for the changed semantic owners, their
+consumers and risks; broaden when impact is uncertain or cross-cutting. Use
+[validation selection](../../../docs/validation.md#economical-selection-and-reuse)
+and its focused-set and subject-specific recipes for commands, prerequisites,
+coverage and reuse. Run applicable type checks and guards separately; TypeScript
+Jest transforms do not replace semantic typechecking. Build when affected compiled,
+packaged, static or browser consumers need matching artifacts, subject to your
+assignment's authority.
+
+Documentation-only work uses `npm run validate:docs` and applicable focused
+guard/skill checks, including changed guard negative cases. For web changes,
+select affected mounted tests and web typecheck; use browser and build checks
+when the affected interactions or shipped assets require them. Retain applicable
+security, authentication, redaction, persistence and fatal-boundary witnesses.
 
 When durable contracts change, review affected discriminator, producer, strict
 consumer, fixture and [format-reference](../../../docs/architecture/durable-format-changes.md)
@@ -17,18 +28,12 @@ synchronization under [AGENTS Storage Policy](../../../AGENTS.md#durable-format-
 Versions/reference assist release comparison; they neither prove complete
 compatibility nor authorize live actions.
 
-Run from `/home/salva/g/ml/saivage-v3`:
-
-```bash
-npm run validate:routine
-npm run test:direct -- --runInBand --runTestsByPath <test-file>
-npm run build
-```
-
-Use the package-owned focused recipe without forced exit. See
-[backend tests and terminal-child coverage](../../../docs/validation.md#backend-execution-and-terminal-ownership)
-for applicability and natural-exit evidence; a focused pass does not replace the
-canonical ordinary-plus-terminal-child suite when that broader coverage is required.
+Run selected package commands from `/home/salva/g/ml/saivage-v3` without forced
+exit. Focused sets group ordinary backend owners, not all affected dependencies;
+use separate isolated, E2E or other-owner checks when applicable. A focused pass
+is not complete `npm test` or release validation. Inspect executed counts when
+filtering by test name, since a no-match filter can exit successfully with skipped
+tests. Follow the linked reference for broader profiles and their prerequisites.
 
 For Vue single-file components, check for duplicate script blocks before building:
 

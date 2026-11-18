@@ -259,16 +259,18 @@ profiles, which have been removed. Do not rename an in-flight session to normali
 
 ## Choose validation and deliver the documentation
 
-For a small change, run focused owning tests first; broaden by actual risk:
+Choose checks for the changed owners and their consumers. For example, a narrow
+workflow compiler change might select:
 
 ```bash
 npm run test:direct -- --runInBand --runTestsByPath tests/runtime/card-process/workflow-action-compilation.test.ts
-npm run validate:docs
-npm run validate:routine
 ```
 
-Use UI smoke/full UI for browser changes and release validation for the complete
-release boundary, according to the [validation reference](../validation.md).
+For a broader owner, choose a focused set such as
+`npm run test:focus:execution -- --runInBand`; select applicable typechecking,
+documentation guards, builds, UI checks or broader profiles by risk, not as an
+automatic consecutive recipe. See the [validation reference](../validation.md)
+for set boundaries, selection examples, prerequisites and reuse.
 Source schema acceptance is not E2E qualification. Use actual owners, synthetic
 fixtures and bounded no-provider checks; live services/providers require separate
 authorization. Never print production config, tokens or backups into test evidence.
