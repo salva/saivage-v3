@@ -503,6 +503,20 @@ projects into that role's own prompt body, so a role never needs this document t
   the root configuration, governing and shared instructions, and the relevant unchanged
   roles as one composed result. The invoking owner (the implementation manager, or the acting
   primary for a direct fix) names the explicit model override.
+- For documentation review, either caller supplies the exact pre-authoring comparison baseline
+  and the exact final files or sections, compared as actual working text including staged and
+  unstaged changes. A matching commit and path, an already readable exact version, or the exact
+  pre-edit section text and location identifies the baseline; established pre-edit absence
+  identifies a genuinely new file. An existing untracked file is not absent.
+- The caller assigns one exact repo-relative ignored `docs/working/` review artifact in the named
+  checkout and establishes that its unchanged spelling resolves from the reviewer's already-known
+  effective native writer base to the intended file and matches the unchanged `edit` permission
+  allow. Naming the checkout alone does not establish the base. Documentation review uses bounded
+  read-only Git and file inspection for the assigned comparison and source checks; a supplied diff
+  packet is not required. The artifact is written only to the exact bound target through a native
+  file mutation tool governed by the `edit` action, not a required tool name. Unknown or inconsistent
+  baseline, ownership, evidence or target binding requires clarification or a stop, not a guessed
+  comparison or trial write.
 - Documentation review checks facts against the actual source, quality, structure, reader
   usefulness, and link correctness. Judge order and form by audience and document kind, and
   not by a fixed progression or paragraph pattern. Check that each prerequisite, safety
