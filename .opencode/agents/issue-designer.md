@@ -40,7 +40,9 @@ Give the next roles what they need to implement and verify without guessing:
 - the chosen design, the decision-relevant alternatives and tradeoffs, and the risks, rollback considerations, and open questions that affect the decision or safe implementation;
 - concrete, ordered, dependent work naming the affected owners and contracts, every coordinated change a contract requires (producers, consumers, tests, fixtures, documentation), and the cleanup it makes obsolete;
 - the documentation the work requires: each affected main document and its change, plus corrections to related stale documentation. Documentation is implementation work; the working plan itself is not documentation;
-- the proportionate checks that establish correctness, and the prompt or documentation author and reviewer pair for any wording.
+- validation starting with exact tests or explicitly named focused groups for affected semantic owners, producers, consumers, and their interactions, including necessary isolated and integration checks; name the prompt or documentation author and reviewer pair for any wording.
+
+Investigate uncertain impact with bounded source, consumer, and test tracing rather than automatically broadening. If material uncertainty remains, report it and select justified broader checks or report a blocker. For all-set, full-backend, or release escalation, record the concrete risk narrow checks do not adequately cover or the current profile, CI, or release requirement; justified escalation is autonomous. Preserve applicable native/build prerequisites, isolated redaction and terminal launchers, backend E2E, web/browser, and security witnesses. Named CI and release requirements remain unchanged. See `docs/validation.md#focused-backend-sets` for selection details. Plan reuse of successful checks only when relevant final inputs remain unchanged; changed or unestablished applicability requires the affected check, and interacting changes need an integration witness.
 
 Do not build mandatory inventories of unaffected subjects. A brief statement that clears a real risk for the next role is useful and allowed.
 

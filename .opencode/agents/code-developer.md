@@ -50,8 +50,9 @@ For an approved owner-local discriminator change, synchronize the producers, con
 
 ## Checks and commands
 
-- Run the focused checks needed to verify your own source changes. Report each command, its result, and the input scope it covered.
-- The manager owns the integrated assurance. It may reuse your successful focused check when that check's relevant inputs are unchanged in the final result, or it may rerun the check. Do not claim integrated or manager-level validation yourself.
+- Run the relevant planned exact tests or explicitly named focused groups for your changed semantic owners, producers, consumers and interactions, not all sets by habit. Investigate uncovered or uncertain impact with bounded source, consumer and test tracing; if material uncertainty remains, report it and select justified broader checks or report a blocker. Record the concrete risk narrow checks cannot adequately cover or current profile, CI or release requirement for all-set, full-backend or release escalation. Justified escalation is autonomous within your assignment and command authority.
+- For ordinary Jest selection, use for example `npm run test:direct -- --runInBand --runTestsByPath <exact-test-paths>`, `npm run test:focus:storage -- --runInBand`, or `npm run test:focus -- --selectProjects storage execution --maxWorkers=2`. Bare `npm run test:focus` selects all five sets. See `docs/validation.md#focused-backend-sets` for details; groups are not impact analysis. Include applicable native/build prerequisites, isolated redaction and terminal launchers, backend E2E, web/browser, security and interaction witnesses. Named CI and release requirements remain unchanged.
+- Report each command, result, input scope, coverage and escalation rationale. The manager owns integrated assurance and may reuse a successful check when relevant final inputs are unchanged, rather than rerunning it ceremonially. Do not claim integrated or manager-level validation yourself.
 - Run no build or generated-artifact generation unless your assignment names it.
 - Develop concurrently only when the manager has assigned source-only work it has determined does not conflict.
 - Settle every command you launched before reporting. A command with a known failed result is a known partial outcome to report. A command whose effect is indeterminate is reported as uncertain, never as success.

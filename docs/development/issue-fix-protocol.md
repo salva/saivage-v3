@@ -337,6 +337,13 @@ projects into that role's own prompt body, so a role never needs this document t
   An implementation-learning revision records that learning in the plan. Report limitations
   and blockers in the plan or your report. A brief statement that clears a real risk for the
   next role is useful and allowed; no inventory of unaffected subjects is required.
+- Plan validation from affected semantic owners, producers, consumers and interactions:
+  select exact tests or named focused groups and necessary isolated, integration and
+  specialized witnesses. Investigate uncertain impact by bounded source, consumer and test
+  tracing; report material remaining uncertainty and select justified broader checks or a
+  blocker. Record the concrete risk narrow checks cannot adequately cover or the current
+  profile, CI or release requirement for all-set, full-backend or release escalation.
+  Include applicable prerequisites and input-aware reuse.
 - Mutation boundary: only the assigned ignored plan file under `docs/working/`. No
   tracked wording, source, configuration, or validation.
 - You do not approve the plan or decide its merit. The issue fixer owns that decision.
@@ -349,13 +356,16 @@ projects into that role's own prompt body, so a role never needs this document t
   Apply finding triage and design-value guidance from this document. Look for: durable
   format incompatibility and evidenced source applicability; correctness gaps and hidden
   assumptions; missed root causes and over-local fixes; contract mismatches and missing
-  call-site updates; missing or stale documentation; missing validation proportional to
-  the risk; unnecessary compatibility code, dead code, or excessive complexity; and
+  call-site updates; missing or stale documentation; missing owner/consumer or interaction
+  coverage and unjustifiably broad validation; unnecessary compatibility code, dead code, or excessive complexity; and
   over-scoped changes that bundle optional specialized recovery, optimization, or
   non-essential robustness instead of deferring them. Conversely, a necessary failure path
   omitted merely because it is uncommon is a correctness gap, not a deferral; a broad stop,
   refuse, or report path satisfies it only when it meets the affected contract without
   swallowing errors or misreporting known effects and uncertainty.
+- Assess bounded investigation of uncertain impact, justified autonomous escalation,
+  input-aware reuse and applicable isolated, integration and specialized witnesses.
+  Do not demand a matrix, prescribed headings or narrow checks where broader risk is established.
 - Judge plan sufficiency by consequence. The test is whether the next role can implement the
   chosen design safely and verify the result from the plan and the named current sources.
   Raise a finding only for missing or wrong information that matters to that outcome, and state
@@ -418,11 +428,15 @@ projects into that role's own prompt body, so a role never needs this document t
   validation and commit, so a handback does not by itself finish the issue.
 - A source gap the plan did not assign goes back to the manager for a separate developer
   assignment. Do not absorb it silently.
-- Focused checks: run the focused checks needed to verify your own source changes, then
-  report each command, its result, and the input scope it covered. The manager owns the
-  integrated assurance. It may reuse your successful check when its relevant inputs are
-  unchanged in the final result, or it may rerun the check, as
-  [economical selection and reuse](../validation.md#economical-selection-and-reuse) directs.
+- Focused checks: run relevant planned exact tests or named groups for affected owners,
+  producers, consumers and interactions. Investigate uncertain impact with bounded source,
+  consumer and test tracing; report material remaining uncertainty and select justified
+  broader checks or a blocker. Record the concrete risk narrow checks cannot adequately
+  cover or current profile, CI or release requirement for all-set, full-backend or release
+  escalation. Report each command, result, input scope, coverage and rationale. The manager
+  owns integrated assurance and may reuse successful checks with unchanged relevant inputs.
+  Preserve applicable prerequisites and specialized witnesses; generation still requires
+  the assignment below.
 - Generation: do not run build or generated-artifact generation unless your assignment
   names it.
 - Concurrency: develop concurrently only when the manager has assigned source-only work
@@ -587,10 +601,17 @@ stop, refuse, or report path may cover a family of failures when it actually sat
 contract. Optional specialized recovery, optimization, and non-essential robustness may be deferred
 only when the core fix remains correct and safe.
 
-Validation follows the affected semantic owners and the economical selection in
-[docs/validation.md](../validation.md#economical-selection-and-reuse). The focused check is the minimum, not a ceiling: a model
-may run broader checks sooner when the risk or a safer preference warrants it, without
-requiring prior approval or a demonstrated cross-cutting risk. Substitute no prose-regex assertions,
+Validation starts with exact tests or named focused groups for affected semantic owners,
+producers, consumers and interactions; see [focused backend sets](../validation.md#focused-backend-sets).
+Investigate uncertain impact through bounded source, consumer and test tracing. Report
+material residual uncertainty and select justified broader checks or a blocker. All-set,
+full-backend or release escalation needs a recorded concrete risk narrow checks cannot
+adequately cover or a current profile, CI or release requirement; justified escalation is
+autonomous. Preserve applicable native/build prerequisites, isolated redaction and terminal
+launchers, backend E2E, web/browser and security witnesses, and named CI and release
+requirements. Reuse successful checks with unchanged relevant final inputs; investigate
+unknown applicability and rerun the affected check if it cannot be established. Rerun
+invalidated checks and add witnesses for interacting changes. Substitute no prose-regex assertions,
 repository-wide spelling bans, or unrelated test matrices for semantic evidence. Name the
 prompt or documentation author and reviewer pair by purpose for any model-facing or
 documentation wording. Do not add automatic double review.
@@ -927,6 +948,9 @@ The manager must:
    `prompt-reviewer`. Mixed work is split into exact sections, each sent to its own pair.
    Settle the source facts first where needed, then author the wording from them. A source
    gap returns to the manager for a separate `code-developer` assignment.
+   Carry planned exact tests or named focused groups and affected owners, consumers,
+   interactions, specialized witnesses and prerequisites into relevant assignments,
+   without granting new execution authority.
    - A documentation or prompt author (`doc-developer` or `prompt-developer`) runs
      sequentially. Never run one concurrently with another author or with any source
      worker. Never overlap authoring with independent review of the same moving assets.
@@ -963,13 +987,27 @@ The manager must:
    - Include planned discriminator, producer, consumer, fixture, and reference
      synchronization in this reconciliation and in the completion report, without
      adding another gate or coordination mechanism.
-5. Run all validation required by the plan, including focused and broad checks. Handle
+5. Run the plan's required validation, starting with exact tests or explicitly named
+   groups for affected owners, producers, consumers and interactions. Investigate uncertain
+   impact through bounded source, consumer and test tracing; report material remaining
+   uncertainty and select justified broader checks or a blocker. Record the concrete risk
+   narrow checks cannot adequately cover or current profile, CI or release requirement
+   for all-set, full-backend or release escalation. Preserve applicable native/build
+   prerequisites, isolated redaction and terminal launchers, backend E2E, web/browser and
+   security witnesses. Named CI and release requirements remain unchanged.
+   For ordinary Jest, examples are `npm run test:direct -- --runInBand --runTestsByPath <exact-test-paths>`,
+   `npm run test:focus:storage -- --runInBand`, and
+   `npm run test:focus -- --selectProjects storage execution --maxWorkers=2`.
+   Bare `npm run test:focus` selects all five; see
+   [focused backend sets](../validation.md#focused-backend-sets). Handle
    generated artifacts. Selectively stage only intended paths. If unrelated entries are
    already staged, commit with a path-scoped operation that excludes them and leaves them staged.
    Commit coherent stable units under AGENTS. Developer checks inform progress. The manager owns integrated assurance:
-   it may reuse a successful developer check whose relevant inputs are unchanged in the final
-   result, and it reruns or adds checks as [economical selection and reuse](../validation.md#economical-selection-and-reuse)
-   directs.
+   reuse a successful developer check whose relevant inputs are unchanged in the final
+   result without ceremonial reruns. Investigate unknown applicability and rerun the
+   affected check if it cannot be established; rerun checks with changed inputs and add
+   interaction witnesses. Record commands, results, input scopes, reuse and escalation
+   rationale; unknown applicability is not a pass.
 6. Prepare its final report with command results and commit hashes. Before normal
    release, ensure the completed issue work is stable and committed, and that no
    issue-owned uncommitted mutation remains. Ignored tracker edits are excluded from that check.

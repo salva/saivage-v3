@@ -195,10 +195,10 @@ materialized prompts or authorize installed-state adoption.
 
 ## Choose validation
 
-Install both root and web dependencies first. Select exact owner tests or focused
-backend sets and any other checks warranted by the change's risk; broader profiles
-remain available when appropriate. [Validation](docs/validation.md) owns selection,
-coverage, prerequisites, specialized recipes and CI interpretation.
+Install both root and web dependencies first. The issue-team default is exact tests
+or named focused groups for affected owners and consumers, with broader checks when
+uncovered risk or a current requirement warrants them. [Validation](docs/validation.md#economical-selection-and-reuse)
+owns selection, reuse, coverage, prerequisites, specialized recipes and CI interpretation.
 Complete `npm test` includes native quality tests and needs a matching build and
 [isolated native prerequisites](docs/validation.md#isolated-native-quality-prerequisites).
 

@@ -7,14 +7,26 @@ description: 'Validate Saivage v3 code, docs, web UI, and live deployment after 
 
 ## Local Validation
 
-Select exact tests or focused sets for the changed semantic owners, their
-consumers and risks; broaden when impact is uncertain or cross-cutting. Use
+Start with exact tests or explicitly named focused sets for affected semantic
+owners, producers, consumers and interactions. Investigate uncertain impact with
+bounded source, consumer and test tracing. If material uncertainty remains,
+report it and select justified broader checks or report a blocker. For all-set,
+full-backend or release escalation, record the concrete risk narrow checks do not
+adequately cover or the current profile, CI or release requirement. Justified
+escalation is autonomous within your authority. Use
 [validation selection](../../../docs/validation.md#economical-selection-and-reuse)
 and its focused-set and subject-specific recipes for commands, prerequisites,
 coverage and reuse. Run applicable type checks and guards separately; TypeScript
 Jest transforms do not replace semantic typechecking. Build when affected compiled,
 packaged, static or browser consumers need matching artifacts, subject to your
 assignment's authority.
+
+Reuse a successful worker check without a ceremonial rerun when its relevant
+final inputs are unchanged. Investigate unknown applicability and rerun the
+affected check if it cannot be established; rerun invalidated checks and add
+interaction witnesses where separately changed owners interact. Record commands,
+results, input scopes, reuse and escalation rationale. Named CI and release
+requirements remain unchanged.
 
 Documentation-only work uses `npm run validate:docs` and applicable focused
 guard/skill checks, including changed guard negative cases. For web changes,
