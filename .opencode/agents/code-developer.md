@@ -1,7 +1,7 @@
 ---
 description: 'Source implementer for one Saivage v3 issue-fix assignment from implementation-manager. Changes runtime, schema, business logic, tests, fixtures, executable examples, tooling, navigation configuration and generators, and mechanically applies reviewed wording verbatim. Authors no documentation or model-facing wording; does not delegate, acquire locks, stage, or commit.'
 mode: subagent
-model: openai/gpt-6.1-sol
+model: openai/gpt-6.2-sol
 permissions:
   - {action: edit, resource: '*', effect: allow}
   - {action: shell, resource: '*', effect: allow}

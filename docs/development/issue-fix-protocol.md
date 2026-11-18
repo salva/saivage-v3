@@ -131,7 +131,7 @@ Model-facing assets are never authored by the same agent that reviews them. Ordi
 documentation is written by `doc-developer` and checked by `doc-reviewer`. Model-facing
 instructions, prompts, templates, fragments, agent bodies, skills, and AGENTS wording
 are written by `prompt-developer` and checked by `prompt-reviewer`, which the implementation
-manager invokes with the explicit exact override `openai/gpt-6.1-sol`. For a clearly trivial
+manager invokes with the explicit exact override `openai/gpt-6.2-sol`. For a clearly trivial
 direct fix, the acting primary invokes the same pair the same way. Skills carry no model
 frontmatter; the invoking owner can select an authorized author model through the native
 subagent override as an alternative to the agent configuration's default.
@@ -153,16 +153,16 @@ profile with its own complete body.
 
 | ID | Model | Invoked by | Purpose |
 | --- | --- | --- | --- |
-| `issue-fixer` | `openai/gpt-6.1-sol` | Batch coordinator | One issue end to end, as in the table above. |
-| `issue-designer` | `openai/gpt-6-astra` | `issue-fixer` | Self-contained plan authoring and revision. |
-| `design-reviewer` | `openai/gpt-6.1-sol` | `issue-fixer` | Every design or plan revision. |
+| `issue-fixer` | `openai/gpt-6.2-sol` | Batch coordinator | One issue end to end, as in the table above. |
+| `issue-designer` | `openai/gpt-6.2-astra` | `issue-fixer` | Self-contained plan authoring and revision. |
+| `design-reviewer` | `openai/gpt-6.2-sol` | `issue-fixer` | Every design or plan revision. |
 | `design-reviewer-secondary` | `nvidia/z-ai/glm-5.2` | `issue-fixer`, only when explicitly requested | Optional extra design review. |
-| `implementation-manager` | Unchanged | `issue-fixer` | Sole lock holder and implementation orchestrator. |
-| `code-developer` | `openai/gpt-6.1-sol` | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
+| `implementation-manager` | `openai/gpt-6.2-sol` | `issue-fixer` | Sole lock holder and implementation orchestrator. |
+| `code-developer` | `openai/gpt-6.2-sol` | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
 | `doc-developer` | Default `opencode-go/claude-haiku-5-5` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
-| `doc-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
+| `doc-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
 | `prompt-developer` | Default `opencode-go/claude-haiku-5-5` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
-| `prompt-reviewer` | `openai/gpt-6.1-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
+| `prompt-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
 
 Only the primary batch coordinator may load the coordination skill. No other role loads
 it or this document to act. Every leaf denies delegation, staging, commits, and lock
@@ -285,7 +285,7 @@ without a variant. The owner passes the exact selection and requires actual exec
 evidence; missing or conflicting identity blocks the assignment. Unavailability or failure
 does not authorize automatic fallback or replay: the existing
 [settlement procedure](#native-delegation-and-settlement) governs any later decision.
-Both reviewers run in sessions distinct from the author on `openai/gpt-6.1-sol`, invoked with
+Both reviewers run in sessions distinct from the author on `openai/gpt-6.2-sol`, invoked with
 that explicit override. For inline model-facing wording in an
 executable host, the author writes the exact text, the prompt reviewer reviews that text, the
 mechanical applicator applies it verbatim (`code-developer` in an issue run, or the acting primary
@@ -964,7 +964,7 @@ The manager must:
    and the approved plan. No shared or integration validation, generation, staging, or
    commit may start until all workers and their launched commands have settled.
    - After a prompt author changes prompt assets, the manager invokes `prompt-reviewer`
-     with the explicit exact Sol override `openai/gpt-6.1-sol`, in a distinct session,
+     with the explicit exact Sol override `openai/gpt-6.2-sol`, in a distinct session,
      for prompt linkage and composition review. The final review after the last relevant
       edit, including any inline integration, must identify both final activities on the
       actual final composition: the whole-composition review and the separately identified

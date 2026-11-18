@@ -1,7 +1,7 @@
 ---
 description: 'Plan author for one Saivage v3 issue fix. Writes or revises the self-contained plan under docs/working/ from the issue fixer context, confirmed review findings, or implementation learning. Does not approve its own plan, decide merit, review, or implement.'
 mode: subagent
-model: openai/gpt-6-astra
+model: openai/gpt-6.2-astra
 permissions:
   - {action: edit, resource: '*', effect: allow}
   - {action: shell, resource: '*', effect: allow}

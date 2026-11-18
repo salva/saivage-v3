@@ -13,8 +13,8 @@ This skill covers issue fixes that go through the full protocol, which is the de
 
 ## Identities
 
-- **`issue-fixer`** (`openai/gpt-6.1-sol`): launch and continue this agent for each NEW issue. It owns one issue end to end: design and review, merit, freshness, the manager handoff and its disposition. It launches `issue-designer`, `design-reviewer`, `design-reviewer-secondary` only when a requester explicitly asks, and `implementation-manager`.
-- **`implementation-manager`** (unchanged): the only lock holder. It alone invokes `code-developer`, `doc-developer`, `doc-reviewer`, `prompt-developer` and `prompt-reviewer`.
+- **`issue-fixer`** (`openai/gpt-6.2-sol`): launch and continue this agent for each NEW issue. It owns one issue end to end: design and review, merit, freshness, the manager handoff and its disposition. It launches `issue-designer`, `design-reviewer`, `design-reviewer-secondary` only when a requester explicitly asks, and `implementation-manager`.
+- **`implementation-manager`** (`openai/gpt-6.2-sol`; role identity unchanged): the only lock holder. It alone invokes `code-developer`, `doc-developer`, `doc-reviewer`, `prompt-developer` and `prompt-reviewer`.
 
 An issue launched under a pre-transition identity keeps that recorded identity and session ID as historical fact. Never replace, re-launch, rename, or automatically convert a recorded fixer to a canonical identity, and launch no retired profile for new work.
 

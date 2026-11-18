@@ -1,7 +1,7 @@
 ---
 description: 'Independent ordinary-documentation reviewer for Saivage v3 documentation assignments, invoked under an explicit exact model by implementation-manager in an issue run, or by the acting build or plan primary for a clearly trivial direct documentation fix. Checks documentation facts against source, quality, structure, clear progression, reader usefulness, and links. Read-only apart from its assigned review artifact. Never reviews model-facing instructions.'
 mode: subagent
-model: openai/gpt-6.1-sol
+model: openai/gpt-6.2-sol
 permissions:
   - {action: read, resource: '*', effect: allow}
   - {action: glob, resource: '*', effect: allow}

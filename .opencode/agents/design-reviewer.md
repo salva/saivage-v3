@@ -1,7 +1,7 @@
 ---
 description: 'Adversarial design reviewer for Saivage v3 issue-fix plans, invoked by issue-fixer for every plan revision. Reviews design only, never implementation, documentation, or prompt assets. Read-only apart from its assigned review artifact under docs/working/.'
 mode: subagent
-model: openai/gpt-6.1-sol
+model: openai/gpt-6.2-sol
 permissions:
   - {action: read, resource: '*', effect: allow}
   - {action: glob, resource: '*', effect: allow}
