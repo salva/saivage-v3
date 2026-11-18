@@ -278,17 +278,35 @@ acceptance if baseline fails too.
 
 ### Inbound Analyst MCP coverage
 
-Changes to the external Analyst startup host, listener or request-authority owners use
-focused direct suites, not a full release run:
+For changes to the external Analyst startup host, listener or HTTP-request authority,
+use this focused startup/listener/HTTP-request selection:
 
 ```bash
 npm run test:direct -- --runInBand --runTestsByPath tests/config/analyst-mode.test.ts tests/boot/startup-inputs.test.ts tests/cli/start-command-inputs.test.ts tests/server/analyst-mcp-authority.test.ts tests/server/external-analyst-mcp.test.ts
 ```
 
+For changes to application binding or execution authority, select:
+
+```bash
+npm run test:direct -- --runInBand --runTestsByPath tests/application/external-analyst-operations.test.ts
+```
+
+For changes to external publication or containment, select the three focused fatal
+child witnesses:
+
+```bash
+npm run test:direct -- --runInBand --runTestsByPath tests/boot/publication-fatal-boundaries-child.test.ts --testNamePattern='halts receipt append uncertainty before HTTP response, SDK disposal, follow-up audit or cleanup|halts external work before receipts, responses, ordinary failure handling or cleanup|halts immediately on asynchronous external containment uncertainty without waiting for unrelated in-flight work'
+```
+
+Select checks according to the changed owners; not every inbound change requires all
+three selections. Include other affected owner checks as appropriate.
+
 * `tests/config/analyst-mode.test.ts` covers the internal default and rejection, the
   external/both loopback default, accepted IPv4 and native IPv6 spellings, and rejected
   hostnames, URLs, brackets, zones, wildcards, mapped IPv6 and padded values, plus unchanged
-  port, token and principal failures. It uses synthetic credentials only.
+  port, token and principal failures. It also selects the entire compiled default Analyst
+  inventory and a reduced custom inventory by exact name, and rejects invalid selections.
+  It uses synthetic credentials only.
 * `tests/boot/startup-inputs.test.ts` covers environment loading: the MCP host comes only from
   its startup flag, independent of `--host`, `SAIVAGE_HOST` and the YAML operator host, with
   the MCP token kept separate from operator authentication.
@@ -302,7 +320,27 @@ npm run test:direct -- --runInBand --runTestsByPath tests/config/analyst-mode.te
   address with an explicit independent port in external and both modes, and native `::1` with
   bracketed URL authority and Host. It covers rejected token, Host, Origin, protocol and digest
   requests, which do not invoke tools, and an occupied port that fails with `EADDRINUSE` without
-  fallback.
+  fallback. A separately selected subset exercises creation, reorder, dormant cancel,
+  eligible reopen, record edit/read and deletion, with attribution, audit and receipts;
+  a separate case reopens an eligible root. It checks schema and unselected-tool rejection,
+  and operation denials including root cancel/delete and missing dependencies. An actual
+  Supervisor case denies intervention while pausing, then admits it when settled paused.
+
+`tests/application/external-analyst-operations.test.ts` compares bound definitions for
+the compiled default inventory, a reduced selection and explicitly granted optional
+MCP/quality tools for internal and external authors. The optional fixture is bind-only:
+it does not execute refresh or native quality tools. Separately, the existing real SDK
+case in `tests/server/external-analyst-mcp.test.ts` lists explicitly granted and selected
+`mcp_catalog_refresh`; listing is not refresh invocation. The selected TCP cases are
+not an exhaustive full-default wire matrix. The application test also distinguishes
+ordinary thrown executor errors dispatched to the owner without a settled receipt from
+settled denials. A Webfetch record save without selected `write` is denied before
+network or mutation work.
+
+In `tests/boot/publication-fatal-boundaries-child.test.ts`, the receipt-publication
+uncertainty witness crosses HTTP/SDK before response or disposal. The execution
+publication and asynchronous containment uncertainty cases are separate owner-boundary
+witnesses, not additional HTTP tests.
 
 Prerequisites and limits: the real-socket cases choose the first non-internal IPv4 interface
 found by the test and require native `::1`. A missing interface or IPv6 binding fails as an

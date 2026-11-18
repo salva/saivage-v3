@@ -935,6 +935,15 @@ Best-effort propagation failure retains principal success/audit ok with partial
 report; no-op reorder has none. Audit coverage excludes shell/patch/nonrecord
 Webfetch effects and is not every filesystem change.
 
+Workflow compilation supplies configured Analyst tool references. External startup
+selects exact configured names; composition passes that selection to the shared
+surface, which binds the selected references and their global grants without a card
+anchor. The listener lists those bound definitions and routes calls through the
+external operation owner; invocation validates the bound schema before execution.
+The external subset is selected grants, not six registered tools. Optional tools
+still require their configured grants and binding prerequisites, and native-Git
+global restrictions remain in force.
+
 `config/analyst-mode.ts` freezes internal(default), external or both startup choice and,
 for external/both, the concrete MCP host (default `127.0.0.1`). External uses a separately
 authenticated project-digest endpoint in `server/analyst-mcp-server.ts`, bound to that
@@ -1565,7 +1574,7 @@ checks identity/admission/cancellation and fresh-starts selected definition. HTT
 reconnect is local, never remote-service restart. Failed containment blocks replacement.
 
 Binding constructs trusted card/global principals with the final selected MCP
-operations (external Analyst retains its restricted subset); installed delegation
+operations (external Analyst retains its explicitly selected subset); installed delegation
 preserves that context. Authenticated operator composition supplies operator
 authority. Manager admission uses exact canonical root-to-card membership reads,
 not tree scans, caches or syntactic ancestry alone. Invocation requires live-anchor

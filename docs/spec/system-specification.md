@@ -364,6 +364,14 @@ unpadded nonblank `SAIVAGE_ANALYST_MCP_TOKEN`. Internal mode rejects external
 settings. MCP and operator REST credentials must differ. These process-owned
 settings are immutable until restart, not YAML/reconfigure fields.
 
+The external surface is the explicit selection of configured, bindable global
+Analyst operations, not a fixed six-tool catalog. Listing and invocation use the
+same bound definitions, schemas and selected grant clauses. Selection does not
+override each operation's authority, target or lifecycle admission. Card-scoped
+workflow operations and separately authorized offline operator procedures do not
+become global Analyst tools. The authenticated context resource is independent of
+tool selection and does not authorize an unselected `get_status`.
+
 The same application owns one dedicated project-digest listener at
 `/mcp/analyst/<projectIdentityDigest>`, published only after canonical startup,
 recovery and outbound MCP installation. Its address is the startup-only

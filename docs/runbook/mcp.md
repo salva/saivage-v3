@@ -24,13 +24,32 @@ saivage start --project-root /work/project --host 127.0.0.1 --port 8080 \
   --analyst-mcp-principal local-operator --analyst-mcp-tools get_status,get_card
 ```
 
-This tool subset is valid only if both canonical names are in the configured
-Analyst inventory. Selection must be nonempty, duplicate-free and exact, without
+This tool subset is valid only if both canonical names are in the configured,
+bindable Analyst inventory. For an authorized mutation use, a selection such as
+`get_card,create_card` is another possibility when both are configured and bindable;
+listing `create_card` does not bypass its target, grant or lifecycle admission.
+There is no fixed six-tool catalog. Selection must be nonempty, duplicate-free and exact, without
 wildcards/aliases/space trimming. Principal is a bounded lowercase identifier;
 external port is 1..65535. Modes are `internal`, `external`, `both`; internal rejects
 unused external settings. There are no mode/port/principal/tool environment aliases,
-YAML fields, token CLI flag or hot-reconfigure path. Changing mode requires a
-separately authorized server restart.
+YAML fields, token CLI flag or hot-reconfigure path. Changing mode or selection requires a
+separately authorized server restart and adoption of the intended startup inputs.
+
+For a missing tool, first distinguish the server's startup selection from a client's
+cached discovery: repeat discovery in the client to refresh its view, but that cannot
+change the server selection. Check the intended configured grants, binding prerequisites
+and exact startup names; source defaults do not establish an installation's selection.
+The context resource is independently readable and does not grant an omitted `get_status`.
+
+If an operation is configured and bindable but unselected, it can be explicitly selected
+for a separately authorized restart. A card/workflow-only operation instead belongs to
+its configured card agent and workflow, not global Analyst authority: the
+[caller-aware admission matrix](../spec/system-specification.md#caller-aware-operation-admission)
+distinguishes, for example, Planner immediate-child operations from Analyst operations.
+Neither selecting MCP tools nor switching to internal Analyst chat grants card-scoped
+workflow authority. Repair, reset, migration and work GC have separately authorized
+operator routes and prerequisites; start with the [runbook task table](./index.md#choose-the-safe-next-task),
+not an Analyst tool or an assumed chat substitute.
 
 Read the printed exact endpoint: `http://<authority>/mcp/analyst/<projectIdentityDigest>`.
 The example above is local only, and omitting `--analyst-mcp-host` selects loopback
