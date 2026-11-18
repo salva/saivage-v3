@@ -68,6 +68,24 @@ describe('tool invocation surface', () => {
     await expect(invokeToolForLlm(surface, 'buggy', {}, testLlmToolInvocationContext({ toolName: 'buggy' }))).rejects.toThrow('programmer bug');
   });
 
+  it('propagates an arbitrary downstream Zod error unchanged after valid argument parsing', async () => {
+    const failure = z.string().safeParse(42);
+    if (failure.success) throw new Error('Expected invalid owner data.');
+    const surface = buildInvocationSurfaceFixture('analyst', [{
+      providerName: 'owner',
+      tools: [defineTool({
+        name: 'consume',
+        description: 'Consume.',
+        resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+        inputSchema: z.object({}).strict(),
+        executor: async () => { throw failure.error; },
+      })],
+    }]);
+    await expect(invokeToolForLlm(
+      surface, 'consume', {}, testLlmToolInvocationContext({ toolName: 'consume' }),
+    )).rejects.toBe(failure.error);
+  });
+
   it('returns a rejected-before-execution settlement when ordinary cancellation precedes executor entry', async () => {
     const surface = buildInvocationSurfaceFixture('analyst', [provider('a')]);
     const controller = new AbortController();

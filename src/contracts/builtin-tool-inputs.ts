@@ -82,7 +82,7 @@ export const createAnalystCreateCardInputSchema = (cardTypeVocabulary: readonly 
         .min(1)
         .describe('Non-empty Markdown content for the child type configured bootstrap record.'),
       depends_on: z
-        .array(z.string().describe('A card ID'))
+        .array(cardIdSchema.describe('A card ID'))
         .optional()
         .describe('Optional dependency list.'),
     })
@@ -356,7 +356,7 @@ export const plannerCreateCardInputSchema = z
     type: z.string(),
     title: z.string().regex(/\S/),
     bootstrap_content: z.string().trim().min(1),
-    depends_on: z.array(z.string()).optional(),
+    depends_on: z.array(cardIdSchema).optional(),
   })
   .strict();
 export const plannerEditCardInputSchema = z

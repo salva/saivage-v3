@@ -4,7 +4,9 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { invokeToolForLlm, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { settleToolActionOutcome } from '../../src/contracts/index.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
@@ -127,5 +129,67 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     await expect(invokeTestTool(surface,'create_card',{type:'other',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:"Child type 'other' is not permitted for this node."});
     await expect(invokeTestTool(surface,'create_card',{type:'custom-leaf',title:'x',bootstrap_content:'x'})).resolves.toMatchObject({success:true,data:{card:{type:'custom-leaf'}}});
     expect(store.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed Analyst dependency arrays before entry and forwards current valid inputs', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-dependency-input-'));
+    try {
+      const create = jest.fn((_input: unknown) => ({
+        kind: 'returned' as const,
+        success: true as const,
+        data: { card: { id: 'card-b' } },
+      }));
+      const read = jest.fn();
+      const assertInterventionReady = jest.fn();
+      const context = {
+        projectRoot, actor: 'analyst', surface: 'web-chat',
+        cardTypeVocabulary: ['project', 'custom-leaf'],
+        store: { read },
+        interventionReadiness: { assertInterventionReady },
+        analystMutations: { cards: { create } },
+      } as unknown as ToolContext;
+      const surface = buildInvocationSurfaceFixture('analyst', [
+        bindToolProvider('analyst', [
+          getAnalystControlToolBinders().find((candidate) => candidate.name === 'create_card')!,
+        ], context),
+      ]);
+      const executor = jest.spyOn(surface.tools.get('create_card')!, 'executor');
+      const base = {
+        type: 'custom-leaf', parent: 'project', title: 'Child', bootstrap_content: 'Brief',
+      };
+      const invoke = (dependencies: { depends_on?: string[] }) => invokeToolForLlm(
+        surface, 'create_card', { ...base, ...dependencies },
+        testLlmToolInvocationContext({ sessionId: 'agent:analyst:global', toolName: 'create_card' }),
+      );
+      for (const depends_on of [
+        ['card-a,card-b'],
+        [' card-a '],
+        [`card-${Array(13).fill('a').join('-')}`],
+        ['card-a', 'card-b,card-c'],
+      ]) {
+        const settlement = await invoke({ depends_on });
+        expect(settlement.kind).toBe('rejected_before_execution');
+        if (settlement.kind === 'executed') throw new Error('Malformed dependencies entered execution.');
+        expect(settleToolActionOutcome(settlement.providerOutcome).providerResult)
+          .toMatchObject({ success: false });
+      }
+      expect(executor).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+      expect(assertInterventionReady).not.toHaveBeenCalled();
+      for (const dependencies of [{}, { depends_on: [] }, { depends_on: ['card-a'] }]) {
+        const settlement = await invoke(dependencies);
+        expect(settlement.kind).toBe('executed');
+        if (settlement.kind !== 'executed') throw new Error('Expected Analyst creation execution.');
+        expect(settleToolActionOutcome(settlement.execution.providerOutcome).providerResult)
+          .toMatchObject({ success: true, data: { card: { id: 'card-b' } } });
+        expect(create).toHaveBeenLastCalledWith({
+          ...base, depends_on: 'depends_on' in dependencies ? dependencies.depends_on : undefined,
+        });
+      }
+      expect(create).toHaveBeenCalledTimes(3);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 });

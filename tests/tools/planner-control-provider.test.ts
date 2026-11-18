@@ -1,7 +1,8 @@
 import { testPlannerAuthority, testNotificationAuthority } from '../helpers/capability-grants.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { z } from 'zod';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
@@ -22,6 +23,7 @@ import type { NotificationSubmissionResult } from '../../src/runtime/runtime-api
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { submitNotificationTool } from '../../src/tools/notification-tool.js';
 import { queueNotificationInputSchema } from '../../src/contracts/builtin-tool-inputs.js';
+import { cardHeadFile } from '../../src/persistence/layout.js';
 
 const PARENT = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CHILD = `${PARENT}-b`;
@@ -61,6 +63,15 @@ describe('planner control provider ownership delegation', () => {
       'create_card',
       { type: 'code', title: 'valid', bootstrap_content: 'Brief', urgency: 'urgent' },
     ],
+    ...[
+      [`${CHILD},card-b`],
+      [` ${CHILD} `],
+      [`card-${Array(13).fill('a').join('-')}`],
+      [CHILD, `${CHILD},card-b`],
+    ].map((depends_on): [string, Record<string, unknown>] => [
+      'create_card',
+      { type: 'code', title: 'valid', bootstrap_content: 'Brief', depends_on },
+    ]),
     ['edit_card', { card_id: CHILD, title: '' }],
     ['edit_card', { card_id: CHILD, title: ' \t\n' }],
     ['edit_card', { card_id: CHILD, urgency: 'urgent' }],
@@ -557,8 +568,98 @@ describe('planner control provider ownership delegation', () => {
       ],
     });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
-    return { store, child: store.read(child.id)!, surface };
+    return { root, store, child: store.read(child.id)!, surface };
   }
+
+  function invokeCreate(
+    surface: ReturnType<typeof buildInvocationSurfaceFixture>,
+    dependencies: { depends_on?: string[] },
+  ) {
+    return invokeToolForLlm(
+      surface,
+      'create_card',
+      { type: 'code', title: 'Dependent work', bootstrap_content: 'Brief', ...dependencies },
+      testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'create_card' }),
+    );
+  }
+
+  it.each(['omitted', 'empty', 'sibling'] as const)(
+    'creates with %s dependencies through the canonical owner',
+    async (kind) => {
+      const test = editHarness('backlog');
+      const depends_on = kind === 'sibling' ? [test.child.id] : [];
+      const settlement = await invokeCreate(
+        test.surface,
+        kind === 'omitted' ? {} : { depends_on },
+      );
+      expect(settlement.kind).toBe('executed');
+      if (settlement.kind !== 'executed') throw new Error('Expected creation execution.');
+      const result = settleToolActionOutcome(settlement.execution.providerOutcome).providerResult;
+      expect(result.success).toBe(true);
+      const id = (result.data as { card: { id: string } }).card.id;
+      expect(test.store.read(id)).toMatchObject({ depends_on });
+      expect(test.store.read('project')!.child_membership).toContain(id);
+    },
+  );
+
+  it('rejects malformed input then creates corrected work on the same canonical surface', async () => {
+    const test = editHarness('backlog');
+    const executor = jest.spyOn(test.surface.tools.get('create_card')!, 'executor');
+    const read = jest.spyOn(test.store, 'read');
+    const create = jest.spyOn(test.store, 'create');
+    const rejected = await invokeCreate(test.surface, {
+      depends_on: [test.child.id, `${test.child.id},card-b`],
+    });
+    expect(rejected.kind).toBe('rejected_before_execution');
+    expect(executor).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    const corrected = await invokeCreate(test.surface, { depends_on: [test.child.id] });
+    expect(corrected.kind).toBe('executed');
+    if (corrected.kind !== 'executed') throw new Error('Expected corrected execution.');
+    const result = settleToolActionOutcome(corrected.execution.providerOutcome).providerResult;
+    expect(result.success).toBe(true);
+    const id = (result.data as { card: { id: string } }).card.id;
+    expect(test.store.read(id)).toMatchObject({ depends_on: [test.child.id] });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['missing', 'non-sibling', 'project'] as const)(
+    'keeps %s dependency rejection in the semantic owner without creation',
+    async (kind) => {
+      const test = editHarness('backlog');
+      const goal = test.store.create({
+        type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief',
+        created_by: 'analyst', depends_on: [],
+      });
+      const nested = test.store.create({
+        type: 'code', parent: goal.id, title: 'Nested', bootstrap_content: 'Brief',
+        created_by: 'analyst', depends_on: [],
+      });
+      const dependency = kind === 'missing' ? 'card-zz' : kind === 'project' ? 'project' : nested.id;
+      const create = jest.spyOn(test.store, 'create');
+      const read = jest.spyOn(test.store, 'read');
+      const settlement = await invokeCreate(test.surface, { depends_on: [dependency] });
+      expect(settlement.kind).toBe('executed');
+      if (settlement.kind !== 'executed') throw new Error('Expected semantic execution.');
+      expect(settleToolActionOutcome(settlement.execution.providerOutcome).providerResult)
+        .toMatchObject({
+          success: false,
+          error: expect.stringContaining(kind === 'missing' ? 'not found' : 'immediate child'),
+        });
+      expect(read).toHaveBeenCalledWith(dependency);
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not classify corrupt selected dependency data as malformed tool arguments', async () => {
+    const test = editHarness('backlog');
+    writeFileSync(cardHeadFile(test.root, test.child.id), '{}\n');
+    const create = jest.spyOn(test.store, 'create');
+    await expect(invokeCreate(test.surface, { depends_on: [test.child.id] }))
+      .rejects.toBeInstanceOf(z.ZodError);
+    expect(create).not.toHaveBeenCalled();
+  });
 
   function invokeEdit(
     surface: ReturnType<typeof buildInvocationSurfaceFixture>,

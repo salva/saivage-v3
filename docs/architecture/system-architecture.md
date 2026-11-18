@@ -1152,6 +1152,15 @@ subtrees follow committed order. Narrow relationship reads do not validate unrel
 dependencies. Disposable full active projections validate dependency references/
 cycles when required by list/delete; they are discarded after call.
 
+In the Analyst and Planner creation input schemas, `depends_on` is optional;
+each element of a supplied array must satisfy `cardIdSchema`. Invocation validates
+the complete argument before entering the executor, and publishes the tool
+definition from that same schema. The Planner creation owner then reads
+syntactically valid dependencies and checks immediate-child membership; syntax
+alone does not establish existence or relationship. Strict reader and unexpected
+errors are not reclassified as schema failures, and publication uncertainty
+retains its fatal boundary.
+
 Creation starts parent-local segment a every time and exclusively mkdir-claims each
 forward-derived candidate; **only** that mkdir's EEXIST advances spreadsheet sequence.
 No candidate/sibling inspection or allocation from history. Exact parent read comes
