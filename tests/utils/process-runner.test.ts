@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -12,8 +12,19 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
+import { inspectWorkGcCanonicalState } from '../../src/persistence/index.js';
+import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function compactGcFixture(root: string): Promise<void> {
+  compactWorkGcCard(root, TEST_WORKFLOWS);
+  const horizons = await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, {
+    async content() {},
+    async operational() {},
+  });
+  expect(horizons.get('project')).toBe(Date.parse('2026-10-24T00:01:00Z'));
+}
 
 describe('ProcessRunner call-local wait timers', () => {
   let root: string;
@@ -152,10 +163,13 @@ describe('ProcessRunner managed process groups', () => {
   });
 
   it('actual GC retains all work for a live group and whole unconsumed capture directories after buffered output settles', async () => {
+    await compactGcFixture(root);
     const scope = direct('operator_session', 'gc-live');
     const record = launch(`${JSON.stringify(process.execPath)} -e 'console.log("first"); setTimeout(()=>console.log("last"),1000)'`, scope, 'operator_session');
     const scratch = join(root, '.saivage/work/cards/project/tmp/free');
     mkdirSync(dirname(scratch), { recursive: true }); writeFileSync(scratch, 'scratch');
+    const old = new Date('2026-10-24T00:00:00Z');
+    utimesSync(scratch, old, old);
     const sibling = join(dirname(record.stdout_path), 'additional-capture'); writeFileSync(sibling, 'capture');
     const collect = async () => collectWorkGarbage(await inventoryWorkGarbage(root, new AbortController().signal), { mode: 'delete' }, {
       workflows: TEST_WORKFLOWS, operationalInputs: {}, protection: runner.workGcProtection(),
@@ -253,6 +267,7 @@ describe('ProcessRunner managed process groups', () => {
   it.each(['kill', 'terminateScopeTree', 'closeAndTerminateDirectScope'] as const)('%s joins group absence with both readable drains in either event order', async (surface) => {
     const syntheticRoot = mkdtempSync(join(tmpdir(), `proc-runner-${surface}-`));
     initProjectTree(syntheticRoot);
+    await compactGcFixture(syntheticRoot);
     const stdout = new PassThrough(); const stderr = new PassThrough();
     const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
     child.stdout = stdout; child.stderr = stderr;
@@ -280,9 +295,12 @@ describe('ProcessRunner managed process groups', () => {
     expect(await synthetic.wait(record.id, 1)).toMatchObject({ status: 'running', timedOut: true });
     const garbage = join(syntheticRoot, '.saivage/work/cards/project/tmp/garbage');
     mkdirSync(dirname(garbage), { recursive: true }); writeFileSync(garbage, 'scratch');
+    const old = new Date('2026-10-24T00:00:00Z');
+    utimesSync(garbage, old, old);
     const protection = synthetic.workGcProtection();
     expect(protection.retainAll).toBe(false);
     expect(protection.capturePaths).toContain(record.stdout_path);
+    expect(protection.capturePaths).toContain(record.stderr_path);
     const gc = await collectWorkGarbage(await inventoryWorkGarbage(syntheticRoot, new AbortController().signal), { mode: 'delete' }, {
       workflows: TEST_WORKFLOWS, operationalInputs: {}, protection, assertCollecting() {}, fatal(error) { throw error; },
     });

@@ -19,6 +19,10 @@ describe('literal action inputs through selected YAML and workflow compilation',
       roots.push(root);
       const config = structuredClone(TEST_SAIVAGE_CONFIG);
       const workflow = config.card_types.code!.workflow;
+      const originalEntry = workflow.entries.BACKLOG;
+      if (!originalEntry || !('node' in originalEntry) || !workflow.nodes[originalEntry.node]) {
+        throw new Error('Expected original code BACKLOG entry to select an existing node.');
+      }
       const execution = {
         kind: 'action' as const,
         action: 'shell.run',
@@ -39,7 +43,7 @@ describe('literal action inputs through selected YAML and workflow compilation',
         edges: Object.fromEntries(
           ['passed', 'failed', 'signalled', 'timed_out'].map((outcome) => [
             outcome,
-            { target: { node: 'execute' } },
+            { target: { node: originalEntry.node } },
           ]),
         ),
       };

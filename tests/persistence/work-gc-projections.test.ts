@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { initProjectTree, TEST_WORKFLOWS, CardService } from '../helpers/canonical-project.js';
 import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
@@ -16,8 +17,7 @@ import { rowWorkReferences } from '../../src/persistence/work-gc-protection.js';
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
-  const base = '/home/salva/g/ml/tmp';
-  const root = mkdtempSync(join(base, 'gc-projections-'));
+  const root = mkdtempSync(join(tmpdir(), 'gc-projections-'));
   roots.push(root); initProjectTree(root); return root;
 }
 it('projects a current card without validating change, lifecycle or predecessor', () => {

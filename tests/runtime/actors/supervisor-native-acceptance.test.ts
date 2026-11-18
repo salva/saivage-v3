@@ -60,6 +60,7 @@ test.each(['direct', 'reviewed', 'handler', 'no-change'] as const)('%s delivers 
   const goal = f.store.create({ type: 'goal', parent: 'project', title: 'Aggregate', bootstrap_content: 'Scoped aggregate', created_by: 'analyst', depends_on: [] });
   const leaf = f.store.create({ type: 'code', parent: goal.id, title: 'Leaf', bootstrap_content: 'Scoped leaf', created_by: 'planner', depends_on: [] });
   const counts = new Map<string, number>();
+  const leafStages: string[] = [];
   const reviewed = mode === 'reviewed' || mode === 'handler';
   let finish!: () => void, running = false, queued = false, staleApprovalRejected = false;
   const stopped = new Promise<void>(resolve => { finish = resolve; });
@@ -79,7 +80,14 @@ test.each(['direct', 'reviewed', 'handler', 'no-change'] as const)('%s delivers 
         if (mode !== 'no-change') writeFileSync(join(f.root, `${card}.txt`), `${card} remainder\n`);
         return call(id, 'activate_card', { card_id: card === 'project' ? goal.id : leaf.id, instructions: 'Complete the scoped work.' });
       }
-      if (node === 'execute' && n === 1 && mode !== 'no-change') writeFileSync(join(f.root, 'leaf.txt'), 'leaf source\n');
+      if (node === 'red' || node === 'green' || node === 'refactor') {
+        expect(card).toBe(leaf.id);
+        if (n === 1) leafStages.push(node);
+        if (node === 'red' && n === 1 && mode !== 'no-change') writeFileSync(join(f.root, 'leaf.txt'), 'leaf source\n');
+        if (n % 2 === 1) return call(id, 'write', { path: `record:///status.md?card=${card}`, content: `Closing ${card}/${node} status ${n}` });
+        const outcome = node === 'red' ? 'red_confirmed' : node === 'green' ? 'green' : 'done';
+        return call(id, 'emit_result', { outcome, summary: `Closing ${card}/${node} summary` });
+      }
       if (node === 'review') {
         expect(f.store.read(card!)!.git!.candidate).not.toBeNull();
         if (n % 2 === 1) return call(id, 'write', { path: `record:///review.md?card=${card}`, content: `Independent ${card} review ${n}` });
@@ -88,9 +96,12 @@ test.each(['direct', 'reviewed', 'handler', 'no-change'] as const)('%s delivers 
         }
         return call(id, 'emit_result', { outcome: 'approved', summary: `Independent ${card} approval` });
       }
+      if (node !== 'plan' && node !== 'handle-notifications' && node !== 'assess-completion') {
+        throw new Error(`Unsupported native acceptance fixture node '${card}/${node}'.`);
+      }
       const writes = node === 'plan' ? n === 2 : n % 2 === 1;
       if (writes) return call(id, 'write', { path: `record:///status.md?card=${card}`, content: `Closing ${card}/${node} status ${n}` });
-      const outcome = node === 'execute' ? 'done' : node === 'plan'
+      const outcome = node === 'plan'
         ? card === 'project' ? 'assess_completion' : reviewed ? 'admit_review' : 'complete_direct'
         : node === 'handle-notifications' ? 'admit_review'
         : reviewed ? n === 2 ? 'admit_review' : 'complete_reviewed' : 'complete_direct';
@@ -112,6 +123,7 @@ test.each(['direct', 'reviewed', 'handler', 'no-change'] as const)('%s delivers 
   try {
     await supervisor.startProject(); await stopped;
     expect(committed).toEqual([leaf.id, goal.id, 'project']);
+    expect(leafStages).toEqual(['red', 'green', 'refactor']);
     const root = f.store.read('project')!;
     expect(root.lifecycle.status).toBe('done');
     expect(root.lifecycle.result).toMatchObject({ kind: 'workflow-result', executor: { kind: 'agent', agent: reviewed ? 'reviewer' : 'planner' },
@@ -144,6 +156,9 @@ test.each(['record', 'notification', 'descendant', 'interruption', 'dirty-review
         const block = input.providerConversation.messages.find(message => message.kind === 'synthetic_context' && message.block_identity.startsWith('node-activation:'));
         if (!block || block.kind !== 'synthetic_context') throw new Error('Missing prepared node.');
         const node = block.block_identity.split(':')[2]!;
+        if (node !== 'plan' && node !== 'review' && node !== 'assess-completion') {
+          throw new Error(`Unsupported native invalidation fixture node '${node}'.`);
+        }
         const n = (counts.get(node) ?? 0) + 1; counts.set(node, n);
         const id = `${node}-${n}`;
         const failed = input.providerConversation.messages.find(message => message.kind === 'tool_result' && message.tool_call_id === 'assess-completion-' + (mode === 'dirty-reviewed' ? '4' : '2') && JSON.parse(message.content).success === false);

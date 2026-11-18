@@ -5,9 +5,8 @@ import { agentCanWriteRecord, compileProjectWorkflows } from '../../../src/runti
 import { resolveRuntimeTool, toolCapabilityResources } from '../../../src/tools/tool-api.js';
 import { templateConfig } from '../../helpers/system-template-config.js';
 
-const classic = () => effectiveSaivageConfigSchema.parse(templateConfig(
-  SYSTEM_TEMPLATES.find(({ name }) => name === 'classic')!,
-));
+const classicTemplate = SYSTEM_TEMPLATES.find(({ name }) => name === 'classic')!;
+const classic = () => effectiveSaivageConfigSchema.parse(templateConfig(classicTemplate));
 
 describe('compiled direct-object capabilities', () => {
   it.each(SYSTEM_TEMPLATES.map((template) => [template.name, template] as const))(
@@ -33,7 +32,7 @@ describe('compiled direct-object capabilities', () => {
   );
 
   it('derives framework writer eligibility within each selected tool and clause', () => {
-    const base = compileProjectWorkflows(classic()).agents.get('planner')!;
+    const base = compileProjectWorkflows(classic(), { defaultPromptRoot: classicTemplate.promptRoot }).agents.get('planner')!;
     const writer = {...base, tools:[resolveRuntimeTool('card', 'write', [
       {kind:'record',scopes:['self'],patterns:['status.md']},
       {kind:'record',scopes:['children'],patterns:['brief.md']},
@@ -49,13 +48,13 @@ describe('compiled direct-object capabilities', () => {
     const config = classic();
     const configured = config.agents.planner!.capabilities.grants.find((grant) => grant.tools.includes('create_card'))!;
     configured.resources = [{kind:'card',scopes:['children']}];
-    const compiled = compileProjectWorkflows(config);
+    const compiled = compileProjectWorkflows(config, { defaultPromptRoot: classicTemplate.promptRoot });
     const plan = compiled.cardTypes.get('project')!.states.get('node:plan')!;
     if (plan.kind !== 'node') throw new Error('Missing plan node.');
     expect([...plan.childCreationTypes]).toEqual([]);
     expect([...plan.childActivationTypes].length).toBeGreaterThan(0);
     configured.resources = [{kind:'card',scopes:['all']}];
-    const allowed = compileProjectWorkflows(config).cardTypes.get('project')!;
+    const allowed = compileProjectWorkflows(config, { defaultPromptRoot: classicTemplate.promptRoot }).cardTypes.get('project')!;
     const allowedPlan = allowed.states.get('node:plan')!;
     if (allowedPlan.kind !== 'node') throw new Error('Missing plan node.');
     expect([...allowedPlan.childCreationTypes]).toEqual([...allowed.permittedChildTypes]);
@@ -97,6 +96,6 @@ describe('compiled direct-object capabilities', () => {
       expect(agentCapabilitiesSchema.safeParse({format_version:2,grants}).success).toBe(false);
     expect(agentCapabilitiesSchema.safeParse({format_version:1,grants:[]}).success).toBe(false);
     config.agents.executor!.capabilities.grants = [{tools:['read','get_card'],resources:[{kind:'workspace'}]}];
-    expect(() => compileProjectWorkflows(config)).toThrow(/does not support workspace/);
+    expect(() => compileProjectWorkflows(config, { defaultPromptRoot: classicTemplate.promptRoot })).toThrow(/does not support workspace/);
   });
 });
