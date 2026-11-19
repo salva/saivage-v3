@@ -607,15 +607,68 @@ parent Done; a milestone inside an unchanged larger child brief is not child
 completion. A narrower child acceptance boundary requires its actual requirement
 owner to adopt a changed accepted brief through supported operations, preserving
 the full parent remainder; proposed narrowing or activation direction cannot edit
-requirements or dependencies. At child return/recovery the shared Planner diagnoses
-concrete errors, work and known effects against the current brief, completion
-conditions, actual direction and responsible owner. Child FAILED/BLOCKED remains
-fact, not automatically the parent's verdict. A useful permitted response changes
-the failing premise, not just reopens unchanged work; hard work and necessary broad
-fixes are not failure. Precise missing input/authority/capability or evidenced
-exhaustion permits honest blocking, and conclusive failure remains failure, without
-pointless searches or forced success. Typed independent-correction/owner-reassignment
-handbacks retain their node-owned exceptions; assessment cannot dispatch children.
+requirements or dependencies. Typed independent-correction and owner-reassignment
+handbacks retain their node-owned conditions.
+
+For ordinary assignment and workflow mismatches, the default `classic-typed`
+Planner role distinguishes a wrong assignment from wrong activation direction.
+Neither its correction guidance nor its guidance on continuing independent work
+applies to safety- or provider-refused work.
+The Planner compares the child's actual return and applicable evidence with the accepted
+brief, direction, dependencies, selected workflow entry and known effects. When
+the brief is adequate and the mismatch is in the activation direction, correcting
+that direction alone can resolve the mismatch. Other causes may call for supplying
+an available input, having the responsible direct child satisfy a prerequisite,
+or resequencing within scope. If the brief misassigns or omits required work within
+the parent's authority, the parent uses permitted `write` or `edit` on the same
+inactive immediate child's current `brief.md` URL to accept a consolidated
+amendment. For a DONE or FAILED child, the owning active Planner
+first needs an admitted `reopen_card` on that ownerless child. This selects
+CHANGED without dispatching or erasing history. For FAILED work, the guidance calls
+for materially new diagnosis, input, correction or a justified different approach;
+this is not a runtime admission condition. A BLOCKED child does not need
+reopening, but the guidance calls for a material change that makes its work
+actionable. `depends_on` is selected at
+creation from existing immediate siblings.
+Planner `edit_card` edits only the title: an actual title delta on BLOCKED or FAILED
+incidentally publishes CHANGED, but does not correct the assignment or activate
+the child.
+
+The accepted brief and its lifecycle propagation are separate effects. Successful
+propagation on BLOCKED changes the child to CHANGED. A result with `written:true`
+and `propagation:{ok:false,partial:true,error}` establishes acceptance and a
+propagation failure, not CHANGED, a particular entry, or the absence of other
+effects. Any further action rests on established state and ordinary admission;
+otherwise the handback records the known effect, remaining uncertainty and needed
+owner action. Outcome-unknown Saivage publication is instead fatal before any
+follow-up in the affected process, including reporting or release.
+
+`activate_card` is separately admitted and returns the child's actual outcome.
+The configured entry governs the new invocation: shipped `classic-typed` code
+enters at `red` even from BLOCKED or CHANGED, with `red_confirmed` leading to
+`green` and `already_green` to `refactor`. Activation direction cannot select a
+historical phase. Useful history and applicable settled evidence remain relevant,
+but neither partial delivery nor a historical review satisfies a current required
+acceptance gate.
+
+The same default guidance treats a child return as evidence, not a verdict on
+its ancestors. Each still-active Planner handles its own obligations through its
+immediate children where the node permits and both inputs and effects are
+independent of any uncertain operation and within existing authority. The
+uncertain operation and its resources remain untouched. The goal reports the
+cross-scope remainder, evidence, impact and
+needed decision or action; the root owns ordinary cross-scope strategy. When an
+unavailable input, authority, capability or decision leaves no admissible progress
+at the current node, the BLOCKED handback identifies that exact gap. FAILED
+instead denotes conclusive failure under the generated contract.
+
+At the root, `assess-completion` receives pending context after review and returns
+actionable remaining work to `plan` with `replan`; assessment does not dispatch
+children, and there is no project `handle-notifications` node. After an approved
+goal review with pending context, `handle-notifications` receives it and the path
+to completion goes through `admit_review` and fresh independent review. These
+decisions explain the selected source prompts and workflow, not additional runtime
+permissions or a guarantee about installed prompts or model behavior.
 
 Analyst owns outcome-first brief/notice authoring; Planner applies the same principle
 to child briefs and activation direction within its existing authority. Their shared

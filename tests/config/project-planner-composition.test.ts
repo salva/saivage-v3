@@ -182,6 +182,7 @@ describe('shipped project Planner semantic composition', () => {
     let phaseCalls = 0;
     let phase = 'initial';
     let selectedNodeId = 'plan';
+    const direction = 'Plan the bounded goal.';
     const end = new Error('bounded actor preparation fixture complete');
     const provider = scriptedAdmissionProvider(async input => {
       calls++;
@@ -193,6 +194,22 @@ describe('shipped project Planner semantic composition', () => {
         `card-activation:${card.id}`, `node-activation:${card.id}:${selectedNodeId}`,
         ...(cardType === 'goal' ? [`parent-direction:${activationId}`] : []),
       ]);
+      if (profile === 'classic-typed') {
+        expect(selectedNodeId).toBe(phase === 'initial' ? 'plan' : 'recover');
+        const refs = effectiveCardNodeToolReferences(agentExecution(selectedNode).agent.tools, selectedNode.childCreationTypes);
+        expect(input.tools.map(tool => tool.function.name).sort()).toEqual([...refs.map(ref => ref.name), 'emit_result'].sort());
+        expect(input.tools.find(tool => tool.function.name === 'emit_result'))
+          .toEqual(nodeResultToolDefinition(process, `node:${selectedNodeId}`));
+        const messages = input.providerConversation.messages;
+        if (phase === 'stopped-reentry')
+          expect(messages.some(message => message.content === routePrompt(process, 'entry:STOPPED', 'entry:route'))).toBe(true);
+        if (cardType === 'goal') {
+          const parent = input.preparedContext!.stableBlocks[2]!;
+          expect(JSON.parse(parent.content.slice(parent.content.indexOf('\n') + 1))).toEqual({ instructions: direction });
+          expect(messages.find(message => message.kind === 'synthetic_context' && message.block_identity === parent.id)?.content)
+            .toBe(parent.content);
+        }
+      }
       const brief = store.readRecordCurrent(card.id, 'brief.md');
       if (brief.kind !== 'found' || !brief.value.projection?.accepted) throw new Error('Missing synthetic accepted brief');
       const bootstrap = input.providerConversation.messages.find(message =>
@@ -209,7 +226,7 @@ describe('shipped project Planner semantic composition', () => {
         writeFileSync(join(directory, `planner-actual-${profile}-${cardType}-${phase}-turn-${phaseCalls}.json`), JSON.stringify({
           kind: 'actual NodeExecution/AgentExecutor/ConversationLLMActor provider input; synthetic activation host, no Supervisor/native commissioning',
           profile, cardType, lifetime: `${phase}/${phaseCalls === 1 ? 'entry' : 'actual plain-text corrective continuation'}`,
-          config, input,
+           input,
         }, null, 2));
       }
       if (phaseCalls === 1) return { result: { kind: 'message', content: 'plain text' }, provider_exchanges: [] };
@@ -253,7 +270,7 @@ describe('shipped project Planner semantic composition', () => {
           caller: cardType === 'project' ? { kind: 'root' } : {
             kind: 'parent', cardId: 'project', sessionId: 'agent:planner:project',
             sourceInputId: randomUUID(), toolCallId: 'fixture-goal', toolName: 'activate_card',
-            instructions: 'Plan the bounded goal.',
+             instructions: direction,
           },
           notificationDelivery: { hasPendingNotifications: () => false, selectNotifications: () => [], removeNotifications() {} },
           recordMutations: { admit() { throw new Error('not invoked'); }, mutate() { throw new Error('not invoked'); } },
@@ -323,13 +340,43 @@ describe('shipped project Planner semantic composition', () => {
           }];
         });
         expect(nodes.filter(node => node.agent === 'planner').length).toBeGreaterThan(0);
+        if (profile === 'classic-typed') {
+          const third = cardType === 'project' ? 'assess-completion' : 'handle-notifications';
+          const plannerNodes = nodes.filter(node => node.agent === 'planner');
+          expect(plannerNodes.map(node => node.stateId).sort()).toEqual([`node:${third}`, 'node:plan', 'node:recover'].sort());
+          for (const binding of plannerNodes) {
+            const execution = agentExecution(requireNode(process, binding.stateId.slice('node:'.length)));
+            expect(execution.selectedAgentPrompt).toMatchObject({
+              source: 'bundled-shared', reference: 'planner',
+              path: join(template.promptRoot, 'agents', '_shared', 'planner.md'),
+            });
+            expect(binding.recordRequirements.map(({ definition, mode, gate }) => [definition.name, mode, gate]))
+              .toEqual([['status.md', 'continue', 'updated']]);
+            expect(binding.tools.map(tool => tool.function.name)).toEqual(expect.arrayContaining(
+              ['activate_card', 'reopen_card', 'write', 'edit', 'emit_result'],
+            ));
+            expect(execution.agent.tools.find(({ name }) => name === 'write')!.resources).toMatchObject([
+              { kind: 'workspace' }, { kind: 'record', scopes: ['self'], patterns: [{ source: 'status.md' }] },
+              { kind: 'record', scopes: ['children'], patterns: [{ source: 'brief.md' }] },
+            ]);
+          }
+          if (cardType === 'project') {
+            expect(process.states.has('node:handle-notifications')).toBe(false);
+            expect(requireNode(process, 'review').on.get('result:approved')?.targetStateId).toBe('node:assess-completion');
+            expect(requireNode(process, third).on.get('result:replan')?.targetStateId).toBe('node:plan');
+          } else {
+            expect(requireNode(process, 'review').on.get('result:approved:pending-notifications')?.targetStateId).toBe('node:handle-notifications');
+            expect(requireNode(process, third).on.get('result:admit_review')?.targetStateId).toBe('node:review');
+            expect(processNodeOutcomes(process, `node:${third}`)).toEqual(['admit_review', 'blocked', 'failed']);
+          }
+        }
         return { cardType, nodes, processPrompts: [...process.processPrompts], routes: [...process.states].map(([id, state]) => ({ id, routes: [...state.on] })) };
       });
       const evidence = env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
       if (evidence) {
         mkdirSync(evidence, { recursive: true });
         writeFileSync(join(evidence, `static-${profile}-project-goal.json`), JSON.stringify({
-          kind: 'static rendered bindings', profile, selectedPaths: [...selectedPaths].sort(), config, bindings,
+           kind: 'static rendered bindings', profile, selectedPaths: [...selectedPaths].sort(), bindings,
         }, null, 2));
       }
     },

@@ -34,6 +34,7 @@ import { EventQueryService } from '../../../src/application/event-query-service.
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
 import { toolSucceeded, WorkGcBusyError } from '../../../src/contracts/index.js';
 import { z } from 'zod';
+import { agentExecution } from '../../helpers/workflow-execution.js';
 
 const profiles = ['classic', 'classic-typed', 'paad-typed', 'newloop'] as const;
 type Profile = typeof profiles[number];
@@ -349,10 +350,12 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
       write('assess-completion', 'Planner must not replace independent verdict.', 'review.md'),
       write('assess-completion', 'Accepted bounded review retained. New owner context leaves explicit authorized work; continue planning.'), result('assess-completion', 'replan')];
     const f = fixture(profile, steps);
-    steps[3]!.before = async () => { await f.supervisor.submitNotification(testNotificationAuthority(), 'project', { id: '11111111-1111-4111-8111-111111111111', content: 'Owner clarification: accepted inventory is not beta; accessibility remains authorized.', created_at: new Date().toISOString() }, 'normal'); };
+    const notice = 'Owner clarification: accepted inventory is not beta; accessibility remains authorized.';
+    steps[3]!.before = async () => { await f.supervisor.submitNotification(testNotificationAuthority(), 'project', { id: '11111111-1111-4111-8111-111111111111', content: notice, created_at: new Date().toISOString() }, 'normal'); };
     const owner = await f.launch(); await Promise.race([f.atEnd, owner.settlement.promise.then(outcome => { capture(`${profile}-pending-failure`, { outcome, requests: f.requests }); throw new Error(JSON.stringify(outcome)); })]);
     const assessments = f.requests.filter(input => nodeOf(input) === 'assess-completion');
-    expect(JSON.stringify(assessments[0]!.providerConversation)).toContain('Owner clarification: accepted inventory is not beta');
+    const assessment = assessments[0]!;
+    expect(assessment.providerConversation.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'user', content: notice })]));
     const tools = assessments.flatMap(input => input.providerConversation.messages.filter(row => row.role === 'tool').map(row => JSON.parse(row.content)));
     expect(tools.some(tool => tool.success === false)).toBe(true);
     expect(JSON.stringify(tools)).toContain('review.md');
@@ -362,6 +365,26 @@ describe.each(profiles)('%s actual project objective reconciliation', profile =>
     expect(f.record('review.md')!.accepted!.content).toBe('Bounded review accepted after refreshed notification-bearing snapshot.');
     expect(f.record('review.md')!.draft).toBeNull();
     expect(nodeOf(f.requests.at(-1)!)).toBe('plan');
+    if (profile === 'classic-typed') {
+      const project = f.compiled.cardTypes.get('project')!;
+      const node = project.states.get('node:assess-completion')!;
+      if (node.kind !== 'node') throw new Error('Expected project assessment node');
+      const prompt = project.processPrompts.get(agentExecution(node).prompt.promptId)!;
+      expect(assessment.preparedContext!.stableBlocks.find(block => block.id === 'node-activation:project:assess-completion')?.content)
+        .toBe(`Current workflow node 'assess-completion':\n\n${prompt.text}`);
+      expect(assessment.tools.map(tool => tool.function.name)).toContain('activate_card');
+      expect(assessment.preparedContext!.stableBlocks.some(block => block.id.startsWith('parent-direction:'))).toBe(false);
+      const plan = f.requests.at(-1)!;
+      expect(plan.providerConversation.messages.some(row => row.role === 'user' && row.content.startsWith(
+        'Previous process node: assess-completion\nAccepted outcome: replan\n',
+      ))).toBe(true);
+      const rows = readConversation(f.root, assessment.sessionId).physicalRows;
+      expect(rows.filter(row => row.kind === 'tool_call').map(row => row.tool)).toEqual([
+        'write', 'emit_result', 'emit_result', 'write', 'write', 'emit_result',
+      ]);
+      expect(f.cards.listChildren('project')).toEqual([]);
+      capture(`${profile}-assessment-notice`, assessment);
+    }
     capture(`${profile}-pending-and-permissions`, f.requests);
     await f.supervisor.stopProject(); await expect(owner.settlement.promise).rejects.toThrow('stopped');
   });

@@ -348,6 +348,8 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
         sessionId: input.sessionId,
         systemPrompt: input.systemPrompt,
         tools: input.tools,
+        compiledToolContracts: input.compiledToolContracts,
+        terminalToolNames: input.terminalToolNames,
         preparedContext: input.preparedContext,
         providerConversation: input.providerConversation,
       },
@@ -358,6 +360,278 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
 }
 
 describe('specialized production card-type flows', () => {
+  it('amends the inactive same code child after an assessment-only refactor handback, then delivers and independently reviews save-preference', async () => {
+    const oldBrief = 'Assess the existing preference default and refactor only if justified. Implementation of saving a preference is not assigned.';
+    const newBrief = 'Implement save-preference in preference.cjs: remember an explicit selection of dark within the current process. Verify that saving dark replaces the light default; no disk persistence.';
+    const oldHandback = 'Refactor assessment found the current light default adequate as a default. Saving a selection is absent and outside my accepted assessment assignment; implementation acceptance is not established.';
+    const direction = 'Implement in-process saving of an explicit selection under the amended brief; use the existing behavior as the baseline, not as proof of delivery.';
+    const childStatus = 'Saving dark now replaces the light default in-process. The focused check passes on the unchanged refactor input; no structural change is justified.';
+    const command = (source: string) => `${JSON.stringify(process.execPath)} -e ${JSON.stringify(source)}`;
+    const baseline = command("require('node:assert/strict').equal(require('./preference.cjs').current(), 'light')");
+    const saveCheck = command("const p = require('./preference.cjs'); p.save('dark'); require('node:assert/strict').equal(p.current(), 'dark')");
+    const implementation = "let current = 'light'; exports.current = () => current; exports.save = value => { current = value; };\n";
+    let childId = '';
+    let rootCalls = 0;
+    let reviewerCalls = 0;
+    let failedVersion = 0;
+    let failedSelection: unknown;
+    const starts: Array<{ node: string; input: LlmInvocationInput }> = [];
+    const status = (card: string, id: string, content: string) =>
+      tool(id, 'write', { path: `record:///status.md?card=${card}`, content });
+    const result = (id: string, outcome: string, summary: string) => tool(id, 'emit_result', { outcome, summary });
+    const nodeOf = (input: LlmInvocationInput, cardId: string) =>
+      input.preparedContext!.stableBlocks[1]!.id.slice(`node-activation:${cardId}:`.length);
+    let childCalls = 0;
+    const run = harness('code', async input => {
+      const { cardId } = JSON.parse(input.preparedContext!.stableBlocks[0]!.content);
+      const node = nodeOf(input, cardId);
+      if (cardId === 'project' && input.agentName === 'reviewer') {
+        expect(node).toBe('review');
+        switch (++reviewerCalls) {
+          case 1: return complete(tool('inspect-save', 'read', { path: 'preference.cjs' }));
+          case 2:
+            expect(latestToolResult(input).success).toBe(true);
+            return complete(tool('inspect-current-save-evidence', 'read', { path: `record:///status.md?card=${childId}` }));
+          case 3:
+            expect(latestToolResult(input).success).toBe(true);
+            expect(JSON.stringify(latestToolResult(input))).toContain(childStatus);
+            return complete(tool('independent-save-verdict', 'write', { path: 'record:///review.md?card=project',
+              content: 'Independently inspected preference.cjs and the current focused evidence. The implementation updates the in-process setting and the Executor check covers the required dark selection; accepted.' }));
+          case 4: return complete(result('save-approved', 'approved', 'Independent save-preference acceptance.'));
+          default: throw new Error('Unexpected save Reviewer call');
+        }
+      }
+      if (cardId === 'project') {
+        expect(input.agentName).toBe('planner');
+        expect(node).toBe(rootCalls < 7 ? 'plan' : 'assess-completion');
+        switch (++rootCalls) {
+          case 1: return complete(tool('assess-preference', 'activate_card', {
+            card_id: childId, instructions: 'Establish the existing baseline first; report the mismatch if the accepted brief prevents implementation.',
+          }));
+          case 2:
+            expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: childId, outcome: 'failed',
+              result: { node_id: 'refactor', outcome: 'failed', summary: oldHandback } } });
+            failedVersion = run.cards.read(childId)!.version_seq;
+            failedSelection = run.cards.readCardVersion(childId, failedVersion);
+            return complete(tool('read-assessment-brief', 'read', { path: `record:///brief.md?card=${childId}` }));
+          case 3:
+            expect(latestToolResult(input).success).toBe(true);
+            expect(run.cards.readRecordCurrent(childId, 'brief.md')).toMatchObject({
+              kind: 'found', value: { projection: { accepted: { content: oldBrief, source_version: 1 } } },
+            });
+            return complete(tool('reopen-preference', 'reopen_card', { card_id: childId }));
+          case 4:
+            expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: childId, status: 'changed' } });
+            return complete(tool('amend-preference', 'write', { path: `record:///brief.md?card=${childId}`, content: newBrief }));
+          case 5:
+            expect(latestToolResult(input)).toMatchObject({ success: true, data: {
+              card_id: childId, name: 'brief.md', written: true, version: 2, state: 'closed', propagation: { ok: true },
+            } });
+            expect(run.cards.read(childId)!.lifecycle.status).toBe('changed');
+            return complete(tool('implement-preference', 'activate_card', { card_id: childId, instructions: direction }));
+          case 6:
+            expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: childId, outcome: 'done',
+              result: { node_id: 'refactor', outcome: 'done', records: [{ name: 'status.md' }] } } });
+            return complete(status('project', 'implementation-status', 'The same corrected child delivered and verified save-preference. Independent acceptance is still required.'));
+          case 7: return complete(result('save-review-admission', 'admit_review', 'Check the current save behavior independently.'));
+          case 8: return complete(status('project', 'save-assessment-status', 'Current save-preference implementation and focused evidence independently accepted; assessment-only history is not delivery evidence.'));
+          case 9: return complete(result('save-complete', 'complete_reviewed', 'Save-preference objective fulfilled with independent current acceptance.'));
+          default: throw new Error('Unexpected save Planner call');
+        }
+      }
+      expect(cardId).toBe(childId);
+      expect(input.agentName).toBe('executor');
+      const actions = [
+        ['red', tool('baseline-check', 'run_command', { command: baseline })],
+        ['red', status(childId, 'baseline-status', 'Light default confirmed. This assessment did not test saving a selection.')],
+        ['red', result('baseline-green', 'already_green', 'Current assessment baseline passes.')],
+        ['refactor', status(childId, 'assessment-handback', oldHandback)],
+        ['refactor', result('assessment-failed', 'failed', oldHandback)],
+        ['red', tool('check-missing-save', 'run_command', { command: saveCheck })],
+        ['red', status(childId, 'save-red-status', 'Current save check fails because save is not implemented; old default assessment is still historical.')],
+        ['red', result('save-red', 'red_confirmed', 'The actual save check fails on the original candidate.')],
+        ['green', tool('write-save', 'write', { path: 'preference.cjs', content: implementation })],
+        ['green', tool('check-save', 'run_command', { command: saveCheck })],
+        ['green', status(childId, 'save-green-status', 'Saving dark now returns dark; the same focused check passes.')],
+        ['green', result('save-green', 'green', 'The same concrete requirement passes after implementation.')],
+        ['refactor', result('stale-refactor-result', 'done', 'Try to close without a current refactor status.')],
+        ['refactor', status(childId, 'save-refactor-status', childStatus)],
+        ['refactor', result('save-done', 'done', 'Current implementation and focused check retained through refactor.')],
+      ] as const;
+      const [expectedNode, action] = actions[childCalls++]!;
+      expect(node).toBe(expectedNode);
+      if ([1, 4, 6, 9, 13].includes(childCalls)) starts.push({ node, input });
+      if (childCalls === 2 || childCalls === 11) expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 0 } });
+      if (childCalls === 7) expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 1 } });
+      if (childCalls === 14) expect(latestToolResult(input)).toMatchObject({ success: false, error: 'Record validation failed.' });
+      if (childCalls === 6) {
+        const blocks = input.preparedContext!.stableBlocks;
+        expect(JSON.parse(blocks[2]!.content.split('\n').at(-1)!)).toEqual({ instructions: direction });
+        expect(blocks[2]!.id).not.toBe(starts[0]!.input.preparedContext!.stableBlocks[2]!.id);
+        const brief = input.providerConversation.messages.find(row => row.kind === 'synthetic_context' && row.block_identity === `current-bootstrap:${childId}`)!;
+        expect(JSON.parse(brief.content.slice(brief.content.indexOf('\n') + 1)).content).toBe(newBrief);
+      }
+      return complete(action);
+    }, undefined, oldBrief, DEFAULT_SYSTEM_TEMPLATE);
+    childId = run.child.id;
+    writeFileSync(join(run.root, 'preference.cjs'), "exports.current = () => 'light';\n");
+    run.cards.acceptRecord('project', 'brief.md', 'Deliver and independently verify in-process save-preference: selecting dark replaces the light default without disk persistence.', { kind: 'agent', agent: 'analyst' });
+    try {
+      expect((await run.supervisor.startProject()).started).toBe(true);
+      await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+      expect([rootCalls, childCalls, reviewerCalls]).toEqual([9, 15, 4]);
+      expect(run.cards.listChildren('project')).toEqual([childId]);
+      expect(run.cards.readCardVersion(childId, failedVersion)).toEqual(failedSelection);
+      for (const [version, content] of [[1, oldBrief], [2, newBrief]] as const)
+        expect(run.cards.readRecordVersion(childId, 'brief.md', version)).toMatchObject({
+          kind: 'found', value: { projection: { accepted: { source_version: version, content } } },
+        });
+      expect(run.cards.readRecordVersion(childId, 'status.md', 2)).toMatchObject({
+        kind: 'found', value: { projection: { accepted: { content: oldHandback } } },
+      });
+      expect(run.cards.read(childId)!.lifecycle).toMatchObject({ status: 'done', result: {
+        node_id: 'refactor', outcome: 'done', records: [{ name: 'status.md', version: 5 }],
+      } });
+      expect(run.cards.readRecordCurrent(childId, 'status.md')).toMatchObject({
+        kind: 'found', value: { projection: { state: 'closed', accepted: { content: childStatus, source_version: 5 } } },
+      });
+      expect(run.cards.read('project')!.lifecycle).toMatchObject({ status: 'done', result: {
+        executor: { kind: 'agent', agent: 'reviewer' }, node_id: 'review', outcome: 'approved',
+      } });
+      assertRecordedNodeInstructions(run.root, starts);
+      expect(readFileSync(join(run.root, 'preference.cjs'), 'utf8')).toBe(implementation);
+    } finally { await run.supervisor.stopProject(); }
+  });
+
+  it('leaves an uncertain fixture selection untouched, delivers independent goal and root obligations, and blocks on the exact owner choice', async () => {
+    const choice = 'Owner must select which reference fixture governs the import acceptance check and supply a separately established reference outside the uncertain staging operation.';
+    const uncertainty = 'A prior external operation staging the ownerReference fixture has unknown effects. That target is quarantined; neither its contents nor release are established.';
+    const dependencyStatus = `${uncertainty} Without the reference, comparative import acceptance cannot run. ${choice}`;
+    const goalStatus = `The independently supplied baseline parsing check passed in diagnose and verify; its comparative import obligation remains unmet. ${dependencyStatus}`;
+    const rootStatus = `The goal delivered the local baseline check. The root sibling delivered the display legend from its separate input. No comparative import acceptance is claimed. ${dependencyStatus}`;
+    let goalId = '';
+    let comparisonId = '';
+    let baselineId = '';
+    let siblingId = '';
+    const calls = new Map<string, string[]>();
+    const activate = (id: string, callId: string, instructions: string) =>
+      tool(callId, 'activate_card', { card_id: id, instructions });
+    const status = (id: string, callId: string, content: string) =>
+      tool(callId, 'write', { path: `record:///status.md?card=${id}`, content });
+    const result = (id: string, outcome: string, summary: string) => tool(id, 'emit_result', { outcome, summary });
+    const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("require('node:assert/strict').deepEqual(require('./baseline-parse.json'), { offset: 4 })")}`;
+    const run = harness('goal', async input => {
+      const { cardId } = JSON.parse(input.preparedContext!.stableBlocks[0]!.content);
+      const node = input.preparedContext!.stableBlocks[1]!.id.slice(`node-activation:${cardId}:`.length);
+      const trace = calls.get(cardId) ?? [];
+      if (!calls.has(cardId)) calls.set(cardId, trace);
+      if (cardId === 'project' && trace.length === 1)
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: goalId, outcome: 'blocked',
+          result: { node_id: 'plan', outcome: 'blocked', summary: goalStatus } } });
+      if (cardId === 'project' && trace.length === 2)
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: siblingId, outcome: 'done' } });
+      if (cardId === goalId && trace.length === 1)
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: comparisonId, outcome: 'blocked',
+          result: { node_id: 'diagnose', outcome: 'blocked', summary: dependencyStatus } } });
+      if (cardId === goalId && trace.length === 2)
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { card_id: baselineId, outcome: 'done',
+          result: { node_id: 'verify', outcome: 'done' } } });
+      if (cardId === baselineId && [1, 4].includes(trace.length))
+        expect(latestToolResult(input)).toMatchObject({ success: true, data: { exit_code: 0 } });
+      if (cardId === siblingId && trace.length === 1)
+        expect(latestToolResult(input)).toMatchObject({ success: true });
+      const scripts = new Map<string, readonly (readonly [string, LlmCompleteResult])[]>([
+        ['project', [
+          ['plan', activate(goalId, 'activate-import-goal', 'Coordinate comparative import acceptance and the independent local baseline check.')],
+          ['plan', activate(siblingId, 'activate-display-doc', 'Document display units using only the separate display legend input.')],
+          ['plan', status('project', 'root-residual', rootStatus)],
+          ['plan', result('root-only-owner-choice-remains', 'blocked', rootStatus)],
+        ]],
+        [goalId, [
+          ['plan', activate(comparisonId, 'activate-comparison', 'Assess whether comparative acceptance is available under the accepted scope; do not access the uncertain staging target.')],
+          ['plan', activate(baselineId, 'activate-baseline', 'Check baseline-parse.json under its own local criterion; do not access the uncertain staging target.')],
+          ['plan', status(goalId, 'goal-residual', goalStatus)],
+          ['plan', result('goal-cross-scope-choice', 'blocked', goalStatus)],
+        ]],
+        [comparisonId, [
+          ['diagnose', status(comparisonId, 'comparison-blocker-status', dependencyStatus)],
+          ['diagnose', result('comparison-blocked', 'blocked', dependencyStatus)],
+        ]],
+        [baselineId, [
+          ['diagnose', tool('diagnose-local-baseline', 'run_command', { command })],
+          ['diagnose', status(baselineId, 'local-baseline-diagnosis', 'Existing coverage establishes local offset 4 on baseline-parse.json only.')],
+          ['diagnose', result('local-coverage-ready', 'coverage_ready', 'Baseline has adequate passing coverage.')],
+          ['verify', tool('verify-local-baseline', 'run_command', { command })],
+          ['verify', status(baselineId, 'local-baseline-verified', 'Verified local offset 4 on baseline-parse.json. This separate check did not exercise comparative import.')],
+          ['verify', result('local-baseline-done', 'done', 'Independent local parsing check verified.')],
+        ]],
+        [siblingId, [
+          ['execute', tool('read-display-source', 'read', { path: 'display-units.txt' })],
+          ['execute', tool('write-display-doc', 'write', { path: 'DISPLAY.md', content: 'The display width is in columns.\n' })],
+          ['execute', status(siblingId, 'display-documented', 'DISPLAY.md documents width in columns, as specified by display-units.txt.')],
+          ['execute', result('display-doc-done', 'done', 'The disjoint display legend is delivered.')],
+        ]],
+      ]);
+      const step = scripts.get(cardId)?.[trace.length];
+      if (!step) throw new Error(`Unexpected continuation request for ${cardId}/${node}`);
+      expect(node).toBe(step[0]);
+      if (step[1].kind !== 'tool_calls') throw new Error('Expected fixture tool call');
+      trace.push(step[1].tool_calls[0]!.id);
+      return complete(step[1]);
+    }, undefined, 'Verify comparative import against the owner-selected fixture and independently verify local parsing on baseline-parse.json. Neither result substitutes for the other.', DEFAULT_SYSTEM_TEMPLATE);
+    goalId = run.child.id;
+    const create = (parent: string, type: 'test' | 'doc', title: string, bootstrap_content: string) =>
+      run.cards.create({ type, parent, title, bootstrap_content, created_by: 'planner',
+        bootstrap_author: { kind: 'agent', agent: 'planner' }, depends_on: [] }).id;
+    comparisonId = create(goalId, 'test', 'Comparative import acceptance', `${dependencyStatus} Report unavailable input; do not probe it.`);
+    baselineId = create(goalId, 'test', 'Local parse check', 'Verify the already supplied baseline-parse.json reports offset 4. No comparison requirement.');
+    siblingId = create('project', 'doc', 'Display legend', 'Document the display width unit from display-units.txt in DISPLAY.md. No import or fixture dependency.');
+    run.cards.acceptRecord('project', 'brief.md', 'Deliver comparative import acceptance, the independent local baseline verification and the separate display legend. None substitutes for comparative acceptance.', { kind: 'agent', agent: 'analyst' });
+    writeFileSync(join(run.root, 'baseline-parse.json'), '{"offset":4}\n');
+    writeFileSync(join(run.root, 'display-units.txt'), 'width: columns\n');
+    try {
+      expect((await run.supervisor.startProject()).started).toBe(true);
+      await waitUntil(() => run.supervisor.getStatus().status === 'stopped');
+      expect(run.cards.listChildren('project')).toEqual([goalId, siblingId]);
+      expect(run.cards.listChildren(goalId)).toEqual([comparisonId, baselineId]);
+      const witnesses = [
+        ['project', 'planner', 'blocked', 'plan', rootStatus, ['activate-import-goal', 'activate-display-doc', 'root-residual', 'root-only-owner-choice-remains']],
+        [goalId, 'planner', 'blocked', 'plan', goalStatus, ['activate-comparison', 'activate-baseline', 'goal-residual', 'goal-cross-scope-choice']],
+        [comparisonId, 'executor', 'blocked', 'diagnose', dependencyStatus, ['comparison-blocker-status', 'comparison-blocked']],
+        [baselineId, 'executor', 'done', 'verify', 'Verified local offset 4 on baseline-parse.json. This separate check did not exercise comparative import.', ['diagnose-local-baseline', 'local-baseline-diagnosis', 'local-coverage-ready', 'verify-local-baseline', 'local-baseline-verified', 'local-baseline-done']],
+        [siblingId, 'executor', 'done', 'execute', 'DISPLAY.md documents width in columns, as specified by display-units.txt.', ['read-display-source', 'write-display-doc', 'display-documented', 'display-doc-done']],
+      ] as const;
+      for (const [id, agent, outcome, node_id, content, toolIds] of witnesses) {
+        expect(run.cards.read(id)!.lifecycle).toMatchObject({ status: outcome, result: {
+          node_id, outcome, records: [{ name: 'status.md' }],
+        } });
+        expect(run.cards.readRecordCurrent(id, 'status.md')).toMatchObject({
+          kind: 'found', value: { projection: { state: 'closed', accepted: { content } } },
+        });
+        const rows = readConversation(run.root, cardAgentSessionId(agent, id)).physicalRows;
+        expect(rows.filter(row => row.kind === 'tool_call').map(row => row.tool_call_id)).toEqual(toolIds);
+      }
+      const authorizedCalls = (cardId: string, agent: 'planner' | 'executor', allowed: string[]) =>
+        readConversation(run.root, cardAgentSessionId(agent, cardId)).physicalRows
+          .filter(row => row.kind === 'tool_call' && allowed.includes(row.tool!))
+          .map(row => {
+            const call = JSON.parse(row.content).tool_calls[0].function;
+            return { name: call.name, args: JSON.parse(call.arguments) };
+          });
+      expect(authorizedCalls('project', 'planner', ['activate_card']).map(call => call.args.card_id)).toEqual([goalId, siblingId]);
+      expect(authorizedCalls(goalId, 'planner', ['activate_card']).map(call => call.args.card_id)).toEqual([comparisonId, baselineId]);
+      expect(authorizedCalls(baselineId, 'executor', ['run_command'])).toEqual([
+        { name: 'run_command', args: { command } }, { name: 'run_command', args: { command } },
+      ]);
+      const docCalls = authorizedCalls(siblingId, 'executor', ['read', 'write']);
+      expect(docCalls.slice(0, 2)).toEqual([
+        { name: 'read', args: { path: 'display-units.txt' } },
+        { name: 'write', args: { path: 'DISPLAY.md', content: 'The display width is in columns.\n' } },
+      ]);
+      expect(readFileSync(join(run.root, 'DISPLAY.md'), 'utf8')).toBe('The display width is in columns.\n');
+    } finally { await run.supervisor.stopProject(); }
+  });
+
   it('exhausts the default goal invocation, then ordinarily reopens the same child with a full fresh allowance and current BLOCKED evidence', async () => {
     expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic-typed');
     expect(MAX_NODE_CORRECTIVE_REARMS).toBe(16);
@@ -1061,9 +1335,11 @@ else throw new Error('Unknown fixture mode');
     assertRecordedNodeInstructions(root, inputs);
   });
 
-  it.each([['classic', false, false], ['classic-typed', false, false], ['paad-typed', false, false], ['newloop', false, false], ['newloop', true, false], ['newloop', false, true]] as const)('prepares %s goal Planner and independent Reviewer with its own brief, current contract and direct parent direction (revision=%s, notification=%s)', async (profile, revision, notification) => {
+  it.each([['classic', false, false], ['classic-typed', false, false], ['classic-typed', false, true], ['paad-typed', false, false], ['newloop', false, false], ['newloop', true, false], ['newloop', false, true]] as const)('prepares %s goal Planner and independent Reviewer with its own brief, current contract and direct parent direction (revision=%s, notification=%s)', async (profile, revision, notification) => {
     let goalId = ''; let parentCalls = 0; let goalCalls = 0; let reviewerCalls = 0;
     const direction = 'Assess this goal only against its accepted brief. No implementation or descendant work is requested; return actual scoped evidence.';
+    const notice = 'Owner clarification: include the existing assessment rationale in the handback; do not add a deliverable.';
+    let earlierVerdict: number | undefined;
     const run = harness('goal', async input => {
       const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId;
       if (cardId === 'project') {
@@ -1086,7 +1362,7 @@ else throw new Error('Unknown fixture mode');
         if (notification && reviewerCalls === 2) await run.supervisor.submitNotification(
           testNotificationAuthority(), goalId, {
             id: '33333333-3333-4333-8333-333333333333',
-            content: direction, created_at: new Date().toISOString(),
+             content: notice, created_at: new Date().toISOString(),
           }, 'normal',
         );
         if (notification && [3, 5].includes(reviewerCalls)) return complete(tool(`goal-notification-review-${reviewerCalls}`, 'write', {
@@ -1110,10 +1386,20 @@ else throw new Error('Unknown fixture mode');
       if (goalCalls === 2) return complete(tool('goal-review-admission','emit_result',{outcome:'admit_review',summary:'Assessment complete without unnecessary decomposition; ready for scoped independent review.'}));
       if (notification && [3, 4].includes(goalCalls)) {
         expect(input.preparedContext!.stableBlocks[1]!.id).toBe(`node-activation:${goalId}:handle-notifications`);
-        expect(input.providerConversation.messages.some(message => message.content === direction)).toBe(true);
-        if (goalCalls === 3) return complete(tool('goal-notification-status', 'write', {
-          path: `record:///status.md?card=${goalId}`, content: 'Scoped goal assessment returned; no implementation acceptance claimed.',
-        }));
+        expect(input.providerConversation.messages.some(message => message.role === 'user' && message.content === notice)).toBe(true);
+        if (goalCalls === 3) {
+          const review = run.cards.readRecordCurrent(goalId, 'review.md');
+          if (review.kind !== 'found' || !review.value.projection?.accepted) throw new Error('Missing initial goal verdict');
+          earlierVerdict = review.value.projection.accepted.source_version;
+          if (profile === 'classic-typed') {
+            expect(outcomeEnum(input)).toEqual(['admit_review', 'blocked', 'failed']);
+            expect(transitionRows(input).at(-1)?.content).toContain('Previous process node: review\nAccepted outcome: approved\n');
+            captureTestComposition('goal-classic-typed-handler-notice', input);
+          }
+          return complete(tool('goal-notification-status', 'write', {
+            path: `record:///status.md?card=${goalId}`, content: 'Scoped assessment rationale: the accepted brief asks only whether decomposition adds value. Direct inspection suffices; no implementation acceptance claimed.',
+          }));
+        }
         return complete(tool('goal-notification-admission', 'emit_result', {
           outcome: 'admit_review', summary: 'Reconcile finite parent assessment objective.',
         }));
@@ -1126,6 +1412,18 @@ else throw new Error('Unknown fixture mode');
     expect((await run.supervisor.startProject()).started).toBe(true);
     await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
     expect(goalCalls).toBe(revision || notification ? 4 : 2); expect(reviewerCalls).toBe(notification ? 6 : revision ? 4 : 2); expect(parentCalls).toBe(5);
+    if (notification) {
+      const final = run.cards.read(goalId)!.lifecycle;
+      expect(final).toMatchObject({ status: 'done', result: {
+        executor: { kind: 'agent', agent: 'reviewer' }, node_id: 'review', outcome: 'approved',
+        records: [{ name: 'review.md', version: expect.any(Number) }],
+      } });
+      const latest = run.cards.readRecordCurrent(goalId, 'review.md');
+      if (latest.kind !== 'found' || !latest.value.projection?.accepted || earlierVerdict === undefined)
+        throw new Error('Missing renewed goal verdict');
+      expect(latest.value.projection.accepted.source_version).toBeGreaterThan(earlierVerdict);
+      expect(latest.value.projection.accepted.content).toBe('Fresh independent review 5 of the bounded assessment-only brief and accepted status.');
+    }
   });
 
   it('newloop delivers design before implementation, corrects a failed tactic locally, and replans the remaining documentation objective after root review', async () => {

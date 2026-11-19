@@ -504,10 +504,15 @@ node under original entry baselines. This is not an atomic filesystem snapshot o
 remembered admission. The one joint 16-rearm budget covers malformed/plaintext
 results, pending notifications, stale context, record and other corrective causes.
 It is local to a node task. Following ordinary failed-child settlement, the
-responsible parent can reopen and activate the same child when those operations
-are admitted; the new task starts with a fresh allowance. The default Planner's
-material-new-diagnosis guidance is not a separate lifecycle gate, and the
-ordinary current-record and result requirements still apply.
+active owning Planner can reopen that same ownerless immediate child and activate
+it under separate admissions. The new activation starts at the configured entry
+with a fresh node-task allowance; it does not resume the former task. The default
+`classic-typed`
+[Planner guidance](prompts.md#convergence-within-existing-role-decisions) explains
+what makes the assignment actionable and how still-active ancestors can continue
+their own independent obligations. Neither part of that guidance applies to
+safety- or provider-refused work. It adds no lifecycle gate or authority over other
+owners' work. Ordinary current-record and result requirements still apply.
 
 Acceptance checks records/descendants/freshness/promotion before terminal claim,
 including a synchronous check of the actual required/written bootstrap close intent
@@ -526,7 +531,11 @@ recreated on STOPPED.
 
 The classic/classic-typed/paad-typed/classic-git/newloop family's project assessment
 uses ordinary graph edges and status continue/updated gates: classic-shared specializes project plan/recover/review into
-`assess-completion`; goals retain notification handling. Reviewed completion can
+`assess-completion`, which receives pending recipient context and uses `replan`
+for actionable remaining work rather than dispatching there. The project has no
+`handle-notifications` node. An approved goal review with pending context routes
+to `handle-notifications`; the path to completion then requires `admit_review`
+and fresh independent review. Reviewed completion can
 promote Reviewer result while exporting Planner assessment status and immutable
 review citation. It is not a natural-language objective checker. Typed architecture
 likewise uses component then system review as clean cycles of the same record,
@@ -895,10 +904,18 @@ global maintenance is different. Shared `reopen_card` spelling has different inp
 (`card_id` versus `cardId`), readiness, result and propagation. Planner reopening
 proves active/open parent before target I/O, permits ownerless done/failed direct
 child and publishes changed once, without ancestor propagation, audit, notification
-or activation. Analyst intervention-ready reopening uses ordinary changed propagation.
-Planner dependencies are existing immediate siblings; Analyst creation uses active
-card dependencies and rejects running parent. Activation requires dependencies done,
-not creation. Planner owner-first cancel differs from Analyst subtree/root/status
+or activation. Separate activation consumes the child's configured entry. Analyst
+intervention-ready reopening uses ordinary changed propagation. A new project Run
+is a separate Supervisor admission, not part of either reopening operation or
+within the Planner's authority. A settled Planner cannot provide fresh admission
+for its children.
+
+Planner `depends_on` selects existing immediate siblings at creation and is not
+editable; Analyst creation uses active card dependencies and rejects running
+parent. Activation requires dependencies done, not creation. Planner `edit_card`
+is title-only: a genuine title delta on BLOCKED or FAILED publishes CHANGED before
+the title change, without amending the brief or activating the child. Planner
+owner-first cancel differs from Analyst subtree/root/status
 preflight; deletion publishes tombstones with surviving-dependency checks, not cancel.
 No-op metadata/reorder emits no publication/propagation; real Analyst reorder does
 changed propagation while Planner reorder remains parent-only.
@@ -917,10 +934,19 @@ conflict. Webfetch intersects its own destination and write grants pre-network a
 freshly at publication, never retaining preflight authority. Invalid/historical
 mutation targets return content-free typed rejection.
 Current URLs are reusable mutation targets; immutable accepted URLs are evidence.
-Record-specific changed propagation and generic reopen remain distinct: target/
-ancestor reopening and notices depend on precise source status and stop at the first
-running ancestor. Fresh sanitized 1000-character summaries become ordinary
-`card_changed` notices; no dedup/retry or delivery guarantee is introduced.
+An authorized Planner amendment to an inactive child's `brief.md` uses the current
+record URL. After direct acceptance publishes, the Supervisor callback changes
+the exact target child to CHANGED if it is BLOCKED. It leaves other eligible
+statuses unchanged and does not change ancestors or send notifications. An
+ordinary propagation failure after known acceptance reports a partial result,
+not proof of CHANGED or no other effects.
+Publication uncertainty instead reaches the fatal boundary without follow-up.
+
+Analyst record-edit propagation is distinct from the Planner callback and from
+generic Analyst reopen. For Analyst record edits, target and ancestor reopening and
+notices depend on precise source status and stop at the first running ancestor.
+Fresh sanitized 1000-character summaries become ordinary `card_changed` notices;
+no dedup/retry or delivery guarantee is introduced.
 
 ### Internal and external Analyst callers
 
