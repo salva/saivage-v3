@@ -348,8 +348,9 @@ scan/loader/manifest.
 `createClassicConfig` constructs fresh typed declarations then freezes once;
 `OVERSIGHT_ALLOWED_TOOL_NAMES` is the shared contracts-owned allowlist. PAAD and
 newloop directly reuse the same frozen typed config, not runtime inheritance.
-Newloop's independent prompt closure currently differs in eight paths: the three shared
-Planner, Executor and Reviewer roles and five process hosts. Graphs, identities, ordered
+Newloop's independent prompt closure includes adaptations in the three shared
+Planner, Executor and Reviewer roles and five process hosts; these are not an exhaustive
+comparison with the current default. Graphs, identities, ordered
 tools/routes, permissions and records remain equal. The always-prepared roles own the
 reusable method; the five newloop current-node hosts state today's task, products,
 evidence responsibility and outcome routes without restating that method. Compaction

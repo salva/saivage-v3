@@ -35,7 +35,8 @@ official expansion. No upstream endorsement is implied.
 
 ## What changes—and what does not
 
-In the current source, five prompt paths deliberately differ from classic-typed:
+The deliberate PAAD adaptation introduced guidance in these prompt hosts; this
+list is not an exhaustive comparison with the current default:
 
 - `agents/_shared/planner.md`: evidence-grounded brief pushback and bidirectional
   scope alignment before delegation, within existing requirement authority.
@@ -50,8 +51,7 @@ In the current source, five prompt paths deliberately differ from classic-typed:
   intent and operational/persistence lens preserving immutable component evidence.
 
 Existing typed workflows, records, tools, outcomes, independent review and ordinary
-repair remain authoritative. In the current source, Analyst, Oversight and all six neutral guidance
-fragments are unchanged. Upstream mandatory TDD rewriting, specialist fan-out,
+repair remain authoritative. Upstream mandatory TDD rewriting, specialist fan-out,
 human choices at every critique, reports/counters and branch procedures are not
 adopted. There is no new review scheduler, validator pass or BLOCKED reason.
 

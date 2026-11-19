@@ -472,7 +472,13 @@ prelude supplies accepted facts rather than another copy of that method. For tes
 `repair / tests_passing` transitions to `verify`, the retained `test-to-verify`
 edge qualifies passing focused tests as applicable author/check evidence, not
 independent approval, whether they passed at diagnosis or after coverage or repair.
-The current `test-verify` node owns the remaining acceptance work.
+The current `test-verify` node owns the remaining acceptance work. In
+`classic-typed`, immediately preceding same-card checks are one source, not a
+time limit: earlier reviewed results may establish their applicable part on
+unchanged inputs and criteria. Lost disposable output or a new activation alone
+does not require a rerun; changed dependencies, fixtures, oracle or criteria,
+current counterexamples or unknown applicability require affected investigation
+and needed checks. Explicitly required checks and deliverables remain required.
 
 These are source/package selections, not an update to installed or custom hosts.
 Existing authored edge occurrences remain historical; removing a future occurrence
@@ -489,7 +495,7 @@ Oversight performs bounded diagnosis/advice or successful no-action. Neutral
 project-guidance fragments are not role implementation or global enforcement.
 
 For `classic` and `classic-typed`, the separate physical
-`agents/_shared/planner.md` hosts carry the same clarified method for both project
+`agents/_shared/planner.md` hosts share strategy guidance for both project
 and goal nodes. The project Planner decides ordinary whole-project technical and
 architectural approaches, sequencing and tradeoffs, weighing intent, impact,
 reversibility, materiality and binding constraints. Material objective or explicit
@@ -503,9 +509,12 @@ absent tool is not by itself a whole-project blocker; actual missing authority,
 input, decision or capability and safely evidenced lack of an admissible path
 remain honest grounds for blocking.
 
-This method is composed with the actual node, generated result contract and
-selected tools; equal role-host bytes do not make the two profiles' complete
-node/tool compositions identical. Saivage durable publication uncertainty remains
+In `classic-typed`, status evidence identifies the candidate or release, tests,
+fixtures, oracle, scope, results and limits as they bear on the decision, without
+requiring every old capture or a reconstructed chronology. `classic` retains its
+existing exact-identity wording. The common method is composed with each profile's
+actual node, generated result contract and selected tools; these compositions
+are not identical. Saivage durable publication uncertainty remains
 fatal before any follow-up in the affected owner/process, including reporting,
 inspection or cleanup and lock or admission release. An uncertain external or
 native target is not probed, reconciled or retried; independent analysis or work
@@ -514,9 +523,17 @@ clone or session does not establish independence. For a provider refusal, a brie
 check for evidently disallowed work precedes retrying the card to resume work and,
 if refused again, cancelling it and recreating the work from scratch under a new card. These instructions do not expand grants, weaken acceptance,
 or authorize service or deployment actions. Existing primary and summary retention
-mechanics above are unchanged. This is a source-level clarification for the pair,
-not a claim about the other profiles or an update to installed materialized or
+mechanics above are unchanged. The common strategy, authority, refusal and
+uncertainty guidance described here is shared by the pair, not a claim about the
+other profiles or an update to installed materialized or
 custom hosts; adoption remains separate.
+
+The `classic-typed` shared Reviewer assesses the actual combined deliverable
+against its assigned criteria, using applicable reviewed work on unchanged inputs
+without demanding disposable historical logs. A current concern calls for relevant
+source inspection and a needed check through its responsible owner, not Reviewer
+execution. Author activity, disconnected passes and historical verdicts are not
+fresh independent acceptance; expressly exhaustive criteria remain exhaustive.
 
 Typed nodes retain reproduction before repair, verify-owned acceptance, informed
 retry/exhaustion, research classification/exhaustive outstanding scope, data
@@ -770,8 +787,8 @@ empirical model wisdom, compliance or improved output quality.
 `classic-typed` is the default and supplies typed graphs; explicit `classic`
 supplies simpler graphs, while provisioned `classic-git` adds native source
 ownership to classic graphs. Opt-in `paad-typed` uses the same frozen typed config
-with five current source prose differences; opt-in `newloop`
-uses that exact config with eight current original prose differences for intent-to-delivery
+with adapted guidance; opt-in `newloop`
+uses that exact config with original guidance for intent-to-delivery
 quality across code and other assets. Neither variant changes tools, records,
 routes, identities or native-Git OFF policy. Packaging compiles
 each registered template standalone, observes the complete selected artifact closure
@@ -793,6 +810,14 @@ is current-node context through turns/summary, not an init reminder. It reconcil
 accepted brief, current status/children, applicable review/evidence and delivered
 owner context, writes current status and submits replan, necessary review,
 legitimate completion or honest blocker/failure without child dispatch or delivery.
+In `classic-typed`, assessment reads actual applicable accepted records and
+substantive sources as needed and credits settled constituent acceptance on
+unchanged inputs without reopening it solely for a missing disposable log.
+Descendant DONE is a pointer, not a verdict; required deliverables, new findings,
+changed inputs and uncovered objectives remain real gaps. If reviewed closure is
+required and no applicable current-activation project review is promotable,
+assessment admits fresh review even if an earlier review of the unchanged objective
+still supports its merits. That does not reopen settled constituents.
 Reconciled continuing work calls for `replan`, not implementation or further
 readiness polishing inside assessment; no additional review is needed merely to
 return remaining work to planning. Typed research similarly submits evidence to
@@ -825,8 +850,8 @@ Fragments are trusted prompt syntax under the host policy, not opaque Markdown.
 
 ### Optional paad-typed guidance
 
-In the current source the physical path set matches classic-typed and bytes outside
-these five paths match; this is descriptive, not a relative packaging constraint:
+The original PAAD adaptation introduced guidance in these hosts; this list is not
+an exhaustive comparison against the current default:
 
 | Path under `prompts/` | Local adaptation |
 | --- | --- |
@@ -837,8 +862,8 @@ these five paths match; this is descriptive, not a relative packaging constraint
 | `process/architecture/architecture-system-review.md` | Integration/operational/persistence lens, preserving immutable component evidence. |
 
 These are prepared role/node instructions, not conditional record or one-time
-procedures. Graphs, tools, outcomes, feeding/retention and neutral fragments remain
-identical; Analyst/Oversight are unchanged. This adapts Curtis “Ovid” Poe's PAAD
+procedures. The typed configuration, including graphs, tools, outcomes and
+feeding/retention, remains identical. This adapts Curtis “Ovid” Poe's PAAD
 (Pushback, Alignment, Architecture, Discipline), not the full upstream plugin.
 The [profile README](https://github.com/salva/saivage-v3/blob/HEAD/src/config/system-templates/paad-typed/README.md)
 records pinned sources/exclusions. Its full pinned MIT notice travels with Planner;
@@ -849,8 +874,8 @@ it neither replaces Saivage's GPL nor claims endorsement or measured quality.
 Newloop foregrounds a coherent responsibility loop: critically examine accepted
 intent and current facts, choose an appropriate design/approach, progressively plan
 and deliver, then revise and assess from actual evidence. It is not five mandatory
-stages. In the current source the standalone physical path set equals classic-typed
-and these eight paths under `prompts/` differ; this is not a relative packaging constraint:
+stages. The original adaptation introduced guidance in these hosts under `prompts/`;
+this is not an exhaustive comparison with the current default:
 
 | Path | Effective responsibility |
 | --- | --- |
@@ -863,9 +888,7 @@ and these eight paths under `prompts/` differ; this is not a relative packaging 
 | `process/project/specialized-recover.md` | Root recovery with objective and historical-review limits. |
 | `process/_shared/specialized-review.md` | Integrated goal/project assessment and supported verdict. |
 
-Currently all other bytes match classic-typed: Analyst/Oversight, architecture nodes, project
-assessment, notification handling, correction/transition hosts and all seven shared
-fragments. Direct includes and exactly one generated contract token per workflow
+Direct includes and exactly one generated contract token per workflow
 role remain unchanged. Reusable method belongs to prepared roles, today's task to
 the full current-node host—not replaceable project-guidance hooks or init-only
 memory. The newloop plan, recover and review hosts (goal and project) do not restate

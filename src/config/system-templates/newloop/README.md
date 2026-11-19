@@ -48,7 +48,7 @@ and [prompt handling](../../../../docs/architecture/prompts.md).
   restructuring; adequate structure merits no change and unrelated cleanup is
   not a new completion gate.
 
-## Exact source differences
+## Configuration and adapted hosts
 
 All five registered profiles now share the singular capabilities1 grammar:
 Planner self/status and children/brief, Reviewer self/review\*, Executor self/status,
@@ -63,7 +63,8 @@ object. Graphs, tools and ordering, agents, routes, child permissions, record
 initialization/feeding and generated result contracts are identical. Native Git
 remains OFF; no provisioning or optional quality tools are enabled.
 
-In the current source, these eight paths under `prompts/` differ from classic-typed:
+The original adaptation introduced guidance in these hosts under `prompts/`;
+this is not an exhaustive comparison with the current default:
 
 | Host                                     | Responsibility                                                                                                         |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -76,9 +77,7 @@ In the current source, these eight paths under `prompts/` differ from classic-ty
 | `process/project/specialized-recover.md` | Root recovery with complete objective and historical-review limits.                                                    |
 | `process/_shared/specialized-review.md`  | Current integrated goal/project assessment and supported verdict.                                                      |
 
-Currently every other prompt is byte-identical, including Analyst/Oversight, architecture
-nodes, project assessment, notification handling, correction/transition hosts and
-all seven shared fragments. Direct includes and one generated contract token per
+Direct includes and one generated contract token per
 workflow role remain unchanged. Reusable method belongs to prepared roles, current
 tasks to node text—not replaceable project-guidance hooks. The role method remains
 in primary invocation instructions through continuation/reentry and after

@@ -123,9 +123,9 @@ inside the isolated deployment. It separates these decisions:
    [newloop](src/config/system-templates/newloop/README.md) use identical typed
    configurations. Newloop foregrounds critical intent examination, design,
    progressive planning, delivery and evidence-grounded assessment for code **or
-   other assets**, without adding stages or gates. PAAD retains its separate
-   five-path adaptation; newloop has eight original prose deltas in the current
-   source. This is source guidance, not proof of model compliance or improved output quality.
+    other assets**, without adding stages or gates. PAAD and newloop retain
+    separate original adaptations; these are not an exhaustive comparison with
+    the current default. This is source guidance, not proof of model compliance or improved output quality.
    [newloop2](src/config/system-templates/newloop2/README.md) instead owns an explicit
    alignment → delivery → integrated acceptance → debt loop, with whole-objective
    reconciliation at root and selective evidence-based reentry. It trades extra

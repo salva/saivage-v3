@@ -1,4 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { env } from 'node:process';
 import { agentExecution } from '../helpers/workflow-execution.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
@@ -111,6 +114,60 @@ describe.each(['classic-typed', 'paad-typed', 'newloop', 'newloop2'] as const)('
     if (route.semantic.kind === 'configured-outcome' && route.semantic.prompt)
       expect(messages[1]!.content).toBe(process.processPrompts.get(route.semantic.prompt.promptId)!.text);
   });
+
+  if (profile === 'classic-typed') {
+    it('renders the accepted red/already_green handoff to refactor with older applicable reviewed evidence', () => {
+      const process = workflows.cardTypes.get('code')!;
+      for (const entry of ['BACKLOG', 'STOPPED']) {
+        expect(process.states.get(`entry:${entry}`)?.on.get('entry:route')?.targetStateId).toBe('node:red');
+      }
+      const red = node(process, 'red');
+      const route = red.on.get('result:already_green')!;
+      expect(route).toMatchObject({
+        targetStateId: 'node:refactor',
+        semantic: { kind: 'configured-outcome', outcome: 'already_green', prompt: { promptId: 'code-to-refactor' } },
+      });
+      if (route.semantic.kind !== 'configured-outcome' || !route.semantic.prompt)
+        throw new Error('Missing code red/already_green transition prompt');
+      const handoff = process.processPrompts.get(route.semantic.prompt.promptId)!.text;
+      const tasks = [red, node(process, 'refactor')].map(selected => {
+        const execution = agentExecution(selected);
+        expect(execution.agent.name).toBe('executor');
+        expect(execution.prompt.promptId).toBe(`code-${selected.nodeId}`);
+        const records = selected.requirements.map(({ definition, mode, gate }) => [definition.name, mode, gate]);
+        expect(records).toEqual([['status.md', 'continue', 'updated']]);
+        const contract = describeNodeResultContract(process, `node:${selected.nodeId}`);
+        const role = registry.render({ kind: 'workflow-agent', cardType: 'code' }, execution.agent.name, { contractDescription: contract });
+        expect(role.split(contract)).toHaveLength(2);
+        return { node: selected.nodeId, task: process.processPrompts.get(execution.prompt.promptId)!.text, contract, role, records };
+      });
+
+      const accepted: AcceptedNodeResult = {
+        nodeOrdinal: 1, source: null, nodeId: 'red',
+        executor: { kind: 'agent', agent: 'executor' },
+        values: {}, outcome: 'already_green', event: 'result:already_green',
+        summary: 'An older accepted review (record:///review.md?card=card-b&v=2) records a passing focused cursor-boundary check: the owning cursor reader returns the first entry and rejects an out-of-range cursor. The reader, caller, test, fixture and criteria are unchanged. The disposable run log is missing; no new run was performed.',
+        acceptedRecords: [{ name: 'status.md', url: 'record:///status.md?card=card-a&v=4', version: 4 }],
+      };
+      const context = { source: 'node:red', event: accepted.event, target: route.targetStateId, reentered: false };
+      const messages = renderer.transitionContext(process, { context, acceptedResult: accepted });
+      expect(messages).toMatchObject([
+        { role: 'user', content: [
+          'Previous process node: red', 'Accepted outcome: already_green', `Summary: ${accepted.summary}`,
+          'Records:', '- record:///status.md?card=card-a&v=4', '', '',
+        ].join('\n') },
+        { role: 'user', content: handoff },
+      ]);
+
+      const evidence = env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+      if (evidence) {
+        mkdirSync(evidence, { recursive: true });
+        writeFileSync(join(evidence, 'classic-typed-code-red-already-green.json'), JSON.stringify({
+          kind: 'synthetic accepted result rendered by transitionContext', profile, context, accepted, tasks, messages,
+        }, null, 2));
+      }
+    });
+  }
 
   it.each([
     ['code', [['green', 'still_red'], ['green', 'still_red']], 'green'],

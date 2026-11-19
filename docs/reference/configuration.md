@@ -13,8 +13,8 @@ must retain the `native-source` (card) or `native-global` capability include.
 Registered profiles are `classic`, `classic-typed` (default), `paad-typed`,
 `classic-git`, `newloop` and `newloop2`. The original three typed profiles share the exact frozen
 configuration, including graphs, agents, tools, routes, records and permissions;
-PAAD and newloop select independent prompt closures with five and eight current source prose
-deltas respectively, not a required cross-profile byte or path equality. Newloop applies critical intent examination, progressive
+PAAD and newloop select independent prompt closures with their own adapted guidance;
+cross-profile byte or path equality is not required. Newloop applies critical intent examination, progressive
 planning and evidence-grounded quality assessment to code or other assets, not a
 new workflow format or enforced quality guarantee. All except provision-required
 `classic-git` remain native-Git OFF. See [fresh selection](../guides/configuration.md#choose-a-fresh-profile)
