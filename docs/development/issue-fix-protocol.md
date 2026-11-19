@@ -161,7 +161,7 @@ profile with its own complete body.
 | `code-developer` | `openai/gpt-6.2-sol` | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
 | `doc-developer` | Default `openai/gpt-6.2-sol` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
 | `doc-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
-| `prompt-developer` | Default `opencode-go/claude-haiku-5-5` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
+| `prompt-developer` | Default `openai/gpt-6.2-sol` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
 | `prompt-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
 
 Only the primary batch coordinator may load the coordination skill. No other role loads
@@ -279,12 +279,14 @@ The pair reviews for different purposes:
 
 Each pair runs in order for an asset. The author settles before its reviewer starts. No author
 runs concurrently with another author, a source worker, or a reviewer of the same moving asset.
-The invoking owner selects the configured `openai/gpt-6.2-sol` default for `doc-developer`
-or `opencode-go/claude-haiku-5-5` for `prompt-developer`. For either author, the owner may
-instead directly select `openai/gpt-6.1-terra` through the native subagent model override,
-without a variant. The owner passes the exact selection and requires actual execution identity
-evidence; missing or conflicting identity blocks the assignment. Unavailability or failure
-does not authorize automatic fallback or replay: the existing
+Both author profiles currently default to `openai/gpt-6.2-sol` because Haiku credits are
+exhausted. The manual configuration preference for both profiles is
+`opencode-go/claude-haiku-5-5` when available and `openai/gpt-6.2-sol` otherwise.
+The invoking owner selects the configured default or directly selects `openai/gpt-6.1-terra`
+through the native subagent model override, without a variant. The owner passes the exact
+selection and requires actual execution identity evidence; missing or conflicting identity
+blocks the assignment. Unavailability or failure does not authorize automatic fallback or
+replay: the existing
 [settlement procedure](#native-delegation-and-settlement) governs any later decision.
 Both reviewers run in sessions distinct from the author on `openai/gpt-6.2-sol`, invoked with
 that explicit override. For inline model-facing wording in an

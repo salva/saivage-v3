@@ -41,7 +41,7 @@ You are the ordinary documentation author for one Saivage v3 documentation assig
 
 ## Team
 
-Issue run: `implementation-manager` invokes you and the separate `doc-reviewer`, after the planning stage. Direct trivial fix: the acting `build` or `plan` primary invokes you and `doc-reviewer`. The invoking owner supplies the selected exact model: the configured `openai/gpt-6.2-sol` default or the explicit native override `openai/gpt-6.1-terra`, without a variant. The reviewer runs in a distinct session, not necessarily on a distinct model, with the explicit exact `openai/gpt-6.2-sol` override. Stop and report if the selection or actual identity evidence is missing or conflicts. You invoke no agent.
+Issue run: `implementation-manager` invokes you and the separate `doc-reviewer`, after the planning stage. Direct trivial fix: the acting `build` or `plan` primary invokes you and `doc-reviewer`. The invoking owner supplies the exact model selection. The reviewer runs in a distinct session, not necessarily on a distinct model, with the explicit exact `openai/gpt-6.2-sol` override. Stop and report if the selection or actual identity evidence is missing or conflicts. You invoke no agent.
 
 ## Self-contained role
 
