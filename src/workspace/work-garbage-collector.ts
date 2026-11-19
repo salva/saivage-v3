@@ -45,6 +45,7 @@ interface WorkGcOptions {
   readonly mode: 'dry_run' | 'delete';
   readonly before?: number;
   readonly targetBytes?: number;
+  readonly minFileBytes?: number;
 }
 
 export interface WorkGcCollectionContext {
@@ -937,6 +938,8 @@ export async function collectWorkGarbage(
   await setImmediate();
   check();
   const retained = { protected: 0, recent: 0, stale: 0, opaque: 0, target: 0 };
+  const { minFileBytes } = options;
+  let belowMinFileBytes = 0;
   let selectedCount = 0;
   let selectedBytes = 0;
   let processed = 0;
@@ -967,7 +970,10 @@ export async function collectWorkGarbage(
       opaque_entries: inventory.opaque_entries,
       whole_work_size_known: false,
       first_global_protection: refs.firstGlobalProtection,
-      retained: { ...retained },
+      retained: {
+        ...retained,
+        ...(minFileBytes === undefined ? {} : { below_min_file_bytes: belowMinFileBytes }),
+      },
       would_delete_count: options.mode === 'dry_run' ? selectedCount : 0,
       would_delete_logical_bytes: options.mode === 'dry_run' ? selectedBytes : 0,
       deleted_count: options.mode === 'delete' ? selectedCount : 0,
@@ -1018,6 +1024,11 @@ export async function collectWorkGarbage(
       }
       if (!unchanged(root, candidate)) {
         retained.stale++;
+        classified?.();
+        continue;
+      }
+      if (minFileBytes !== undefined && candidate.size < minFileBytes) {
+        belowMinFileBytes++;
         classified?.();
         continue;
       }

@@ -35,6 +35,8 @@ it('strict route authenticates, rejects invalid filters and maps duplicate GC to
   const headers = { authorization: 'Bearer gc-test' };
   expect((await app.inject({ ...request, headers, payload: { mode: 'dry_run', delete: true } })).statusCode).toBe(400);
   expect((await app.inject({ ...request, headers, payload: { mode: 'dry_run', before: '2026-10-24T00:00:00+9900' } })).statusCode).toBe(400);
+  for (const min_file_bytes of ['400000000', null, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+    expect((await app.inject({ ...request, headers, payload: { ...request.payload, min_file_bytes } })).statusCode).toBe(400);
   expect(collect).not.toHaveBeenCalled();
   const response = await app.inject({ ...request, headers });
   expect(response.statusCode).toBe(200);
@@ -42,9 +44,17 @@ it('strict route authenticates, rejects invalid filters and maps duplicate GC to
   const decoder = new WorkGcStreamDecoder(response.headers['content-type'] as string);
   decoder.push(Buffer.from(response.body));
   expect(WorkGcResponseSchema.parse(decoder.finish())).toEqual(refusal);
+  expect(collect.mock.calls[0]![0]).toEqual(request.payload);
+  for (const min_file_bytes of [0, Number.MAX_SAFE_INTEGER]) {
+    const payload = { ...request.payload, min_file_bytes };
+    expect((await app.inject({ ...request, headers, payload })).statusCode).toBe(200);
+    expect(collect.mock.calls.at(-1)![0]).toEqual(payload);
+  }
   collect.mockImplementation(() => { throw new WorkGcBusyError(); });
-  expect((await app.inject({ ...request, headers })).json()).toEqual({ error: 'WorkGcBusy', message: 'Work garbage collection is busy.' });
-  expect(collect).toHaveBeenCalledTimes(2);
+  const busy = await app.inject({ ...request, headers });
+  expect(busy.statusCode).toBe(409);
+  expect(busy.json()).toEqual({ error: 'WorkGcBusy', message: 'Work garbage collection is busy.' });
+  expect(collect).toHaveBeenCalledTimes(4);
 });
 it('disconnect cancels the running request signal rather than any accepted turn owner', async () => {
   const raw = new EventEmitter();

@@ -7,6 +7,7 @@ export class WorkGcBusyError extends Error {
 }
 import { z } from 'zod';
 
+const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const WorkGcRequestSchema = z
   .object({
     mode: z.enum(['dry_run', 'delete']),
@@ -15,11 +16,11 @@ export const WorkGcRequestSchema = z
       .datetime({ offset: true })
       .regex(/(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$/u)
       .optional(),
-    target_bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+    target_bytes: count.optional(),
+    min_file_bytes: count.optional(),
   })
   .strict();
 export type WorkGcRequest = z.infer<typeof WorkGcRequestSchema>;
-const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const FirstGlobalProtectionSchema = z
   .object({
     reason: z.enum(['process_owner_uncertain', 'operational_root', 'reference_scope_unknown']),
@@ -79,7 +80,14 @@ const WorkGcResultSchema = z
     whole_work_size_known: z.literal(false),
     first_global_protection: FirstGlobalProtectionSchema.nullable(),
     retained: z
-      .object({ protected: count, recent: count, stale: count, opaque: count, target: count })
+      .object({
+        protected: count,
+        recent: count,
+        stale: count,
+        opaque: count,
+        target: count,
+        below_min_file_bytes: count.optional(),
+      })
       .strict(),
     would_delete_count: count,
     would_delete_logical_bytes: count,

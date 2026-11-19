@@ -23,6 +23,22 @@ it('consumes the declared stream incrementally, reports progress, and waits for 
   source.close(); await expect(call).resolves.toEqual(response);
   expect(request).toHaveBeenCalledTimes(1);
 });
+it('sends a typed floor and decodes its conditional terminal retention count', async () => {
+  const completed = { mode: 'dry_run', disposition: 'completed', reason: 'completed',
+    restoration: 'not_resumed', failure: null, result: { mode: 'dry_run', observed_count: 1,
+      observed_logical_bytes: 3, opaque_entries: 0, whole_work_size_known: false,
+      first_global_protection: null, retained: { protected: 0, recent: 0, stale: 0, opaque: 0,
+        target: 0, below_min_file_bytes: 1 }, would_delete_count: 0, would_delete_logical_bytes: 0,
+      deleted_count: 0, deleted_logical_bytes: 0, expected_accounted_logical_bytes_remaining: 3,
+      accounted_target_shortfall: null } };
+  const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({ type: 'result', response: completed }) + '\n',
+    { headers: { 'content-type': 'application/x-ndjson' } }));
+  vi.stubGlobal('fetch', request);
+  const body = { mode: 'dry_run', min_file_bytes: 4 } as const;
+  await expect(gcWork(body)).resolves.toEqual(completed);
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ body: JSON.stringify(body) }));
+});
 it.each(['application/json', 'application/x-ndjson'])('cancels invalid %s consumption and does not retry', async mime => {
   const cancel = vi.fn();
   const body = new ReadableStream<Uint8Array>({ start(controller) {

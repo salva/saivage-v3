@@ -147,6 +147,7 @@ export async function handleGcWork(
           mode: request.mode,
           before: request.before === undefined ? undefined : Date.parse(request.before),
           targetBytes: request.target_bytes,
+          minFileBytes: request.min_file_bytes,
         },
         {
           progress,

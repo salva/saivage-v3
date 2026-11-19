@@ -291,14 +291,26 @@ not offline runtime-state access.
 
 ### Explicit work GC inputs
 
-`saivage gc-work [--before <timestamp>] [--target-bytes <bytes>] [--dry-run | --delete]`
+`saivage gc-work [--before <timestamp>] [--min-file-bytes <bytes>] [--target-bytes <bytes>] [--dry-run | --delete]`
 has no YAML settings, duration knob, scheduler or startup/environment aliases for its filters.
 Default and explicit dry-run select API mode `dry_run`; `--delete` selects `delete`.
-Both flags together are rejected before delegation. `before` is RFC3339 with an
-explicit zone and means mtime strictly earlier; `target_bytes` is an optional
-nonnegative safe integer for best-effort accounted logical bytes remaining. The
-strict `POST /api/runtime/gc-work` body requires `mode`, accepts only those two
-optional fields and rejects unknown keys. Operator-session authentication applies;
+Both flags together are rejected before delegation. The strict
+`POST /api/runtime/gc-work` body requires `mode` and accepts only three optional
+fields, independently or in combination:
+
+- `before` (`--before`) is an RFC3339 timestamp with an explicit zone; a file's
+  mtime must be strictly earlier.
+- `min_file_bytes` (`--min-file-bytes`) sets the inclusive minimum logical size
+  of each otherwise eligible file.
+- `target_bytes` (`--target-bytes`) sets a best-effort target for accounted
+  logical bytes remaining.
+
+The two byte fields accept JSON integers from `0` through
+`Number.MAX_SAFE_INTEGER` (`9007199254740991`), inclusive, with no coercion.
+Both CLI byte options require unsigned decimal digits: no signs, separators,
+units, fractional or exponential notation, or leading zeroes except for `0`.
+The CLI rejects duplicate options; the API rejects unknown body keys.
+Operator-session authentication applies;
 CLI bearer delegation uses `SAIVAGE_API_TOKEN` only when the live lock publishes
 bearer mode. Dead/unverifiable owners or live null endpoints refuse without
 fallback. Only a missing lock permits the interactive bound-lock offline procedure;

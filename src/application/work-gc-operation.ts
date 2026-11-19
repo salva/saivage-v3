@@ -193,6 +193,7 @@ export function runWorkGcOperation(input: {
           mode: input.request.mode,
           before: input.request.before === undefined ? undefined : Date.parse(input.request.before),
           targetBytes: input.request.target_bytes,
+          minFileBytes: input.request.min_file_bytes,
         },
         {
           progress,

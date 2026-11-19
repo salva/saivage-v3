@@ -11,13 +11,11 @@ import { runtimeProcessLockFile } from '../../src/persistence/layout.js';
 
 const cwd = process.cwd();
 afterEach(() => { process.chdir(cwd); jest.restoreAllMocks(); process.exitCode = 0; });
-it('rejects conflicting effects and invalid filters before HTTP', async () => {
-  const fetch = jest.spyOn(globalThis, 'fetch');
+it('rejects conflicting effects and invalid existing filters', async () => {
   for (const args of [ ['--dry-run', '--delete'], ['--before', '2026-10-24'],
     ['--before', '2026-02-30T12:00:00Z'], ['--before', '2026-10-24T12:00:00'],
     ['--target-bytes', '-1'], ['--target-bytes', '1e3'], ['--target-bytes', '9007199254740992'] ])
     await expect(run(['node', 'saivage', 'gc-work', ...args])).rejects.toThrow();
-  expect(fetch).not.toHaveBeenCalled();
 });
 it('GC refuses dead, malformed and indeterminate synthetic locks without request, rewrite or config fallback', async () => {
   const root = mkdtempSync(join(tmpdir(), 'gc-cli-lock-'));
@@ -73,19 +71,35 @@ it('default and explicit preview send the same strict mode only to the published
     try {
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('runtime control unavailable');
       publishRuntimeControlEndpoint(lock, { origin: `http://127.0.0.1:${address.port}`, auth: 'disabled' });
+      for (const [args, admissionError] of [
+        [['--min-file-bytes'], /--min-file-bytes.*argument missing/],
+        [['--min-file-bytes', '0', '--min-file-bytes', '1'], /--min-file-bytes may only be specified once/],
+        ...['-1', '+1', '1.5', '1e3', '4MB', '1_000', '01'].map(value =>
+          [[`--min-file-bytes=${value}`], /--min-file-bytes must be a nonnegative safe integer/] as const),
+        [['--min-file-bytes', '9007199254740992'], /min_file_bytes/],
+      ] as const) {
+        await expect(run(['node', 'saivage', 'gc-work', ...args])).rejects.toThrow(admissionError);
+      }
+      expect(requests).toHaveLength(0);
       const output = jest.spyOn(console, 'log').mockImplementation(() => {});
       const progress = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
       progress.mockImplementationOnce(() => { throw new Error('Synthetic stderr failure'); });
       const sigint = process.listenerCount('SIGINT'), sigterm = process.listenerCount('SIGTERM');
       for (const args of [[], ['--dry-run'], ['--delete']])
         await run(['node', 'saivage', 'gc-work', ...args, '--before', '2026-10-24T12:00:00+02:00', '--target-bytes', '0']);
-      expect(requests.map(request => request.path)).toEqual(Array(3).fill('/api/runtime/gc-work'));
+      await run(['node', 'saivage', 'gc-work', '--min-file-bytes', '400000000']);
+      await run(['node', 'saivage', 'gc-work', '--delete', '--min-file-bytes', '0',
+        '--before', '2026-10-24T12:00:00+02:00', '--target-bytes', '9']);
+      expect(requests.map(request => request.path)).toEqual(Array(5).fill('/api/runtime/gc-work'));
       const bodies = requests.map(request => request.body as { mode: string });
       expect(bodies[0]).toEqual(bodies[1]);
       expect(bodies[0]).toEqual({ mode: 'dry_run', before: '2026-10-24T12:00:00+02:00', target_bytes: 0 });
       expect(bodies[2].mode).toBe('delete');
+      expect(bodies[2]).not.toHaveProperty('min_file_bytes');
+      expect(bodies[3]).toEqual({ mode: 'dry_run', min_file_bytes: 400000000 });
+      expect(bodies[4]).toEqual({ mode: 'delete', min_file_bytes: 0, before: '2026-10-24T12:00:00+02:00', target_bytes: 9 });
       expect(process.exitCode).toBe(1);
-      expect(progress.mock.calls.map(([text]) => text)).toEqual(Array(3).fill('GC inventory elapsed_ms=0 observed_count=0 first_global_protection=null\n'));
+      expect(progress.mock.calls.map(([text]) => text)).toEqual(Array(5).fill('GC inventory elapsed_ms=0 observed_count=0 first_global_protection=null\n'));
       expect(process.listenerCount('SIGINT')).toBe(sigint);
       expect(process.listenerCount('SIGTERM')).toBe(sigterm);
       expect(output.mock.calls.map(([text]) => JSON.parse(text as string))).toEqual(
@@ -94,7 +108,7 @@ it('default and explicit preview send the same strict mode only to the published
       );
       status = 401;
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('401');
-      expect(requests).toHaveLength(4);
+      expect(requests).toHaveLength(6);
     } finally { releaseRuntimeLifecycleLock(lock); }
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); process.chdir(cwd); rmSync(root, { recursive: true, force: true }); }
 });

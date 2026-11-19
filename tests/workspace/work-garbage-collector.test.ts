@@ -353,17 +353,20 @@ describe('work GC two-phase selection', () => {
     await parity(root, [a, b, control], [a, b]);
   });
 
-  it('bases cutoff counting on all observed entries, not age, byte target or other protections', async () => {
+  it('bases glob counting on all observed entries, not age, byte filters or other protections', async () => {
     const root = fixture(), files = Array.from({ length: 51 }, (_, i) =>
-      work(root, `cards/project/tmp/entry-${i}.asm`, 'abcd', i === 50 ? 3000 : 1000));
+      work(root, `cards/project/tmp/entry-${i}.asm`, i === 49 ? 'abc' : 'abcd', i === 50 ? 3000 : 1000));
     baseline(root, JSON.stringify({ directory: 'tmp:///project', pattern: 'entry-*.asm' }));
     const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context({
       operationalInputs: { path: files[0] },
     }));
     expect(result).toMatchObject({ retained: { protected: 1, recent: 1 }, would_delete_count: 49,
       first_global_protection: null });
-    const limited = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', targetBytes: 200 }, context());
-    expect(limited).toMatchObject({ would_delete_count: 1, retained: { protected: 0, target: 50 } });
+    const limited = await collectWorkGarbage(await inventory(root), {
+      mode: 'dry_run', targetBytes: 200, minFileBytes: 4,
+    }, context());
+    expect(limited).toMatchObject({ observed_count: 51, observed_logical_bytes: 203, would_delete_count: 1,
+      retained: { protected: 0, below_min_file_bytes: 1, target: 49 } });
   });
 
   it.each(['pm global', 'tool arguments', 'nested JSON', 'inherited JSON', 'reverse single', 'backtick', 'cwd', 'nested override',
@@ -1458,6 +1461,67 @@ describe('work GC two-phase selection', () => {
     expect(readFileSync(opaque, 'utf8')).toBe('unknown');
   });
 
+  it('previews and freshly deletes files at or above a floor across card and global work', async () => {
+    const root = fixture();
+    const small = work(root, 'cards/project/tmp/small', '123');
+    const equal = work(root, 'cards/project/tmp/equal', '1234');
+    const large = work(root, 'tmp/stash/large', '12345');
+    const protectedPath = work(root, 'cards/project/tmp/needed', '123456');
+    baseline(root, 'Keep tmp:///project/needed');
+    const paths = [small, equal, large, protectedPath];
+    const bytes = paths.map(path => readFileSync(path));
+    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', minFileBytes: 4 }, context());
+    expect(preview).toMatchObject({ observed_count: 4, observed_logical_bytes: 18,
+      would_delete_count: 2, would_delete_logical_bytes: 9, deleted_count: 0,
+      retained: { protected: 1, recent: 0, stale: 0, opaque: 0, target: 0, below_min_file_bytes: 1 },
+      expected_accounted_logical_bytes_remaining: 9, accounted_target_shortfall: null });
+    expect(paths.map(path => readFileSync(path))).toEqual(bytes);
+    const deletion = await collectWorkGarbage(await inventory(root), { mode: 'delete', minFileBytes: 4 }, context());
+    expect(deletion).toEqual({ ...preview, mode: 'delete', deleted_count: 2, deleted_logical_bytes: 9,
+      would_delete_count: 0, would_delete_logical_bytes: 0 });
+    expect(readFileSync(small)).toEqual(bytes[0]);
+    expect(readFileSync(protectedPath)).toEqual(bytes[3]);
+    expect([equal, large].map(existsSync)).toEqual([false, false]);
+  });
+
+  it('zero admits empty files but still reports a supplied floor, unlike omission', async () => {
+    const root = fixture(), empty = work(root, 'tmp/stash/empty', '');
+    const unfiltered = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
+    expect(unfiltered.retained).not.toHaveProperty('below_min_file_bytes');
+    expect(unfiltered).toMatchObject({ observed_count: 1, observed_logical_bytes: 0,
+      would_delete_count: 1, would_delete_logical_bytes: 0 });
+    const zero = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', minFileBytes: 0 }, context());
+    expect(zero).toEqual({ ...unfiltered, retained: { ...unfiltered.retained, below_min_file_bytes: 0 } });
+    expect(existsSync(empty)).toBe(true);
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'delete', minFileBytes: 0 }, context()))
+      .resolves.toMatchObject({ deleted_count: 1, deleted_logical_bytes: 0, retained: { below_min_file_bytes: 0 } });
+    expect(existsSync(empty)).toBe(false);
+  });
+
+  it.each([
+    { targetBytes: 16, remaining: 16, shortfall: 0, selected: 1, bytes: 4 },
+    { targetBytes: 0, remaining: 7, shortfall: 7, selected: 3, bytes: 13 },
+  ])('applies mtime then path order and all filters for target $targetBytes', async ({ targetBytes, remaining, shortfall, selected, bytes }) => {
+    const root = fixture();
+    const later = work(root, 'tmp/stash/a-later', '1234', 1500);
+    const first = work(root, 'tmp/stash/b-first', '1234', 1000);
+    const tied = work(root, 'tmp/stash/c-tied', '12345', 1000);
+    const small = work(root, 'tmp/stash/z-small', '123', 1500);
+    const cutoffEqual = work(root, 'tmp/stash/d-cutoff-equal', '1234', 2000);
+    const filters = { before: 2000, targetBytes, minFileBytes: 4 };
+    const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', ...filters }, context());
+    expect(preview).toMatchObject({ observed_count: 5, observed_logical_bytes: 20,
+      would_delete_count: selected, would_delete_logical_bytes: bytes,
+      retained: { protected: 0, recent: 1, stale: 0, opaque: 0, target: 3 - selected, below_min_file_bytes: 1 },
+      expected_accounted_logical_bytes_remaining: remaining, accounted_target_shortfall: shortfall });
+    expect([later, first, tied, small, cutoffEqual].every(existsSync)).toBe(true);
+    const deletion = await collectWorkGarbage(await inventory(root), { mode: 'delete', ...filters }, context());
+    expect(deletion).toEqual({ ...preview, mode: 'delete', deleted_count: selected, deleted_logical_bytes: bytes,
+      would_delete_count: 0, would_delete_logical_bytes: 0 });
+    expect([later, first, tied, small, cutoffEqual].map(existsSync))
+      .toEqual([selected === 1, false, selected === 1, true, true]);
+  });
+
   it('marks a generic baseline added AFTER inventory, not merely declared record names', async () => {
     const root = fixture();
     const selected = work(root, 'cards/project/tmp/selected.txt');
@@ -1477,20 +1541,24 @@ describe('work GC two-phase selection', () => {
   it('retains changed, replaced, disappeared and symlink-swapped files; never expands inventory', async () => {
     const root = fixture();
     const changed = work(root, 'cards/project/tmp/changed');
+    const shrunk = work(root, 'cards/project/tmp/shrunk');
     const replaced = work(root, 'cards/project/tmp/replaced');
     const vanished = work(root, 'cards/project/tmp/vanished');
     const alias = work(root, 'cards/project/tmp/alias');
     const found = await inventory(root);
     appendFileSync(changed, 'new');
+    writeFileSync(shrunk, 'abc');
+    utimesSync(shrunk, 1, 1);
     renameSync(replaced, `${replaced}.old`);
     writeFileSync(replaced, 'abcd');
     utimesSync(replaced, 1, 1);
     unlinkSync(vanished);
     unlinkSync(alias); symlinkSync(changed, alias);
     const fresh = work(root, 'cards/project/tmp/fresh');
-    const result = await collectWorkGarbage(found, { mode: 'delete' }, context());
+    const result = await collectWorkGarbage(found, { mode: 'delete', minFileBytes: 4 }, context());
     expect(result.deleted_count).toBe(0);
-    expect(result.retained.stale).toBe(4);
+    expect(result.retained).toMatchObject({ stale: 5, below_min_file_bytes: 0 });
+    expect(readFileSync(shrunk, 'utf8')).toBe('abc');
     expect(existsSync(fresh)).toBe(true);
     expect(lstatSync(alias).isSymbolicLink()).toBe(true);
   });
@@ -1605,6 +1673,8 @@ describe('work GC two-phase selection', () => {
     appendFileSync(path, '{torn');
     const bytes = readFileSync(path);
     await expect(collectWorkGarbage(found, { mode: 'delete' }, context())).rejects.toThrow(/torn conversation/);
+    await expect(collectWorkGarbage(found, { mode: 'dry_run', minFileBytes: Number.MAX_SAFE_INTEGER }, context()))
+      .rejects.toThrow(/torn conversation/);
     expect(readFileSync(path)).toEqual(bytes);
     expect(existsSync(protectedPath) && existsSync(garbage)).toBe(true);
   });
@@ -1727,7 +1797,8 @@ describe('work GC two-phase selection', () => {
     });
     syncBuiltinESMExports();
     const fatal = jest.fn((error: Error): never => { effects.push('fatal'); throw error; });
-    await expect(collectWorkGarbage(found, { mode: 'delete' }, context({ fatal }))).rejects.toThrow();
+    await expect(collectWorkGarbage(found, { mode: 'delete', minFileBytes: 4 }, context({ fatal })))
+      .rejects.toMatchObject({ name: 'PublicationOutcomeUnknownError' });
     expect(effects).toEqual([first, 'fatal']);
     expect(fatal).toHaveBeenCalledTimes(1);
     // Canonical reads can close descriptors before the effect; none close after unlink.
@@ -1740,6 +1811,7 @@ describe('work GC two-phase selection', () => {
 
   it('keeps known successful deletions in an interrupted result and never proceeds after cancellation', async () => {
     const root = fixture();
+    const small = work(root, 'cards/project/tmp/0-small', '123');
     const first = work(root, 'cards/project/tmp/a');
     const second = work(root, 'cards/project/tmp/b');
     const found = await inventory(root);
@@ -1747,9 +1819,13 @@ describe('work GC two-phase selection', () => {
     let cancelled = false;
     jest.spyOn(fs, 'unlinkSync').mockImplementation(path => { unlink(path); cancelled = true; });
     syncBuiltinESMExports();
-    await expect(collectWorkGarbage(found, { mode: 'delete' }, context({ assertCollecting: () => {
+    await expect(collectWorkGarbage(found, { mode: 'delete', minFileBytes: 4 }, context({ assertCollecting: () => {
       if (cancelled) throw new Error('cancelled');
-    } }))).rejects.toMatchObject({ name: 'WorkGcInterruptedError', result: { deleted_count: 1, deleted_logical_bytes: 4 } });
+    } }))).rejects.toMatchObject({ name: 'WorkGcInterruptedError', result: {
+      observed_count: 3, observed_logical_bytes: 11, expected_accounted_logical_bytes_remaining: 7,
+      deleted_count: 1, deleted_logical_bytes: 4, retained: { below_min_file_bytes: 1 },
+    } });
+    expect(readFileSync(small, 'utf8')).toBe('123');
     expect(existsSync(first)).toBe(false);
     expect(existsSync(second)).toBe(true);
   });

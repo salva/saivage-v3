@@ -24,9 +24,9 @@ it.each(['dry_run', 'delete'] as const)('observes existing completed inspections
     round_id: `r-user-${'0'.repeat(32)}`, message_index: 1, block_index: 0,
     timestamp: '2026-10-24T00:00:00.000Z',
   })]);
-  function file(name: string, time: number) {
+  function file(name: string, time: number, content = 'abcd') {
     const path = join(root, '.saivage/work', name);
-    mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, 'abcd');
+    mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, content);
     utimesSync(path, time / 1000, time / 1000); return path;
   }
   file('cards/project/tmp/selected', 1000);
@@ -34,25 +34,27 @@ it.each(['dry_run', 'delete'] as const)('observes existing completed inspections
   const protectedPath = file('cards/project/tmp/protected', 1200);
   const stale = file('cards/project/tmp/stale', 1300);
   file('cards/project/tmp/target', 1400);
+  file('cards/project/tmp/small', 1500, 'abc');
   file('cards/project/tmp/recent', 10000);
   file('cards/project/tmp/skipped.saivage-tmp', 1000);
   let time = 0;
   const snapshots: WorkGcProgress[] = [];
   const progress = createWorkGcProgress(value => snapshots.push(value), () => time += 1001)!;
   const inventory = await inventoryWorkGarbage(root, new AbortController().signal, progress);
-  writeFileSync(stale, 'changed');
-  const result = await collectWorkGarbage(inventory, { mode, before: 9000, targetBytes: 20 }, {
+  writeFileSync(stale, 'abc');
+  utimesSync(stale, 1.3, 1.3);
+  const result = await collectWorkGarbage(inventory, { mode, before: 9000, targetBytes: 23, minFileBytes: 4 }, {
     progress, workflows: TEST_WORKFLOWS, operationalInputs: { path: protectedPath },
     protection: { retainAll: false, capturePaths: [] }, assertCollecting() {}, fatal(error): never { throw error; },
   });
-  expect(result).toMatchObject({ observed_count: 6, observed_logical_bytes: 24,
+  expect(result).toMatchObject({ observed_count: 7, observed_logical_bytes: 27,
     first_global_protection: null,
-    retained: { opaque: 1, protected: 1, stale: 1, recent: 1, target: 1 },
+    retained: { opaque: 1, protected: 1, stale: 1, recent: 1, target: 1, below_min_file_bytes: 1 },
     would_delete_count: mode === 'dry_run' ? 1 : 0,
     deleted_count: mode === 'delete' ? 1 : 0 });
-  expect(snapshots.at(-1)).toMatchObject({ phase: 'selection', candidates_processed: 6,
+  expect(snapshots.at(-1)).toMatchObject({ phase: 'selection', candidates_processed: 7,
     first_global_protection: null,
-    observed_count: 6, observed_logical_bytes: 24, inspected_cards: 1,
+    observed_count: 7, observed_logical_bytes: 27, inspected_cards: 1,
     ...(mode === 'dry_run' ? { would_delete_count: 1, would_delete_logical_bytes: 4 }
       : { deleted_count: 1, deleted_logical_bytes: 4 }) });
   expect(snapshots.at(-1)!.inspected_sessions).toBeGreaterThan(0);

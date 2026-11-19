@@ -26,13 +26,16 @@ function fixture() {
   createTestConfigAuthority(root, { relativePath: '.saivage/saivage.yaml' });
   return root;
 }
-function work(root: string, path: string) {
-  const full = join(root, '.saivage/work', path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, 'fixture'); utimesSync(full, 1, 1); return full;
+function work(root: string, path: string, content = 'fixture') {
+  const full = join(root, '.saivage/work', path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, content); utimesSync(full, 1, 1); return full;
 }
-async function cli(root: string, options: { separate?: boolean; delete?: boolean; before?: string; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
+async function cli(root: string, options: { separate?: boolean; delete?: boolean; before?: string; minFileBytes?: number; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
   const entry = resolve(options.fault ? 'tests/fixtures/offline-gc-child.ts' : 'src/cli.ts');
   const stdoutPath = join(root, 'gc-stdout.txt');
-  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...(options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : []), ...(options.before ? ['--before', options.before] : [])])].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ') + (options.separate ? ` > '${stdoutPath}'` : '');
+  const args = options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : []),
+    ...(options.before ? ['--before', options.before] : []),
+    ...(options.minFileBytes === undefined ? [] : ['--min-file-bytes', String(options.minFileBytes)])];
+  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...args].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ') + (options.separate ? ` > '${stdoutPath}'` : '');
   const child = spawn('script', ['-qefc', command, '/dev/null'], { cwd: root, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', sent = false, lockObserved = false, lockPresentAtResponse: boolean | null = null;
   const watchdog = setTimeout(() => child.kill('SIGKILL'), 20_000);
@@ -75,13 +78,21 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
     { row_id: randomUUID(), invocation_id: invocation, card_id: 'project', timestamp: '2026-10-27T00:00:00.000Z', kind: 'native_process_started', process_id: processId, allowed_exit_codes: [0], files: (['stdout', 'stderr'] as const).map(stream => ({ kind: 'capture', stream, path: `.saivage/work/cards/project/processes/${processId}/${stream}.log` })) },
   ]);
   const garbage = work(root, 'cards/project/tmp/unselected');
+  const small = work(root, 'cards/project/tmp/small', '123456');
   const selected = [index, ...captures, cardExecutionFile(root, 'project'), join(root, '.saivage/cards/project/card-head.json'), globalAgentConversationVersionIndexFile(root, 'analyst')].map(path => [path, readFileSync(path)] as const);
-  const preview = await cli(root, { separate: true });
-  expect(preview).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed' } });
+  const preview = await cli(root, { separate: true, minFileBytes: 7 });
+  expect(preview).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed',
+    result: { observed_count: 5, observed_logical_bytes: 34, would_delete_count: 1, would_delete_logical_bytes: 7,
+      retained: { protected: 3, below_min_file_bytes: 1 }, expected_accounted_logical_bytes_remaining: 27 } } });
   expect(existsSync(runtimeProcessLockFile(root))).toBe(false); expect(existsSync(garbage)).toBe(true);
-  const deletion = await cli(root, { delete: true, separate: true });
-  expect(deletion).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed' } });
-  expect(deletion.response.result.deleted_count).toBe(1); expect(existsSync(garbage)).toBe(false);
+  expect(readFileSync(small, 'utf8')).toBe('123456');
+  const deletion = await cli(root, { delete: true, separate: true, minFileBytes: 7 });
+  expect(deletion).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed',
+    result: { deleted_count: 1, deleted_logical_bytes: 7, retained: { protected: 3, below_min_file_bytes: 1 },
+      expected_accounted_logical_bytes_remaining: 27 } } });
+  expect(existsSync(garbage)).toBe(false);
+  expect(readFileSync(small, 'utf8')).toBe('123456');
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   for (const result of [preview, deletion]) {
     expect(result.stdout.trim().split('\n')).toHaveLength(1);
     expect(JSON.parse(result.stdout)).toEqual(result.response);
@@ -168,7 +179,7 @@ it('offline native GC collects historical-only captures but preserves current re
 
 it('refuses wrong acknowledgement before publishing a lock or reading malformed config', async () => {
   const root = fixture(); writeFileSync(join(root, '.saivage/saivage.yaml'), 'malformed: [');
-  const result = await cli(root, { phrase: 'unknown writers' });
+  const result = await cli(root, { phrase: 'unknown writers', minFileBytes: Number.MAX_SAFE_INTEGER });
   expect(result.code).toBe(1); expect(result.output).toContain('acknowledgement refused'); expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
 }, 30_000);
 

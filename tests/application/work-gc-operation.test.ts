@@ -114,13 +114,14 @@ it('keeps duplicate rejection distinct and reports owner cancellation/restoratio
 });
 it('preserves known partial deletion and refuses hypothetical effects in delete reports', async () => {
   const { input } = fixture();
-  const result = { mode: 'delete' as const, observed_count: 2, observed_logical_bytes: 8,
+  const result = { mode: 'delete' as const, observed_count: 3, observed_logical_bytes: 11,
     opaque_entries: 0, whole_work_size_known: false as const, first_global_protection: null,
-    retained: { protected: 0, recent: 0, stale: 0, opaque: 0, target: 0 },
+    retained: { protected: 0, recent: 0, stale: 0, opaque: 0, target: 0, below_min_file_bytes: 1 },
     would_delete_count: 0, would_delete_logical_bytes: 0, deleted_count: 1,
-    deleted_logical_bytes: 4, expected_accounted_logical_bytes_remaining: 4,
+    deleted_logical_bytes: 4, expected_accounted_logical_bytes_remaining: 7,
     accounted_target_shortfall: null };
-  const response = await runWorkGcOperation({ ...input, request: { mode: 'delete' },
+  const request = { mode: 'delete', min_file_bytes: 4 } as const;
+  const response = await runWorkGcOperation({ ...input, request,
     run: async args => {
       await args.inventory(args.signal);
       throw new WorkGcMaintenanceError(false, new WorkGcInterruptedError(result, new Error('interrupted')), true);
@@ -129,7 +130,7 @@ it('preserves known partial deletion and refuses hypothetical effects in delete 
     restoration: 'not_resumed', failure: null, result });
   expect(WorkGcResponseSchema.safeParse(response).success).toBe(true);
   expect(WorkGcResponseSchema.safeParse({ ...response, result: { ...result, would_delete_count: 1 } }).success).toBe(false);
-  expect(workGcFailureResponse({ mode: 'delete' }, new WorkGcMaintenanceError(false,
+  expect(workGcFailureResponse(request, new WorkGcMaintenanceError(false,
     new WorkGcInterruptedError(result, { code: 'EIO', syscall: 'read', path: 'SECRET' })),
     'collection_failed', false, 'not_resumed')).toEqual({ mode: 'delete', disposition: 'interrupted',
     reason: 'collection_failed', restoration: 'not_resumed', failure: { code: 'EIO', syscall: 'read' }, result });

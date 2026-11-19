@@ -1919,9 +1919,10 @@ the runbook; human configuration lookup belongs to the configuration documentati
 ### Operator routes
 
 Work reclamation uses the strict `runtime.gcWork` operation with required
-`mode: dry_run|delete`, optional RFC3339-zone `before` and nonnegative safe-integer
-`target_bytes`; unknown keys fail. HTTP 200 is `application/x-ndjson`, no-store and
-nosniff: zero or more `{type:'progress',progress:...}` frames then exactly one
+`mode: dry_run|delete` and three optional fields: RFC3339-zone `before` and
+nonnegative safe-integer `min_file_bytes` (per-file floor) and `target_bytes`
+(remaining accounted bytes). Unknown keys fail. HTTP 200 is `application/x-ndjson`,
+no-store and nosniff: zero or more `{type:'progress',progress:...}` frames then exactly one
 `{type:'result',response:...}` last and EOF, each newline terminated and at most
 16 KiB. No JSON-200 fallback; terminal-plus-EOF is required. Progress has the four
 owner phases, elapsed milliseconds and optional cumulative counts, never completion,
@@ -1952,7 +1953,10 @@ status alone. Duplicate/held ingress uses 409
 `{error:'WorkGcBusy',message:'Work garbage collection is busy.'}`; existing validation,
 authentication and internal errors remain 400/401/500. The result separates
 would-delete from known-deleted counts/bytes, retained reasons and expected accounted
-remaining/target shortfall; `whole_work_size_known` is false. See
+remaining/target shortfall; `whole_work_size_known` is false. Non-null terminal
+results, including known partial results, include the count
+`retained.below_min_file_bytes` if and only if `min_file_bytes` was supplied, even
+when the count is zero. See
 [result interpretation](../runbook/work-gc.md#results-cancellation-and-restoration).
 
 <!-- saivage:operator-routes:start -->

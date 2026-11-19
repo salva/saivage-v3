@@ -132,7 +132,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       const output = jest.spyOn(console, 'log').mockImplementation(() => {});
       process.env.SAIVAGE_API_TOKEN = 'wrong-synthetic-token';
       const count = requestCount;
-      await expect(run(['node', 'saivage', 'gc-work', '--delete'])).rejects.toThrow('401');
+      await expect(run(['node', 'saivage', 'gc-work', '--delete', '--min-file-bytes', '9007199254740991'])).rejects.toThrow('401');
       expect(requestCount).toBe(count + 1);
       expect(snapshot(join(root, '.saivage'))).toEqual(before);
       process.env.SAIVAGE_API_TOKEN = 'synthetic-gc-token';
@@ -173,8 +173,10 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       if (flags.includes('--delete')) expect(existsSync(garbage)).toBe(false);
       else expect(snapshot(join(root, '.saivage'))).toEqual(before);
       // Equivalent independent fixtures exercise the actual CLI filter transport,
-      // inventory-to-mark change, strict cutoff and target stop in both effect modes.
+      // inventory-to-mark change, strict cutoff, size floor and target stop in both effect modes.
       const filterRoot = dirname(garbage);
+      const small = join(filterRoot, 'filter-small');
+      writeFileSync(small, '123'); utimesSync(small, 0, 0);
       for (const name of ['filter-old-a', 'filter-old-b', 'filter-equal', 'filter-new', 'filter-stale']) {
         const path = join(filterRoot, name); writeFileSync(path, '1234');
         const time = name === 'filter-equal' ? 2 : name === 'filter-new' ? 3 : 1;
@@ -191,16 +193,27 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       const filteredOutput = jest.spyOn(console, 'log').mockImplementation(() => {});
       try {
         // Accounted bytes minus one eligible four-byte file; the second is target-retained.
-        const total = ['garbage.txt', 'evidence.txt', 'accepted-history.txt', 'filter-old-a', 'filter-old-b', 'filter-equal', 'filter-new', 'filter-stale']
+        const total = ['garbage.txt', 'evidence.txt', 'accepted-history.txt', 'filter-old-a', 'filter-old-b', 'filter-equal', 'filter-new', 'filter-stale', 'filter-small']
           .reduce((sum, name) => sum + lstatSync(join(filterRoot, name)).size, 0);
-        await run(['node', 'saivage', 'gc-work', ...flags, '--before', '1970-01-01T00:00:02Z', '--target-bytes', String(total - 4)]);
-        const report = JSON.parse(filteredOutput.mock.calls.at(-1)![0] as string) as WorkGcResponse;
+        const filters = ['--min-file-bytes', '4', '--before', '1970-01-01T00:00:02Z', '--target-bytes', String(total - 4)];
+        if (flags.includes('--delete')) {
+          await run(['node', 'saivage', 'gc-work', '--dry-run', ...filters]);
+          expect(WorkGcResponseSchema.parse(JSON.parse(filteredOutput.mock.calls.at(-1)![0] as string))).toEqual(filteredReports[0]);
+          expect(readFileSync(join(filterRoot, 'filter-old-a'), 'utf8')).toBe('1234');
+          expect(readFileSync(small, 'utf8')).toBe('123');
+          const stale = join(filterRoot, 'filter-stale');
+          writeFileSync(stale, '1234'); utimesSync(stale, 1, 1);
+        }
+        await run(['node', 'saivage', 'gc-work', ...flags, ...filters]);
+        const report = WorkGcResponseSchema.parse(JSON.parse(filteredOutput.mock.calls.at(-1)![0] as string));
         filteredReports.push(report);
-        expect(report.result).toMatchObject({ retained: { protected: 1, recent: 4, stale: 1, target: 1 }, accounted_target_shortfall: 0 });
+        expect(report.result).toMatchObject({ observed_logical_bytes: total,
+          retained: { protected: 1, recent: 4, stale: 1, target: 1, below_min_file_bytes: 1 }, accounted_target_shortfall: 0 });
         expect(existsSync(join(filterRoot, 'filter-old-a'))).toBe(!flags.includes('--delete'));
         expect(existsSync(join(filterRoot, 'filter-old-b'))).toBe(true);
+        expect(readFileSync(small, 'utf8')).toBe('123');
       } finally { atInventory.mockRestore(); filteredOutput.mockRestore(); }
-      for (const name of ['filter-old-a', 'filter-old-b', 'filter-equal', 'filter-new', 'filter-stale'])
+      for (const name of ['filter-old-a', 'filter-old-b', 'filter-equal', 'filter-new', 'filter-stale', 'filter-small'])
         rmSync(join(filterRoot, name), { force: true });
       if (!flags.length) {
         // Actual collection/hold settlement must precede a blocked final write.

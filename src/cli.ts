@@ -115,7 +115,7 @@ Usage:
   saivage resume
   saivage stop
   saivage restart_server
-  saivage gc-work [--before <RFC3339-with-zone>] [--target-bytes <bytes>] [--dry-run | --delete]
+  saivage gc-work [--before <RFC3339-with-zone>] [--min-file-bytes <bytes>] [--target-bytes <bytes>] [--dry-run | --delete]
       Preview first with --dry-run (also the default). A live server collects only
       while paused or stopped; busy mutations reject, Stop remains available.
       Without a lifecycle owner, interactive exact quiescence acknowledgement and
@@ -123,6 +123,8 @@ Usage:
       interrupt to cancel cooperatively. Lost response never authorizes retry.
       --delete is a separate fresh invocation and irreversibly removes eligible
       work files. Consider a separately preserved backup before deletion.
+      --min-file-bytes requires at least that logical size per file;
+      --target-bytes is a goal for the total accounted logical bytes remaining.
       Reports accounted logical bytes only, never whole-work or physical savings.
   saivage reset
       Acquires .saivage/locks/runtime.lock before deletion and fails closed if
@@ -172,6 +174,13 @@ function parseSingletonOptions(
   return parsed.values;
 }
 
+function parseGcBytes(name: string, value: string | boolean | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/u.test(value))
+    throw new Error(`--${name} must be a nonnegative safe integer.`);
+  return Number(value);
+}
+
 function parseCommand(rawArgs: string[]): ParsedCommand {
   const args = rawArgs.slice(2);
   const rawCommand = args[0] ?? 'help';
@@ -181,20 +190,19 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
     const values = parseSingletonOptions(rest, {
       before: { type: 'string' },
       'target-bytes': { type: 'string' },
+      'min-file-bytes': { type: 'string' },
       'dry-run': { type: 'boolean' },
       delete: { type: 'boolean' },
     });
     if (values['dry-run'] && values.delete)
       throw new Error('--dry-run and --delete are mutually exclusive.');
-    const bytes = values['target-bytes'];
-    if (bytes !== undefined && (typeof bytes !== 'string' || !/^(0|[1-9][0-9]*)$/u.test(bytes)))
-      throw new Error('--target-bytes must be a nonnegative safe integer.');
     return {
       command,
       inputs: WorkGcRequestSchema.parse({
         mode: values.delete ? 'delete' : 'dry_run',
         before: values.before,
-        target_bytes: bytes === undefined ? undefined : Number(bytes),
+        target_bytes: parseGcBytes('target-bytes', values['target-bytes']),
+        min_file_bytes: parseGcBytes('min-file-bytes', values['min-file-bytes']),
       }),
     };
   }

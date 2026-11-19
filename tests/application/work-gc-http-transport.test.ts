@@ -78,7 +78,7 @@ it.each(['before headers', 'truncated body'] as const)('distinguishes %s transpo
     if (mode === 'before headers') reply.destroy();
     else { reply.writeHead(200, { 'content-length': '1000', 'content-type': 'application/x-ndjson' }); reply.write('{'); setImmediate(() => reply.destroy()); }
   });
-  await expect(new OperatorRuntimeHttpClient().gcWork(endpoint, { mode: 'dry_run' })).rejects.toThrow('transport or response body read failed');
+  await expect(new OperatorRuntimeHttpClient().gcWork(endpoint, { mode: 'delete', min_file_bytes: 4 })).rejects.toThrow('transport or response body read failed');
   expect(count).toBe(1);
 });
 

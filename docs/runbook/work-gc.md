@@ -67,21 +67,42 @@ protections still apply. GC keeps directories, and command/card completion, re-e
 and startup perform no automatic cleanup. Task-owned explicit cleanup remains
 permitted; separately consented generated-state reset includes the whole work root.
 
-From the identified project root, using the matching release:
+From the identified project root, using the matching release, preview with a
+per-file minimum of 400000000 bytes and no optional cutoff or remaining-byte target:
 
 ```bash
-saivage gc-work --dry-run --before 2026-10-01T00:00:00Z --target-bytes 1073741824
-# After reviewing the result, explicitly request a NEW selection:
-saivage gc-work --delete --before 2026-10-01T00:00:00Z --target-bytes 1073741824
+saivage gc-work --dry-run --min-file-bytes 400000000
+```
+
+To also limit selection by age and aim for a remaining-byte target, preview the
+combined filters:
+
+```bash
+saivage gc-work --dry-run --before 2026-10-01T00:00:00Z --min-file-bytes 400000000 --target-bytes 1073741824
+```
+
+After reviewing that preview, run a fresh delete only with separate authorization
+and the applicable online or offline exclusion described below:
+
+```bash
+saivage gc-work --delete --before 2026-10-01T00:00:00Z --min-file-bytes 400000000 --target-bytes 1073741824
 ```
 
 These are examples, not recommended universal retention thresholds. Omit `--before`
 to remove the optional cutoff; the card horizon still applies. Otherwise it must be
 RFC3339 with an explicit zone and regular-file **mtime must be strictly earlier**.
 Equality/newer files remain.
-`--target-bytes` is an optional nonnegative safe integer: a best-effort remaining
-**accounted logical-byte** target, not desired bytes freed. Omit it to select all
-eligible files. Oldest mtime comes first, with relative-path tie-break.
+
+`--min-file-bytes` tests each otherwise eligible regular file's inventoried
+**logical length**, not allocated disk blocks or free space. A file exactly at the
+minimum qualifies on size, unlike a file whose mtime equals the cutoff. Zero
+allows empty files to qualify; omission leaves selection unfiltered by size.
+Existing age, protection and fresh identity checks still apply.
+
+`--target-bytes` is a best-effort target for **accounted logical bytes remaining**,
+not a per-file minimum or desired bytes freed. Omit it to select all eligible
+files. Oldest mtime comes first, with relative-path tie-break. Both byte options
+take nonnegative safe integers.
 
 For each reached live card, GC uses the minimum current compacted-genesis timestamp
 across its unique configured card-session agents. An empty agent set, an established
@@ -321,15 +342,22 @@ bypass protections, modify history or launch another live sweep to obtain detail
   regular files, not a coherent current snapshot. `opaque_entries` does not count
   descendants or measure excluded bytes; `whole_work_size_known` is always false.
 * `retained` counts accounted candidates by `protected`, `recent`, `stale`,
-  `opaque` or `target` (eligible but not needed). Protections beat age/size.
+  `opaque`, `target` (eligible but not needed), or `below_min_file_bytes`
+  (otherwise eligible but smaller than the minimum). Existing protection, opacity,
+  age and fresh identity checks take precedence over the minimum, which is checked
+  before the target. Whenever a minimum was requested, every non-null result
+  (including a known partial result) includes this count, even if zero. Without
+  a minimum, the count is omitted.
 * Preview reports `would_delete_count` / `would_delete_logical_bytes`, with actual
   deleted fields zero. Delete reports `deleted_count` / `deleted_logical_bytes`,
   with hypothetical fields zero. A known partial result is not a rollback; failure
   attribution does not reconstruct or enlarge those known effect counts.
 * `expected_accounted_logical_bytes_remaining` subtracts hypothetical or known
   removals from observed bytes. `accounted_target_shortfall` is null without a
-  target, otherwise the remaining accounted excess. Zero shortfall does **not**
-  certify whole-work size, physical blocks or free space. Opaque/new/changed files
+  target, otherwise the remaining accounted excess. Undersized files still count
+  toward remaining bytes and can leave a shortfall even after all eligible files
+  have been selected. Zero shortfall does **not** certify whole-work size,
+  physical blocks or free space. Opaque/new/changed files
   leave actual totals unknown; conservative protection may yield no reclamation.
 
 On success or known failure/cancellation, only GC may restore the pause it initiated

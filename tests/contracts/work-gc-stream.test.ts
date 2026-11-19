@@ -45,6 +45,25 @@ it('rejects wrong MIME and disables a failing optional observer', () => {
   expect(decoder.finish()).toEqual(response);
   expect(sink).toHaveBeenCalledTimes(1);
 });
+it('accepts omitted, zero and positive floor retention counts and rejects malformed counts', () => {
+  const retained = { protected: 0, recent: 0, stale: 0, opaque: 0, target: 0 };
+  const completed = { mode: 'dry_run', disposition: 'completed', reason: 'completed', restoration: 'not_resumed',
+    failure: null, result: { mode: 'dry_run', observed_count: 1, observed_logical_bytes: 3, opaque_entries: 0,
+      whole_work_size_known: false, first_global_protection: null, retained,
+      would_delete_count: 0, would_delete_logical_bytes: 0, deleted_count: 0, deleted_logical_bytes: 0,
+      expected_accounted_logical_bytes_remaining: 3, accounted_target_shortfall: null } };
+  function read(count?: unknown) {
+    const decoder = new WorkGcStreamDecoder('application/x-ndjson');
+    decoder.push(Buffer.from(JSON.stringify({ type: 'result', response: { ...completed,
+      result: { ...completed.result, retained: { ...retained, below_min_file_bytes: count } } } }) + '\n'));
+    return decoder.finish();
+  }
+  expect(read()).toEqual(completed);
+  for (const count of [0, 1])
+    expect(read(count)?.result?.retained).toEqual({ ...retained, below_min_file_bytes: count });
+  for (const count of [-1, 1.5, '1', null, Number.MAX_SAFE_INTEGER + 1])
+    expect(() => read(count)).toThrow();
+});
 it('requires strict enum-only attribution on progress and every non-null result', () => {
   const mark = { reason: 'reference_scope_unknown', source: 'conversation_content' };
   expect(FirstGlobalProtectionSchema.parse(mark)).toEqual(mark);

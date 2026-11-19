@@ -289,6 +289,14 @@ protection rules; unreached and tombstoned owners remain opaque. Eligibility use
 mtime, while ctime participates only in fresh identity checks. A needed file with a
 preserved old mtime can be deleted; rollback cannot restore it.
 
+For card and global regular files alike, optional `min_file_bytes` requires an
+inventoried logical size at least that large. This inclusive floor is independent
+of the strict mtime cutoffs: zero permits empty files, and omission applies no
+size filter. Selection applies the floor after existing protection, opacity, age
+and fresh identity checks, and before the optional `target_bytes` test. It does
+not narrow inventory or marking and cannot make a protected, recent or changed
+file eligible.
+
 Known shell sources are excluded: `run_command` arguments' `command`,
 `shell.run` action `config.script` (including its literal wrapper, in node actions
 and `afterActivationCommit`), and execution scripts and launcher argv. Retained
@@ -318,6 +326,12 @@ preclude a latency guarantee. Ambiguous prose may conservatively protect everyth
 Default and explicit dry-run use the same applicable exclusion, fresh marking and
 selection as delete, but perform no collector file effects and require no backup. Preview
 reports hypothetical would-delete effects; delete reports only known removals.
+Whenever `min_file_bytes` was supplied, a non-null result (including a known
+partial result) reports `retained.below_min_file_bytes`, even if zero. It counts
+only files retained by the floor, not those already retained for another reason.
+Without the floor this field is omitted. Undersized files stay in the full
+accounted inventory and contribute to remaining logical bytes, so the floor can
+leave a positive `accounted_target_shortfall`.
 Remaining accounted logical bytes are estimates, never whole-root/physical/free-space
 claims. A separate delete always starts fresh, not from a preview report. First
 failure ends collection; outcome uncertainty is fatal before reporting, cleanup or
