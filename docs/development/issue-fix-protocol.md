@@ -159,7 +159,7 @@ profile with its own complete body.
 | `design-reviewer-secondary` | `nvidia/z-ai/glm-5.2` | `issue-fixer`, only when explicitly requested | Optional extra design review. |
 | `implementation-manager` | `openai/gpt-6.2-sol` | `issue-fixer` | Sole lock holder and implementation orchestrator. |
 | `code-developer` | `openai/gpt-6.2-sol` | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
-| `doc-developer` | Default `opencode-go/claude-haiku-5-5` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
+| `doc-developer` | Default `openai/gpt-6.2-sol` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
 | `doc-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
 | `prompt-developer` | Default `opencode-go/claude-haiku-5-5` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
 | `prompt-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
@@ -279,8 +279,9 @@ The pair reviews for different purposes:
 
 Each pair runs in order for an asset. The author settles before its reviewer starts. No author
 runs concurrently with another author, a source worker, or a reviewer of the same moving asset.
-For either author role, the invoking owner selects the configured `opencode-go/claude-haiku-5-5`
-default or directly selects `openai/gpt-6.1-terra` through the native subagent model override,
+The invoking owner selects the configured `openai/gpt-6.2-sol` default for `doc-developer`
+or `opencode-go/claude-haiku-5-5` for `prompt-developer`. For either author, the owner may
+instead directly select `openai/gpt-6.1-terra` through the native subagent model override,
 without a variant. The owner passes the exact selection and requires actual execution identity
 evidence; missing or conflicting identity blocks the assignment. Unavailability or failure
 does not authorize automatic fallback or replay: the existing
