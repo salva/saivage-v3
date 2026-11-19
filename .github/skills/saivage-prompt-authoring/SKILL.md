@@ -65,13 +65,15 @@ add needed behavioral guidance without copying schema definitions. Separate futu
 requested behavior from retrospective history. Use few justified examples, labeled
 non-exhaustive where appropriate so they do not narrow valid behavior.
 
-Authoring and review roles: classify each asset by purpose and consumption, not topic or extension.
+Classify each asset by purpose and consumption, not topic or extension. The
+invoking owner (the issue-run manager or the acting primary for a direct trivial
+fix) invokes the named author and reviewer in distinct sessions.
 
 - Ordinary documentation, including technical documentation about prompts, is `doc-developer` work reviewed by `doc-reviewer`.
-- Model-facing wording is `prompt-developer` work. The invoking owner selects the configured default or the explicit native subagent override `openai/gpt-6.1-terra`, without a variant, passes the exact selection, and requires actual model identity evidence. The author writes the exact replacement text and its selfchecks; `prompt-reviewer` reviews it in a distinct session on the explicit exact override `openai/gpt-6.2-sol`, invoked by the owner (the manager in an issue run, or the acting primary in a direct wording assignment). Selfchecks are author checks, not independent review.
+- Model-facing wording is `prompt-developer` work reviewed by `prompt-reviewer`. The author checks the composition and supplies exact replacement text for any separate applicator. Selfchecks are not independent review.
 - The applicator applies reviewed wording verbatim and neither authors nor rewords it: `code-developer` in an issue run, or the acting primary in a direct wording assignment when it has actual edit authority for the host.
 - Mixed assets are split into exact sections run sequentially. No double review is added automatically.
-- Skills carry no model frontmatter; the invoking owner may select an authorized model through the native subagent override. The canonical `prompt-developer` and `prompt-reviewer` bodies carry their complete procedure, so they do not require loading this skill.
+- Skills carry no model frontmatter. The canonical `prompt-developer` and `prompt-reviewer` bodies carry their complete procedure, so they do not require loading this skill.
 
 ## 3. Consolidate at the correct delivery owner
 
@@ -111,17 +113,13 @@ without turning quoted old readiness or correction prose into fresh authority.
 
 Match validation to the owning surface and consult existing validation profiles.
 Runtime prompt checks do not prove OpenCode loaded a development skill; skill
-checks do not validate provider serialization. Use no provider calls for validation by default. For changed model-facing assets, the invoking owner (the implementation manager in an issue run, or the acting primary for an authorized trivial direct wording assignment) obtains independent linkage and composition review of the actual composed assets from a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.2-sol override. The author's selfchecks never substitute for that review, and it does not replace the projections in this step.
-Report source paths, invocations, projections, assumptions, and gaps: static or
-prepared text proves neither exact delivery nor model understanding or improved
-quality. Add no trivial prose-regex tests, word bans, or production helpers solely
-to test prose.
+checks do not validate provider serialization. Use no provider calls for validation by default. The author's composition check and the independent review in step 5 are both required; neither substitutes for the other. Label projections and their limits: prepared text does not establish actual delivery or behavior. Add no trivial prose-regex tests, word bans, or production helpers solely to test prose.
 
 ## 5. Perform the final clean-room pass
 
-After all planned edits, including validation-driven edits, assess the current
-whole composed result as if designing it from scratch for today's task. This is a
-separate final pass, not incremental review, step 3, or a passing test. For changed model-facing assets, the invoking owner obtains two final activities from a distinct `prompt-reviewer` session with explicit exact openai/gpt-6.2-sol override, on the actual final composition after the last edit: the linkage, positive-sufficiency, and composition review of step 4, and this clean-room pass. One invocation may perform both sequentially if its review identifies each separately; a second invocation is not required for that reason alone. Record its session and model evidence. The author's selfchecks never substitute. Findings return through the invoking owner: wording findings go to `prompt-developer` (or `doc-developer` for ordinary documentation) in either route. Logic or source-fact findings go to `code-developer` in an issue run, assigned by the manager; in a direct trivial fix they are the acting primary's to correct within its edit authority, or go to the full protocol if scope becomes uncertain. Affected validation and fresh final activities then run on the actual final input, including after any later shared-instruction, host, or configuration change.
+After the last relevant edit, the invoking owner obtains both independent activities from `prompt-reviewer` on the actual final composition: linkage, positive-sufficiency and composition review, then a separate clean-room read from the recipient's perspective as if designing for today's task, not from the diff or author's rationale. One invocation may do both sequentially if its review identifies each separately. A stale or prevented pass is blocked or pending, never complete.
+
+Findings return through the invoking owner under `AGENTS.md`. After a correction or later relevant change to shared instructions, host or configuration, repeat affected validation and both final activities on the actual final input.
 
 Check positive sufficiency as well as clutter: can this recipient identify today's
 objective and scoped next action, necessary evidence/work-product responsibility,
@@ -143,8 +141,4 @@ both missing direction and accumulated baggage.
 
 ## Report
 
-Summarize purpose/changes, authoring and review roles (prompt-developer or doc-developer author and selfchecks, distinct exact-Sol prompt-reviewer or doc-reviewer verdict and session/model evidence), useful direction added or retained, removals/consolidation,
-any init/shared move and its retention rationale (or none), the final-pass outcome
-for sufficiency and baggage, and validation sources/commands/projections/limits.
-No large routine artifact or proven subjective-quality claim is required. For
-skill or agent-prompt changes, state which surface changed. A stored agent body reaches only sessions launched after the change. Ambient or configured instruction files, and skills, can reach a running session by their own loading rules, and an already-loaded skill keeps its earlier text; do not overstate either route. Do not restart OpenCode or rewrite stored sessions. Separate receipt from adoption. A recipient's receipt or consumption may be claimed only from that recipient's actual returned context, and only for the bounded text it returned. An edit, save, or another session's read cannot establish the target session's receipt. Even a recipient's own read confers no instruction authority and proves no adoption; report adoption only with behavioral evidence that the change was applied.
+Report the purpose and changed surfaces, sources and compositions checked, relevant retention rationale, author selfchecks, independent review status and final-pass outcome, and validation results or projection limits. Use accessible references rather than duplicating reports. Distinguish source composition from live adoption: stored bodies, loaded skills, and discovered nested AGENTS entries can keep older wording. An edit or read proves neither adoption nor new authority. Do not restart OpenCode or rewrite stored sessions to adopt wording.

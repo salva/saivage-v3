@@ -13,10 +13,10 @@ This skill covers issue fixes that go through the full protocol, which is the de
 
 ## Identities
 
-- **`issue-fixer`** (`openai/gpt-6.2-sol`): launch and continue this agent for each NEW issue. It owns one issue end to end: design and review, merit, freshness, the manager handoff and its disposition. It launches `issue-designer`, `design-reviewer`, `design-reviewer-secondary` only when a requester explicitly asks, and `implementation-manager`.
-- **`implementation-manager`** (`openai/gpt-6.2-sol`; role identity unchanged): the only lock holder. It alone invokes `code-developer`, `doc-developer`, `doc-reviewer`, `prompt-developer` and `prompt-reviewer`.
+- **`issue-fixer`**: launch this role for each new issue. It owns the issue's design and review, merit, freshness, manager handoff and disposition. It invokes `issue-designer`, `design-reviewer`, and `implementation-manager`. It invokes `design-reviewer-secondary` only when a requester explicitly asks for extra design review.
+- **`implementation-manager`**: sole lock holder and sole caller of implementation workers and wording pairs in an issue run.
 
-An issue launched under a pre-transition identity keeps that recorded identity and session ID as historical fact. Never replace, re-launch, rename, or automatically convert a recorded fixer to a canonical identity, and launch no retired profile for new work.
+Continue a recorded fixer under its original role and exact session ID, not a replacement or renamed identity.
 
 You never take over an issue's design, review, or implementation, and you never request a manager implementation beyond the approved fixer handoff. For a clearly trivial direct wording assignment, you invoke the named author and its distinct reviewer yourself, and no other implementation role.
 
@@ -32,22 +32,7 @@ You never take over an issue's design, review, or implementation, and you never 
 
 ### Native delegation and settlement
 
-Use the exposed native subagent tool with the agent ID, a short description, and the complete assignment as the prompt. A continuation names the same agent and passes the recorded session ID as `sessionID`. Illustrative argument fields, not a callable namespace:
-
-```text
-agent: "issue-fixer"
-description: "<issue short label>"
-prompt: "<complete issue statement, absolute plan path, tracker identifier and tracker paths>"
-```
-
-```text
-agent: "<identity recorded at launch>"
-description: "<continuation label>"
-prompt: "<continuation prompt>"
-sessionID: "<exact recorded session ID>"
-```
-
-Use the tool's contract for delivery mode; assume no background or foreground default.
+Use the exposed native subagent tool with the named role, a short description and the complete assignment. Follow the tool's delivery contract; assume no background or foreground default. For continuation, use Resume.
 
 A session ID is routing state, not a return. A fixer's return is its substantive final report, which starts with exactly one disposition. For asynchronous delivery, that report arrives with the host's completion or idle message for the round. An idle message without the report, or a session ID alone, does not settle the run. Treat a launched or continued run without a substantive report as a missing result: it is unsettled, it makes no further launch or resume eligible, and you report it as `BLOCKED` with its recorded session ID.
 
@@ -55,9 +40,11 @@ A session ID is routing state, not a return. A fixer's return is its substantive
 
 Each fixer return starts with exactly one of `COMPLETED`, `ABANDONED`, `WAITING_FOR_IMPLEMENTATION_LOCK`, `BLOCKED`, `FAILED`, or `CANCELLED`.
 
-- **`COMPLETED`:** record it. Check that the report gives the approval facts (in full, or by reference to the earlier report of this run), the files changed, the manager validation results with whether each was reused or newly run, the commit hashes, and repository stability.
-- **`ABANDONED`:** an intentional terminal merit decision not to implement further issue scope, before any implementation or after stabilized partial delivery. Record the delivered scope (units, commit hashes, validation with its failures and limits) and the abandoned remainder separately, and check that the report supports both. Do not resume, replace, or relaunch it automatically.
-- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** record the fixer's session ID, identity, and waiting facts. Keep it dormant until it is the single next run (see Select one run at a time). Do not launch a replacement.
+Use the fixer's disposition and its evidence, including accessible references to approval, manager results and stable reconciliation, for selection and tracker decisions. Obtain any necessary fact the reports do not supply; do not repeat checks or transcribe the manager report.
+
+- **`COMPLETED`:** record the approval, delivered work, commit and validation evidence, and stable reconciliation for the completion and tracker decisions.
+- **`ABANDONED`:** record the terminal merit reason and abandoned scope separately from any stabilized delivery, retaining its commits, validation, failures and limits. Do not resume, replace, or relaunch automatically.
+- **`WAITING_FOR_IMPLEMENTATION_LOCK`:** retain the original role and session ID, approved plan, attempt number, holder as reported, and tracker evidence (Designed with a waiting note, entry ID or `unavailable`). This attempt acquired no lock and performed no work. Retain cumulative prior delivery, commits, validation with failures and limits, and remaining scope by accessible report or direct facts when needed. Keep the fixer dormant until eligible and selected under Select one run at a time; no replacement.
 - **`BLOCKED` or `FAILED`:** record the stated cause. Do not launch a replacement fixer. Resolve the named cause first.
 - **`CANCELLED`:** keep the session ID, identity, plan path, and last known facts, including cumulative prior manager effects, as a dormant cancelled waiter. It resumes only on the owner's direction (see Resume).
 
@@ -126,7 +113,7 @@ Stop further launches and resumes. Cancel children only when explicitly requeste
 
 Reporting has two recipients, and each receives the facts it needs to act.
 
-**Internal evidence.** Keep the evidence that a later decision, resume, or review depends on, in session context or in accessible reports that already exist. No separate report file is required, and a reference to an existing report can carry an unchanged fact. For each issue this covers: the issue and plan paths; the tracker entry identifier with its lifecycle applied or pending; the review and final merit outcomes; material findings; the main files and docs changed; the author and reviewer identities used for documentation and model-facing assets; prompt-review evidence when model-facing assets changed; manager validation commands and results, each marked reused or newly run; commit hashes; the delivered and remaining or abandoned scope, with their failures and limits; repository stability; residual risks; and any pre-transition identity the issue used. It also covers the order of selected runs, the boundary evidence used before each launch or resume, and every waiting fixer left dormant, by identifier only. For each owner-directed resumption of a cancelled waiter, keep the owner instruction, the cancellation evidence, the resume result, and the historical facts the run carried; those facts stay historical and are never presented as new contention or fresh freshness evidence. Session IDs stay in session context and never go into tracker or repository files.
+**Internal evidence.** Keep the issue, plan, original fixer role and session ID, disposition, and tracker evidence (including applied or pending changes). Retain the reports needed for review, merit, delivered and remaining or abandoned scope, commits, manager validation with failures and limits, and repository stability and lock release. Use accessible references for unchanged facts; carry any necessary changed or inaccessible fact directly. Keep the selected-run order, eligibility evidence and dormant waiters in session context. For a cancelled waiter preserve the authentic owner instruction, cancellation and resume outcome; carry prior effects as history, not new contention or fresh approval. Session IDs stay in session context, never in tracker or repository files.
 
 **The user reply.** State each issue's outcome and any decision or action the user needs. Include:
 
@@ -134,10 +121,9 @@ Reporting has two recipients, and each receives the facts it needs to act.
 - errors, partial effects, uncertainty, blockers, and validation limits that affect the outcome or the user's decision, even when the detailed evidence is only referenced;
 - review status as the reviews actually settled. An incomplete review or a blocker handback is reported as blocked or pending, never as a completed review;
 - aggregate results, reported separately from implementation completion. Source implementation alone does not establish aggregate acceptance;
-- that an issue ran under a pre-transition identity rather than a canonical identity, when that bears on the outcome or the decision;
 - the result of any owner-directed resumption of a cancelled waiter, marked as historical carry-over where it applies, and any cancelled or dormant waiter that needs owner direction;
 - residual risks the user must weigh.
 
 List paths or file lists only when the user needs them for a decision or action. A brief commit reference may be given when it helps. Give each fact once, refer to earlier reports for unchanged facts, and do not repeat fixed blocks. Do not commit `docs/working/` artifacts.
 
-A running session keeps the stored instructions of its agent body. Ambient and configured instruction files that the root configuration selects take effect before a running session's next model request, so they can reach a current session while its stored body stays old. A nested AGENTS entry already discovered is not refreshed automatically, and an already-loaded skill keeps its earlier text; a session that later loads a changed skill may read it. Neither a read nor a load proves effective authority or adoption, and a read grants no authority the effective instructions lack. Do not restart OpenCode or rewrite stored sessions to adopt this change. Claim receipt only with evidence supporting that claim, and report any effective instruction conflict as a blocker rather than patching the session.
+Source edits do not replace a waiting fixer's stored body. Continue under its effective instructions, forwarding the authentic superseding direction verbatim when required by Resume. Reading changed wording grants no authority; report an unresolved conflict as a blocker rather than restarting, replacing, or rewriting the session.

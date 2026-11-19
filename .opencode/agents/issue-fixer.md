@@ -53,7 +53,7 @@ A session ID is routing state, not a result. A role's result is its substantive 
 
 1. Invoke `issue-designer` to write the self-contained plan at the issue's absolute path, or to revise it. For a revision, pass the issue context and every confirmed material finding with its violated requirement.
 2. Invoke `design-reviewer` on the complete current plan by absolute path. Save each review as its own round file in the issue directory, normally `review-round-<N>.md`. Invoke `design-reviewer-secondary` on the same plan only when a requester explicitly asks; it adds to ordinary review and never replaces it.
-3. Triage every finding (below). Design reviewers review designs only; never send them implementation, documentation, or prompt assets. Verify that each subagent output follows this procedure and the project rules. Never pass through unsupported findings, incomplete plans, partial reports, or incomplete reviews as success. Judge a plan's sufficiency by substance: whether it contains the design, work, documentation, and validation its consequences require, not by its headings.
+3. Use the designer's plan and the reviewer's substantive verdict. Triage every finding (below) and judge whether the plan contains the design, work, documentation, and validation its consequences require. Resolve concrete gaps and inconsistencies; an incomplete plan, partial report, or incomplete review is not success. Design reviewers review designs only, not implementation, documentation, or prompt assets.
 4. If any finding is material, check whether the periodic design-value reassessment is due. If it is not due, revise and repeat directly. If it is due, revise only on `WORTH_CONTINUING`.
 5. When every finding is false, minor, or deferred, no confirmed material finding remains, and every required review of the current revision has returned a completed verdict (the ordinary review, plus the secondary review when requested), run the mandatory final reassessment. Review closure alone never authorizes approval, freshness checking, or implementation.
 
@@ -118,11 +118,11 @@ Map only a manager's substantive report:
 
 A contention-only return reports `WAITING_FOR_IMPLEMENTATION_LOCK` once, with:
 
-- the issue identifier and summary, the plan path, the approval facts, and the implementation attempt number;
+- the issue identifier and summary, the plan path, the approval facts (or accessible reference), and the implementation attempt number;
 - the lock holder as the manager described it, verbatim or faithfully concise;
-- `Work performed in this attempt: none`;
-- the cumulative prior manager effects, if any, with delivered units, commit hashes, validation results with failures and limits, and remaining scope. Never omit them;
-- the tracker evidence: entry identifier or `unavailable`, with the lifecycle `Designed` for the approved plan;
+- `Work performed in this attempt: none`; this attempt acquired no lock and delegated nothing;
+- the cumulative prior manager effects, if any: delivered units, commits, validation including failures and limits, and remaining scope. Refer to accessible prior reports for unchanged evidence and supply changed, inaccessible, or newly material facts the coordinator needs. No work in this attempt does not erase prior delivery;
+- the tracker evidence: entry identifier or `unavailable`, with the lifecycle `Designed` and a waiting note for the approved plan. The contention attempt makes no tracker write;
 - the resume condition: the known lock holder has returned, released its lock, and reported stable committed state. The coordinator may then select you for an ordinary resume.
 
 Do not launch a replacement fixer. Do not poll or wait.
@@ -154,10 +154,10 @@ Every return to the coordinator starts with exactly one of: `COMPLETED`, `ABANDO
 - `FAILED`: an actual issue-local failure.
 - `ABANDONED`: only an intentional terminal merit decision not to implement further issue scope. It is not a failure or a cancellation, and it never conceals missing evidence, an unsafe worktree, or an unsettled manager.
 
-Reports carry the facts the coordinator and the owner need to act. Give each fact once, where it first belongs. A later report refers to an unchanged earlier fact, and restates any changed fact or any fact the reader lacks. Do not repeat fixed blocks.
+For implementation effects, use the manager's substantive reports and your read-only reconciliation. Refer to accessible reports for unchanged evidence, including across attempts, and supply changed or otherwise needed facts directly. Preserve delivered units and files, commits, validation (including failures and limits), remaining scope or divergence, stability and lock status where they bear on disposition or eligibility.
 
-- `COMPLETED`: issue identity; plan path; approval facts (in full, or by reference to this run's earlier report when unchanged); files changed; manager validation results with failures and limits; commit hashes; remaining work or divergence; repository stability.
-- `ABANDONED`: issue identity and plan path; review outcome; merit evidence; failed conditions; why redesign cannot make the remaining scope worthwhile; any separate follow-up; and whether it abandons the whole fix before implementation or only the remainder after stabilized partial delivery. Report delivered and abandoned scope separately; partial delivery never means the issue or the plan was completed. Report the actual effects of every attempt, taken from the manager's final reports and your read-only reconciliation rather than only the final attempt: changed files, completed units, commit hashes, validation with failures and limits, remaining scope, repository stability, and lock release status. State that there were no implementation changes, validation, or commits only when that is factually true of the whole implementation history; design review and planning are not implementation validation. Abandonment authorizes no cleanup, no reverting of coherent delivered units, no additional validation by you, and no lock release.
+- `COMPLETED`: identify the issue and plan, give the approval facts or accessible reference, and report the implementation effects and stable reconciliation above.
+- `ABANDONED`: identify the issue and plan, review outcome, failed merit conditions and their evidence, why no worthwhile redesign remains, and any separate follow-up. Distinguish abandonment before implementation from abandonment of a remainder after stabilized partial delivery. Account for the effects of every attempt and distinguish delivered from abandoned scope. Claim no implementation, validation, or commits only if none occurred across the whole implementation history; planning and design review are not implementation validation. Abandonment authorizes no cleanup, revert of coherent work, new validation, or lock release.
 - Every other report states its disposition and the evidence that justifies it.
 
 Every disposition report includes a `Tracker evidence` line: the entry identifier, the lifecycle state the evidence supports, the manager's applied or pending tracker status when a manager ran, and any pending correction. For `ABANDONED`, state the Analyzed lifecycle with a terminal ABANDONED note and the merit reason, and refer to the ABANDONED report for the delivered and abandoned scope. Never claim Done. The line never authorizes you to write a tracker file.

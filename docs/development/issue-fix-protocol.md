@@ -63,8 +63,8 @@ effects that already occurred, and do not invent an exemption record.
 
 No content category is excluded by rule. The judgment rests on the actual impact, remedy, and
 scope. A direct fix keeps focused validation, scoped commits, authentication and secret
-protection, unrelated-work preservation, subject-specific rules, and the exact-model
-author and reviewer pair for any model-facing or documentation wording. Direct work is not an
+protection, unrelated-work preservation, subject-specific rules, and the matching
+author and independent reviewer for any model-facing or documentation wording. Direct work is not an
 issue-team lifecycle.
 
 For a clearly trivial direct wording fix, the acting primary assigns the appropriate author
@@ -75,12 +75,15 @@ grants no other direct subagent authority, so a direct source or
 configuration change is made by the primary itself. Within a full issue run, the implementation
 manager alone dispatches the authors and reviewers.
 
+For ordinary documentation, the acting primary establishes the exact baseline before the
+author edits and supplies the final comparison scope and bound review artifact as described
+under [Documentation reviewer and prompt reviewer](#documentation-reviewer-and-prompt-reviewer).
+
 Inline model-facing wording inside an executable host follows the same author and reviewer pair.
 Inline location alone does not make a change an issue run or a direct fix; the triviality test above
-still decides it. The author returns the exact replacement text, and a distinct reviewer reviews that
-text. A capable acting primary then applies the reviewed text verbatim, within its actual edit
-authority. It does not reword the text, reformat it for meaning, or invent a replacement. The direct
-route invokes no `code-developer`, and neither the author nor the reviewer edits the host.
+still decides it. The acting primary follows the shared inline sequence under
+[Choosing the author and reviewer pair](#choosing-the-author-and-reviewer-pair).
+The direct route invokes no `code-developer`, and neither the author nor the reviewer edits the host.
 
 Triviality does not widen edit authority. A `plan` primary does not gain permission to edit an
 executable host because the fix is trivial. Where the acting primary lacks actual edit authority for
@@ -96,9 +99,10 @@ reviewed again before application.
 
 Corrections keep their owners in a direct fix. A source-fact or logic finding is the acting primary's to
 correct within its edit authority. A wording finding returns through the primary to the matching author,
-and the primary applies the revised text verbatim. If a correction needs a changed design, or its scope
-becomes uncertain, the full protocol applies. Each changed final input receives its affected validation
-and a fresh review of the actual final input.
+and the primary applies reviewed replacement text verbatim. Revised inline prompt wording follows
+the same pre-application review and application sequence. If a correction needs a changed design, or
+its scope becomes uncertain, the full protocol applies. Each changed final input receives its affected
+validation and a fresh review of the actual final input.
 
 Review of a replacement before it is applied is not review of its final composition. After the primary
 integrates the text, the reviewer reviews the actual final result, including the applied host. For a
@@ -120,21 +124,12 @@ one implementation manager holding the lock at a time.
 | Issue designer (`issue-designer`) | Writes and revises the issue's self-contained plan, including revisions prompted by review or implementation learning. | Approve its own plan or decide merit. |
 | Design reviewer (`design-reviewer`) | Adversarially reviews every current design or plan revision. Read-only apart from its assigned review artifact. | Edit any plan, asset, source, or configuration; take the issue fixer's merit decision; review implementation assets. |
 | Optional secondary design reviewer (`design-reviewer-secondary`) | Only when a requester explicitly asks for it: the same design-review criteria, failure and reporting boundaries, and verdicts as `design-reviewer`. | Substitute for ordinary design review, or for any documentation or prompt review. |
-| Implementation manager (`implementation-manager`) | The sole implementation orchestrator and the only agent that invokes implementation authors and reviewers. Holds the one lock covering all implementation mutation, validation, generated artifacts, staging, commits and stabilization. Under that lock it keeps only its own issue's existing factual tracker entry current, and never moves an entry to Done. | Author implementation or model-facing wording directly; write any tracker entry other than its own issue's factual status; delegate a tracker write. |
+| Implementation manager (`implementation-manager`) | The sole implementation orchestrator and the only agent that invokes implementation authors and reviewers in a full issue run. Holds the one lock covering all implementation mutation, validation, generated artifacts, staging, commits and stabilization. Under that lock it keeps only its own issue's existing factual tracker entry current, and never moves an entry to Done. | Author implementation or model-facing wording directly; write any tracker entry other than its own issue's factual status; delegate a tracker write. |
 | Code developer (`code-developer`) | Leaf implementer of manager-assigned runtime, source, configuration, tooling, tests, fixtures, and navigation work. Supplies source facts. Mechanically applies reviewed inline wording. | Author documentation or model-facing wording, delegate, acquire or release locks, stage, or commit. |
 | Documentation developer (`doc-developer`) | Ordinary documentation assigned by the implementation manager, or by the acting primary for a clearly trivial direct fix: facts, structure, clear progression, explanation, and reader usefulness. | Author model-facing instructions, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
 | Documentation reviewer (`doc-reviewer`) | Independent review of ordinary documentation for facts, quality, structure, and progression, invoked by the implementation manager or, for a direct fix, the acting primary. Read-only apart from its assigned review artifact. | Edit any asset; review model-facing instructions; take the author's role. |
 | Prompt developer (`prompt-developer`) | Model-facing wording assigned by the implementation manager, or by the acting primary for a clearly trivial direct fix: instructions, prompts, templates and fragments, agent bodies and descriptions, skills, and AGENTS wording. | Author ordinary documentation, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
 | Prompt reviewer (`prompt-reviewer`) | Independent review of model-facing assets as one composed result, including the unconditional final clean-room pass, invoked by the implementation manager or, for a direct fix, the acting primary. Read-only apart from its assigned review artifact. | Edit any asset; review ordinary documentation as its only purpose; take the author's role. |
-
-Model-facing assets are never authored by the same agent that reviews them. Ordinary
-documentation is written by `doc-developer` and checked by `doc-reviewer`. Model-facing
-instructions, prompts, templates, fragments, agent bodies, skills, and AGENTS wording
-are written by `prompt-developer` and checked by `prompt-reviewer`, which the implementation
-manager invokes with the explicit exact override `openai/gpt-6.2-sol`. For a clearly trivial
-direct fix, the acting primary invokes the same pair the same way. Skills carry no model
-frontmatter; the invoking owner can select an authorized author model through the native
-subagent override as an alternative to the agent configuration's default.
 
 Each issue completes its own design and review loop, but the batch coordinator selects
 only one whole issue-fixer run at a time. That run covers design, review, freshness,
@@ -148,21 +143,27 @@ primary agent is the one-item coordinator and drives the same specialist workflo
 
 ### Canonical identities for new work
 
-Issues started after this revision use the identities below. Each is a separate
-profile with its own complete body.
+New work uses the roles below. Each link points to the source profile, which carries the role's
+configuration and complete body. AGENTS Operational Workflow owns delegation by named role:
+the caller chooses the role for the assignment and the harness applies its configuration.
 
-| ID | Model | Invoked by | Purpose |
-| --- | --- | --- | --- |
-| `issue-fixer` | `openai/gpt-6.2-sol` | Batch coordinator | One issue end to end, as in the table above. |
-| `issue-designer` | `openai/gpt-6.2-astra` | `issue-fixer` | Self-contained plan authoring and revision. |
-| `design-reviewer` | `openai/gpt-6.2-sol` | `issue-fixer` | Every design or plan revision. |
-| `design-reviewer-secondary` | `nvidia/z-ai/glm-5.2` | `issue-fixer`, only when explicitly requested | Optional extra design review. |
-| `implementation-manager` | `openai/gpt-6.2-sol` | `issue-fixer` | Sole lock holder and implementation orchestrator. |
-| `code-developer` | `openai/gpt-6.2-sol` | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
-| `doc-developer` | Default `openai/gpt-6.2-sol` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
-| `doc-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
-| `prompt-developer` | Default `openai/gpt-6.2-sol` or explicit native override `openai/gpt-6.1-terra`, no variant | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
-| `prompt-reviewer` | `openai/gpt-6.2-sol`, explicit exact invocation | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
+| Role and source profile | Invoked by | Purpose |
+| --- | --- | --- |
+| [`issue-fixer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/issue-fixer.md) | Batch coordinator | One issue end to end, as in the table above. |
+| [`issue-designer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/issue-designer.md) | `issue-fixer` | Self-contained plan authoring and revision. |
+| [`design-reviewer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/design-reviewer.md) | `issue-fixer` | Every design or plan revision. |
+| [`design-reviewer-secondary`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/design-reviewer-secondary.md) | `issue-fixer`, only when explicitly requested | Optional extra design review. |
+| [`implementation-manager`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/implementation-manager.md) | `issue-fixer` | Sole lock holder and implementation orchestrator. |
+| [`code-developer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/code-developer.md) | `implementation-manager` | Source, configuration, tooling, tests, and mechanical integration. |
+| [`doc-developer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/doc-developer.md) | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation. |
+| [`doc-reviewer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/doc-reviewer.md) | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Ordinary documentation review. |
+| [`prompt-developer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/prompt-developer.md) | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing instruction and prompt assets. |
+| [`prompt-reviewer`](https://github.com/salva/saivage-v3/blob/master/.opencode/agents/prompt-reviewer.md) | `implementation-manager`; acting `build` or `plan` primary for a clearly trivial direct fix | Model-facing composition and clean-room review. |
+
+Historically, FIP-24 recorded a manual configuration preference for both author profiles:
+`opencode-go/claude-haiku-5-5` when available and `openai/gpt-6.2-sol` otherwise. The profiles
+were configured for Sol because Haiku credits were exhausted. That rationale records a configuration
+decision, not a dispatch fallback or a choice the caller makes for each assignment.
 
 Only the primary batch coordinator may load the coordination skill. No other role loads
 it or this document to act. Every leaf denies delegation, staging, commits, and lock
@@ -231,19 +232,11 @@ by that bootstrap were removed later; see [Former profiles](#former-profiles).
 
 ### Delivery evidence
 
-Delivery of a role change is evidenced by what is observable on the host:
-
-- the effective project catalog body and rules for the affected profile, as returned by
-  the installed OpenCode CLI, with the response location verified;
-- a fresh session's pre-read procedure and tool summaries;
-- an available execution trace and the exact session role and model evidence.
-
-A byte-exact full system or catalog capture is not required where the host does not
-expose one. Report what was observed and what was not. A self-report alone never
-certifies permissions. A catalog alone never proves that a provider executed a given
-role. Do not invent a new endpoint, export secrets, or repeatedly query surfaces that
-are unavailable. Earlier evidence that lacked such a capture is not a successful
-capture, and it is not relabeled as one.
+Source review establishes what the examined composition says, not what a live session received
+or adopted. A claim of live delivery needs evidence of that specific event. Catalog reads, traces,
+and live calls to demonstrate adoption are not prerequisites for a wording assignment or its
+source review. An actual invocation failure or material conflict still follows the ordinary
+settlement and stop paths.
 
 ## Choosing the author and reviewer pair
 
@@ -265,7 +258,7 @@ A documentation-only change uses the documentation pair. An instruction-only cha
 the prompt pair. Do not add automatic double review of every asset, and do not treat a
 design review as a substitute for either pair.
 
-The pair reviews for different purposes:
+The reviews serve different purposes:
 
 - `doc-reviewer` checks ordinary-documentation facts against actual source, quality,
   structure, reader usefulness, and link correctness. Order and form are judged by audience
@@ -277,23 +270,15 @@ The pair reviews for different purposes:
   invocation may complete: composition and sufficiency review, and a separately identified,
   unconditional final clean-room review.
 
-Each pair runs in order for an asset. The author settles before its reviewer starts. No author
-runs concurrently with another author, a source worker, or a reviewer of the same moving asset.
-Both author profiles currently default to `openai/gpt-6.2-sol` because Haiku credits are
-exhausted. The manual configuration preference for both profiles is
-`opencode-go/claude-haiku-5-5` when available and `openai/gpt-6.2-sol` otherwise.
-The invoking owner selects the configured default or directly selects `openai/gpt-6.1-terra`
-through the native subagent model override, without a variant. The owner passes the exact
-selection and requires actual execution identity evidence; missing or conflicting identity
-blocks the assignment. Unavailability or failure does not authorize automatic fallback or
-replay: the existing
-[settlement procedure](#native-delegation-and-settlement) governs any later decision.
-Both reviewers run in sessions distinct from the author on `openai/gpt-6.2-sol`, invoked with
-that explicit override. For inline model-facing wording in an
-executable host, the author writes the exact text, the prompt reviewer reviews that text, the
-mechanical applicator applies it verbatim (`code-developer` in an issue run, or the acting primary
-in a direct fix that has actual edit authority for the host), and then the prompt reviewer reviews
-the integrated composition.
+The author settles before the reviewer starts in a distinct session. Each author or reviewer
+runs alone. For inline model-facing wording in an executable host, the author returns exact
+text and the prompt reviewer reviews it against that host before application. Only when the
+scoped pre-application review permits application does the invoking owner route that exact
+replacement to `code-developer` for verbatim application in an issue run, or apply it verbatim
+as the acting primary in a direct fix with actual host edit authority. Otherwise, the owner
+resolves findings or stops on a blocker through the existing routes. After integration,
+the actual final composition still requires both final review activities; the scoped verdict
+completes neither.
 
 ## Role execution contracts
 
@@ -302,13 +287,12 @@ projects into that role's own prompt body, so a role never needs this document t
 
 ### Common obligations
 
-- Know your position in the chain: batch coordinator, then issue fixer, then issue
-  designer and design reviewer, then the sole implementation manager, then code,
-  documentation, or prompt authors and reviewers. The manager alone invokes the
-  implementation authors and reviewers. Act only within your own inputs, outputs, and
-  mutation boundary. On failure, never acquire another role's responsibility.
-- Stop and report when a required tool, identity, or input is missing or materially
-  inadequate. Do not guess.
+- The issue fixer dispatches design and design review, then hands the approved, fresh plan
+  to the implementation manager. The manager alone invokes implementation authors and
+  reviewers in an issue run. A failure does not transfer the affected role's responsibility
+  or mutation authority to another role.
+- A missing or materially inadequate required tool or input, an actual invocation failure,
+  or a concrete conflict stops the affected step.
 - Distinguish absence of evidence from success. A missing result, a timeout, silence,
   or a cancellation is not settlement, approval, or passing validation.
 - Keep three states apart. A settled blocker handback from a reviewer settles that call and
@@ -326,8 +310,9 @@ projects into that role's own prompt body, so a role never needs this document t
   blocker the user needs, and it lists paths only when the user needs them. An internal handoff
   gives the artifacts, the exact text when it must be applied elsewhere, review and validation
   evidence, commit references, effects, uncertainty, and the settlement facts the next role needs.
-  State each fact once at its owning handoff, refer to the accessible artifact afterwards, and
-  repeat a fact only when it changed or the recipient lacks it. Do not repeat fixed formal blocks.
+  AGENTS Operational Workflow governs reliance on settled reports. Reassessment belongs to
+  the role that needs to evaluate changed inputs or resolve a concrete gap; using an earlier
+  report does not replace an assigned independent review.
 - Uncertain publication of Saivage-owned state is governed by the boundary in
   [Uncertain publication boundary](#uncertain-publication-boundary).
 
@@ -392,8 +377,8 @@ projects into that role's own prompt body, so a role never needs this document t
     explicitly deferred under triage.
   - `MATERIAL_FINDING_FOUND`: at least one material finding remains.
   A review is completed only when the complete plan has been read and its claims checked against
-  the sources it requires. When a prerequisite prevents that, such as a wrong required model, an
-  unreadable assigned plan, an unavailable required tool, or an unwritable artifact, the reviewer
+  the sources it requires. When a prerequisite prevents that, such as an unreadable assigned
+  plan, an unavailable required tool, or an unwritable artifact, the reviewer
   gives no verdict. It returns a concise blocker to the issue fixer that states what prevented
   completion and any bounded evidence already obtained; findings already established remain
   bounded observations in that blocker. The blocker goes in the assigned review artifact when that
@@ -466,18 +451,18 @@ projects into that role's own prompt body, so a role never needs this document t
 
 - Invocation: the implementation manager invokes them within an issue run. The acting
   `build` or `plan` primary invokes them only for a clearly trivial direct wording assignment,
-  under [Direct trivial fixes](#direct-trivial-fixes). Both use the author selection described
-  under [Choosing the author and reviewer pair](#choosing-the-author-and-reviewer-pair).
-  A coordinator, issue fixer, designer,
-  reviewer, or other author never invokes them. An author never invokes a reviewer itself;
-  the invoking owner does, only after the author has settled.
+  under [Direct trivial fixes](#direct-trivial-fixes). The invoking owner, not the author,
+  obtains independent review after the author settles.
 - Choice: `doc-developer` writes ordinary documentation. `prompt-developer` writes
   model-facing instructions, prompts, templates and fragments, agent bodies and
   descriptions, skills, and AGENTS wording. Technical documentation about prompts is
   `doc-developer` work. See [Choosing the author and reviewer pair](#choosing-the-author-and-reviewer-pair).
-- Inputs: the assigned facts, the plan or direct assignment, and the exact sections or files the
-  invoking owner names (the implementation manager in an issue run, or the acting primary in a
-  direct fix). Read the actual source to confirm each fact before wording it.
+- Inputs: the absolute approved-plan path under `docs/working/` in an issue run or the direct
+  assignment, and the exact files or sections. Either caller can supply settled facts directly or
+  by accessible reference. The author reads the assignment and named text, consults actual
+  source for new claims, changed inputs or concrete discrepancies, and brings missing facts or
+  prerequisites back to the caller. This does not require repeating a settled check or claiming
+  personal verification of its result.
 - Documentation form (`doc-developer`): choose order and structure by the reader's need and the
   document's kind. State the purpose and the immediate action where the reader needs them, and use
   paragraphs, lists, or tables as the content warrants. No fixed paragraph or section progression
@@ -486,26 +471,24 @@ projects into that role's own prompt body, so a role never needs this document t
   configuration and governing instructions, the callers and consumers that receive the text, and
   any template or fragment that delivers it. Read an unchanged sibling role only where it receives,
   consumes, or conflicts with the text. Do not judge the text alone.
-- Output: the author reports actual model identity evidence from its execution context. When
-  the author edits the assigned file in place, the report names the files and
-  sections changed, the sources read, the facts confirmed and not obtained, the links not
-  verified, the selfchecks, and any text that belongs to the other pair. The file is the
-  artifact, so the text is not echoed back. When the text must be applied elsewhere, such as
-  an inline host, the author returns the exact replacement text with the same report. The
-  route's mechanical applicator applies it verbatim: `code-developer` in an issue run, or the
-  acting primary in a direct fix that has actual edit authority for the host. Selfchecks are author
-  checks, not independent review.
-- Report partial wording and any facts you could not obtain. Await the invoking owner. Route
-  source gaps back through that owner.
+- Output: the handback names the changed files and sections, sources used, author selfchecks,
+  and decision-relevant limits, gaps or work for another role. The documentation author rereads
+  the wording against its sources and checks the links it adds, identifying any it could not verify.
+  The prompt author checks the readable composed result or identifies the projection and its limits.
+  The file is the artifact for an in-place edit; when application is separate, the handback
+  includes the exact replacement for verbatim application. Neither author's selfcheck substitutes
+  for independent review.
 - Mutation boundary: the assigned documentation or model-facing assets only. No source
   repair, delegation, shell, Lua, or execute use, builds, validation, staging, or commit.
 
 ### Documentation reviewer and prompt reviewer
 
-- Inputs: the exact final assets or sections, the assignment, and, for prompt review,
-  the root configuration, governing and shared instructions, and the relevant unchanged
-  roles as one composed result. The invoking owner (the implementation manager, or the acting
-  primary for a direct fix) names the explicit model override.
+- Inputs: the assignment and exact final assets or sections; prompt review also examines the
+  root configuration, governing and shared instructions, and relevant roles as one composition.
+  The caller assigns the prompt review artifact path. A separate pre-application prompt review
+  checks the exact replacement against its named executable host, relevant source contracts and
+  governing instructions. Its handback identifies the reviewed replacement by quote or accessible
+  exact reference, names the host, and scopes the findings and verdict to that wording in context.
 - For documentation review, either caller supplies the exact pre-authoring comparison baseline
   and the exact final files or sections, compared as actual working text including staged and
   unstaged changes. A matching commit and path, an already readable exact version, or the exact
@@ -520,7 +503,8 @@ projects into that role's own prompt body, so a role never needs this document t
   file mutation tool governed by the `edit` action, not a required tool name. Unknown or inconsistent
   baseline, ownership, evidence or target binding requires clarification or a stop, not a guessed
   comparison or trial write.
-- Documentation review checks facts against the actual source, quality, structure, reader
+- Documentation review independently compares the baseline and actual final wording, checks its
+  factual claims against actual source, and assesses quality, structure, reader
   usefulness, and link correctness. Judge order and form by audience and document kind, and
   not by a fixed progression or paragraph pattern. Check that each prerequisite, safety
   condition, and uncertainty the subject needs is stated, without requiring the same items
@@ -543,12 +527,13 @@ projects into that role's own prompt body, so a role never needs this document t
   its actual edit authority. If that scope becomes uncertain, the full protocol applies. A finding
   that requires a changed design is reported as such: in an issue run the manager returns it to
   the issue fixer, and a direct fix routes it to the full protocol.
-- A completed review finishes with exactly one verdict on the last line, as for design review.
-  When a prerequisite prevents completion, such as a wrong required model, an unreadable
-  assigned file, an unavailable required tool, or an unwritable artifact, the reviewer gives no
-  verdict. It returns a concise blocker to the invoking owner that states what prevented
-  completion and any bounded evidence already obtained, keeping established findings as bounded
-  observations. The blocker goes in the assigned review artifact when that is writable; otherwise
+- A completed review, including a scoped pre-application prompt review, finishes with exactly one
+  verdict on the last line, as for design review. When a prerequisite prevents completion, such
+  as an unreadable assigned file, an unavailable required tool, an unresolved conflict, or an
+  unwritable artifact, the reviewer gives no verdict. It returns a concise blocker to the
+  invoking owner stating what prevented completion and any evidence already obtained,
+  keeping established findings as bounded observations. The blocker goes in the assigned
+  review artifact when that is writable; otherwise
   the inability is reported directly. Unavailable input alone is not an asset defect, and a
   readable text that fails an actual requirement is an ordinary material finding. A blocker is
   never approval and never a verdict.
@@ -556,7 +541,8 @@ projects into that role's own prompt body, so a role never needs this document t
   actual final composition, after the last relevant edit and including any inline
   integration: (a) linkage, positive-sufficiency, and whole-composition review; and (b) a
   separately identified, unconditional final clean-room assessment, which is required even
-  when activity (a) found nothing. It is not an incremental findings check. One invocation
+  when activity (a) found nothing. The clean-room pass rereads the actual composition from
+  the recipient's perspective, not from the diff or the author's rationale. One invocation
   in a session distinct from the author may perform both sequentially on the same final
   input, and its review must identify each activity. A second invocation is not required
   merely because there are two activities. An author's selfcheck, a generic passing
@@ -635,18 +621,10 @@ documentation wording. Do not add automatic double review.
 
 ## Native delegation and settlement
 
-Development roles invoke one another through the exposed native subagent tool. The
-published OpenCode V2 contract is in the [OpenCode tools documentation, Subagent section](https://opencode.ai/docs/tools/#subagent).
-Its essentials: the caller supplies an agent ID, a short description, and a complete
-prompt; the call returns a `sessionID`; a continuation names the same agent and passes
-that exact `sessionID` to continue the same child conversation.
-
-Published V2 behavior runs a subagent in the background. The call returns at once with
-the session ID, and the parent receives a subagent message when the child goes idle and
-again after each later round. Any delivery option, default, or wrapper detail belongs to
-the tool contract that the calling session actually exposes. This document does not publish
-a wrapper signature, assume a universal blocking or background default, or name a universal
-tool namespace.
+The exposed native subagent tool takes the named role, a short description, and the
+complete assignment. The calling session's tool contract governs delivery; the workflow
+does not depend on a foreground or background default. A continuation uses the original
+role and exact recorded `sessionID`.
 
 Settlement is separate from routing:
 
@@ -656,6 +634,8 @@ Settlement is separate from routing:
   arrives with the round's completion or idle message. An idle message without the report
   does not prove success, command settlement, lock release, or repository stability.
 - A settled synchronous return may carry both the routing ID and the report.
+- A substantive report does not need model metadata. Actual invocation failures and
+  material conflicts are reported without diagnostic delegation, fallback, or automatic replay.
 - A missing, partial, or ID-only result is unsettled. The caller takes no step that depends
   on it, reports it with the recorded session ID, and launches no replacement.
 - Continuation is one ordinary call to the original agent identity with the exact recorded
@@ -681,18 +661,13 @@ every design review.
    absence of findings from an incomplete review is not evidence of closure. A blocker
    handback is not triaged as a review finding and does not send the plan to the designer as
    an automatic redesign. The existing stop routing decides what follows: unavailable required
-   tooling, identity, or input is `BLOCKED`, and an actual issue-local failure is `FAILED`
+   tooling or input is `BLOCKED`, and an actual issue-local failure is `FAILED`
    (see [Escalation and blockers](#escalation-and-blockers)). Review closure alone never
    authorizes freshness checking or implementation.
 
-Invoke the issue designer through the exposed native subagent tool with agent
-`issue-designer`, a short description, and a prompt giving the issue context and the
-absolute plan path. Invoke the design reviewer with agent `design-reviewer` and a prompt
-giving the absolute current plan path. Triage begins only after that round's substantive
-report has returned, as [Native delegation and settlement](#native-delegation-and-settlement)
-requires. Save or summarize each review in the issue's working directory. New invocations
-use only the canonical identities above; a recorded pre-transition session is continued only
-by its own recorded session ID under the existing-session rules.
+Triage begins after the substantive review report returns. The fixer uses the designer's plan
+and the reviewer's findings and verdict for its own decisions, rather than recertifying each
+worker's procedure. Each review is saved or summarized in the issue's working directory.
 
 ### Finding triage
 
@@ -837,6 +812,10 @@ Advance only on evidenced settlement:
 - Lock inspection, polling, sleeps, speculative manager calls, and new approval ceremonies do
   not establish eligibility.
 
+For these decisions and the tracker update, the coordinator uses the fixer's disposition and
+its accessible evidence. A missing decision-relevant fact still needs to be supplied; an
+accessible manager report does not need a second transcript or an assurance rerun.
+
 At each eligible boundary the coordinator selects exactly one next run: either one new issue,
 or one recorded waiting fixer whose known lock holder has returned, released its lock, and
 reported a stable committed state, or one cancelled waiter whose owner has directed its
@@ -963,42 +942,39 @@ The manager must:
    with `doc-reviewer`. Route model-facing instructions, prompts, templates and fragments,
    agent bodies and descriptions, skills, and AGENTS wording to `prompt-developer`, with
    `prompt-reviewer`. Mixed work is split into exact sections, each sent to its own pair.
-   Settle the source facts first where needed, then author the wording from them. A source
-   gap returns to the manager for a separate `code-developer` assignment.
+   Settle the source facts first where needed; the manager passes those facts to the author
+   by accessible reference or directly where needed. A source gap returns to the manager
+   for a separate `code-developer` assignment.
    Carry planned exact tests or named focused groups and affected owners, consumers,
    interactions, specialized witnesses and prerequisites into relevant assignments,
    without granting new execution authority.
-   - A documentation or prompt author (`doc-developer` or `prompt-developer`) runs
-     sequentially. Never run one concurrently with another author or with any source
-     worker. Never overlap authoring with independent review of the same moving assets.
-      A review of an asset starts only after its author has settled.
    - A concurrent `code-developer` group may launch only when every assignment is
      source-only and the manager has positively determined that the assignments do not
      conflict in files, contracts, generated outputs, validation side effects, or
      required order.
-4. Await every developer, author, and reviewer and every command each launched.
-   Reconcile each result and the combined repository state against the assigned scopes
-   and the approved plan. No shared or integration validation, generation, staging, or
-   commit may start until all workers and their launched commands have settled.
-   - After a prompt author changes prompt assets, the manager invokes `prompt-reviewer`
-     with the explicit exact Sol override `openai/gpt-6.2-sol`, in a distinct session,
-     for prompt linkage and composition review. The final review after the last relevant
-      edit, including any inline integration, must identify both final activities on the
-      actual final composition: the whole-composition review and the separately identified
-      unconditional clean-room assessment. One such invocation may perform both when its
-      review identifies each; no second invocation is added for that reason alone.
-     Ordinary documentation changes go to `doc-reviewer`.
-     No review is added to unchanged text or to an asset outside the assignment.
+4. The manager awaits each worker's substantive report and settlement of its launched
+   commands. It uses those reports for settled facts and reconciles the assigned scopes
+   and combined repository state against the approved plan. Shared or integration validation,
+   generation, staging, and commit wait for all workers and their commands to settle.
+   - Authors and reviewers run alone, after the prior worker settles, in distinct author and
+     reviewer sessions. For ordinary documentation, the manager establishes the exact
+     pre-authoring baseline before edits and assigns the comparison and artifact as described
+     under [Documentation reviewer and prompt reviewer](#documentation-reviewer-and-prompt-reviewer).
+   - For inline prompt wording, the manager follows the shared inline sequence under
+     [Choosing the author and reviewer pair](#choosing-the-author-and-reviewer-pair).
+     The manager obtains both required final prompt review
+     activities on the actual final composition after the last relevant edit, including any
+     inline application. No review is added to unchanged text or outside the assignment.
    - Findings return to the matching author, `doc-developer` or `prompt-developer`, for
      wording, or to `code-developer` for logic in source or configuration. Each return is
      followed by affected validation and fresh review of the actual final input. For a
-      prompt asset, that review is the final activities above, including the clean-room
-      assessment, and the same applies after any later relevant shared or governing
-      instruction, host, or configuration change. For ordinary documentation, the fresh
-      review is by `doc-reviewer`; no prompt clean-room assessment is added. A reviewer's
-      blocker handback is a settled report of an incomplete review, not a completed review:
-      the manager does not treat the affected asset as reviewed until its required review
-      returns a completed verdict on the actual final input.
+     prompt asset, that review is the final activities above, including the clean-room
+     assessment, and the same applies after any later relevant shared or governing
+     instruction, host, or configuration change. For ordinary documentation, the fresh
+     review is by `doc-reviewer`; no prompt clean-room assessment is added.
+   - A reviewer's blocker handback may settle the call under step 4, but the review stays
+     blocked or pending. The manager reports the blocker and follows normal stabilization
+     rather than treating the affected asset as reviewed or working around a prerequisite.
    - A finding that requires a changed design is not implemented by any worker. The
      manager returns it to the original issue fixer for the full redesign loop.
    - Include planned discriminator, producer, consumer, fixture, and reference
@@ -1021,10 +997,10 @@ The manager must:
    already staged, commit with a path-scoped operation that excludes them and leaves them staged.
    Commit coherent stable units under AGENTS. Developer checks inform progress. The manager owns integrated assurance:
    reuse a successful developer check whose relevant inputs are unchanged in the final
-   result without ceremonial reruns. Investigate unknown applicability and rerun the
-   affected check if it cannot be established; rerun checks with changed inputs and add
-   interaction witnesses. Record commands, results, input scopes, reuse and escalation
-   rationale; unknown applicability is not a pass.
+   result. Investigate unknown applicability and rerun the affected check if it cannot be
+   established; rerun checks with changed inputs and add interaction witnesses. Record
+   commands, results, input scopes, reuse and escalation rationale, including failures and
+   timeouts even if a corrected run passes. Unknown applicability is not a pass.
 6. Prepare its final report with command results and commit hashes. Before normal
    release, ensure the completed issue work is stable and committed, and that no
    issue-owned uncommitted mutation remains. Ignored tracker edits are excluded from that check.
@@ -1117,19 +1093,9 @@ selects again only at a later eligible boundary.
 
 ### Ordinary resume
 
-The coordinator resumes the selected fixer with one ordinary continuation call through the exposed
-native subagent tool. It names the identity recorded at launch as the agent and passes the exact
-recorded session ID as `sessionID`. These are illustrative arguments, not a callable namespace:
-
-```text
-agent: "<the identity recorded at launch>"
-description: "<continuation label>"
-prompt: "<continuation prompt>"
-sessionID: "<exact recorded session ID>"
-```
-
-The prompt asks the fixer to continue the named issue from its plan at the recorded absolute
-path, and gives the tracker entry identifier and paths. For a cancelled waiter, it also states
+The coordinator resumes the selected fixer with one ordinary continuation call to the original
+role and exact recorded session ID. The assignment names the issue, recorded absolute plan
+path, tracker entry identifier and tracker paths. For a cancelled waiter, it also states
 that the earlier waiting episode was cancelled and forwards the owner's continuation instruction
 verbatim. It supplies no freshness conclusion and no approval.
 
@@ -1186,8 +1152,9 @@ at a later eligible boundary.
 
 ### Acquired-lock return
 
-The issue fixer performs read-only reconciliation only. It inspects the manager report,
-the commit hashes, `HEAD`, status and diff, and the manager-supplied validation evidence.
+The issue fixer performs read-only reconciliation only. It compares the manager report and
+commit hashes with `HEAD`, status and diff, and uses the manager's validation evidence for
+its disposition rather than rerunning those checks.
 It must not run any command that can mutate files, regenerate artifacts, stage, commit,
 or finish implementation. Reconciliation never authorizes a follow-up action after an
 uncertain publication that the [uncertain publication boundary](#uncertain-publication-boundary)
@@ -1218,48 +1185,44 @@ Every issue fixer return to a coordinator starts with exactly one of these dispo
 - `FAILED`
 - `CANCELLED`
 
-A waiting return reports, once and without a fixed template:
+The fixer accounts for implementation effects across all attempts using the manager's
+substantive reports and the fixer's read-only reconciliation. Unchanged evidence can travel
+by accessible reference. Changed, inaccessible, or newly material facts that the coordinator
+needs are supplied directly, including failures, validation limits, and remaining scope.
+Relevant evidence includes delivered units and files, commits, validation, divergence,
+repository stability, and lock status.
+
+A waiting return reports:
 
 - the issue identifier and summary, and the plan path;
-- the approval facts (in full, or by reference to the earlier report of this run when unchanged),
-  and the implementation attempt number;
+- the approval facts or accessible reference, and the implementation attempt number;
 - the lock holder as the manager described it, verbatim or faithfully concise;
-- `Work performed in this attempt: none`;
-- the cumulative prior manager effects, with their delivered units, commit hashes, validation
-  results with failures and limits, and remaining scope, or `none`;
+- `Work performed in this attempt: none`: this attempt acquired no lock and delegated nothing;
+- cumulative prior delivery, commits, validation including failures and limits, and remaining
+  scope, if any. No work this attempt does not erase earlier delivery;
 - the tracker evidence: the entry identifier or `unavailable`, with the lifecycle `Designed` for the
-  approved plan. Waiting is a note on that entry, not a separate status;
+  approved plan. Waiting is a note on that entry, not a separate status. The contention attempt
+  makes no tracker write;
 - the resume condition: the known lock holder has returned, released its lock, and reported stable
   committed state, after which the coordinator may select this fixer for an ordinary resume.
 
 The return carries no challenge result, nonce, or other continuity value. The coordinator keeps the
 fixer's session ID in its session context as routing state.
 
-Before any manager delegation, record the resume check:
+Before any manager delegation, the fixer records its freshness result, previously examined and
+current `HEAD`, relevant intervening changes or their absence, and the decision evidence.
 
-```text
-Resume check: PLAN_STILL_VALID | PLAN_REVIEW_REQUIRED | BLOCKED
-Previously examined HEAD: <commit>
-Current HEAD: <commit>
-Relevant intervening changes: <summary or none>
-Decision and evidence: <reason>
-```
-
-A completed report includes the issue identity, the plan path, the approval facts (in full, or by
-reference to the earlier report of this run when unchanged), files changed, manager-supplied
-validation results, commit hashes, remaining work or divergence, and repository stability.
+A completed report identifies the issue and plan, supplies the approval facts or accessible
+reference, and accounts for the cumulative implementation effects and stable reconciliation.
 
 An `ABANDONED` report instead includes the issue identity and plan path, the review outcome,
 the merit evidence, the failed conditions, why redesign cannot make the remaining scope
 worthwhile, and any separate follow-up. It states whether the decision abandons the whole
 proposed fix before implementation or only the identified remainder after stabilized partial
-delivery. Delivered and abandoned scope are reported separately; partial delivery never means
-the issue or the original plan was completed. The report gives the actual effects of every
-attempt, taken from the manager's final reports and the fixer's read-only reconciliation rather
-than only the final round or attempt: changed files, completed units, commit hashes,
-manager-supplied validation results with their failures and limits, remaining scope, repository
-stability, and lock release status. It states that there were no implementation changes,
-validation, or commits only when that is true of the whole implementation history. Design review
+delivery. It accounts for every attempt, not just the last, and gives delivered and abandoned
+scope separately; partial delivery never means the issue or original plan was completed.
+It states that there were no implementation changes, validation, or commits only when that is
+true of the whole implementation history. Design review
 and planning activity are not implementation validation. Its `Tracker evidence` line supports
 Analyzed with a terminal ABANDONED note, never Done. Abandonment authorizes no cleanup, no
 reverting of coherent delivered units, no additional validation by the fixer, and no lock release.
@@ -1356,24 +1319,21 @@ and only for a clearly trivial direct wording fix.
 
 Reporting has two registers, matched to the recipient.
 
-**Internal evidence handoffs** (worker to manager, manager to fixer, fixer to coordinator, and the
-coordinator's own record) carry what the next role needs to review, apply, validate, or decide: the
-issue and plan paths, the tracker entry identifier with the status applied or pending, the review and
-final merit outcomes, material findings, files changed and commit references, manager-assured
-validation commands with results and input scope (and whether each was reused or newly run),
-prompt-review evidence where model-facing assets changed (an incomplete review is reported as its
-blocker, not as review evidence), pre-transition profile identities where a session used one, repository
-stability, delegation receipts, and cumulative delivery with its failures, limits, and remaining or
-abandoned scope. The coordinator's record also holds the order of selected runs, the
-boundary evidence used before each launch or resume, and each dormant waiter by identifier only. For
-each owner-directed continuation of a cancelled waiter, it holds the owner instruction received, the
-cancellation evidence, the resume result, and the facts the resumed run carried from earlier reports.
-Those carried facts stay historical and are never presented as new lock contention or fresh freshness
-evidence. Session IDs remain session context and are never written to tracker or repository files.
-Give each fact once at its owning handoff. Refer to the accessible artifact or report afterwards, and
-repeat a fact only when it changed or the recipient lacks it. A reference never hides adverse
-evidence: a later report that points back to an earlier one still states any failure, limit, or
-abandonment the reader needs to decide, and it never implies whole-issue completion.
+**Internal evidence handoffs** carry what the next role needs to review, apply, validate, or
+decide. The manager's report owns implementation evidence: assigned scopes and substantive
+worker results and settlement; review verdicts, blockers and applicable final review artifacts;
+validation commands, results, input scope and reuse; generated-artifact handling; effects,
+commits, tracker status, stability and lock release. Child roles and exact session IDs are
+recorded for routing. An incomplete review is reported as blocked or pending.
+
+The fixer hands back its disposition, approval or merit evidence, read-only reconciliation and
+tracker evidence, using accessible manager reports for unchanged implementation facts. The
+coordinator keeps the original role and session ID, selected-run order, eligibility evidence,
+dormant waiters, and pending tracker facts in its session context. For owner-directed
+continuation of a cancelled waiter, it retains the authentic owner instruction, cancellation,
+resume outcome and prior effects. Carried facts stay historical, not new contention or fresh
+approval. Session IDs are not written to tracker or repository files. References do not
+substitute for stating adverse facts that the recipient needs to decide.
 
 **The user reply** states each issue's outcome, and the decision, action, or blocker the user needs. It
 also states the adverse facts that affect that outcome or decision: errors, partial effects,
@@ -1386,33 +1346,13 @@ acceptance. When a cancelled waiter or resumed run bears on the outcome or on an
 reply reports that result and marks carried-over facts as historical. A dormant or cancelled waiter that
 needs owner direction is stated with the decision required. The reply lists paths or file lists only
 when the user needs them for a decision or action, and it gives a brief commit reference only when that
-helps. It is not a chronological ledger of runs, boundary evidence, or receipts; that detail stays in
+helps. It is not a chronological ledger of runs or boundary evidence; that detail stays in
 the internal handoffs, which the reply may refer to.
 
-Do not commit `docs/working/` artifacts. A change to agent bodies in source describes
-fresh-session behavior. Ordinary, authorized fresh development sessions use the new profiles
-without a separate adoption approval. A running session keeps the stored agent body it already
-has, and a changed agent file is not a replacement for that body. Shared instructions reach a
-running session by their own routes, as the
-[OpenCode instructions documentation](https://opencode.ai/docs/instructions) describes. Global
-and upward `AGENTS.md` files and existing local configured instruction files are updated before the session's
-next model request, so such a change can apply while the stored body stays old. A nested
-`AGENTS.md` already discovered is not refreshed automatically. If compaction or a revert removes
-that entry from history, a later read can load it again. An already-loaded skill keeps its
-earlier text; a session whose role permits it may later load the changed skill and consume the
-updated text. None of these routes replaces the stored body or expands a narrower effective
-permission. Effective authority is the stored body together with the shared instructions that
-currently take effect, under their priority. A missing allowance for a tracker action is reported
-as pending or blocked, never handed to another session. Consumption and adoption are separate
-facts, and a file edit alone proves neither; a read grants no authority the reader's effective
-instructions lack. Claim receipt or consumption only with evidence that supports that specific
-claim, and do not claim adoption unless consumption or a replaced body was observed. Source
-completion does not require delivery evidence from a running session. Do not restart OpenCode,
-switch running sessions, or replace stored instructions to force adoption. An effective instruction
-conflict is reported as a blocker; it is not repaired by restarting or altering a session. Actual
-deployment, service operations, and other separately controlled live actions keep their own
-distinct approval.
-The evidence recorded for the role-introduction refinement did not include a live invocation
-of the canonical leaves by the then-stored implementation manager. That is a limit of that
-evidence, not a standing status. Whether a given run exercised the canonical leaves is shown
-by that run's own delegation receipts.
+`docs/working/` artifacts are not committed. Ordinary authorized fresh development sessions
+need no separate adoption approval. Running sessions continue under their effective
+instructions, as described under [Canonical roles and transition](#canonical-roles-and-transition).
+Source completion does not require live delivery evidence. An unresolved instruction conflict
+is reported as a blocker, not repaired by restarting OpenCode, switching sessions, or replacing
+stored instructions. Deployment, service operations, and other separately controlled live
+actions retain their separate authorization requirements.
