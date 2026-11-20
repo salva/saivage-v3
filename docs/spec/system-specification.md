@@ -3982,15 +3982,15 @@ on STOPPED. FAILED requires supported reopen to CHANGED before separate activati
 Every node also has blocked→BLOCKED and failed→FAILED, promoting/exporting its
 current required record. There are no other terminals or direct planning DONE.
 
-| Node | Agent | Nonfailure outcomes → destinations |
-| --- | --- | --- |
-| resume-assess | Planner | frame→frame-plan; align→alignment; deliver→deliver; accept→integrated-acceptance; assess_debt→debt-assessment; root also reconcile→objective-assessment |
-| frame-plan | Planner | ready→alignment |
-| alignment | Reviewer | aligned→deliver; revise→frame-plan |
-| deliver | Planner | replan→frame-plan; candidate_ready→integrated-acceptance (root: objective-assessment) |
-| objective-assessment (root only) | Planner | replan→frame-plan; candidate_ready→integrated-acceptance |
-| integrated-acceptance | Reviewer | accepted→debt-assessment; repair→deliver; replan→frame-plan |
-| debt-assessment | Reviewer | clear→DONE; refactor→frame-plan; reassess→resume-assess |
+| Node | Agent | Shared nonfailure outcomes → destinations | `goal` only | `project` only |
+| --- | --- | --- | --- | --- |
+| `resume-assess` | `planner` | `frame` → `frame-plan`; `align` → `alignment`; `deliver` → `deliver`; `accept` → `integrated-acceptance`; `assess_debt` → `debt-assessment` | — | `reconcile` → `objective-assessment` |
+| `frame-plan` | `planner` | `ready` → `alignment` | — | — |
+| `alignment` | `reviewer` | `aligned` → `deliver`; `revise` → `frame-plan` | — | — |
+| `deliver` | `planner` | `replan` → `frame-plan` | `candidate_ready` → `integrated-acceptance` | `candidate_ready` → `objective-assessment` |
+| `objective-assessment` | `planner` | — | Node absent | `replan` → `frame-plan`; `candidate_ready` → `integrated-acceptance` |
+| `integrated-acceptance` | `reviewer` | `accepted` → `debt-assessment`; `repair` → `deliver`; `replan` → `frame-plan` | — | — |
+| `debt-assessment` | `reviewer` | `clear` → DONE (subject to pending-notification diversion); `refactor` → `frame-plan`; `reassess` → `resume-assess` | `ready_to_incorporate` → `deliver` | — |
 
 Framing authors reviewable expanded functional analysis separately from its brief:
 need/scope, facts/assumptions, constraints/acceptance, approach/design, useful next
@@ -4003,33 +4003,77 @@ newly detailed implementation after exploration returns via replan for alignment
 Same-approach correction stays delivery; material changes revisit framing/alignment.
 Partial slices and child DONE are not full-goal acceptance.
 
-Root reconciliation addresses the whole objective/continuing obligations, not a
-milestone, and dispatches no children there. Integrated acceptance independently
-inspects combined output against intent/design; isolated green checks or consistent
-prose alone are insufficient. Reviewer has no command tool and is instructed not
+For applicable new or continuing development, the input is the latest approved,
+actually incorporated base or project equivalent and usable authorized source,
+including incorporated prerequisites. A review verdict or branch name alone is
+not that base. If the base changes, preparation preserves parked, staged and
+unrelated work and checks affected interactions. The result must be inspectable
+by the Reviewer, with evidence tied to the exact combined inputs and output;
+material sufficient for review is not necessarily usable source for incorporation.
+
+Root reconciliation addresses the whole objective and continuing obligations, not
+a milestone. The guidance routes remaining work back through `replan` rather
+than dispatching children from `objective-assessment`. Integrated acceptance
+independently inspects combined output against intent/design; isolated green
+checks or consistent prose alone are insufficient. Reviewer has no command tool and is instructed not
 to repair judged assets despite unchanged workspace-write capability. Needed
 independently executed checks return through Planner and a suitable child.
-Debt is a subsequent explicit decision on structure introduced/exposed relevant
-to this delivery. Justified no-change is clear; necessary scoped refactoring
-returns through alignment, delivery, acceptance and debt with affected validation.
+Debt is a subsequent explicit decision on structure introduced or exposed by
+this delivery. No structural change is required when the result is sound.
+Necessary scoped refactoring returns through alignment, delivery, acceptance and
+debt with affected validation.
 Unrelated cleanup is deferred. Non-code work needs usable structure, consistency,
 provenance/method, not compulsory code edits. Missing prerequisites or invalidated
 prior examination uses reassess, not fictitious refactoring or clearance.
+
+Only `goal` has the generated nonterminal result `ready_to_incorporate`. The
+guidance uses it when the exact candidate has passed independent functional and
+structural examination and the only outstanding obligation is incorporation
+into a project-designated accepted line or other versioned destination required
+by the assignment. That includes a report whose versioned delivery was expressly
+required. The accepted review and handoff identify the approved work, its
+destination and the exact applicable evidence. A rejected
+candidate returns for correction, not incorporation. The returning Planner can
+commission a direct `ops` child only for an outstanding, authorized operation.
+The writer needs the usable approved work, the intended destination, the expected
+base and a current authorized turn through settlement, with effective exclusion
+or an expected-base condition that protects the actual write. A prior verdict
+does not grant a turn. A changed base requires reassessment of the affected work
+and judgments; changed authority stops the old assignment even at the same base.
+
+After the operation, `candidate_ready` brings evidence of actual authorized
+incorporation in `main` or the project's designated accepted equivalent back to
+integrated acceptance and debt. The evidence binds the observed result to the
+exact approved work; a successful command alone does not establish that effect.
+Applicable earlier judgments can be reused. A missing safe operation or required
+evidence can block delivery. An outstanding or uncertain attempt does not
+authorize a successor, replay or dependent release. Already incorporated
+work, including a containing goal with no remaining delta, needs assessment of
+the combined result, not a second write. Nonversioned delivery and non-code
+results without an incorporation obligation are judged on their usable output
+and applicable evidence. When a separately authorized check uses a reviewed
+architecture design, the architecture `review.md` export identifies the exact
+design and applicable component judgment. The `ops` export of `status.md`
+supplies the observed result; design approval is not execution evidence.
 
 Assessment selects the earliest materially affected obligation from current inputs
 and exact earlier evidence, not an encoded cursor or automatic restart. Domain
 answers may resume design, supplied data delivery, verification acceptance and
 debt-only resolutions debt. Changed criteria revisit affected obligations; sound
 examinations may be reused, checked for applicability by the receiving reviewer.
-Only current debt clearance finishes project/goal and substantively establishes
-applicable alignment/functional acceptance plus root objective reconciliation.
-The engine does not certify those historical relationships or substantive judgment.
-Clear promotes current review; pending notifications return to Planner assessment
-with historical verdict retained, not successful silent closure. Agent-wide Planner
-capabilities allow framing to activate children: graph order does not prohibit all
-production effects before alignment.
+Only current debt clearance finishes project/goal. The guidance calls for
+applicable alignment and functional acceptance, verified incorporation when
+required, and whole-objective reconciliation for `project`. The engine does not
+certify those relationships, project effects or substantive judgment.
+On DONE, `clear` promotes and exports current `review.md`; pending notifications
+instead divert to `resume-assess` with `verdict-to-assessment`, retaining the
+historical verdict without terminal export. Dependent work relies on actual DONE
+and its applicable export, including usable incorporated input where required.
+Agent-wide Planner capabilities allow framing to activate children: graph order
+does not prohibit all production effects before alignment.
 
-Every type has bootstrap brief/status; project/goal/architecture also have review.
+Every type has bootstrap `brief.md` and declares `status.md`;
+`project`, `goal` and `architecture` also declare `review.md`.
 Planner/Executor require status continue/updated; Reviewer review clean/updated.
 Only the required record is initialized; scaffolds/unchanged drafts do not pass.
 Every node feeds required accepted brief, optional effective status, optional
@@ -4062,10 +4106,16 @@ Accepted amendment changes BLOCKED to CHANGED, not running. Metadata/direction d
 not amend requirements or weaken upstream obligations. Root/settled ancestors need
 separately admitted outer Run. STOPPED uses existing Supervisor/session uncertainty
 settlement unchanged, never uncertain-call replay or an invented saved approval.
-Fresh selection only: retained node/participant identities cannot be switched by
-YAML replacement or init. Equal outer formats do not prove adoption compatibility;
-future retained adoption needs separately authorized identified source/target
-assessment under the existing external-migration/reset boundary. No durable bump.
+Profile selection through init is for fresh inputs; neither YAML replacement nor
+init switches retained node or participant identities. Before using retained
+state, follow the [separately authorized stopped comparison](../runbook/state-adoption.md#selected-configuration-and-prompts)
+of the selected graph, participating identities, effective prompts and cumulative
+format differences. Equal outer formats do not prove compatibility. Retained
+state that matches all selected release contracts does not require migration or
+reset. If the comparison establishes incompatibility, remain stopped; proceeding
+with that cutover requires a separately owner-requested external migration or
+separately consented destructive reset. This source change has no durable bump
+and does not establish compatibility for any installation.
 Node IDs use the exact lowercase hyphenated form, notably `assess-completion`, goal `handle-notifications`, `add-coverage`, `component-review`, and `system-review`; underscore-bearing outcome IDs remain exact outcomes rather than node IDs.
 
 ### Planning, assessment and current status

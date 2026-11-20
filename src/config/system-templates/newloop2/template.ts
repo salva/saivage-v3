@@ -125,6 +125,7 @@ function planningCardType(project = false): CardTypeSource {
           },
           refactor: route('frame-plan'),
           reassess: route('resume-assess'),
+          ...(!project ? { ready_to_incorporate: route('deliver') } : {}),
         }),
       },
     },

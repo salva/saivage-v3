@@ -21,11 +21,34 @@ provider. They cover fresh graph ordering and loops, selective reentry, gates,
 descendant versus own-record freshness, FAILED versus actual Stop/recovery and
 uncertainty settlement, parent grants, final notifications, feeds/session reuse,
 compaction/history, all typed leaves and fresh CLI/package closure. Existing
-profile parity and specialized/completion regressions remain separate. Inspect
-complete composed output independently after final edits: tests are not proof of
-substantive judgment, model compliance or improved output quality. No deployment,
-adoption, provider pilot or dependency-security waiver is implied; focused success
-is not aggregate release green.
+profile parity and specialized/completion regressions remain separate.
+
+`tests/e2e/newloop2-flows.e2e.test.ts` and `tests/helpers/newloop2-fixture.ts`
+exercise the goal incorporation return through real selected tools. A
+fixture-owned command protects the disposable `development.json` destination
+with a writer turn and expected base. The test distinguishes a candidate
+rejected on combined review despite a focused check, a stale turn denied by
+the command, and a reviewed replacement incorporated with observable destination
+contents and identity. After reassessment it checks terminal `review.md` export
+and continuation from the incorporated prerequisite rather than parked input.
+In the interrupted case, Stop contains a real writer process after the fixture
+write but before verification is reported. The test checks the preserved effect,
+no repeated writer dispatch or write, and no goal clearance or dependent release
+while the effect remains uncertain to the workflow.
+
+Separate scenarios exercise a readable research report in an unversioned
+workspace without repository setup or submit, and a separately authorized
+offline artifact check. The latter passes the reviewed design from `architecture`
+to `ops`, runs the check against the named fixture and examines exported
+`status.md` as execution evidence, without an incorporation dispatch.
+
+These tests qualify selected routes, tool use, ordering and observed fixture
+effects. The provider scripts choose the verdicts and recovery decisions:
+passing does not establish substantive judgment, live-model compliance,
+improved output quality or project-specific writer protection. Inspect complete
+composed output independently after final edits. No deployment, adoption,
+provider pilot or dependency-security waiver is implied; focused success is not
+aggregate release green.
 
 Native Git bundle qualification uses synthetic repositories and scripted providers,
 never a live project: `tests/config/classic-git-materialization.test.ts` compiles and

@@ -4,6 +4,7 @@ import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.j
 import {
   compileProjectWorkflows,
   describeNodeResultContract,
+  processNodeOutcomes,
 } from '../../src/runtime/card-process/card-process-config.js';
 import { agentExecution, directEdge } from '../helpers/workflow-execution.js';
 import { writeRecordPatterns } from '../helpers/capability-grants.js';
@@ -152,6 +153,42 @@ describe('newloop2 standalone compiled declarations', () => {
         },null,2));
       }
     }
+  });
+  it.each(['project', 'goal'])('%s compiles its debt choices and existing clearance behavior', (type) => {
+    const process = compiled.cardTypes.get(type)!;
+    const stateId = 'node:debt-assessment';
+    const routes = process.states.get(stateId)!.on;
+    expect(processNodeOutcomes(process, stateId)).toEqual([
+      'clear',
+      'refactor',
+      'reassess',
+      ...(type === 'goal' ? ['ready_to_incorporate'] : []),
+      'blocked',
+      'failed',
+    ]);
+    if (type === 'goal') {
+      expect(routes.get('result:ready_to_incorporate')).toMatchObject({
+        targetStateId: 'node:deliver',
+        semantic: {
+          kind: 'configured-outcome',
+          outcome: 'ready_to_incorporate',
+          prompt: null,
+          terminalBehavior: null,
+        },
+      });
+    } else {
+      expect(routes.has('result:ready_to_incorporate')).toBe(false);
+    }
+    expect(routes.get('result:clear')).toMatchObject({
+      targetStateId: 'terminal:DONE',
+      semantic: {
+        terminalBehavior: {
+          promotion: { kind: 'current' },
+          exportRecords: [{ name: 'review.md' }],
+        },
+      },
+    });
+    expect(routes.get('result:clear:pending-notifications')?.targetStateId).toBe('node:resume-assess');
   });
   it.each(['project', 'goal'])('%s preserves repair, replan, debt and later-stage reentry routes', (type) => {
     const process = compiled.cardTypes.get(type)!;

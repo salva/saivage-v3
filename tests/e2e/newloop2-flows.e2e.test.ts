@@ -5,6 +5,7 @@ import {
   verdict,
   decision,
   selectedNode,
+  seedDeliveryWorkspace,
   type Step,
 } from '../helpers/newloop2-fixture.js';
 import { testNotificationAuthority } from '../helpers/capability-grants.js';
@@ -34,16 +35,18 @@ import { deterministicSummarySerialization } from '../helpers/summary-serializat
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { bootstrapContextSupplier } from '../../src/runtime/records/bootstrap-context.js';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 
 jest.setTimeout(30000);
 const fixtures: ReturnType<typeof newloop2Fixture>[] = [];
 afterEach(async () => {
   for (const f of fixtures.splice(0)) await f.cleanup();
 });
-function fixture(steps: Step[] = []) {
-  const f = newloop2Fixture(steps);
+function fixture(steps: Step[] = [], brief?: string) {
+  const f = newloop2Fixture(steps, brief);
   fixtures.push(f);
   return f;
 }
@@ -121,7 +124,336 @@ async function parked(f: ReturnType<typeof fixture>, owner: Awaited<ReturnType<t
   ]);
 }
 
+const call = (card: string, node: string, tool: string, args: Step['args']): Step => ({
+  card, node, tool, args,
+});
+const dispatch = (card: string, node: string, child: string, instructions: string): Step =>
+  call(card, node, 'activate_card', { card_id: child, instructions });
+const readPath = (card: string, node: string, path: string): Step =>
+  call(card, node, 'read', { path });
+const run = (card: string, node: string, command: string, cwd = '.'): Step =>
+  call(card, node, 'run_command', { command, cwd });
+const readAccepted = (card: string, node: string, target: string, name: string, version: number): Step =>
+  call(card, node, 'read_record_version', { card_id: target, record_name: name, version });
+
+function lastReceipt(input: PreparedLlmInvocationInput) {
+  const row = input.providerConversation.messages.filter((message) => message.role === 'tool').at(-1);
+  if (!row) throw new Error('Expected actual tool receipt in the prepared invocation');
+  return JSON.parse(row.content);
+}
+
+function observe(next: Step, expected: object): Step {
+  return {
+    ...next,
+    before: (input) => expect(lastReceipt(input)).toMatchObject(expected),
+  };
+}
+
+function statusFromCommand(card: string, node: string, expected: object): Step {
+  return {
+    ...author(node, '', card),
+    args: (input) => {
+      const receipt = lastReceipt(input);
+      expect(receipt).toMatchObject({
+        success: true, data: { status: 'exited', exit_code: 0, stdout_complete: true },
+      });
+      expect(JSON.parse(receipt.data.stdout)).toMatchObject(expected);
+      return { path: `record:///status.md?card=${card}`, content: receipt.data.stdout };
+    },
+  };
+}
+
+function toolCalls(f: ReturnType<typeof fixture>, sessionId: Parameters<typeof readConversation>[1], tool: string) {
+  return readConversation(f.root, sessionId).sourceRows
+    .filter((row) => row.kind === 'tool_call' && row.tool === tool)
+    .map((row) => JSON.parse(JSON.parse(row.content).tool_calls[0].function.arguments));
+}
+
+const framing = (card: string, scope: string): Step[] => [
+  ...decision('frame-plan', 'ready', scope, card),
+  ...decision('alignment', 'aligned', `Checked bounded assignment and evidence: ${scope}`, card),
+];
+
+const doneRecord = (f: ReturnType<typeof fixture>, card: string, name: string) => {
+  const lifecycle = f.cards.read(card)!.lifecycle;
+  if (lifecycle.status !== 'done') throw new Error(`Expected ${card} to be DONE`);
+  const exported = lifecycle.result.records.find((record) => record.name === name);
+  if (!exported) throw new Error(`Missing ${name} export from ${card}`);
+  return exported;
+};
+
 describe('newloop2 real owner semantic flows', () => {
+  it.each([false, true])(
+    'qualifies reviewed incorporation and dependent admission (interrupt writer: %s)',
+    async (interrupt) => {
+      const f = fixture([], 'Deliver quota 3 and its dependent calculation from the designated development line.');
+      const { directory, base } = seedDeliveryWorkspace(f.root, interrupt);
+      const containing = f.child('goal', 'project', 'Deliver the integrated quota and its dependent check; no parent delta.').id;
+      const goal = f.child('goal', containing, 'Raise quota to 3, preserve widget label, and incorporate the reviewed result on development.').id;
+      const dependent = f.child('ops', containing, 'Derive next quota from the incorporated prerequisite, not parked input.', [goal]).id;
+      const code = f.child('code', goal, 'Produce the quota candidate and affected test, without writing development.').id;
+      const stale = f.child('ops', goal, 'Try only the assigned, expired writer turn; report refusal.').id;
+      const writer = f.child('ops', goal, 'Submit the exact approved replacement only under the current turn.').id;
+      const baseId = sha256Hex(JSON.stringify(base));
+      const rejected = { ...base, quota: 3, label: 'wrong-label' };
+      const replacement = { ...base, quota: 3 };
+      const candidateId = sha256Hex(JSON.stringify(replacement));
+      const rejectedId = sha256Hex(JSON.stringify(rejected));
+      const target = join(directory, 'development.json');
+      const submit = (turn: string) => `node project.cjs submit replacement ${baseId} ${candidateId} ${turn}`;
+      const runDelivery = (card: string, node: string, command: string) => run(card, node, command, 'delivery');
+      const sameBase = () => expect(readFileSync(target, 'utf8')).toBe(JSON.stringify(base));
+      const receipt = (content: string) => ({ success: true, data: { content: { content } } });
+      const evidence = (candidate: typeof base, identity: string) =>
+        JSON.stringify({ base: baseId, identity, candidate, affectedCheck: true });
+      const examine = (card: string, node: string, name: string) =>
+        readPath(card, node, `project:///delivery/${name}`);
+      const deniedDependent = dispatch(containing, 'deliver', dependent, 'Check that dependent admission waits for prerequisite DONE.');
+      const proof = { destination: 'development.json', base: baseId, identity: candidateId, value: replacement };
+      f.script([
+          ...framing('project', 'Deliver the consumer quota objective.'),
+          dispatch('project', 'deliver', containing, 'Deliver the integrated quota objective; both child results must apply.'),
+          ...framing(containing, 'Incorporate the prerequisite before deriving the dependent quota.'),
+          deniedDependent,
+          observe(dispatch(containing, 'deliver', goal, 'Deliver the reviewed quota adjustment to development.'), {
+            success: false, error: expect.stringContaining('incomplete dependencies'),
+          }),
+          ...framing(goal, 'Prepare and review quota 3 without changing the label; incorporate only the exact replacement.'),
+          dispatch(goal, 'deliver', code, `Prepare from approved development ${baseId}; do not submit.`),
+          runDelivery(code, 'red', `node project.cjs check-base ${baseId}`),
+          observe(author('red', 'Affected quota check fails on the approved base: quota 2.', code), {
+            success: true, data: { status: 'failed', exit_code: 1, stdout: JSON.stringify({ base: baseId, passed: false }) },
+          }),
+          verdict('red', 'red_confirmed', code),
+          runDelivery(code, 'green', `node project.cjs prepare initial ${baseId} wrong-label`),
+          statusFromCommand(code, 'green', { affectedCheck: true, identity: rejectedId }),
+          verdict('green', 'green', code),
+          ...decision('refactor', 'done', 'Initial combined candidate and check: project:///delivery/initial.json.', code),
+          ...decision('deliver', 'candidate_ready', 'Combined candidate/check: project:///delivery/initial.json.', goal),
+          examine(goal, 'integrated-acceptance', 'initial.json'),
+          observe(author('integrated-acceptance', 'Reject: affected quota check passes but the combined candidate changes the widget label.', goal), receipt(evidence(rejected, rejectedId))),
+          { ...verdict('integrated-acceptance', 'repair', goal), before: sameBase },
+          { ...call(goal, 'deliver', 'reopen_card', { card_id: code }), before: sameBase },
+          dispatch(goal, 'deliver', code, 'Keep the original approved base and widget label; replace the rejected candidate and rerun the check.'),
+          ...decision('resume-assess', 'green', 'Reproduce the candidate from unchanged approved base; quota assertion still applies.', code),
+          runDelivery(code, 'green', `node project.cjs prepare replacement ${baseId} widget`),
+          statusFromCommand(code, 'green', { affectedCheck: true, identity: candidateId, candidate: replacement }),
+          verdict('green', 'green', code),
+          ...decision('refactor', 'done', 'Corrected combined candidate/check: project:///delivery/replacement.json.', code),
+          ...decision('deliver', 'candidate_ready', 'Replacement is ready for examination, not yet incorporated: project:///delivery/replacement.json.', goal),
+          examine(goal, 'integrated-acceptance', 'replacement.json'),
+          observe(author('integrated-acceptance', `Exact replacement ${candidateId} preserves the widget label and passes the affected quota check.`, goal), receipt(evidence(replacement, candidateId))),
+          verdict('integrated-acceptance', 'accepted', goal),
+          readAccepted(goal, 'debt-assessment', goal, 'review.md', 3),
+          observe(author('debt-assessment', `Review v3 applies to ${candidateId}; no structural correction; incorporation into development remains.`, goal), {
+            success: true, data: { version: 3, content: { content: expect.stringContaining(candidateId) } },
+          }),
+          verdict('debt-assessment', 'ready_to_incorporate', goal),
+          {
+            ...dispatch(goal, 'deliver', stale, `Exact approved ${candidateId}, development base ${baseId}; submit only if turn-old is current.`),
+            before: (input) => {
+              sameBase();
+              const context = JSON.stringify(input.providerConversation);
+              expect(context).toContain('Accepted outcome: ready_to_incorporate');
+              expect(context).toContain(`record:///review.md?card=${goal}&v=4`);
+            },
+          },
+          runDelivery(stale, 'execute', submit('turn-old')),
+          observe(author('execute', 'The project operation denied the expired turn; no incorporation claimed.', stale), {
+            success: true, data: { status: 'failed', exit_code: 1, stderr: 'writer turn is not current' },
+          }),
+          verdict('execute', 'failed', stale),
+          call(goal, 'deliver', 'cancel_card', { card_id: stale, reason: 'Expired assignment closed without effect.' }),
+          {
+            ...dispatch(goal, 'deliver', writer, `Fresh designated writer turn-current. Use the project submit operation with project:///delivery/replacement.json (${candidateId}) and development base ${baseId}. Scope: exactly the functional and debt judgments at record:///review.md?card=${goal}&v=3 and record:///review.md?card=${goal}&v=4.`),
+            before: sameBase,
+          },
+          runDelivery(writer, 'execute', submit('turn-current')),
+          ...(!interrupt ? [statusFromCommand(writer, 'execute', proof), verdict('execute', 'done', writer)] : []),
+      ]);
+      const launch = await f.launch();
+
+      if (interrupt) {
+        const stopObserving = new AbortController();
+        const observed = (async () => {
+          for (let tries = 0; tries < 400; tries++) {
+            if (existsSync(join(directory, 'writes'))) return;
+            await delay(20, undefined, { signal: stopObserving.signal });
+          }
+          throw new Error('Writer never reached the held verification boundary');
+        })();
+        try {
+          await Promise.race([
+            observed,
+            launch.settlement.promise.then((result) => {
+              throw new Error(`Writer did not reach interruption: ${JSON.stringify(result)}`);
+            }),
+          ]);
+        } finally {
+          stopObserving.abort();
+          await observed.catch(() => undefined);
+        }
+        const executing = readConversation(f.root, `agent:executor:${writer}`).sourceRows
+          .filter((row) => row.kind === 'activity' && JSON.parse(row.content).event === 'activation_open')
+          .at(-1);
+        if (!executing) throw new Error('Missing writer activation');
+        const { instructions } = JSON.parse(executing.content);
+        expect(instructions).toMatchObject({ kind: 'prepared', node: { node_id: 'execute' }, activation_id: expect.any(String) });
+        const ownerId = `${instructions.activation_id}:node:0`;
+        expect(f.childProcesses(writer)).toEqual([
+          expect.objectContaining({
+            card_id: writer, owner_id: ownerId, agent_session_id: ownerId, owner_kind: 'agent',
+            command: submit('turn-current'), cwd: directory, status: 'running',
+          }),
+        ]);
+        expect(readFileSync(target, 'utf8')).toBe(JSON.stringify(replacement));
+      } else {
+        await parked(f, launch);
+        expect(doneRecord(f, writer, 'status.md')).toMatchObject({ version: 1 });
+        expect(f.record('status.md', writer)!.accepted!.content).toBe(JSON.stringify(proof));
+      }
+      const landed = readFileSync(target, 'utf8');
+      await expect(f.supervisor.stopProject()).resolves.toMatchObject({ status: 'stopped', contained: true });
+      await expect(launch.settlement.promise).rejects.toThrow('stopped');
+      expect(f.childProcesses(writer).some((process) => process.status === 'running')).toBe(false);
+
+      const resumedDelivery = (card: string, explanation: string) => decision('resume-assess', 'deliver', explanation, card);
+      const writerSummary = call(goal, 'deliver', 'get_card', { id: writer, section: 'summary' });
+      const inspectWriter = call(goal, 'deliver', 'list_card_versions', { card_id: writer });
+      const reader = call(goal, 'deliver', 'diff_card_versions', (input) => {
+        const result = lastReceipt(input);
+        expect(result).toMatchObject({ success: true, data: { card_id: writer } });
+        const previousSummary = input.providerConversation.messages.filter((row) => {
+          if (row.role !== 'tool') return false;
+          const { data } = JSON.parse(row.content);
+          return data?.card_id === writer && data?.section === 'summary';
+        }).at(-1);
+        if (!previousSummary) throw new Error('Missing current writer selection');
+        const selected = JSON.parse(previousSummary.content).data.version_seq;
+        const versions = result.data.versions.items.map((item: { version: number }) => item.version).sort((a: number, b: number) => a - b);
+        expect(versions.at(-1)).toBe(selected);
+        return { card_id: writer, from_version: versions.at(-2), to_version: selected };
+      });
+      const readWriterExport = call(goal, 'deliver', 'read_record_version', (input) => {
+        const result = lastReceipt(input);
+        expect(result).toMatchObject({ success: true, data: { card_id: writer } });
+        const lifecycle = JSON.parse(result.data.diff.content).find(({ field }: { field: string }) => field === 'lifecycle');
+        expect(lifecycle.after).toMatchObject({ status: 'done', result: { node_id: 'execute', outcome: 'done' } });
+        const record = lifecycle.after.result.records[0];
+        expect(record).toEqual(doneRecord(f, writer, 'status.md'));
+        return { card_id: writer, record_name: record.name, version: record.version };
+      });
+      const completion: Step[] = interrupt
+        ? [
+            observe(author('deliver', 'Stopped writer has no terminal incorporation receipt. Containment does not settle effects; withhold replay and dependent release.', goal), {
+              success: true, data: { card_id: writer, card: { status: 'stopped' } },
+            }),
+            verdict('deliver', 'blocked', goal),
+            deniedDependent,
+            observe(author('deliver', 'Do not release dependent without a cleared prerequisite.', containing), {
+              success: false, error: expect.stringContaining('incomplete dependencies'),
+            }),
+            verdict('deliver', 'blocked', containing),
+            ...decision('deliver', 'blocked', 'Await authoritative incorporation evidence; no replacement writer.'),
+          ]
+        : [
+            observe(inspectWriter, { success: true, data: { card_id: writer, card: { status: 'done' } } }),
+            reader,
+            readWriterExport,
+            observe(author('deliver', `Verified ${candidateId} at development using the current DONE evidence of ${writer}; request examination of the completed assignment.`, goal), receipt(JSON.stringify(proof))),
+            verdict('deliver', 'candidate_ready', goal),
+            examine(goal, 'integrated-acceptance', 'development.json'),
+            observe(readAccepted(goal, 'integrated-acceptance', writer, 'status.md', 1), receipt(JSON.stringify(replacement))),
+            observe(author('integrated-acceptance', `Current development content matches approved ${candidateId}; the writer export binds actual effect to reviewed input.`, goal), receipt(JSON.stringify(proof))),
+            verdict('integrated-acceptance', 'accepted', goal),
+            author('debt-assessment', `Final exact ${candidateId}: whole scoped assignment complete with no remaining structural or incorporation obligation.`, goal),
+            {
+              ...verdict('debt-assessment', 'clear', goal),
+              before: async () => {
+                await expect(f.supervisor.submitNotification(
+                  testNotificationAuthority(),
+                  goal,
+                  {
+                    id: randomUUID(),
+                    content: 'Before clearance, explicitly reconcile the observed development identity with the completed writer evidence. No new write is requested.',
+                    created_at: new Date().toISOString(),
+                  },
+                  'normal',
+                )).resolves.toMatchObject({ queued: true });
+              },
+            },
+            author('debt-assessment', `Updated assessment before clearing ${candidateId}: queued owner clarification does not authorize another write.`, goal),
+            verdict('debt-assessment', 'clear', goal),
+            {
+              ...author('resume-assess', 'Notification requests evidence reconciliation only. Existing functional judgment applies; resume final assessment without running another writer.', goal),
+              before: (input) => {
+                expect(JSON.stringify(input.providerConversation)).toContain('explicitly reconcile the observed development identity');
+                expect(f.cards.read(goal)!.lifecycle.status).toBe('running');
+                expect(f.cards.read(dependent)!.lifecycle.status).toBe('backlog');
+              },
+            },
+            verdict('resume-assess', 'assess_debt', goal),
+            readAccepted(goal, 'debt-assessment', writer, 'status.md', 1),
+            observe(author('debt-assessment', `Current writer evidence reconciles ${candidateId} with the already incorporated result. No further change is outstanding.`, goal), receipt(JSON.stringify(proof))),
+            verdict('debt-assessment', 'clear', goal),
+            {
+              ...dispatch(containing, 'deliver', dependent, `Continue using incorporated development ${candidateId}, not parked input.`),
+              before: (input) => expect(lastReceipt(input)).toMatchObject({
+                success: true, data: { card_id: goal, outcome: 'done', result: { records: [doneRecord(f, goal, 'review.md')] } },
+              }),
+            },
+            runDelivery(dependent, 'execute', `node project.cjs continue ${candidateId}`),
+            statusFromCommand(dependent, 'execute', { base: candidateId, nextQuota: 4 }),
+            verdict('execute', 'done', dependent),
+            ...decision('deliver', 'candidate_ready', 'Prerequisite incorporated and dependent derived from actual destination; no containing delta.', containing),
+            examine(containing, 'integrated-acceptance', 'dependent.json'),
+            observe(author('integrated-acceptance', 'Integrated quota and dependent check satisfy containing brief without another submit.', containing), receipt(JSON.stringify({ base: candidateId, nextQuota: 4 }))),
+            verdict('integrated-acceptance', 'accepted', containing),
+            ...decision('debt-assessment', 'clear', 'Children delivered all changes; no remaining containing obligation.', containing),
+            ...decision('deliver', 'blocked', 'Containing goal complete; stop at the observed consumer handoff.'),
+          ];
+      const boundary = f.requests.length;
+      f.script([
+        ...resumedDelivery('project', 'Resume containing goal at the interrupted handoff.'),
+        dispatch('project', 'deliver', containing, 'Reassess outstanding delivery after Stop; do not replay effects.'),
+        ...resumedDelivery(containing, 'Prerequisite was not yet cleared.'),
+        dispatch(containing, 'deliver', goal, 'Establish applicable authoritative result before release.'),
+        ...resumedDelivery(goal, 'Find current writer settlement; do not dispatch a new writer.'),
+        writerSummary,
+        ...completion,
+      ]);
+      const outcome = await (await f.launch()).settlement.promise;
+      if (outcome.status !== 'blocked') throw new Error(`Expected root to park: ${outcome.summary}`);
+      expect(f.requests.slice(boundary).some((input) => selectedNode(input).card === writer)).toBe(false);
+      expect(toolCalls(f, `agent:planner:${goal}`, 'activate_card').filter(({ card_id }) => card_id === writer)).toHaveLength(1);
+      expect(toolCalls(f, `agent:executor:${writer}`, 'run_command')).toEqual([{ command: submit('turn-current'), cwd: 'delivery' }]);
+      expect(readFileSync(join(directory, 'submit-attempts'), 'utf8')).toBe('turn-old\nturn-current\n');
+      expect(readFileSync(join(directory, 'writes'), 'utf8')).toBe(`${candidateId}\n`);
+      expect(readFileSync(target, 'utf8')).toBe(landed);
+      expect(sha256Hex(landed)).toBe(candidateId);
+      if (interrupt) {
+        const writerRows = readConversation(f.root, `agent:executor:${writer}`).sourceRows;
+        const submission = writerRows.find((row) => row.kind === 'tool_call' && row.tool === 'run_command')!;
+        const receipts = writerRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === submission.tool_call_id);
+        expect(receipts.some((row) => {
+          const result = JSON.parse(row.content);
+          return result.success && result.data.status === 'exited' && result.data.exit_code === 0;
+        })).toBe(false);
+        expect(f.cards.read(writer)!.lifecycle.status).toBe('stopped');
+        expect(f.record('status.md', writer)?.accepted).toBeFalsy();
+        expect(f.cards.read(goal)!.lifecycle.status).toBe('blocked');
+        expect(f.cards.read(dependent)!.lifecycle.status).toBe('backlog');
+        expect(existsSync(join(directory, 'dependent.json'))).toBe(false);
+        expect(f.requests.some((input) => selectedNode(input).card === dependent)).toBe(false);
+      } else {
+        expect(doneRecord(f, goal, 'review.md')).toMatchObject({ version: 7 });
+        expect(doneRecord(f, containing, 'review.md')).toMatchObject({ version: 3 });
+        expect(readFileSync(join(directory, 'dependent.json'), 'utf8')).toBe(JSON.stringify({ base: candidateId, nextQuota: 4 }));
+      }
+    },
+    60000,
+  );
+
   it('compacts an actual Planner session and prepares its next real resume-assess invocation', async () => {
     const f = fixture([...frame(), ...aligned(), ...decision('deliver', 'blocked', 'Verification evidence unavailable; alignment remains applicable.')]);
     await expect((await f.launch()).settlement.promise).resolves.toMatchObject({ status: 'blocked' });
@@ -193,7 +525,29 @@ describe('newloop2 real owner semantic flows', () => {
   });
 
   it('completes a small non-code objective with distinct current author and Reviewer evidence and reused sessions', async () => {
-    const f = fixture(fresh());
+    const f = fixture([], 'Determine whether the sampled widget procedures contradict the documented order. Deliver a bounded report, not software.');
+    const research = f.child('research', 'project', 'Compare the two observations to the documented order, and record limits.').id;
+    const observations = 'Documented: inspect then operate.\nSample A: inspect then operate.\nSample B: inspect then operate.';
+    const report = 'Two inspected samples match the documented inspect-then-operate order. No contradiction observed in A or B; not a claim about unsampled procedures.';
+    writeFileSync(join(f.root, 'observations.txt'), observations);
+    const content = (text: string) => ({ success: true, data: { content: { content: text } } });
+    f.script([
+      ...framing('project', 'Compare sample observations to documentation; deliver a bounded disposition, no repository or file promotion.'),
+      dispatch('project', 'deliver', research, 'Read observations.txt, compare both samples, and write the bounded report.'),
+      readPath(research, 'explore', 'project:///observations.txt'),
+      observe(author('explore', 'Opened documented order and both sample observations.', research), content(observations)),
+      verdict('explore', 'evidence_ready', research),
+      ...decision('assess', 'refuted', 'The proposed contradiction is absent from both observed samples.', research),
+      call(research, 'report', 'write', { path: 'project:///widget-report.md', content: report }),
+      ...decision('report', 'done', 'Report at project:///widget-report.md, limited to observations A and B.', research),
+      ...decision('deliver', 'candidate_ready', 'Research report complete and inspectable at project:///widget-report.md.'),
+      ...decision('objective-assessment', 'candidate_ready', 'Bounded disposition is the whole objective; no publication or separate incorporation.'),
+      readPath('project', 'integrated-acceptance', 'project:///widget-report.md'),
+      observe(readPath('project', 'integrated-acceptance', 'project:///observations.txt'), content(report)),
+      observe(author('integrated-acceptance', 'Compared report against both observations: supports bounded no-contradiction disposition, not global equivalence.'), content(observations)),
+      verdict('integrated-acceptance', 'accepted'),
+      ...decision('debt-assessment', 'clear', 'Report clearly preserves method, provenance and sample limits; no remaining delivery obligations.'),
+    ]);
     const owner = await f.launch();
     await expect(owner.settlement.promise).resolves.toMatchObject({
       status: 'done',
@@ -239,6 +593,75 @@ describe('newloop2 real owner semantic flows', () => {
         },
       },
     });
+    expect(readFileSync(join(f.root, 'widget-report.md'), 'utf8')).toBe(report);
+    expect(existsSync(join(f.root, '.git'))).toBe(false);
+    expect(existsSync(join(f.root, 'delivery'))).toBe(false);
+    expect(toolCalls(f, `agent:executor:${research}`, 'run_command')).toEqual([]);
+  });
+
+  it('passes the reviewed check design to ordinary ops and reviews the actual artifact observation', async () => {
+    const f = fixture([], 'Perform the bounded offline widget fixture check and report the actual observed artifact, not a release pass.');
+    const architecture = f.child('architecture', 'project', 'Design a bounded check of the named packaged widget fixture.').id;
+    const ops = f.child('ops', 'project', 'Use the approved design to check the named fixture artifact; do not write or submit it.', [architecture]).id;
+    const design = 'Read the exact packaged-widget.json, not source-widget.json. Match the complete marker and report the observed fixture, marker, and offline scope.';
+    const probe = { artifact: 'packaged-widget.json', marker: 'packaged-only', scope: 'offline-fixture' };
+    const observed = `${JSON.stringify(probe)}\n`;
+    writeFileSync(join(f.root, 'packaged-widget.json'), observed);
+    writeFileSync(join(f.root, 'source-widget.json'), '{"marker":"source-only"}\n');
+    const command = `grep -Fx '${JSON.stringify(probe)}' packaged-widget.json`;
+    const content = (text: string) => ({ success: true, data: { content: { content: text } } });
+    const designReview = 'System review: project:///check-design.md applies to the offline artifact only. Component review v1 covers exact marker and path selection. This does not qualify an artifact.';
+    f.script([
+      ...framing('project', 'Obtain a reviewed artifact-specific check design, execute it exactly once, then assess the actual result.'),
+      dispatch('project', 'deliver', architecture, 'Design a bounded check distinguishing packaged-widget.json from source-widget.json.'),
+      call(architecture, 'draft', 'write', { path: 'project:///check-design.md', content: design }),
+      ...decision('draft', 'ready_for_component_review', 'Exact bounded check design: project:///check-design.md.', architecture),
+      readPath(architecture, 'component-review', 'project:///check-design.md'),
+      observe(author('component-review', 'Exact filename and complete marker distinguish fixture from source.', architecture), content(design)),
+      verdict('component-review', 'approved', architecture),
+      readPath(architecture, 'system-review', 'project:///check-design.md'),
+      observe(readAccepted(architecture, 'system-review', architecture, 'review.md', 1), content(design)),
+      observe(author('system-review', designReview, architecture), content('Exact filename and complete marker distinguish fixture from source.')),
+      verdict('system-review', 'approved', architecture),
+      call('project', 'deliver', 'read_record_version', (input) => {
+        const receipt = lastReceipt(input);
+        expect(receipt).toMatchObject({ success: true, data: { card_id: architecture, outcome: 'done' } });
+        const record = receipt.data.result.records[0];
+        return { card_id: architecture, record_name: record.name, version: record.version };
+      }),
+      call('project', 'deliver', 'activate_card', (input) => {
+        const receipt = lastReceipt(input);
+        expect(receipt).toMatchObject(content(designReview));
+        return { card_id: ops, instructions: `Execute the check from ${receipt.data.version_url}: ${receipt.data.content.content}` };
+      }),
+      {
+        ...readPath(ops, 'execute', 'project:///check-design.md'),
+        before: (input) => {
+          expect(JSON.stringify(input.providerConversation)).toContain(doneRecord(f, architecture, 'review.md').url);
+        },
+      },
+      observe(run(ops, 'execute', command), content(design)),
+      statusFromCommand(ops, 'execute', probe),
+      verdict('execute', 'done', ops),
+      call('project', 'deliver', 'read_record_version', (input) => {
+        const receipt = lastReceipt(input);
+        expect(receipt).toMatchObject({ success: true, data: { card_id: ops, outcome: 'done' } });
+        const record = receipt.data.result.records[0];
+        return { card_id: ops, record_name: record.name, version: record.version };
+      }),
+      observe(author('deliver', 'Artifact qualification evidence comes from the executed check, not the architecture verdict.'), content(observed)),
+      verdict('deliver', 'candidate_ready'),
+      ...decision('objective-assessment', 'candidate_ready', 'The finite offline check is the whole assigned result.'),
+      readAccepted('project', 'integrated-acceptance', ops, 'status.md', 1),
+      observe(author('integrated-acceptance', `The observed artifact and marker satisfy the offline consumer check; not release acceptance. Evidence: record:///status.md?card=${ops}&v=1.`), content(observed)),
+      verdict('integrated-acceptance', 'accepted'),
+      ...decision('debt-assessment', 'clear', 'Check result identifies exact artifact and bounded scope; no incorporation or follow-up action.'),
+    ]);
+    await expect((await f.launch()).settlement.promise).resolves.toMatchObject({ status: 'done' });
+    expect(toolCalls(f, `agent:executor:${ops}`, 'run_command')).toEqual([{ command, cwd: '.' }]);
+    expect(toolCalls(f, 'agent:planner:project', 'activate_card').map(({ card_id }) => card_id)).toEqual([architecture, ops]);
+    expect(readFileSync(join(f.root, 'packaged-widget.json'), 'utf8')).toBe(observed);
+    expect(existsSync(join(f.root, 'delivery'))).toBe(false);
   });
 
   it('runs alignment revision, preparatory child, detailed replan, delivery, root replan, acceptance repair and structural refactoring loops', async () => {

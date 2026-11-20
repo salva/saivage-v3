@@ -26,7 +26,7 @@ import { publishTestProjectRuntime } from './initial-project-fixture.js';
 export type Step = {
   node: string;
   tool: string;
-  args: object;
+  args: object | ((input: PreparedLlmInvocationInput) => object);
   card?: string;
   before?: (input: PreparedLlmInvocationInput, signal: AbortSignal) => void | Promise<void>;
 };
@@ -79,6 +79,7 @@ export interface Newloop2Fixture {
   cards: CardService;
   supervisor: ReturnType<typeof createSupervisorRuntimeApi>;
   requests: PreparedLlmInvocationInput[];
+  childProcesses(cardId: string): import('../../src/runtime/process-runner.js').ProcessRecord[];
   launch(): Promise<CardActivationOwner>;
   readonly atEnd: Promise<void>;
   script(next: Step[]): void;
@@ -86,11 +87,19 @@ export interface Newloop2Fixture {
     name: string,
     card?: string,
   ): import('../../src/persistence/index.js').CurrentRecordProjection | null;
-  child(type: string, parent?: string, brief?: string): ReturnType<CardService['create']>;
+  child(
+    type: string,
+    parent?: string,
+    brief?: string,
+    dependsOn?: string[],
+  ): ReturnType<CardService['create']>;
   cleanup(): Promise<void>;
 }
 
-export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
+export function newloop2Fixture(
+  initial: Step[] = [],
+  projectBrief = 'Publish a concise accurate operating guide for the finite widget procedure. Complete functional acceptance and scoped structural assessment; no continuing work.',
+): Newloop2Fixture {
   const root = mkdtempSync(join(tmpdir(), 'newloop2-flow-'));
   const template = resolveSystemTemplate('newloop2');
   const config = effectiveSaivageConfigSchema.parse({
@@ -110,7 +119,7 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
   cards.acceptRecord(
     'project',
     'brief.md',
-    'Publish a concise accurate operating guide for the finite widget procedure. Complete functional acceptance and scoped structural assessment; no continuing work.',
+    projectBrief,
     { kind: 'agent', agent: 'analyst' },
   );
   const registry = new ProviderRegistry(config);
@@ -126,6 +135,7 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
   let steps = initial,
     cursor = 0,
     serial = 0;
+  let scriptFailure: unknown;
   let parked!: () => void;
   let atEnd = new Promise<void>((resolve) => {
     parked = resolve;
@@ -157,8 +167,16 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
           );
           throw new Error('Unreachable aborted request');
         }
-        expect(selectedNode(input)).toEqual({ card: step.card ?? 'project', node: step.node });
-        await step.before?.(input, signal);
+        let args: object;
+        try {
+          if (scriptFailure) throw scriptFailure;
+          expect(selectedNode(input)).toEqual({ card: step.card ?? 'project', node: step.node });
+          await step.before?.(input, signal);
+          args = typeof step.args === 'function' ? step.args(input) : step.args;
+        } catch (error) {
+          if (!signal.aborted) scriptFailure = error;
+          throw error;
+        }
         return {
           result: {
             kind: 'tool_calls',
@@ -166,7 +184,10 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
               {
                 id: `newloop2-${++serial}`,
                 type: 'function',
-                function: { name: step.tool, arguments: JSON.stringify(step.args) },
+                function: {
+                  name: step.tool,
+                  arguments: JSON.stringify(args),
+                },
               },
             ],
           },
@@ -203,6 +224,7 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
     cards,
     supervisor,
     requests,
+    childProcesses: (cardId) => processes.processRunner.list({ cardId }),
     launch,
     get atEnd() {
       return atEnd;
@@ -210,6 +232,7 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
     script(next: Step[]) {
       steps = next;
       cursor = 0;
+      scriptFailure = undefined;
       atEnd = new Promise<void>((resolve) => {
         parked = resolve;
       });
@@ -219,7 +242,7 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
       if (result.kind !== 'found') throw new Error('Missing card');
       return result.value.projection;
     },
-    child(type: string, parent = 'project', brief = `Finite ${type} assignment.`) {
+    child(type: string, parent = 'project', brief = `Finite ${type} assignment.`, dependsOn = []) {
       return cards.create({
         type,
         parent,
@@ -227,7 +250,7 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
         bootstrap_content: brief,
         created_by: 'planner',
         bootstrap_author: { kind: 'agent', agent: 'planner' },
-        depends_on: [],
+        depends_on: dependsOn,
       });
     },
     async cleanup() {
@@ -241,4 +264,88 @@ export function newloop2Fixture(initial: Step[] = []): Newloop2Fixture {
       rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+// The disposable project's own commands, not a Saivage VC adapter. Only submit may
+// write development.json. Its exclusive turn and expected base cover the actual write.
+export function seedDeliveryWorkspace(root: string, holdVerification: boolean) {
+  const directory = join(root, 'delivery');
+  mkdirSync(directory);
+  const base = { quota: 2, label: 'widget' };
+  writeFileSync(join(directory, 'development.json'), JSON.stringify(base));
+  writeFileSync(join(directory, 'parked.json'), JSON.stringify(base));
+  writeFileSync(join(directory, 'writer-turn'), 'turn-current');
+  if (holdVerification) writeFileSync(join(directory, 'verification-held'), '');
+  writeFileSync(join(directory, 'project.cjs'), `
+const { createHash } = require('node:crypto');
+const { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } = require('node:fs');
+const [op, ...args] = process.argv.slice(2);
+const load = (name) => JSON.parse(readFileSync(name, 'utf8'));
+const save = (name, value) => writeFileSync(name, JSON.stringify(value));
+const id = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const reply = (value) => process.stdout.write(JSON.stringify(value));
+const checkQuota = (value) => value.quota === 3;
+const current = () => load('development.json');
+
+switch (op) {
+  case 'check-base': {
+    const value = current();
+    if (id(value) !== args[0]) throw Error('wrong check base');
+    const passed = checkQuota(value);
+    reply({ base: id(value), passed });
+    process.exitCode = passed ? 0 : 1;
+    break;
+  }
+  case 'prepare': {
+    const [name, expectedBase, label] = args;
+    const source = current();
+    if (id(source) !== expectedBase) throw Error('wrong preparation base');
+    const candidate = { ...source, quota: 3, label };
+    const evidence = { base: expectedBase, identity: id(candidate), candidate, affectedCheck: checkQuota(candidate) };
+    if (!evidence.affectedCheck) throw Error('affected check failed');
+    save(name + '.json', evidence);
+    reply(evidence);
+    break;
+  }
+  case 'submit': {
+    const [name, expectedBase, expectedCandidate, turn] = args;
+    appendFileSync('submit-attempts', turn + '\\n');
+    mkdirSync('writer-held');
+    const release = () => rmdirSync('writer-held');
+    const fail = (reason) => { release(); process.stderr.write(reason); process.exitCode = 1; };
+    if (readFileSync('writer-turn', 'utf8') !== turn) { fail('writer turn is not current'); break; }
+    if (id(current()) !== expectedBase) { fail('development base changed'); break; }
+    const { candidate, base } = load(name + '.json');
+    if (base !== expectedBase || id(candidate) !== expectedCandidate) { fail('reviewed input changed'); break; }
+    save('next-development.json', candidate);
+    renameSync('next-development.json', 'development.json');
+    appendFileSync('writes', expectedCandidate + '\\n');
+    const verify = () => {
+      const value = current();
+      if (id(value) !== expectedCandidate) { fail('destination verification failed'); return; }
+      release();
+      reply({ destination: 'development.json', base, identity: id(value), value });
+    };
+    if (existsSync('verification-held')) {
+      const pending = setInterval(() => {
+        if (existsSync('verification-held')) return;
+        clearInterval(pending);
+        verify();
+      }, 20);
+    } else verify();
+    break;
+  }
+  case 'continue': {
+    const value = current();
+    if (id(value) !== args[0]) throw Error('prerequisite not incorporated');
+    if (id(load('parked.json')) === id(value)) throw Error('fixture must distinguish parked input');
+    const derived = { base: id(value), nextQuota: value.quota + 1 };
+    save('dependent.json', derived);
+    reply(derived);
+    break;
+  }
+  default: throw Error('unknown fixture operation');
+}
+`);
+  return { directory, base };
 }

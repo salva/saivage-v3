@@ -20,17 +20,19 @@ new workflow format or enforced quality guarantee. All except provision-required
 `classic-git` remain native-Git OFF. See [fresh selection](../guides/configuration.md#choose-a-fresh-profile)
 and [newloop's instruction policy](../architecture/prompts.md#optional-newloop-guidance).
 
-`newloop2` owns an independent deeply frozen nine-type declaration and physical
-prompt closure, using the same shared capabilities/routes and native-OFF policy.
-Fresh project/goal success requires alignment, delivery, integrated acceptance and
-current debt clearance; root also reconciles the whole objective. Selective reentry
-reuses applicable evidence, not old activation-local acceptance. More handoffs are
-an overhead/quality tradeoff, not proof of model insight. See the
+Select `newloop2` with `saivage init --profile newloop2` when the target config is
+absent. It materializes an independent nine-type declaration and physical prompt
+closure with existing shared capabilities and routes. Native Git remains OFF;
+`newloop2` does not take native Git provisioning options. The `goal` graph adds
+a return from debt review to delivery for outstanding incorporation; `project`
+has no such return and reconciles the whole objective. See the
 [exact graph/record contract](../spec/system-specification.md#newloop2-explicit-review-loop).
-Select only with config-absent `init --profile newloop2`; retained identity adoption
-is a separate authorized assessment, never YAML replacement or an init switch.
+An installed `newloop2` marker alone does not establish that the selected graph
+contains this edge or that the effective prompts describe the same workflow.
 
-Config-absent init materializes the selected prompts, marker and complete YAML.
+Config-absent init copies missing selected prompt files, writes the marker and
+publishes complete YAML last. Existing prompt destinations are skipped even
+when YAML is absent.
 Existing-config init preserves all three; omitted `--profile` preserves selection,
 while an explicit profile must match retained template metadata. Init is not a
 profile switch. Later instruction adoption follows the existing

@@ -183,12 +183,25 @@ or authorize repair. Correct variables in the actual service environment.
 when YAML is absent. It materializes missing prompt files, writes provenance, then
 publishes YAML last. Existing YAML preserves the entire config/prompt/marker choice;
 another profile is not an upgrade command.
-For newloop2's separate graph, follow [fresh profile selection](../guides/configuration.md#choose-a-fresh-profile).
-Replacing retained YAML is not identity adoption; this source task supplies no
-migration recipe, live adoption or deployment authorization. Layout and configuration outcomes are
-reported independently, only after strict admission succeeds. A partial prompt-only
-materialization with no generated work can be completed by ordinary init, skipping
-existing files. Existing generated work still requires compatible selected identities.
+
+For `newloop2`, match both the selected graph and effective prompts before using
+the incorporation return. The current source has `goal`'s
+`debt-assessment / ready_to_incorporate → deliver`; `project` has no such edge.
+The selected hosts must agree on the return, writer handoff and evidence for
+final clearance. A matching marker, a package upgrade or revert, or a prompt-only
+change does not establish that match. Upgrading or reverting the package does not
+rewrite materialized workflow or prompts or reverse project effects. Reconcile
+inputs under the stopped procedure above; replacing retained YAML is not identity
+adoption. See [fresh profile selection](../guides/configuration.md#choose-a-fresh-profile)
+for new targets.
+
+If ordinary init is otherwise admissible after a partial prompt-only
+materialization with no generated work, a config-absent retry skips prompt
+destinations that already exist. It does not refresh stale or customized files.
+Establish the effective closure instead of assuming that retrying copied the
+whole current bundle. Layout and configuration outcomes are reported independently,
+only after strict admission succeeds. Existing generated work still requires
+compatible selected identities.
 Partial generated roots cannot be combined with first publication; remain stopped
 and obtain the appropriate separately authorized procedure, not `init --force`.
 

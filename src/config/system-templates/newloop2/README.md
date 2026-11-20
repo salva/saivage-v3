@@ -1,26 +1,35 @@
 # newloop2 — explicit goal review loop
 
 Fresh opt-in selection: `saivage init --profile newloop2` on a config-absent
-project. Default remains classic. Native Git remains OFF; shared capabilities,
-named agents, tools, routes and runtime are unchanged. This is not a switch for
-retained projects: matching outer formats do not make different workflow identities
-interchangeable. No migration, reset, deployment or Run is implied.
+project. The registry default remains `classic-typed`. Native Git remains OFF;
+shared capabilities, named agents, tools, model routes and runtime are unchanged.
+This is not a switch for retained projects: matching outer formats do not make
+different workflow identities interchangeable. No migration, reset, deployment or Run is implied.
 
 Project/goal fresh path: `frame-plan → alignment → deliver → integrated-acceptance
 → debt-assessment → DONE`; root inserts `objective-assessment` after delivery.
 Planner authors expanded functional analysis/plan separately from its brief,
 commissions production children and reconciles the complete outcome. Reviewer
 challenges alignment, independently accepts the integrated result and then judges
-relevant structural debt. A justified no-change debt verdict is sufficient.
+relevant structural debt. A justified no-change verdict satisfies structural
+review only; it does not complete delivery that is still outstanding.
 Refactoring returns through framing/alignment, production, acceptance and debt;
 unrelated cleanup is not a completion requirement. No direct planning completion.
+
+Only `goal` offers `debt-assessment / ready_to_incorporate → deliver`. It returns
+a reviewed candidate with required incorporation still outstanding to Planner;
+it is not DONE, a writer grant or evidence that anything landed. Verified
+incorporation comes back through acceptance and debt before `clear`. Already
+incorporated and nonversioned results are judged on their actual outcome without
+another write. The `project` card has no incorporation return and reconciles the
+whole objective, including applicable delivery evidence from its goals.
 
 BACKLOG starts framing. CHANGED/BLOCKED/STOPPED start `resume-assess`; STOPPED adds
 uncertainty-aware recovery context. Route the earliest materially affected
 obligation, preserving applicable evidence, not an encoded saved phase or automatic
-restart. FAILED needs supported reopen first. Only the current final review is
-promoted. Pending final notifications return to the designated Planner (architecture:
-Executor) assessment; they are not discarded as successful closure.
+restart. FAILED needs supported reopen first. Project, goal and architecture DONE
+promote and export the current final review. Pending final notifications divert
+to assessment by Planner (Executor for architecture) instead of closing the card.
 
 Typed code/test/research/data/architecture stages remain asset-specific. Code,
 research, data and architecture gain selective Executor assessment; test uses

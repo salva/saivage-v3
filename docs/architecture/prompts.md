@@ -827,6 +827,32 @@ task scope, products, evidence to judge and route outcomes; the reusable premise
 alignment and finding-assessment method stays in the prepared Planner and Reviewer
 roles and is not restated in those hosts. This is source and package closure only.
 
+The shared Planner role describes ownership through delivery and the evidence
+needed to release a dependent. Planner's `frame-plan` and Reviewer's `alignment`
+make the consumer, destination and evidence part of planning and its review.
+`deliver` distinguishes ordinary delivery from the goal-only return with incorporation
+outstanding; `objective-assessment` gives the root a whole-objective check, not
+a dispatch task. `resume-assess` uses current obligations and exact evidence,
+not a saved phase.
+
+The shared Executor role supplies the applicable-base and inspectable-output
+guidance used by the code and `ops` compositions. The `ops` card's `ops-execute`
+host adds protected writing and observed-effect verification only for an
+assigned incorporation. For a separately authorized check, it instead uses
+the exact design identified by the architecture card's `architecture-system-review`
+handoff. Its `status.md` export, not the approved design, provides the execution
+evidence for integrated acceptance.
+
+The shared Reviewer role describes how to inspect the combined work and cite
+exact accepted evidence. `integrated-acceptance` distinguishes candidate judgment
+from judgment of the delivered result. `debt-assessment` describes the return
+for required versioned incorporation, and clearance for already verified
+incorporation or work that does not need it. The shared wording does not add a
+root outcome: only the generated `goal` contract offers `ready_to_incorporate`.
+The compiler and runtime enforce result choices and existing record and freshness
+gates. They do not establish a project-side writer turn, exclusion, the truth
+of a verdict or proof that a change landed.
+
 One Planner and one distinct Reviewer session recur across nodes. Accepted prior
 review and effective clean draft feed separately; only the required record is
 initialized. Conditional feeds may be suppressed/excerpted; compaction retains
@@ -834,8 +860,8 @@ current prepared task without guaranteeing earlier body recall. Read exact histo
 where needed and retain useful immutable citations before replacing review.
 Own feeds are not an automatic own-record tuple fence; descendant freshness is
 bounded to consumed selections, not workspace. Selective reentry reuses applicable
-work, never old activation-local accepted results. Only current final debt/system
-verdict is promoted.
+work, never old activation-local accepted results. DONE promotes and exports
+the current final debt/system verdict, not an earlier accepted review.
 
 Original local wording is informed by [PAAD v2.1.0](https://curtispoe.org/paad/),
 read November 10, 2026: reality-grounded premise challenge, bidirectional intent

@@ -117,8 +117,10 @@ npm run build
 Then follow the [tutorial](docs/guides/getting-started.md) in a disposable target
 inside the isolated deployment. It separates these decisions:
 
-1. **Initialize** a fresh target with the built `bin/saivage.js init`. The default
-   is `classic-typed`; explicit `classic` remains available, while
+1. **Initialize** from the disposable target directory with `"$SAIVAGE_BIN" init`.
+   As in the tutorial, set `SAIVAGE_BIN` to the absolute guest path to
+   `bin/saivage.js` in the built checkout. The default is `classic-typed`;
+   explicit `classic` remains available, while
    [paad-typed](src/config/system-templates/paad-typed/README.md) and
    [newloop](src/config/system-templates/newloop/README.md) use identical typed
    configurations. Newloop foregrounds critical intent examination, design,
@@ -126,12 +128,13 @@ inside the isolated deployment. It separates these decisions:
     other assets**, without adding stages or gates. PAAD and newloop retain
     separate original adaptations; these are not an exhaustive comparison with
     the current default. This is source guidance, not proof of model compliance or improved output quality.
-   [newloop2](src/config/system-templates/newloop2/README.md) instead owns an explicit
-   alignment → delivery → integrated acceptance → debt loop, with whole-objective
-   reconciliation at root and selective evidence-based reentry. It trades extra
-   goal handoffs for explicit review opportunities, not a quality guarantee.
-   Native Git and shared capabilities remain unchanged/OFF. It is fresh-only;
-   existing-config init cannot switch retained workflow identities.
+   Opt in to [newloop2](src/config/system-templates/newloop2/README.md) with
+   `"$SAIVAGE_BIN" init --profile newloop2` on a fresh target. It adds explicit
+   alignment, integrated acceptance and debt review, with whole-objective
+   reconciliation at the root. A goal can return a reviewed candidate to delivery
+   for outstanding authorized incorporation before DONE; the root has no such
+   return. Native Git remains OFF and shared capabilities are unchanged. These
+   are review opportunities, not a quality guarantee.
    `classic-git` separately requires the explicit provisioning described above.
    Existing-config init preserves inputs; it is not a profile switch or upgrade.
    Later adoption requires [separately authorized stopped prompt reconciliation](docs/runbook/state-adoption.md#selected-configuration-and-prompts)

@@ -326,6 +326,26 @@ assessment and explicit authorization under existing external offline migration
 or separately consented complete reset boundaries. No installed project,
 conversion, deployment inventory or target-not-deployed claim is implied.
 
+PRM-04 newloop2 goal return, examined source baseline
+`2e5a1b3940ae60798a30013874cff3842b0d2bb1`: the bundled template adds one value
+to the existing workflow format-7 `edges` map, `goal`'s
+`debt-assessment / ready_to_incorporate → deliver`. The declaration in
+`src/config/system-templates/newloop2/template.ts` uses the existing
+`src/schemas/saivage-config.ts` grammar without changing the discriminator or
+the interpretation of retained configurations. The lifecycle result shape
+in `src/schemas/lifecycle.ts`, the existing current-review promotion and export
+semantics, and the accepted Markdown format are unchanged. Existing `clear`
+events and DONE records are not reinterpreted as evidence of incorporation. The template and
+`tests/config/newloop2.test.ts` distinguish the added nonterminal goal outcome
+from the unchanged project and terminal paths.
+
+No durable bump or conversion is required for this source change alone. There
+is no established installed adoption or unreleased cutover. Upgrading or
+reverting the package neither rewrites an installed graph or materialized
+prompts nor reverses project effects. Any separately authorized retained use
+requires matching selected workflow and effective prompts under the existing
+[stopped adoption procedure](../runbook/state-adoption.md#selected-configuration-and-prompts).
+
 Current-only work retention from source parent
 `678b8bff375306a94866409d5672f075deeaec4b` changes collector liveness policy only:
 historical content/producer provenance alone no longer retains work attachments.

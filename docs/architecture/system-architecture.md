@@ -356,9 +356,13 @@ reusable method; the five newloop current-node hosts state today's task, product
 evidence responsibility and outcome routes without restating that method. Compaction
 summary orientation carries node text but not the role, so those hosts must stand alone
 as task orientation. This is source and package closure only.
-Config-absent init materializes the selected
-complete prompt closure/marker and YAML last; existing config preserves them.
-Runtime follows the instance, not the selected init-profile label. The default
+The bundled prompt closure is complete. Config-absent init copies only missing
+prompt files from the selected bundle, writes the template marker, and publishes
+YAML last. A retry while YAML is still absent also skips existing prompt
+destinations, so the effective prompts can differ from the bundle. Existing-config
+init preserves the inputs. Runtime follows the instance, not the init-profile
+label; see [stopped input comparison](../runbook/state-adoption.md#selected-configuration-and-prompts)
+for checking the selected graph and effective prompts. The default
 non-native bundled prompt root and omitted card-type map derive from the registry's
 `classic-typed` default. Hand-authored omission or fallback inputs may resolve
 differently or fail under a new release; this does not certify retained-state adoption.
@@ -384,7 +388,29 @@ without inventing activation-local earlier results. Three project/goal Reviewer
 nodes fence consumed descendants, not whole workspace or own record tuples.
 Architecture remains a leaf without descendant context. See the
 [exact newloop2 contract](../spec/system-specification.md#newloop2-explicit-review-loop).
-Its selected physical closure is independently compiled/copied/recompiled; PAAD
+
+The generated result contract exposes `ready_to_incorporate` at `goal`'s
+`debt-assessment`, not at `project` or any leaf. The nonterminal handoff accepts
+the current review draft and carries exact accepted record references back to
+`deliver`; it neither produces a DONE export nor delegates a write. The selected
+Planner coordinates direct children using its existing grants. The selected Reviewer independently
+examines the combined result and applicable structural quality with its existing
+readers; it has no command or child-dispatch grant. Not repairing the judged
+asset is an instruction, not removal of its workspace-write capability.
+
+For outstanding incorporation, the selected guidance assigns the project
+operation to a direct `ops` Executor using the existing command and process
+tools. The project supplies the authorized writer turn, destination, usable
+candidate and effective exclusion or expected-base protection through settlement.
+Saivage supplies no writer grant, version-control adapter or native-managed shell
+bypass. An accepted result or settled process does not independently verify
+incorporation. The handoff back to review uses observed destination evidence
+bound to the approved work. An uncertain attempt supplies no basis for replay
+or dependent release. Ordinary `ops` work can instead consume an exact reviewed
+architecture design under separate authorization, reporting actual observations
+in `status.md`; its design approval is not an execution result.
+
+Newloop2's selected physical closure is independently compiled/copied/recompiled; PAAD
 and newloop retain their typed configuration checks, not relative prompt parity.
 Across these four typed profiles, code `green / still_red → green` and research
 `explore / evidence_ready → assess` are promptless authored edges; the three test
