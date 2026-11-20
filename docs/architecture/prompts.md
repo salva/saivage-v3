@@ -1,12 +1,17 @@
 # Prompt handling
 
-Selected `run_command` help owns both card environment locators, lazy shell-directory
-creation, unchanged cwd/global/external behavior and task-owned evidence/cleanup and
-GC lifetime guidance. All six shipped shared Executor hosts recommend purpose-named
-children of `$SAIVAGE_CARD_SHELL_ROOT` and defer detail to that help. These are normal
-selected tool and role instructions on entry/re-entry, not a new prompt lifetime.
-Matching source-built tools and deliberately reconciled selected materialized hosts
-are the adoption unit; source edits do not hot-update installed custom hosts.
+The bound tool definitions deliver help only for selected tools. For WORK-01,
+`process-provider.ts` owns `run_command` help for the card workspace layout and
+locator values, while `workspace-provider.ts` and `web-tools.ts` own managed
+address, search and receipt help for their selected tools. This is ordinary tool
+selection, not a new prompt lifetime.
+
+All six shipped shared Executor hosts still refer to `$SAIVAGE_CARD_SHELL_ROOT`.
+Card-bound `run_command` supplies that variable with the same canonical `public`
+path as `SAIVAGE_CARD_PUBLIC_ROOT`. The reference needs neither a host refresh nor
+a composition-time rewrite, and it does not depend on a legacy `shell` link.
+WORK-01 changes no Executor host or materialized override; source changes do not
+hot-update installed custom hosts. Later workflow wording belongs to PRM-05.
 
 Selected `read_agent_session` tool help owns diagnostic-first navigation, exact
 visible-entry inspection, coverage limitations and lossless hex-slice decoding

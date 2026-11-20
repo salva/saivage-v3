@@ -43,6 +43,12 @@ packaged prompt closures, web assets and built docs beside compiled ESM. Deploy 
 positively identified release, not an implicitly changing development tree.
 Validation does not authorize deployment or provider spending.
 
+For a release change to the WORK-01 workspace layout, or a later release if
+an existing target has not adopted it, resolve
+[card workspace pathname adoption](./state-adoption.md#card-workspace-pathname-adoption)
+before starting the release. Equal durable discriminators do not settle this
+pathname decision. Deployment consent does not authorize an offline conversion.
+
 ### Native image dependencies
 
 Sharp is a backend runtime dependency, including its native optional packages.

@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { App } from '../../src/boot/app.js';
 import { quoteBashWord } from '../helpers/bash-word.js';
+import { fixtureGit } from '../helpers/public-native-project.js';
 import { readConversation, readCurrentConversationSegment, readHistoricalConversationSegment, publishCompactedConversationSegment } from '../../src/persistence/conversation-file.js';
 import { versionFilename } from '../../src/persistence/canonical-conversation-artifacts.js';
 import { deriveRequiredModelFacts, selectConversationProtection } from '../../src/contracts/conversation-validation.js';
@@ -57,7 +58,7 @@ async function operatorGet(app: App, path: string): Promise<{ status: number; bo
 }
 
 describe('process inline output production composition', () => {
-  it('projects real process heads to primary requests while retaining durable URLs and readable retired logs', async () => {
+  it('projects real process heads, retains readable retired logs and shares a command checkout with managed edits', async () => {
     const parent = mkdtempSync(join(tmpdir(), 'saivage-process-inline-e2e-'));
     roots.push(parent);
     const executable = join(parent, 'Node 24 \' " $HOME `node`');
@@ -65,8 +66,19 @@ describe('process inline output production composition', () => {
     const projectRoot = join(parent, 'project');
     const sibling = join(parent, 'sibling');
     const releasePath = join(parent, 'wait-release');
+    const origin = join(parent, 'origin');
     mkdirSync(projectRoot);
     mkdirSync(sibling);
+    mkdirSync(origin);
+    const original = 'export const plan = "original";\n';
+    const edited = 'export const plan = "edited";\n';
+    const filename = 'where-plan.ts';
+    writeFileSync(join(origin, filename), original);
+    fixtureGit(origin, 'init', '-b', 'main');
+    fixtureGit(origin, 'add', '--', filename);
+    fixtureGit(origin, 'commit', '-m', 'Local checkout fixture');
+    const originHead = fixtureGit(origin, 'rev-parse', 'HEAD');
+    const checkoutFile = 'cardwork:///project/repos/candidate/where-plan.ts';
     const providerRequests: ChatCompletionRequest[] = [];
     const observedPrimaryResults: Record<string, unknown>[] = [];
     let fixtureFailure: Error | null = null;
@@ -92,13 +104,16 @@ describe('process inline output production composition', () => {
           else throw new Error(`Unexpected Analyst request ${analystCalls}.`);
           return;
         }
-        if (!tools.includes('run_command') || !tools.includes('wait_process') || !tools.includes('kill_process') || !tools.includes('read') || !tools.includes('emit_result'))
+        if (!['run_command', 'wait_process', 'kill_process', 'read', 'edit', 'emit_result'].every(tool => tools.includes(tool)))
           throw new Error(`Unexpected executor tool set: ${tools.join(',')}.`);
 
         executorCalls += 1;
         if (executorCalls === 1) {
           const script = 'process.stdout.write("short-out");process.stderr.write(Buffer.from([0xf0,0x9f]));';
-          call('foreground-mixed', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, timeout_ms: 2_000 });
+          call('foreground-mixed', 'run_command', {
+            command: `test "$SAIVAGE_CARD_SHELL_ROOT" = "$SAIVAGE_CARD_PUBLIC_ROOT" && test -d "$SAIVAGE_CARD_PUBLIC_ROOT" && test ! -e "$SAIVAGE_CARD_WORK_ROOT/shell" && test ! -L "$SAIVAGE_CARD_WORK_ROOT/shell" && ${quoteBashWord(executable)} -e ${quoteBashWord(script)}`,
+            timeout_ms: 2_000,
+          });
         } else if (executorCalls === 2) {
           const result = resultFor('foreground-mixed').data;
           observedPrimaryResults.push(result);
@@ -159,7 +174,25 @@ describe('process inline output production composition', () => {
           expect(result).toMatchObject({ status: 'exited', exit_code: 0, stdout: `${sibling}\n`, stderr: '', stdout_complete: true, stderr_complete: true });
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).not.toHaveProperty('stderr_url');
-          sendToolCall(response, 'root-terminal', 'emit_result', { outcome: 'done', summary: 'Process lifecycle and outside-project cwd verified.' });
+          call('clone-local', 'run_command', {
+            command: `git clone --no-local -- ${quoteBashWord(origin)} "$SAIVAGE_CARD_REPOS_ROOT/candidate"`,
+            timeout_ms: 5_000,
+          });
+        } else if (executorCalls === 10) {
+          expect(resultFor('clone-local').data).toMatchObject({ status: 'exited', exit_code: 0 });
+          call('read-checkout', 'read', { path: checkoutFile });
+        } else if (executorCalls === 11) {
+          expect(resultFor('read-checkout').data).toMatchObject({ path: checkoutFile, content: { content: original } });
+          call('edit-checkout', 'edit', { path: checkoutFile, old_string: '"original"', new_string: '"edited"' });
+        } else if (executorCalls === 12) {
+          expect(resultFor('edit-checkout').data).toMatchObject({ path: checkoutFile, replacements: 1 });
+          call('read-edited-from-command', 'run_command', {
+            command: 'cat "$SAIVAGE_CARD_REPOS_ROOT/candidate/where-plan.ts"',
+            timeout_ms: 2_000,
+          });
+        } else if (executorCalls === 13) {
+          expect(resultFor('read-edited-from-command').data).toMatchObject({ status: 'exited', exit_code: 0, stdout: edited });
+          sendToolCall(response, 'root-terminal', 'emit_result', { outcome: 'done', summary: 'Process lifecycle and managed checkout edit verified.' });
         } else throw new Error(`Unexpected executor request ${executorCalls}.`);
       } catch (error) {
         fixtureFailure = error as Error;
@@ -197,9 +230,12 @@ describe('process inline output production composition', () => {
       const cards = app.server.runtimeApplication.cardStore;
       try { await waitFor(() => cards.read('project')?.lifecycle.status === 'done', 'process-backed root completion'); }
       catch (error) {
-        throw new Error(`${(error as Error).message} fixture=${(fixtureFailure as Error | null)?.message ?? 'none'} calls=${JSON.stringify({ analystCalls, executorCalls })} conversation=${JSON.stringify(readConversation(projectRoot, 'agent:executor:project').physicalRows)}`);
+        throw new Error(`${(error as Error).message}; calls=${JSON.stringify({ analystCalls, executorCalls })}`, { cause: fixtureFailure ?? error });
       }
       if (fixtureFailure) throw fixtureFailure;
+      expect(readFileSync(join(origin, filename), 'utf8')).toBe(original);
+      expect(fixtureGit(origin, 'rev-parse', 'HEAD')).toBe(originHead);
+      expect(fixtureGit(origin, 'status', '--porcelain')).toBe('');
 
       const durableRows = readConversation(projectRoot, 'agent:executor:project').physicalRows;
       const segment = readCurrentConversationSegment(projectRoot, 'agent:executor:project')!;
@@ -219,11 +255,11 @@ describe('process inline output production composition', () => {
       expect(durableRows.indexOf(marker)).toBeLessThan(durableRows.indexOf(entryPrompt));
       expect(providerRequests.every(request => !JSON.stringify(request).includes('instruction_origin'))).toBe(true);
       const processResults = durableRows.filter((row) => row.kind === 'tool_result' && ['run_command', 'wait_process', 'kill_process'].includes(row.tool ?? '')).map((row) => JSON.parse(row.content).data as Record<string, unknown>);
-      expect(processResults).toHaveLength(7);
+      expect(processResults).toHaveLength(9);
       expect(processResults.every(result => !('content_author' in result) && !('author' in result))).toBe(true);
       expect(processResults.every((result) => typeof result.stdout_url === 'string' && typeof result.stderr_url === 'string')).toBe(true);
       expect(processResults[0]).toMatchObject({ stdout: 'short-out', stdout_complete: true, stderr_complete: false });
-      const outsideResult = processResults.at(-1)!;
+      const outsideResult = processResults[6]!;
       expect(outsideResult).toMatchObject({ status: 'exited', exit_code: 0, stdout: `${sibling}\n`, stdout_url: `work:///cards/project/processes/${outsideResult.process_id}/stdout.log` });
       expect(readFileSync(join(projectRoot, '.saivage', 'work', 'cards', 'project', 'processes', String(outsideResult.process_id), 'stdout.log'), 'utf8')).toBe(`${sibling}\n`);
       expect(processResults.find((result) => result.process_id === waitProcessId && result.status === 'exited')).toMatchObject({ stdout_url: waitStdoutUrl, stdout: 'wait-start-wait-end' });
@@ -281,7 +317,7 @@ describe('process inline output production composition', () => {
       expect(processesResponse).toEqual({ status: 200, body: { processes: [] } });
       expect(observedPrimaryResults).toHaveLength(7);
       expect(providerRequests.length).toBe(analystCalls + executorCalls);
-      expect({ analystCalls, executorCalls }).toEqual({ analystCalls: 2, executorCalls: 9 });
+      expect({ analystCalls, executorCalls }).toEqual({ analystCalls: 2, executorCalls: 13 });
       apps.delete(app); await app.stop();
       const overrideDirectory = join(projectRoot,'.saivage','config','prompts','agents','_shared');
       mkdirSync(overrideDirectory,{recursive:true});

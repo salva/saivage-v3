@@ -1,4 +1,5 @@
-import { relative, resolve } from 'node:path';
+import { lstatSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 
 import type { AgentName, RecordDefinition } from '../schemas/index.js';
 import type { RecordProjection } from '../persistence/index.js';
@@ -9,16 +10,28 @@ import {
   ToolArgumentValidationError,
   type DirectObjectAuthority,
 } from '../tools/tool-api.js';
-import { resolveContainedProjectPath } from './file-access-security.js';
 import {
+  isReadBlocked,
+  isWriteBlocked,
+  looksLikeSecretPath,
+  resolveContainedProjectPath,
+} from './file-access-security.js';
+import { projectDynamicForOutbound } from '../redaction/index.js';
+import {
+  buildCardworkUrl,
   buildScopedPathUrl,
+  encodeCardworkSegment,
+  parseCardworkUrl,
   parseScopedPathUrl,
   parseRecordUrl,
   RecordUrlInputError,
+  type CardworkAddress,
   type ParsedScopedPathUrl,
   type ParsedRecordUrl,
 } from '../contracts/index.js';
 import {
+  cardPublicWorkRoot,
+  cardReposWorkRoot,
   cardTmpRelativePath,
   saivageWorkRelativePath,
   saivageWorkRoot,
@@ -40,6 +53,15 @@ type ResolvedScopedPath =
       workRoot?: string;
     }
   | ({ kind: 'record' } & ResolvedRecordReadTarget);
+
+export interface ResolvedCardworkPath {
+  kind: 'cardwork';
+  absolutePath: string;
+  relativePath: string;
+  locator: string;
+  isRoot: boolean;
+  checkoutChildrenOnly: boolean;
+}
 
 export interface ResolveScopedPathContext {
   selection?: { readonly authority: DirectObjectAuthority; readonly tool: string };
@@ -91,6 +113,116 @@ function resolveContained(
   if (!resolved.safe || !resolved.relativePath)
     throw ctx.fail(resolved.reason ?? `${label} must resolve inside the project root.`);
   return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
+}
+
+function checkOrdinaryPath(
+  ctx: ResolveScopedPathContext,
+  absolutePath: string,
+  target: 'file' | 'directory' | 'either',
+  allowMissingFrom = Infinity,
+): void {
+  const segments = relative(ctx.projectRoot, absolutePath).split(sep);
+  let current = resolve(ctx.projectRoot);
+  for (const [index, segment] of segments.entries()) {
+    current = join(current, segment);
+    const stat =
+      index >= allowMissingFrom
+        ? lstatSync(current, { throwIfNoEntry: false })
+        : lstatSync(current);
+    if (stat === undefined) return;
+    const ordinary =
+      index < segments.length - 1 || target === 'directory'
+        ? stat.isDirectory()
+        : stat.isFile() || (target === 'either' && stat.isDirectory());
+    if (!ordinary)
+      throw ctx.fail('Scoped workspace paths require ordinary directories and files, not symlinks.');
+  }
+}
+
+const CARDWORK_UNREPRESENTABLE = 'Cardwork address cannot be represented as an unchanged receipt.';
+
+function unchangedForOutbound(value: string): boolean {
+  return projectDynamicForOutbound(value) === value;
+}
+
+export function isCardworkComponentVisible(name: string, absolutePath: string): boolean {
+  return name !== '.git' && name !== '.saivage' &&
+    !isReadBlocked(name) && !isWriteBlocked(name) && !looksLikeSecretPath(absolutePath);
+}
+
+function admittedChildLocator(name: string, parentLocator: string): string | null {
+  if (!unchangedForOutbound(name)) return null;
+  let encoded: string;
+  try {
+    encoded = encodeCardworkSegment(name);
+  } catch {
+    return null;
+  }
+  const locator = `${parentLocator}/${encoded}`;
+  return unchangedForOutbound(locator) ? locator : null;
+}
+
+export function admitCardworkChild(
+  raw: Buffer,
+  parentLocator: string,
+): { name: string; locator: string } | null {
+  const name = raw.toString('utf8');
+  if (!Buffer.from(name, 'utf8').equals(raw)) return null;
+  const locator = admittedChildLocator(name, parentLocator);
+  return locator === null ? null : { name, locator };
+}
+
+function resolveCardworkPath(
+  ctx: ResolveScopedPathContext,
+  raw: string,
+  mode: ScopedPathMode,
+): ResolvedCardworkPath {
+  let address: CardworkAddress;
+  try {
+    address = parseCardworkUrl(raw);
+  } catch {
+    throw ctx.fail('Invalid cardwork URL.');
+  }
+  const { cardId, area, pathSegments } = address;
+  const agent = requireAgent(ctx, 'cardwork:///');
+  if (agent.cardId !== cardId || ctx.selection?.authority.anchorCardId !== cardId)
+    throw ctx.fail('Cardwork paths require the owning card binding.');
+  assertReachedObjectAuthority(ctx.selection.authority, ctx.selection.tool, { kind: 'workspace' });
+  if (!unchangedForOutbound(raw)) throw ctx.fail(CARDWORK_UNREPRESENTABLE);
+  let prefix = buildCardworkUrl({ cardId, area, pathSegments: [] });
+  for (const name of pathSegments) {
+    const child = admittedChildLocator(name, prefix);
+    if (!child) throw ctx.fail(CARDWORK_UNREPRESENTABLE);
+    prefix = child;
+  }
+  const writing = mode === 'write';
+  const directory = pathSegments.length < (area === 'repos' ? 2 : 1);
+  if (writing && directory)
+    throw ctx.fail('Cardwork writes require a file below public or an existing repos checkout.');
+  const base = (area === 'public' ? cardPublicWorkRoot : cardReposWorkRoot)(ctx.projectRoot, cardId);
+  let absolutePath = base;
+  for (const name of pathSegments) {
+    absolutePath = join(absolutePath, name);
+    if (!isCardworkComponentVisible(name, absolutePath))
+      throw ctx.fail('Access to this cardwork path is blocked.');
+  }
+  const relativePath = relative(ctx.projectRoot, absolutePath);
+  if (writing) {
+    const requiredComponents = area === 'repos'
+      ? relative(ctx.projectRoot, base).split(sep).length + 1
+      : 0;
+    checkOrdinaryPath(ctx, absolutePath, 'file', requiredComponents);
+  } else {
+    checkOrdinaryPath(ctx, absolutePath, directory ? 'directory' : 'either');
+  }
+  return {
+    kind: 'cardwork',
+    absolutePath,
+    relativePath,
+    locator: raw,
+    isRoot: pathSegments.length === 0,
+    checkoutChildrenOnly: area === 'repos' && pathSegments.length === 0,
+  };
 }
 
 export function resolveRecordWriteTarget(
@@ -171,10 +303,14 @@ export function resolveRecordReadTarget(
 }
 
 export const scopedPathResolvers = {
-  project(ctx: ResolveScopedPathContext, raw: string): ResolvedScopedPath {
+  cardwork: resolveCardworkPath,
+  project(ctx: ResolveScopedPathContext, raw: string, mode: ScopedPathMode): ResolvedScopedPath {
     const parsed = parseScopedPathUrl(raw, 'project');
     rejectQueryAndFragment(raw, 'project', parsed, ctx.fail);
-    return { kind: 'project', ...resolveContained(ctx, parsed.segments.join('/'), 'project path') };
+    const relativePath = parsed.segments.join('/');
+    return mode === 'write'
+      ? { kind: 'project', absolutePath: resolve(ctx.projectRoot, relativePath), relativePath }
+      : { kind: 'project', ...resolveContained(ctx, relativePath, 'project path') };
   },
   system(ctx: ResolveScopedPathContext, raw: string): ResolvedScopedPath {
     const parsed = parseScopedPathUrl(raw, 'system');
@@ -193,9 +329,12 @@ export const scopedPathResolvers = {
     const [cardId, ...rest] = parsed.segments;
     if (mode === 'write' && cardId !== agent.cardId)
       throw ctx.fail('Card-scoped agents may write tmp files only for their current card.');
+    const rel = cardTmpRelativePath(cardId!, ...rest);
+    if (mode === 'write')
+      checkOrdinaryPath(ctx, resolve(ctx.projectRoot, rel), 'file', 0);
     return {
       kind: 'tmp',
-      ...resolveContained(ctx, cardTmpRelativePath(cardId!, ...rest), 'tmp path'),
+      ...resolveContained(ctx, rel, 'tmp path'),
     };
   },
   record(ctx: ResolveScopedPathContext, raw: string, mode: ScopedPathMode): ResolvedScopedPath {
@@ -240,6 +379,8 @@ export function parseScopedPathScheme(raw: string): ScopedPathScheme | null {
   if (!(scheme in scopedPathResolvers))
     throw new Error(`Unsupported scoped URL scheme '${match[1]}'.`);
   if (!raw.startsWith(`${scheme}:///`))
-    throw new Error(`Invalid ${scheme} URL '${raw}' (expected ${scheme}:///).`);
+    throw new Error(
+      scheme === 'cardwork' ? 'Invalid cardwork URL.' : `Invalid ${scheme} URL '${raw}' (expected ${scheme}:///).`,
+    );
   return scheme;
 }

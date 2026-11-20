@@ -666,6 +666,19 @@ filenames. Filesystem resolvers retain raw component rejection and existing
 containment/confidentiality admission; native result paths stay native, and logical
 record identities and queries keep their own grammar.
 
+`contracts/scoped-path-url.ts` owns the stricter exact `cardwork:///` codec shared
+by VFS and work GC. The codec identifies the card, area and native components;
+it grants no access. `workspace/scoped-path-schemes.ts` checks the actual card
+binding and selected workspace grant, ordinary path components, and unchanged
+outbound projection of decoded names and the complete locator. `workspace/vfs.ts`
+uses the same name admission for raw names-only listing and traversal, before
+metadata or content access for a rejected name. It constructs whole result
+locators from admitted components, separate from relative match paths.
+`tools/project-file-tools.ts` owns write/edit effects and preserves the admitted
+locator in their receipts. Webfetch checks the destination before network access
+and re-enters the write gate at save time. GC uses the codec for reference
+interpretation, not the VFS grant or outbound admission checks.
+
 Card record tools carry those exact references through a bound activation-local
 record-mutation port. Supervisor consumes the actual live node ordinal, agent and
 activation anchor before the record effect; the service then consumes fresh linked
@@ -1350,27 +1363,35 @@ uncertain output writes are fatal before retirement/evidence/cleanup.
 
 `command-policy.ts::sanitizedCommandEnv` owns inherited allowlist including optional
 four Git author/committer variables; no default identity or arbitrary credentials.
-Stdio MCP applies explicit configured env afterward. Ordinary run_command sends one
-unchanged bash -c argument; shell.run has its own compiled script/argv/env/time/artifact
-contract. Only card-scoped `run_command` derives the absolute `SAIVAGE_CARD_WORK_ROOT`
-and `SAIVAGE_CARD_SHELL_ROOT` (the parent's `shell` child). Its tool boundary resolves/
-admits cwd first, then recursively creates the exact shell directory with ordinary
-Node defaults before spawn; failure propagates without launch, scans or cleanup.
-The pure `cardShellWorkRoot` layout helper derives only a path. The generic
-ProcessRunner and inherited-env sanitizer remain unchanged. Global commands supply
-neither card variable and create no card subtree; stdio MCP explicit configuration
-and generic/native captured/interactive spawns retain their own contracts.
-Native absolute/system cwd selects system destinations; relative/project paths stay
-contained and scoped schemes retain their own admission. Purpose-named children of
-the stable shell directory are the organizational default for disposable command
-work, not a ban on task-justified
-external clean-install, relocation or dependency-isolation checks within authorized
-scope. Captures remain project-owned regardless cwd. Default cwd remains the project
-root; HOME, TMPDIR and caches are not redirected. Existing shell contents and ordinary
-sibling work remain unchanged. Shell is concrete ordinary work, not a reserved root
-or permanent retention mark: current concrete references and existing owner protections
-govern explicit GC, which keeps directories. There is no automatic completion/startup
-cleanup, sandbox or exclusive ownership guarantee.
+Stdio MCP applies explicit configured env afterward. Ordinary `run_command` sends
+one unchanged `bash -c` argument. The tool catalog supplies the card binding;
+`tools/process-provider.ts` admits cwd first, then lazily ensures ordinary `public`
+and `repos` directories before spawn. The pure `cardWorkRoot`, `cardPublicWorkRoot`
+and `cardReposWorkRoot` helpers in `persistence/layout.ts` derive paths, not effects.
+The launch uses already-admitted ordinary components or creates missing ones with
+Node defaults, without scanning contents. Failure prevents launch without undoing
+known successful creations.
+
+`SAIVAGE_CARD_WORK_ROOT` names the absolute card work root,
+`SAIVAGE_CARD_PUBLIC_ROOT` its `public` child, and `SAIVAGE_CARD_REPOS_ROOT` its
+`repos` child. `SAIVAGE_CARD_SHELL_ROOT` has exactly the same absolute value as
+`SAIVAGE_CARD_PUBLIC_ROOT`. The launch neither consults nor creates the old
+`shell` pathname. A relative link created during
+[external adoption](../runbook/state-adoption.md#card-workspace-pathname-adoption)
+is for legacy pathname lookups, not a second derived locator or a managed write
+address. Global invocations get none of the four variables and create no card
+workspace. The generic `ProcessRunner`, sanitizer and other spawn owners retain
+their contracts. Compiled `shell.run` uses its own script/argv/env/time/artifact
+contract in both binding forms, not the `run_command` locators.
+
+Purpose-named `public` children hold disposable work; `repos` holds named
+checkouts. Both are ordinary concrete work, governed by existing explicit GC
+protections, not automatic retention or cleanup. Native absolute/system cwd
+selects system destinations; relative/project cwd stays contained. Task-justified
+external checks remain permitted within their own scope. Captures stay
+project-owned, default cwd stays the project root, and HOME, TMPDIR and caches
+are not redirected. This organization gives neither a sandbox nor exclusive write
+ownership.
 
 Process result owner reads captures once, normalizes valid UTF-8 prefix/redacts then
 selects certified 2048-byte/30-line heads, raw counts/completeness and fallback URLs.

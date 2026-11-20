@@ -1,5 +1,5 @@
-import { readdirSync, realpathSync, statSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { lstat, readdir } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { normalizeRel } from './glob-matcher.js';
 export { globToRegExp } from './glob-matcher.js';
@@ -24,12 +24,15 @@ import {
   type ModelRecordTargetWire,
 } from '../contracts/index.js';
 import {
+  admitCardworkChild,
+  isCardworkComponentVisible,
   parseScopedPathScheme,
   resolveRecordReadTarget,
   resolveRecordWriteTarget,
   scopedPathResolvers,
   validRecordSegment,
   workUrlFromAbsolutePath,
+  type ResolvedCardworkPath,
   type ScopedPathScheme,
 } from './scoped-path-schemes.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/index.js';
@@ -53,6 +56,7 @@ interface VfsContext {
 }
 
 export type VfsResolved =
+  | ResolvedCardworkPath
   | {
       kind: 'project' | 'tmp' | 'system' | 'work';
       absolutePath: string;
@@ -103,7 +107,7 @@ type VfsListing =
 const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', 'dist', 'build', '__pycache__']);
 const TMP_SCOPED_PREFIX_RE = /^\.saivage\/work\/cards\/[^/]+\/tmp\/?/;
 
-type FsResolved = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>;
+type FsResolved = Exclude<VfsResolved, { kind: 'record' }>;
 type RecordDirectoryResolved = Extract<VfsResolved, { kind: 'record'; recordKind: 'directory' }>;
 
 export function isHiddenPath(
@@ -133,6 +137,19 @@ export function listVisibleDirectoryEntries(
   resolved: FsResolved | { kind: 'project'; absolutePath: string; relativePath: string },
 ): VfsEntry[] {
   const { absolutePath, relativePath } = resolved;
+  if (resolved.kind === 'cardwork') {
+    const entries: VfsEntry[] = [];
+    for (const raw of readdirSync(absolutePath, { encoding: 'buffer' })) {
+      const child = admitCardworkChild(raw, resolved.locator);
+      if (!child || SKIPPED_DIRS.has(child.name)) continue;
+      const path = join(absolutePath, child.name);
+      if (!isCardworkComponentVisible(child.name, path)) continue;
+      const stat = lstatSync(path);
+      if (stat.isDirectory() || (!resolved.checkoutChildrenOnly && stat.isFile()))
+        entries.push({ name: child.name, type: stat.isDirectory() ? 'dir' : 'file' });
+    }
+    return entries.sort((a, b) => compareStrings(a.name, b.name));
+  }
   return readdirSync(absolutePath, { withFileTypes: true })
     .map((entry) => ({
       name: entry.name,
@@ -159,8 +176,28 @@ export async function visitFiles(
     displayPath?: (absolutePath: string, relativePath: string) => string;
     projectSearchIgnore?: ProjectSearchIgnore;
     resourceRoot?: string;
+    cardwork?: { locator: string; checkoutChildrenOnly?: boolean };
   } = {},
 ): Promise<boolean | void> {
+  if (options.cardwork !== undefined) {
+    const { locator: parent, checkoutChildrenOnly } = options.cardwork;
+    const entries = (await readdir(start, { encoding: 'buffer' }))
+      .map((raw) => admitCardworkChild(raw, parent))
+      .filter((child) => child !== null)
+      .sort((a, b) => compareStrings(a.name, b.name));
+    for (const { name, locator } of entries) {
+      if (SKIPPED_DIRS.has(name)) continue;
+      const path = join(start, name);
+      if (!isCardworkComponentVisible(name, path)) continue;
+      const stat = await lstat(path);
+      if (stat.isDirectory()) {
+        if ((await visitFiles(projectRoot, path, visitor, { cardwork: { locator } })) === false)
+          return false;
+      } else if (!checkoutChildrenOnly && stat.isFile() && (await visitor(path, locator)) === false)
+        return false;
+    }
+    return;
+  }
   const projectRelativeStart = options.projectSearchIgnore
     ? normalizeRel(relative(realpathSync(projectRoot), realpathSync(start))) || '.'
     : '.';
@@ -205,6 +242,7 @@ export function displayPathForResolved(
   if (resolved.kind === 'record')
     return resolved.recordKind === 'document' ? resolved.recordUrl : `record:///${resolved.cardId}`;
   if (resolved.kind === 'work') return workUrlFromAbsolutePath(projectRoot, absolutePath);
+  if (resolved.kind === 'cardwork') return resolved.locator;
   return resolved.relativePath;
 }
 
@@ -224,7 +262,7 @@ function delegateDirectoryScheme(
   ctx: VfsContext,
   raw: string,
   mode: VfsMode,
-  scheme: Exclude<ScopedPathScheme, 'record'>,
+  scheme: Exclude<ScopedPathScheme, 'record' | 'cardwork'>,
 ): FsResolved {
   if (
     (scheme === 'project' || scheme === 'work' || scheme === 'system') &&
@@ -341,6 +379,7 @@ export function resolveScopedPath(ctx: VfsContext, raw: string, mode: VfsMode): 
   const scheme = parseScheme(ctx, raw);
   if (scheme === null) return null;
   if (scheme === 'record') return resolveRecord(ctx, raw, mode);
+  if (scheme === 'cardwork') return scopedPathResolvers.cardwork(ctx, raw, mode);
   return delegateDirectoryScheme(ctx, raw, mode, scheme);
 }
 
@@ -369,7 +408,7 @@ export function resolveAgentReadPath(
     isRoot: false,
   };
   if (
-    resolved.kind !== 'record' &&
+    resolved.kind !== 'record' && resolved.kind !== 'cardwork' &&
     inspectAgentReadPath(resolved.absolutePath, resourceRootForRead(ctx.projectRoot, resolved))
       .blocked
   )
@@ -405,7 +444,7 @@ export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsL
   const resolved = resolveAgentReadPath(ctx, raw, 'search');
   if (resolved.kind === 'record')
     return { kind: 'records', records: recordSummaries(ctx, ctx.records!, resolved.cardId) };
-  const st = statSync(resolved.absolutePath);
+  const st = (resolved.kind === 'cardwork' ? lstatSync : statSync)(resolved.absolutePath);
   if (!st.isDirectory())
     throw ctx.fail(
       `Path '${displayPathForResolved(ctx.projectRoot, resolved)}' is not a directory.`,
@@ -421,7 +460,7 @@ function displayPathCallback(
     return (abs) => buildScopedPathUrl('system', normalizeRel(abs).replace(/^\/+/, '').split('/'));
   if (resolved.kind === 'work') return (abs) => workUrlFromAbsolutePath(projectRoot, abs);
   if (resolved.kind === 'tmp') return (abs) => normalizeRel(relative(projectRoot, abs));
-  if (resolved.native)
+  if (resolved.kind === 'project' && resolved.native)
     return (abs) =>
       isWithinReadRoot(resolve(projectRoot), abs) ? normalizeRel(relative(projectRoot, abs)) : abs;
   return undefined;
@@ -460,7 +499,7 @@ export async function visitScopedFiles(
     return;
   }
 
-  const st = statSync(resolved.absolutePath);
+  const st = (resolved.kind === 'cardwork' ? lstatSync : statSync)(resolved.absolutePath);
   if (st.isFile()) {
     await visitor({
       absolutePath: resolved.absolutePath,
@@ -496,6 +535,7 @@ export async function visitScopedFiles(
       displayPath: displayPathCallback(ctx.projectRoot, resolved),
       projectSearchIgnore,
       resourceRoot: resourceRootForRead(ctx.projectRoot, resolved),
+      ...(resolved.kind === 'cardwork' ? { cardwork: resolved } : {}),
     },
   );
 }

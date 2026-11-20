@@ -42,15 +42,12 @@ title-only edit contract; source changes do not replace installed custom prompts
 Provider priority, notification urgency, sibling order and activation are unchanged.
 Source completion authorizes no deployment, migration, reset, start or Run.
 
-The card command shell-area convention alone needs no retained-state conversion:
-`shell` was and remains ordinary concrete card work, sibling work stays unchanged,
-and directory absence is legitimate lazy absence. Later GC horizon and shell-source
-rules affect eligibility as described in the [work-GC procedure](./work-gc.md).
-Adopt matching runtime/tool help and deliberately reconcile selected materialized
-Executor hosts across the six profiles; source edits do not hot-update custom hosts.
-Do not relocate retained artifacts or infer whole-release compatibility from this
-isolated addition. Installed-release applicability is unknown; no deployment,
-reset or external migration is authorized. See the source-parent evidence in the
+The earlier card command shell-area guidance introduced `shell` as ordinary
+concrete card work and required no conversion at that change. WORK-01 is a
+separate release decision: an existing installation with old `shell` paths
+needs [card workspace pathname adoption](#card-workspace-pathname-adoption) if
+not already converted. This is not a durable discriminator change and does not
+establish whole-release compatibility or installed applicability. See the
 [format reference](../architecture/durable-format-changes.md).
 
 The configured direct-object authority source cutover from `e1307b9b` requires
@@ -137,6 +134,7 @@ GC has no elapsed deadline; interruption/lost response never authorizes replay.
 
 | Situation | Appropriate decision |
 |---|---|
+| First upgrade to a release with the WORK-01 workspace layout, or a later upgrade with old `shell` paths not yet converted | Resolve [card workspace pathname adoption](#card-workspace-pathname-adoption) before starting the matching release |
 | Valid retained state matches every selected release contract | Authorized stopped deployment; retain it, without reset or migration |
 | Current-format selector or selected body is damaged | Separately backed-up, consented [exact-target repair](#current-format-repair), where supported |
 | Configuration or selected prompts need an identity-preserving change | [Reconcile stopped inputs](#selected-configuration-and-prompts), then authorized new server process |
@@ -144,7 +142,8 @@ GC has no elapsed deadline; interruption/lost response never authorizes replay.
 | Publication outcome is unknown | [Stop on uncertainty](#stop-on-uncertainty); no inspection or automatic retry |
 
 Repair is not a format converter. Startup is not a compatibility probe. There is
-no core or packaged migration, old-format reader, normalization, alias, dual path,
+no core or packaged migration, old-format reader, normalization, runtime-generated
+compatibility alias, dual path,
 automatic reset or selective restoration. Binary-only downgrade is unsupported.
 Rollback needs a separately authorized matching complete-state/release decision.
 
@@ -513,6 +512,79 @@ No shipped/tracked reusable migration utility or core compatibility path.
 
 The [external-migration skill](https://github.com/salva/saivage-v3/blob/HEAD/.github/skills/saivage-format-migration/SKILL.md)
 supports execution under policy; reading it grants no consent.
+
+### Card workspace pathname adoption
+
+Before upgrading an existing installation to the first release containing
+WORK-01, or any later release if not yet converted, establish which old
+`shell` paths need continuity. Fresh installations use `public` and `repos`;
+neither runtime, `init`, deployment hooks nor packaged utilities create or
+check an old-path link. The `SAIVAGE_CARD_SHELL_ROOT` variable in the new
+release names `public` directly, regardless of whether the old pathname exists.
+
+1. **Resolve scope and authority first.** This is an external operation under
+   the [offline migration gates](#explicit-external-offline-migration), not a
+   live rename or a consequence of deployment consent. It requires an explicit
+   project-owner migration request for the identified project and release. Identify the exact
+   managed project, service and deployment, source and pinned matching target
+   releases (including intervening contracts), complete state boundary and
+   owner-identified affected card roots. Derive exact paths from established
+   identities and authorized source references. If coverage of required old
+   paths or intended actions is unclear, stop for owner evidence. Do not
+   enumerate opaque work or history to discover old projects, inspect
+   noncanonical siblings or adopt unlinked cards.
+2. **Exclude writers and preserve evidence.** Stop the exact service, exclude
+   restarts and positively establish no owner or surviving writer. Unresolved
+   locks block. Complete a fresh stopped target-project backup in workspace
+   `tmp/` before inspecting or transforming generated contents, and preserve
+   it unchanged. Work only on a complete independent candidate outside the
+   installation and backup, with no writable aliases or hardlinks back.
+3. **Transform only established exact paths on the candidate.** For an
+   ordinary `.saivage/work/cards/<card-id>/shell` directory with an absent
+   sibling `public`, rename the
+   whole directory intact to `public`, then create a relative symlink at
+   `shell` with link text exactly `public`. Existing checkouts stay inside
+   `public`; do not re-clone them or redistribute them into `repos`.
+   An already converted layout needs no repeat effects only when provenance,
+   exact relative link and ordinary sibling target are established. For
+   established lazy absence with no old path to preserve, create no link.
+   Neither a missing `shell` entry nor an equal discriminator establishes
+   whether conversion occurred. If the available evidence does not establish
+   the state, stop and report what is missing. An ambiguous public-only state,
+   a `public` collision (even empty), wrong or dangling link, unexpected type
+   or unclear prior partial effects blocks: do not merge, replace, discard or
+   guess.
+4. **Validate both compatibility and known retention dependencies.** Use the
+   pinned release's actual strict consumers on the complete candidate,
+   including linked card and indexed conversation history, records, exact work
+   paths, evidence, configuration, selected scripts and prompt closure. Verify
+   legacy native and supported `work:///` lookups on the candidate without
+   launching commands there. Only ordinary pathname continuity is intended;
+   neither process survival nor acceptance by strict consumers follows from
+   a symlink. New command bindings have separate source fixtures. Assess
+   retention from bounded, already-evidenced inputs only. A recognized exact
+   legacy path or exact legacy directory paired with a relative pattern can
+   resolve through the link. But a parent-scoped pattern such as
+   `shell*/install-check/result.ts` under `work:///cards/project` matches the
+   physical inventory and can lose protection after the rename. Block cutover
+   for known required old-name glob-only reliance unless a separately
+   authorized normal current reference protecting the needed target is
+   established. A successful lookup or a backup does not supply that reference.
+   If a required dependency cannot be preserved or evidence is insufficient,
+   report the blocker. Do not scan for unseen reliance, edit historical rows,
+   extend GC, or infer consent to edit custom scripts or overrides.
+5. **Cut over only after strict validation succeeds.** Use the authorized
+   complete boundary (`cards`, `agents`, `logs`, `work` together or the whole
+   selected workspace) and matching pinned release. Restart and Run are
+   separate actions; verify any authorized start separately. At the first
+   failure, stop and report known effects separately from uncompleted or
+   unknown ones. For example, a confirmed rename followed by a known link
+   failure leaves a renamed directory without the alias. On
+   [outcome uncertainty](#stop-on-uncertainty), stop immediately without
+   inspection, retry, cleanup, rollback, further effect or reconciliation.
+   A binary downgrade cannot undo the rename, restore old paths or recover
+   deleted files. This procedure authorizes no installation, migration, loss
+   or service action by itself.
 
 ## Storage and interruption
 

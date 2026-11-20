@@ -31,9 +31,10 @@ intended blanket retention. Operational/unfinished-owner protections still cover
 selected scopes, including roots; unknown recognized aliases can still retain all work.
 No reclamation or historical availability is promised.
 
-Wildcard references protect only what they match, within their scope. A `pattern`
-field, or a quoted or unquoted path containing `*` or `?`, is matched against the
-ordinary files and directories under work in its scope. That scope is the paired
+Wildcard references protect only what they match, within their scope. Except for
+whole canonical `cardwork:///` addresses, a `pattern` field or a quoted or
+unquoted path containing `*` or `?` is matched against the ordinary files and
+directories under work in its scope. That scope is the paired
 `directory` (or `cwd`) when present; otherwise it is the project root for global
 conversations, or the project root, card root and card `tmp` for card content. The
 matching is anchored and case-sensitive: `*` and `?` stay within one path segment, and
@@ -50,22 +51,52 @@ Needed work that is reachable only through a broad or over-threshold wildcard ca
 deleted; name needed files or subtrees with an explicit reference instead. A wildcard
 without an explicit scope is not, by itself, retention of all work.
 
+An admitted whole cardwork receipt is an exact reference when retained in a
+current content source that GC uses. For example,
+`cardwork:///card-n/public/case%3F.ts` names `case?.ts`, not its neighbors.
+In the same directory, `case%2A.ts` names `case*.ts`, and `case%253F.ts` names
+`case%3F.ts`. Whole canonical addresses are exact in structured values (even a
+`pattern` slot), bare prose, quotes, backticks, Markdown destinations, enclosing
+URL query values and nested decoded JSON. A query wrapper must encode the inner
+`%` again: the inner `%3F` travels as `%253F` in the query. Bare prose strips
+trailing commas, semicolons, colons and closing brackets, braces or parentheses,
+but not periods; backticks can delimit an address at the end of a sentence.
+Exact fields, quoted addresses and link values get no prose trimming. A
+recognized malformed address gets conservative unknown-scope handling, not
+wildcard interpretation or partial-path recovery.
+
+For a wildcard, use an exact `directory` (or structured `cwd`) of
+`cardwork:///card-n/public` with a separate relative `pattern` of `case?.ts`.
+The paired directory gives the match scope; it does not itself protect the
+subtree. The match cap applies to that pattern, not to an independent exact
+address: even at 51 matches an exact reference still protects its own target.
+Slices, previews and call-argument projections are not whole receipts.
+
 ## Preview first, delete separately
 
-Card `run_command` lazily supplies `.saivage/work/cards/<card-id>/shell` as
-`SAIVAGE_CARD_SHELL_ROOT`. This remains an ordinary concrete child, not a reserved
-root or retention exemption. Neither directory creation, the variable nor card
-existence alone protects its files; the card's compaction horizon may retain them.
-For example, a retained current non-shell
-`work:///cards/card-n/shell/install-check` reference protects only that subtree;
-`work:///cards/card-n/shell` protects all shell work but not sibling scratch or
-captures, while `work:///cards/card-n` alone protects neither. Prefer needed
-purpose-child/artifact references over the whole shell subtree. Old unreferenced
-shell files can be eligible just like ordinary sibling work; those siblings remain
-valid without relocation. Existing process-owner, unfinished-execution and capture
-protections still apply. GC keeps directories, and command/card completion, re-entry
-and startup perform no automatic cleanup. Task-owned explicit cleanup remains
-permitted; separately consented generated-state reset includes the whole work root.
+Card `run_command` lazily creates `public` and `repos` under
+`.saivage/work/cards/<card-id>/`. `SAIVAGE_CARD_PUBLIC_ROOT` and
+`SAIVAGE_CARD_SHELL_ROOT` both name `public`. The two areas are ordinary concrete work.
+Their existence does not protect files, though the card's compaction horizon and
+other existing protections may. Old unprotected checkout files, including Git
+metadata, can be reclaimed. A clone is not a backup. Prefer exact references to
+needed artifacts or purpose-named subtrees rather than the whole area. GC keeps
+directories; completion, re-entry and startup perform no automatic cleanup.
+Task-owned explicit cleanup remains permitted; separately consented generated-state
+reset includes the whole work root.
+
+After [external pathname adoption](./state-adoption.md#card-workspace-pathname-adoption),
+GC does not inventory the legacy `shell` symlink as another subtree. A recognized
+exact old path such as `work:///cards/project/shell/install-check/result.ts` can
+protect its resolved target. An exact scope `work:///cards/project/shell` paired
+with the relative pattern `install-check/result.ts` resolves to the new directory,
+subject to the usual matching rules. But `shell*/install-check/result.ts` under
+`work:///cards/project` matches physical names, not aliases: it can stop protecting
+the file now under `public`. A working legacy lookup is not proof of retention.
+Assess reliance using only bounded, already-established evidence; do not scan
+for unseen dependencies. If required work is known to rely solely on an old-name
+glob for protection, block cutover unless a separately authorized normal current
+reference protecting that work is established under the linked adoption procedure.
 
 From the identified project root, using the matching release, preview with a
 per-file minimum of 400000000 bytes and no optional cutoff or remaining-byte target:
@@ -239,10 +270,12 @@ candidates through the unknown-scope rules. Examples: an unresolved substitution
 (`${...}` or `$(...)`) in a recognized non-shell reference; a `#` fragment in a `project`, `system`,
 `work` or `tmp` URI in prose that has no `*` or `?`; and a `?` or `#` in such a URI used
 as an exact structured path field or as paired `directory`/`cwd` scope metadata. A
-completed preview may then reclaim zero bytes. By contrast, a `?` in an inferred URI or
-quoted path is glob syntax: it is matched against entries within its scope, and a glob
-matching more than 50 entries contributes nothing rather than protecting all candidates. An unresolved recognized reference, including a path-length filesystem
-error during exact alias metadata resolution, also retains all; a sufficient global
+completed preview may then reclaim zero bytes. Outside the exact cardwork address
+contract, a `?` in an inferred URI or quoted path is glob syntax: it is matched against
+entries within its scope, and a glob matching more than 50 entries contributes
+nothing rather than protecting all candidates. An unresolved recognized reference,
+including a path-length error during exact alias metadata resolution, also retains
+all; a sufficient global
 mark can skip remaining selection reads. Conversely, missed prose filenames can
 leave needed work eligible: useful reclamation is not proof of safe inference.
 The decoded-multiline correction removes one false global-retention trigger; it

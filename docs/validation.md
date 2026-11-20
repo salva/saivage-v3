@@ -269,6 +269,15 @@ cadence contract; required coverage and fail-propagating composition are.
 | Server plugin | Real backend socket/application-composition tests, affected errors/cleanup, routine and build; mocked browser sockets do not cover it |
 | Vue/compiler, parser/sanitizer, dev tools | [Dependency comparison recipes](#dependency-comparison-recipes), then applicable profiles |
 
+For card command workspace changes, select the focused `tests/tools/process-provider.test.ts`
+witnesses for lazy `public`/`repos` creation, equal shell/public locator values, no
+fresh `shell` entry and no card workspace or locator exposure on a global launch.
+Select `tests/e2e/process-inline-output.e2e.test.ts` through `test:e2e:direct` for
+the interaction: a bound command clones a local fixture into a named private
+checkout, bound workspace tools read and edit its file through `cardwork:///` under
+existing grants, and a later command sees the edit while the origin is unchanged.
+These are process and tool-integration witnesses, not workflow prompt tests.
+
 Keep natural exits, exact commands, source/lock identities, toolchain executable,
 versions, warnings and artifacts. A timeout is incomplete evidence, not a pass.
 Use finite external bounds for experiments; if a tool adds an outer deadline, give

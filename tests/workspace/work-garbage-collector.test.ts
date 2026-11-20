@@ -41,6 +41,14 @@ const { composeContextProjection, providerConversationFromComposedContext } = aw
 const { inspectWorkGcCanonicalState, workGcActionInputs } = await import('../../src/persistence/current-generated-graph.js');
 const { cardAgentSessionId } = await import('../../src/schemas/index.js');
 const { compactWorkGcCard } = await import('../helpers/work-gc-compaction.js');
+const { buildCardworkUrl, settleToolActionOutcome } = await import('../../src/contracts/index.js');
+const { invokeToolForLlm } = await import('../../src/tools/invocation.js');
+const { workspaceToolBinders } = await import('../../src/tools/workspace-provider.js');
+const { webToolBinders } = await import('../../src/tools/web-tools.js');
+const { bindToolProvider } = await import('../helpers/bind-tool-provider.js');
+const { buildInvocationSurfaceFixture } = await import('../helpers/invocation-surface-fixture.js');
+const { testWorkspaceAuthority } = await import('../helpers/capability-grants.js');
+const { testLlmToolInvocationContext } = await import('../helpers/llm-test-helpers.js');
 
 const roots: string[] = [];
 afterEach(() => {
@@ -108,6 +116,277 @@ function toolExchange(tool: string, content: string, argumentsText = '{}') {
       tool, tool_call_id: callId, context_policy: policy.result }),
   ];
 }
+
+function boundWorkspace(root: string) {
+  const context = { projectRoot: root, cardId: 'project', agentName: 'executor' as const,
+    authority: testWorkspaceAuthority('project') };
+  const surface = buildInvocationSurfaceFixture('executor', [
+    bindToolProvider('workspace', workspaceToolBinders, context),
+    bindToolProvider('web', webToolBinders, context),
+  ]);
+  return async (tool: string, args: object) => {
+    const result = await invokeToolForLlm(surface, tool, args,
+      testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: tool }),
+      new AbortController().signal);
+    return settleToolActionOutcome(result.kind === 'executed' ? result.execution.providerOutcome : result.providerOutcome);
+  };
+}
+
+const publicUrl = (...pathSegments: string[]) =>
+  buildCardworkUrl({ cardId: 'project', area: 'public', pathSegments });
+const cardworkPreview = async (root: string) =>
+  collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
+const oneCharacterCases = (count: number) =>
+  [...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'].slice(0, count).map(char => `case${char}.ts`);
+
+describe('exact cardwork retention', () => {
+  it.each(['refused', 'applied'] as const)('marks only the %s bound write’s actual settled result in the current conversation', async outcome => {
+    const root = fixture(), invoke = boundWorkspace(root);
+    const path = publicUrl(outcome === 'refused' ? 'tok_example_fixture.ts' : 'ordinary.ts');
+    const selected = work(root, 'cards/project/public/ordinary.ts', 'selected');
+    const control = work(root, 'cards/project/public/tok_example_fixture.ts', 'old');
+    const settled = await invoke('write', { path, content: 'selected' });
+    if (outcome === 'applied') {
+      expect(settled.providerResult).toMatchObject({ success: true, data: { target: path } });
+      expect((await invoke('read', { path })).providerResult).toMatchObject({
+        success: true, data: { path, content: { content: 'selected' } },
+      });
+      utimesSync(selected, 1, 1);
+    } else {
+      expect(settled.providerResult).toEqual({
+        success: false, error: 'Cardwork address cannot be represented as an unchanged receipt.',
+      });
+      expect(readFileSync(control, 'utf8')).toBe('old');
+    }
+    appendConversationBatch({ projectRoot: root }, toolExchange('write', settled.settledResultBytes));
+    expect(await cardworkPreview(root)).toMatchObject({
+      observed_count: 2, first_global_protection: null, retained: { protected: outcome === 'applied' ? 1 : 0 },
+      would_delete_count: outcome === 'applied' ? 1 : 2,
+      would_delete_logical_bytes: outcome === 'applied' ? 3 : 11,
+    });
+  });
+
+  const carriers = {
+    receipt: (_: string, bytes: string) => bytes,
+    comma: (url: string) => `Keep ${url}, then continue`,
+    parenthesized: (url: string) => `(keep ${url})`,
+    adjacentParens: (url: string) => `Keep (${url})`,
+    delimiters: (url: string) => `Keep ${url};:)]}, then continue`,
+    single: (url: string) => `Keep '${url}'`,
+    double: (url: string) => `Keep "${url}"`,
+    backtick: (url: string) => `Keep \`${url}\`.`,
+    markdown: (url: string) => `[selected](${url})`,
+    angleMarkdown: (url: string) => `[selected](<${url}>)`,
+    enclosingQuery: (url: string) => {
+      const outer = new URL('https://example.invalid/fixture');
+      outer.searchParams.set('selected', url);
+      return outer.href;
+    },
+    nestedJson: (url: string) => JSON.stringify({ outer: JSON.stringify({ target: url }) }),
+    patternSlot: (url: string) => JSON.stringify({ pattern: { literal: [url] } }),
+  };
+  const copies = Object.entries(carriers).flatMap(([kind, carrier]) =>
+    (['write', 'webfetch'] as const).map(tool => ({ kind, carrier, tool })));
+  it.each(copies)('protects one literal filename for $tool via $kind, even among more than fifty matches', async ({ tool, carrier }) => {
+    const root = fixture(), invoke = boundWorkspace(root);
+    for (const name of ['case%3F.ts', 'case?.ts', 'case*.ts', ...oneCharacterCases(52), 'control.txt'])
+      work(root, `cards/project/public/${name}`, 'x');
+    const name = tool === 'write' ? 'case?.ts' : 'case*.ts';
+    const path = publicUrl(name), content = 'selected only';
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(content));
+    const { settledResultBytes, providerResult } = tool === 'write'
+      ? await invoke(tool, { path, content })
+      : await invoke(tool, { url: 'https://93.184.216.34', save_as: path });
+    expect(providerResult.success).toBe(true);
+    if (!providerResult.success) throw new Error(providerResult.error);
+    const target = tool === 'write'
+      ? (providerResult.data as { target: string }).target
+      : (providerResult.data as { write: { data: { target: string } } }).write.data.target;
+    expect(target).toBe(`cardwork:///project/public/${tool === 'write' ? 'case%3F.ts' : 'case%2A.ts'}`);
+    if (tool === 'webfetch') expect(providerResult.data).toHaveProperty('saved_as', target);
+    expect(fetch).toHaveBeenCalledTimes(tool === 'webfetch' ? 1 : 0);
+    expect((await invoke('read', { path: target })).providerResult).toMatchObject({
+      success: true, data: { path: target, content: { content } },
+    });
+    utimesSync(join(root, '.saivage/work/cards/project/public', name), 1, 1);
+    appendConversationBatch({ projectRoot: root }, [message(carrier(target, settledResultBytes))]);
+    expect(await cardworkPreview(root)).toMatchObject({
+      observed_count: 56, first_global_protection: null, retained: { protected: 1 },
+      would_delete_count: 55, would_delete_logical_bytes: 55,
+    });
+  });
+
+  it.each(['bare', 'query', 'Markdown query'] as const)
+  ('decodes exactly once and retains escaped punctuation and an unreserved terminal period in %s', async kind => {
+    const root = fixture(), invoke = boundWorkspace(root);
+    const path = publicUrl('case%3F,.ts.');
+    const selected = work(root, 'cards/project/public/case%3F,.ts.', 'selected');
+    for (const name of ['case?,.ts.', 'case%3F,.ts', 'control'])
+      work(root, `cards/project/public/${name}`, 'x');
+    expect(path).toBe('cardwork:///project/public/case%253F%2C.ts.');
+    expect((await invoke('read', { path })).providerResult).toMatchObject({
+      success: true, data: { path, content: { content: 'selected' } },
+    });
+    expect(readFileSync(selected, 'utf8')).toBe('selected');
+    const enclosing = carriers.enclosingQuery(path);
+    baseline(root, kind === 'bare' ? `Keep ${path}, then continue.`
+      : kind === 'query' ? enclosing : `[selected](<${enclosing}>)`);
+    expect(await cardworkPreview(root)).toMatchObject({
+      first_global_protection: null, retained: { protected: 1 }, would_delete_logical_bytes: 3,
+    });
+  });
+
+  it.each([
+    ['target punctuation', JSON.stringify({ target: `${publicUrl('one.ts')},` })],
+    ['quoted punctuation', `Keep "${publicUrl('one.ts')},"`],
+    ['prose quote with an unencoded escape', String.raw`Keep "cardwork:///project/public/one\u002Ets"`],
+    ['Markdown punctuation', `[selected](${publicUrl('one.ts')},)`],
+    ['Markdown angle destination with raw parenthesis', '[selected](<cardwork:///project/public/one).ts>)'],
+    ['query punctuation', carriers.enclosingQuery(`${publicUrl('one.ts')},`)],
+    ['query whitespace', carriers.enclosingQuery(` ${publicUrl('one.ts')}`)],
+    ['raw NUL in an exact target', JSON.stringify({ target: `${publicUrl('one.ts')}\0` })],
+    ['uppercase scheme', 'CARDWORK:///project/public/one.ts'],
+    ['parenthesized raw wildcard', 'Keep (cardwork:///project/public/one*.ts)'],
+    ['interior noncanonical escape', 'Keep cardwork:///project/public/one%2fescape.ts, please'],
+    ['raw wildcard in pattern', JSON.stringify({ pattern: 'cardwork:///project/public/*.ts' })],
+    ['malformed directory', 'directory="cardwork:///project/public/%ZZ", pattern="*.ts"'],
+  ])('keeps the unknown-scope hold for %s instead of guessing', async (_, content) => {
+    const root = fixture();
+    work(root, 'cards/project/public/one.ts');
+    work(root, 'tmp/stash/unrelated');
+    baseline(root, content);
+    expect(await cardworkPreview(root)).toMatchObject({
+      first_global_protection: { reason: 'reference_scope_unknown' },
+      retained: { protected: 2 }, would_delete_count: 0,
+    });
+  });
+
+  const scopes = ['structured', 'nested cwd', 'prose', 'nested prose', 'broad with exact'] as const;
+  it.each(scopes.flatMap(kind => [50, 51].map(count => ({ kind, count }))))
+  ('uses a cardwork base only for $kind relative patterns at $count matches', async ({ kind, count }) => {
+    const root = fixture(), directory = publicUrl('scope?');
+    const pattern = 'case?.ts', names = oneCharacterCases(count);
+    for (const name of names) work(root, `cards/project/public/scope?/${name}`);
+    work(root, 'cards/project/public/scope?/not-a-match.txt');
+    work(root, `cards/project/public/scopeZ/${names[0]}`);
+    const pair = `directory="${directory}", pattern="${pattern}"`;
+    const exact = publicUrl('scope?', names[0]!);
+    const input = {
+      structured: JSON.stringify({ directory, pattern }),
+      'nested cwd': JSON.stringify({ nested: JSON.stringify({ cwd: directory, pattern: { literal: [pattern] } }) }),
+      prose: pair,
+      'nested prose': JSON.stringify({ nested: JSON.stringify({ text: pair }) }),
+      'broad with exact': JSON.stringify({ directory, pattern, target: exact }),
+    }[kind];
+    baseline(root, input);
+    const kept = count === 50 ? 50 : kind === 'broad with exact' ? 1 : 0;
+    expect(await cardworkPreview(root)).toMatchObject({
+      observed_count: count + 2, first_global_protection: null,
+      retained: { protected: kept }, would_delete_count: count + 2 - kept,
+    });
+  });
+
+  it.each(['parent glob', 'exact work URL', 'exact shell scope'] as const)
+  ('compares old and converted physical layouts independently for a %s', async kind => {
+    for (const converted of [false, true]) {
+      const root = fixture(), area = converted ? 'public' : 'shell';
+      const selected = work(root, `cards/project/${area}/install-check/result.ts`, 'selected');
+      const control = work(root, `cards/project/${area}/unrelated.ts`, 'x');
+      const legacy = 'work:///cards/project/shell/install-check/result.ts';
+      const input = {
+        'parent glob': { directory: 'work:///cards/project', pattern: 'shell*/install-check/result.ts' },
+        'exact work URL': { path: legacy },
+        'exact shell scope': { directory: 'work:///cards/project/shell', pattern: 'install-check/result.ts' },
+      }[kind];
+      if (converted) {
+        const shell = join(root, '.saivage/work/cards/project/shell');
+        symlinkSync('public', shell);
+        expect(readFileSync(join(shell, 'install-check/result.ts'), 'utf8')).toBe('selected');
+        const invoke = boundWorkspace(root);
+        expect((await invoke('read', { path: legacy })).providerResult).toMatchObject({
+          success: true, data: { content: { content: 'selected' } },
+        });
+        for (const path of [join(shell, 'install-check/result.ts'), legacy])
+          expect((await invoke('write', { path, content: 'no alias write' })).providerResult.success).toBe(false);
+        expect(readFileSync(selected, 'utf8')).toBe('selected');
+      }
+      baseline(root, JSON.stringify(input));
+      const kept = converted && kind === 'parent glob' ? 0 : 1;
+      expect(await cardworkPreview(root)).toMatchObject({
+        observed_count: 2, observed_logical_bytes: 9, opaque_entries: converted ? 1 : 0,
+        first_global_protection: null, retained: { protected: kept }, would_delete_logical_bytes: kept ? 1 : 9,
+      });
+      expect([selected, control].every(existsSync)).toBe(true);
+    }
+  });
+
+  it.each(['known', 'absent', 'unknown scope'] as const)
+  ('keeps converted aliases opaque with a %s card horizon/scope and resolves exact public and repos roots', async kind => {
+    const root = fixture(kind !== 'absent');
+    work(root, 'cards/project/public/purpose/readme.ts');
+    work(root, 'cards/project/repos/checkout/where-plan.ts');
+    work(root, 'cards/project/repos/other/control.ts');
+    work(root, 'tmp/stash/global-control');
+    symlinkSync('public', join(root, '.saivage/work/cards/project/shell'));
+    if (kind === 'unknown scope')
+      baseline(root, JSON.stringify({ directory: 'work:///cards/project/shell/${unknown}', pattern: '*.ts' }));
+    else baseline(root, `${publicUrl()} cardwork:///project/repos/checkout`);
+    const protectedCount = kind === 'known' ? 2 : kind === 'absent' ? 3 : 4;
+    expect(await cardworkPreview(root)).toMatchObject({
+      observed_count: 4, opaque_entries: 1, retained: { protected: protectedCount },
+      first_global_protection: kind === 'unknown scope' ? { reason: 'reference_scope_unknown' } : null,
+      would_delete_count: 4 - protectedCount,
+    });
+  });
+
+  it('does not turn cross-card URLs into graph discovery or same-card paths', async () => {
+    const root = fixture(), cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Linked', bootstrap_content: 'brief',
+      created_by: 'analyst', depends_on: [] });
+    work(root, `cards/${child.id}/repos/checkout/selected.ts`, 'exact');
+    work(root, 'cards/project/repos/checkout/selected.ts', 'x');
+    work(root, 'cards/card-z/public/opaque.ts');
+    const opaque = join(root, '.saivage/cards/card-z/card-head.json');
+    mkdirSync(dirname(opaque), { recursive: true });
+    writeFileSync(opaque, 'not a canonical card');
+    baseline(root, `Keep cardwork:///${child.id}/repos/checkout/selected.ts and cardwork:///card-z/public/opaque.ts`);
+    const read = jest.spyOn(fs, 'readFileSync');
+    expect(await cardworkPreview(root)).toMatchObject({
+      observed_count: 3, first_global_protection: null, retained: { protected: 1, opaque: 1 },
+      would_delete_logical_bytes: 1,
+    });
+    expect(read.mock.calls.some(([path]) => String(path) === opaque)).toBe(false);
+  });
+
+  it('keeps a canonical cardwork reference independent of managed receipt policy', async () => {
+    const root = fixture();
+    work(root, 'cards/project/public/tok_example_fixture.ts', 'selected');
+    work(root, 'cards/project/public/neighbor.ts', 'x');
+    baseline(root, JSON.stringify({ target: publicUrl('tok_example_fixture.ts') }));
+    expect(await cardworkPreview(root)).toMatchObject({
+      first_global_protection: null, retained: { protected: 1 }, would_delete_logical_bytes: 1,
+    });
+  });
+
+  it('does not protect files from a superseded conversation segment', async () => {
+    const root = fixture();
+    work(root, 'cards/project/public/old.ts', 'old reference');
+    work(root, 'cards/project/public/current.ts', 'current reference');
+    const row = message(`Keep ${publicUrl('old.ts')}`);
+    appendConversationBatch({ projectRoot: root }, [row]);
+    const entryId = randomUUID();
+    publishCompactedConversationSegment({ projectRoot: root }, 'agent:planner:project', {
+      identity: { genesisId: randomUUID(), entryId, segmentVersion: 3,
+        timestamp: '2026-10-24T00:01:00.000Z', filename: versionFilename(3, entryId) },
+      history: { summaryText: `Keep ${publicUrl('current.ts')}`, protectedPrompts: [],
+        requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } },
+      cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
+    });
+    expect(await cardworkPreview(root)).toMatchObject({
+      first_global_protection: null, retained: { protected: 1 }, would_delete_logical_bytes: 13,
+    });
+  });
+});
 
 describe('work GC two-phase selection', () => {
   it.each(['empty', 'ordinary', 'no_agents'] as const)('retains the card work area without a %s compaction boundary', async kind => {

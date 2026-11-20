@@ -320,8 +320,14 @@ export {
   McpServersArgumentsSchema,
 } from './mcp-invocation.js';
 export type { McpToolCallArguments } from './mcp-invocation.js';
-export { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
-export type { ParsedScopedPathUrl } from './scoped-path-url.js';
+export {
+  buildScopedPathUrl,
+  parseScopedPathUrl,
+  buildCardworkUrl,
+  parseCardworkUrl,
+  encodeCardworkSegment,
+} from './scoped-path-url.js';
+export type { ParsedScopedPathUrl, CardworkAddress } from './scoped-path-url.js';
 export { qualityToolInputSchema } from './quality-tools.js';
 export type { QualityToolPort } from './quality-tools.js';
 export { ProcessViewSchema } from './operator-api-processes.js';

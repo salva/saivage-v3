@@ -28,6 +28,22 @@ const sessionId = parseConversationSessionId('agent:planner:project');
 const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
+it('still projects cardwork call locations separately from an exact settled result receipt', () => {
+  const input: ToolInvocationProjectionInput = {
+    shape: 'complete',
+    identity: { sessionId, sourceInputId, toolCallId: 'cardwork-write', toolName: 'write' },
+    arguments: { path: 'cardwork:///project/public/tok_example_fixture.ts', content: 'fixture' },
+    result: settleToolActionOutcome(toolSucceeded({
+      destination_kind: 'cardwork_url', target: 'cardwork:///project/public/case%253F.ts', bytes: 7, written: true,
+    })).providerResult,
+  };
+  for (const project of [projectToolInvocation, projectLiveToolInvocation]) {
+    const output = project(input);
+    expect(JSON.stringify(output.arguments)).not.toContain('tok_example_fixture');
+    expect(output.result).toEqual(input.result);
+  }
+});
+
 it.each(['mcp_server_register', 'mcp_server_replace'])('suppresses malformed %s connection input before live or historical presentation', toolName => {
   const identity = { sessionId, sourceInputId, toolCallId: 'malformed-connection', toolName, startedAt: '2026-11-11T00:00:00.000Z' };
   for (const argumentsValue of [

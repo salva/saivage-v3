@@ -320,8 +320,15 @@ can narrow recursive scope without changing direct access.
 
 Credential paths/generic `.saivage` namespaces fail before access, including aliases
 and system resources. Use intended `record:///`, read-only `work:///`, admitted
-`tmp:///`; `project:///` stays contained. Native text access does not widen write/
-edit/patch/Webfetch-save, view_image or operator Files authority. No copying workaround.
+`tmp:///`; `project:///` stays contained. A capture or stash under `work:///` is
+read-only evidence subject to availability, not a write address. Ordinary card
+files can be addressed for write, edit or Webfetch save only through the
+[managed card workspace contract](../spec/system-specification.md#managed-card-workspace-addresses)
+when targeting `public` or a named `repos` checkout: the exact `cardwork:///`
+address, owning card binding and required grants must all be admitted. A command
+locator or old `shell` alias supplies no such authority. These mutable workspace
+addresses are not immutable evidence selectors. Native text access does not widen
+patch, `view_image` or operator Files authority. No copying workaround.
 Current glob/grep envelopes are512..32768 requested bytes with stateless
 `matches.next`; historical opaque results are not rewritten/retroactively bounded.
 

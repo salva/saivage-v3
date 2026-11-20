@@ -31,6 +31,28 @@ function recordAuthority(): DirectObjectAuthority {
 }
 
 describe('workspace direct-object consumption and effects', () => {
+  it('requires the named card binding and selected workspace grants for cardwork', async () => {
+    const { root, child } = fixture();
+    const path = 'cardwork:///project/public/own.ts';
+    const self: WorkspaceContext = { projectRoot: root, cardId: 'project', agentName: 'executor', authority: testWorkspaceAuthority('project') };
+    await expect(writeProject(self, { path, content: 'root card is a bound card' })).resolves.toMatchObject({ kind: 'applied' });
+    for (const ctx of [
+      { ...self, cardId: child.id, authority: testWorkspaceAuthority(child.id) },
+      { ...self, cardId: undefined, authority: testWorkspaceAuthority() },
+      { ...self, authority: testWorkspaceAuthority() },
+      { ...self, agentName: undefined },
+      { ...self, authority: recordAuthority() },
+    ]) {
+      await expect(readProject(ctx, { path })).rejects.toThrow();
+      await expect(globProject(ctx, { directory: path, pattern: '*' })).rejects.toThrow();
+      await expect(grepProject(ctx, { path, pattern: 'root' })).rejects.toThrow();
+      await expect(writeProject(ctx, { path, content: 'never overwrite' })).rejects.toThrow();
+      await expect(editProject(ctx, { path, old_string: 'root', new_string: 'never edit' })).rejects.toThrow();
+    }
+    expect(() => readWorkspaceImageSource(self, path, 1024)).toThrow(/only/);
+    await expect(readProject(self, { path })).resolves.toMatchObject({ data: { path, content: { content: 'root card is a bound card' } } });
+  });
+
   it('integrates current/versioned generic reads once, preserves optional absence, and checks before protected heads', async () => {
     const { root, cards, child } = fixture();
     const reads: string[] = [];

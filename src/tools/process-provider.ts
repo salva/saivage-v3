@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   buildScopedPathUrl,
   parseScopedPathUrl,
@@ -21,7 +21,7 @@ import type {
   ProcessRunner,
   ProcessWaitResult,
 } from '../runtime/runtime-api.js';
-import { cardShellWorkRoot, cardWorkRoot } from '../persistence/index.js';
+import { cardPublicWorkRoot, cardReposWorkRoot, cardWorkRoot } from '../persistence/index.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import {
   defineToolBinder,
@@ -150,6 +150,32 @@ function scopedCwd(projectRoot: string, raw: string | undefined): string {
   return resolved.absolutePath;
 }
 
+function prepareCardCommandEnv(projectRoot: string, cardId: string): NodeJS.ProcessEnv {
+  const root = resolve(projectRoot);
+  const work = cardWorkRoot(root, cardId);
+  const publicRoot = cardPublicWorkRoot(root, cardId);
+  const repos = cardReposWorkRoot(root, cardId);
+  function ensureDirectory(path: string): void {
+    const current = lstatSync(path, { throwIfNoEntry: false });
+    if (!current) mkdirSync(path);
+    else if (!current.isDirectory())
+      throw new Error('Card command workspace requires ordinary directories.');
+  }
+  let current = root;
+  for (const component of relative(root, work).split(sep)) {
+    current = join(current, component);
+    ensureDirectory(current);
+  }
+  ensureDirectory(publicRoot);
+  ensureDirectory(repos);
+  return {
+    SAIVAGE_CARD_WORK_ROOT: work,
+    SAIVAGE_CARD_PUBLIC_ROOT: publicRoot,
+    SAIVAGE_CARD_REPOS_ROOT: repos,
+    SAIVAGE_CARD_SHELL_ROOT: publicRoot,
+  };
+}
+
 interface ProcessOutputCapture {
   readonly head: string;
   readonly complete: boolean;
@@ -233,7 +259,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       name: 'run_command',
       description:
         'cwd defaults to the project root; plain relative paths and project:/// URLs stay project-contained, while native absolute paths and system:/// URLs select system destinations. Scoped URLs are parsed first and reject queries/fragments; native filenames are not URL-decoded. When only completion is needed, choose a long appropriate supported timeout_ms (default 120000 ms, maximum 600000 ms); waiting returns early on completion, and the ceiling limits waiting, not command lifetime. Use wait=false for purposeful live-output inspection or genuinely independent permitted work within existing file/resource ownership while the command runs, then collect its terminal result. ' +
-        'Run a Bash command. Normally keep source edits, builds, and tests in the project workspace. Card commands receive absolute SAIVAGE_CARD_WORK_ROOT (.saivage/work/cards/<card-id>) and SAIVAGE_CARD_SHELL_ROOT (its shell child); after cwd admission, the tool lazily creates the shell directory before launch without clearing existing contents. Default disposable copies, extraction, caches, and intermediate command work to a purpose-named child, for example "$SAIVAGE_CARD_SHELL_ROOT/install-check". This stable directory is shared across commands and activations; it changes neither default cwd nor HOME, TMPDIR or caches implicitly. Availability and card existence do not retain its files: old unreferenced files are eligible for explicit work GC, which keeps directories. Current concrete file/subtree references protect their scope; prefer the needed purpose child/artifact over the whole shell subtree. No automatic completion/startup cleanup occurs. When the assigned task needs external work, such as a clean installation, relocation, or dependency-isolation check, use an appropriate purpose-named directory outside the checkout within already-authorized task/deployment scope. This grants no unrelated machine changes, global installs, or destructive cleanup. Preserve unrelated files and manage only task-owned work/resources; keep needed evidence and its location clear before disposing of owned temporary artifacts. External files gain no work:/// locators or automatic garbage collection. Keep .saivage durable state project-local. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT for command scratch. A global/non-card run_command supplies neither card variable and creates no card subtree; task-justified external work remains available within its own authority. Cwd choice changes neither process scope, project-owned capture destination, nor workspace-tool write permissions. This organization provides no sandbox or exclusive ownership. Results include independently bounded stdout/stderr text heads, complete/partial flags, raw byte counts, and durable work:/// stdout_url/stderr_url references. Use a complete inline head directly; read or grep its returned URL when the stream is partial or when more artifact context is needed. A terminal result is consumed after this tool forms it and its process ID is no longer available for wait, kill, or current-process listing; returned output URLs remain independently readable while their files remain available. Set wait=false to start a background process that remains available for later wait_process or kill_process until one consumes its terminal result or the owning scope closes.',
+        'Run a Bash command. Normally keep source edits, builds, and tests in the project workspace. For a card-bound launch, after cwd admission the tool ensures both ordinary directories exist without clearing their contents. It sets absolute SAIVAGE_CARD_WORK_ROOT (.saivage/work/cards/<card-id>), SAIVAGE_CARD_PUBLIC_ROOT (its public child), and SAIVAGE_CARD_REPOS_ROOT (its repos child). SAIVAGE_CARD_SHELL_ROOT is the same absolute string as SAIVAGE_CARD_PUBLIC_ROOT, not a second path. Put disposable copies, extraction, caches, and intermediate work in purpose-named children of public. Put private checkouts in named children of repos; private means no shared checkout or automatic handoff, not secret storage. Keep command scratch out of the card work root itself and its reserved processes/ and tmp/ children, and keep .saivage state project-local rather than inventing a sibling workspace. These paths are reusable across commands and activations; they do not change cwd, HOME, TMPDIR, or caches or grant permissions. No automatic completion or startup cleanup occurs. Explicit work GC keeps directories but can reclaim eligible old, unprotected files, including checkout files. Use current concrete references to needed files or purpose subtrees rather than an entire work area; do not rely on shell syntax, historical mentions, or the existence of a card for retention. A checkout is not a backup. For task-justified external work, use a purpose-named directory outside the checkout within existing task and deployment authority, such as for a clean install, relocation, or dependency isolation. Preserve unrelated files, manage only task-owned resources, and identify needed evidence and its location before disposing of owned artifacts. External work gains no work:/// locator or automatic GC; this option authorizes no unrelated machine changes, global installs, or destructive cleanup. Global run_command launches get none of the four card variables and create no card directories. These locators are specific to run_command, not the separate compiled shell.run action. Cwd choice changes neither process scope, project-owned capture destination, nor workspace-tool write permissions. This organization provides no sandbox or exclusive ownership. Results include independently bounded stdout/stderr text heads, complete/partial flags, raw byte counts, and durable work:/// stdout_url/stderr_url references. Use a complete inline head directly; read or grep its returned URL when the stream is partial or when more artifact context is needed. A terminal result is consumed after this tool forms it and its process ID is no longer available for wait, kill, or current-process listing; returned output URLs remain independently readable while their files remain available. Set wait=false to start a background process that remains available for later wait_process or kill_process until one consumes its terminal result or the owning scope closes.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => runCommandInputSchema,
       executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
@@ -241,13 +267,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
         try {
           throwIfAborted(signal);
           const cwd = scopedCwd(ctx.projectRoot, args.cwd);
-          const env = ctx.cardId
-            ? {
-                SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(ctx.projectRoot, ctx.cardId),
-                SAIVAGE_CARD_SHELL_ROOT: cardShellWorkRoot(ctx.projectRoot, ctx.cardId),
-              }
-            : undefined;
-          if (env) mkdirSync(env.SAIVAGE_CARD_SHELL_ROOT, { recursive: true });
+          const env = ctx.cardId ? prepareCardCommandEnv(ctx.projectRoot, ctx.cardId) : undefined;
           const record = ctx.processRunner.spawn({
             command: args.command,
             directScope: ctx.directScope,

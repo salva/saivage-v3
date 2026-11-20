@@ -1,8 +1,21 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { buildScopedPathUrl, parseScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
+import { buildCardworkUrl, buildScopedPathUrl, parseCardworkUrl, parseScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
 
 describe('scoped path URL helper', () => {
+  it('uses exact canonical cardwork segments without changing generic URL spelling', () => {
+    const address = { cardId: 'card-a-b', area: 'repos' as const, pathSegments: ['checkout', "case?*%3F!()' café.ts"] };
+    const raw = 'cardwork:///card-a-b/repos/checkout/case%3F%2A%253F%21%28%29%27%20caf%C3%A9.ts';
+    expect(buildCardworkUrl(address)).toBe(raw);
+    expect(parseCardworkUrl(raw)).toEqual(address);
+    expect(parseCardworkUrl('cardwork:///project/public')).toEqual({ cardId: 'project', area: 'public', pathSegments: [] });
+    expect(buildScopedPathUrl('work', ['case*.ts'])).toBe('work:///case*.ts');
+    for (const path of ['cardwork://host/project/public', 'cardwork:///project', 'cardwork:///CARD-A/public', 'cardwork:///card-a1/public', 'cardwork:///project/shell',
+      ...['?', '#', '//x', '/x/', '/.', '/%2E%2E', '/%2F', '/%5C', '/%00', '/%FF', '/%ZZ', '/x*', '/x%2a', '/%78', '/café'].map((suffix) => `cardwork:///project/public${suffix}`)]) {
+      expect(() => parseCardworkUrl(path)).toThrow();
+    }
+  });
+
   it('round-trips canonical triple-slash scoped path URLs', () => {
     const raw = buildScopedPathUrl('work', ['processes', 'proc 1', 'stdout.log']);
     expect(raw).toBe('work:///processes/proc%201/stdout.log');

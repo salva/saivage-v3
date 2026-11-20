@@ -218,8 +218,12 @@ export function cardWorkRoot(projectRoot: string, cardId: string): string {
   return join(saivageWorkRoot(projectRoot), 'cards', cardId);
 }
 
-export function cardShellWorkRoot(projectRoot: string, cardId: string): string {
-  return join(cardWorkRoot(projectRoot, cardId), 'shell');
+export function cardPublicWorkRoot(projectRoot: string, cardId: string): string {
+  return join(cardWorkRoot(projectRoot, cardId), 'public');
+}
+
+export function cardReposWorkRoot(projectRoot: string, cardId: string): string {
+  return join(cardWorkRoot(projectRoot, cardId), 'repos');
 }
 
 export function cardProcessOutputRoot(projectRoot: string, cardId: string, procId: string): string {

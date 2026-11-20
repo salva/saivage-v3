@@ -37,18 +37,19 @@ function fixture(script: string, extra: Record<string, unknown> = {}) {
 }
 
 it.each([0, 7])('runs real shell argv without interpolation, retaining actual captures and exit %i', async (code) => {
-  const f = fixture(`printf '%s' "$@"; printf 'err' >&2; printf 'artifact' > result.txt; exit ${code}`, { artifacts: ['result.txt', 'missing.txt'], env: { CI: '1' } });
+  const env = { CI: '1', SAIVAGE_CARD_PUBLIC_ROOT: 'configured-public-literal', SAIVAGE_CARD_SHELL_ROOT: 'different-configured-shell-literal' };
+  const f = fixture(`printf '%s\\n%s\\n%s' "$SAIVAGE_CARD_PUBLIC_ROOT" "$SAIVAGE_CARD_SHELL_ROOT" "$@"; printf 'err' >&2; printf 'artifact' > result.txt; exit ${code}`, { artifacts: ['result.txt', 'missing.txt'], env });
   f.args.inputs.args = ['$(not-a-command); "quoted"'] as never[];
   const value = await invokeOperation(f.args);
   expect(value.result).toMatchObject({ outcome: code ? 'failed' : 'passed', values: { exit_code: code } });
   const rows = readCardExecutions(f.projectRoot, 'project');
   expect(rows.map(({ kind }) => kind)).toEqual(['invocation_started', 'process_started', 'invocation_finished']);
-  expect(rows[0]).toMatchObject({ shell: { env: { CI: '1' }, argv: ['bash', '--noprofile', '--norc', '-o', 'pipefail', '-c', expect.any(String), 'saivage-action', '$(not-a-command); "quoted"'] } });
+  expect(rows[0]).toMatchObject({ shell: { env, argv: ['bash', '--noprofile', '--norc', '-o', 'pipefail', '-c', expect.any(String), 'saivage-action', '$(not-a-command); "quoted"'] } });
   const finish = rows.at(-1)!;
   if (finish.kind !== 'invocation_finished') throw new Error();
   expect(finish).toMatchObject({ disposition: 'returned', leader_exit: { exit_code: code, signal: null }, process: { group: 'absent', stdout: 'eof' }, absent_artifacts: ['missing.txt'] });
   const stdout = finish.files.find((file) => file.kind === 'capture' && file.stream === 'stdout')!;
-  expect(readFileSync(join(f.projectRoot, stdout.path), 'utf8')).toBe('$(not-a-command); "quoted"');
+  expect(readFileSync(join(f.projectRoot, stdout.path), 'utf8')).toBe('configured-public-literal\ndifferent-configured-shell-literal\n$(not-a-command); "quoted"');
   expect(finish.files).toContainEqual(expect.objectContaining({ kind: 'artifact', path: 'result.txt', size: 8, source: 'current' }));
   expect(f.runner.list()).toEqual([]);
 });

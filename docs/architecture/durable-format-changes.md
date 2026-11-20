@@ -158,6 +158,28 @@ source edits do not hot-update custom hosts. Installed applicability is unknown,
 and whole-release compatibility depends on all intervening contracts. No deployment,
 reset, external migration, normalization or live relocation is authorized here.
 
+WORK-01 card workspace addresses and pathname adoption, from actual
+implementation parent `9533839d5a3ab8ef123196464439f41e18f733a5`: card
+`run_command` lazily creates ordinary `public` and `repos` work children and
+supplies equal canonical shell/public locator values. Bound workspace tools
+admit exact `cardwork:///` addresses and GC recognizes them as exact references.
+The areas are not required initialized state. No existing durable family
+discriminator changes: strict retained history, accepted-record authorship,
+selectors and the compiled `shell.run` operation contract remain unchanged.
+There is no unreleased-cutover exception or claim of compatibility between
+releases based on equal version numbers.
+
+Historical issue evidence: JSQLite2 Brief 27, `card-t-d`, on installed source
+`63baa18a`, recorded a command-directed checkout under `cards/card-t-d/shell`
+and subsequent managed edit refusal at the internal-state gate. This is
+historical evidence, not a current deployment observation. Source evidence for
+the change is in the layout and command owners, the shared address codec and
+its VFS/GC consumers, and the focused process and bound checkout edit witnesses.
+Installed applicability is unknown. Old native path continuity can still need
+[external pathname adoption](../runbook/state-adoption.md#card-workspace-pathname-adoption)
+despite unchanged discriminators. The new runtime does not convert old paths;
+source completion authorizes neither conversion nor deployment.
+
 Optional Analyst recovery guidance from actual implementation parent
 `9526a1995a456556a128bea0476c76a92eb21249` changes only role/procedure text,
 documentation and a real-tool manual-catalog fixture. The existing unversioned

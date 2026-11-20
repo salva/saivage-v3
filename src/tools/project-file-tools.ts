@@ -78,9 +78,9 @@ export type WorkspaceContext = {
   assertGlobalSourceWrite?: (absolutePath: string) => void;
 };
 type ResolvedToolPath =
-  | Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>
+  | Exclude<VfsResolved, { kind: 'record' }>
   | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
-type WritableToolPath = Omit<
+type WritableToolPath = Extract<VfsResolved, { kind: 'cardwork' }> | Omit<
   Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>,
   'kind'
 > & { kind: 'project' | 'tmp' | 'system' };
@@ -160,7 +160,7 @@ function assertNoSymlinkComponents(root: string, target: string): void {
   const rel = relative(resolve(root), resolve(target));
   if (rel === '') return;
   let current = resolve(root);
-  for (const segment of rel.split(/[\\/]/)) {
+  for (const segment of rel.split(sep)) {
     current = join(current, segment);
     try {
       if (lstatSync(current).isSymbolicLink())
@@ -175,8 +175,11 @@ function assertNoSymlinkComponents(root: string, target: string): void {
 }
 
 function isSaivageInternalDestination(projectRoot: string, destination: string): boolean {
-  const internalRoot = resolve(projectRoot, '.saivage');
-  const fromInternalRoot = relative(internalRoot, resolve(destination));
+  return isWithinDestination(resolve(projectRoot, '.saivage'), destination);
+}
+
+function isWithinDestination(root: string, destination: string): boolean {
+  const fromInternalRoot = relative(root, destination);
   return (
     fromInternalRoot === '' ||
     (fromInternalRoot !== '..' &&
@@ -209,6 +212,7 @@ function assertScopedWritable(
       throw toolInputError('write requires a file path, not a directory.');
     return resolved;
   }
+  if (resolved.kind === 'cardwork') return resolved;
   if (resolved.kind === 'project')
     assertNoSymlinkComponents(ctx.projectRoot, resolved.absolutePath);
   if (
@@ -227,6 +231,14 @@ function assertScopedWritable(
     throw toolInputError(
       `Write access to '${resolved.relativePath}' is blocked for security reasons.`,
     );
+  if (resolved.kind === 'system') {
+    const destination = resolveThroughExistingPath(resolved.absolutePath);
+    const internalRoot = resolveThroughExistingPath(resolve(ctx.projectRoot, '.saivage'));
+    if (isWithinDestination(internalRoot, destination))
+      throw toolInputError('Cannot modify Saivage internal state directories.');
+    if (looksLikeSecretPath(destination))
+      throw toolInputError('Write access to the resolved destination is blocked for security reasons.');
+  }
   try {
     if (lstatSync(resolved.absolutePath).isSymbolicLink())
       throw toolInputError(
@@ -238,8 +250,8 @@ function assertScopedWritable(
   return resolved;
 }
 
-function resolveWritePath(ctx: WorkspaceContext, raw: string): WritableToolPath {
-  const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'write');
+function resolveWritePath(ctx: WorkspaceContext, raw: string, tool: string): WritableToolPath {
+  const resolved = resolveScopedPath(vfsCtx(ctx, tool), raw, 'write');
   if (resolved === null) {
     return { kind: 'project', ...assertWritable(ctx.projectRoot, raw), isRoot: false };
   }
@@ -248,27 +260,30 @@ function resolveWritePath(ctx: WorkspaceContext, raw: string): WritableToolPath 
     throw new Error('Logical record writes must be handled before filesystem path resolution.');
   if (writable.kind === 'work')
     throw new Error('Read-only work paths must be rejected by scoped path resolution.');
-  return { ...writable, kind: writable.kind };
+  return writable.kind === 'cardwork' ? writable : { ...writable, kind: writable.kind };
 }
 
-function admitSourceWrite(ctx: WorkspaceContext, absolutePath: string): void {
-  if (!ctx.assertGlobalSourceWrite) return;
+function resolveThroughExistingPath(absolutePath: string): string {
   let existing = absolutePath;
   const suffix: string[] = [];
   for (;;) {
     try {
-      const resolved = realpathSync(existing);
-      try {
-        ctx.assertGlobalSourceWrite(join(resolved, ...suffix));
-      } catch (error) {
-        throw toolInputError(error instanceof Error ? error.message : String(error));
-      }
-      return;
+      return join(realpathSync(existing), ...suffix);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       suffix.unshift(basename(existing));
       existing = dirname(existing);
     }
+  }
+}
+
+function admitSourceWrite(ctx: WorkspaceContext, absolutePath: string): void {
+  if (!ctx.assertGlobalSourceWrite) return;
+  const destination = resolveThroughExistingPath(absolutePath);
+  try {
+    ctx.assertGlobalSourceWrite(destination);
+  } catch (error) {
+    throw toolInputError(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -278,7 +293,7 @@ export function readWorkspaceImageSource(
   maxBytes: number,
 ): { bytes: Buffer; sourcePath: string } {
   assertWorkspaceAuthority(ctx, ['view_image']);
-  if (path.startsWith('record:///') || path.startsWith('system:///'))
+  if (path.startsWith('record:///') || path.startsWith('system:///') || path.startsWith('cardwork://'))
     throw toolInputError('view_image supports project, work and own-card tmp paths only.');
   if (path.startsWith('tmp:///') && parseScopedPathUrl(path, 'tmp').segments[0] !== ctx.cardId)
     throw toolInputError('view_image tmp paths require the owning card context.');
@@ -539,7 +554,7 @@ export async function readProject(
   }
 
   const { absolutePath, relativePath } = resolved;
-  const st = statSync(absolutePath);
+  const st = (resolved.kind === 'cardwork' ? lstatSync : statSync)(absolutePath);
   const baseRecord = { path: displayPathForResolved(ctx.projectRoot, resolved) };
 
   if (params.metadata_only === true) {
@@ -609,7 +624,7 @@ export async function readProject(
   if (isBinarySample(buffer.subarray(0, Math.min(buffer.length, READ_HEAD_SAMPLE_BYTES))))
     throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
   const content =
-    resolved.kind === 'work'
+    resolved.kind === 'work' || resolved.kind === 'cardwork'
       ? redactTextForOutbound(buffer.toString('utf8'))
       : buffer.toString('utf8');
   const { data } = packTextSliceData({
@@ -657,24 +672,21 @@ export async function writeProject(
     });
   }
   assertWorkspaceAuthority(ctx, requiredTools);
-  const resolved = resolveWritePath(ctx, params.path);
+  const resolved = resolveWritePath(
+    ctx, params.path, requiredTools.includes('webfetch') ? 'webfetch' : 'write',
+  );
   const { absolutePath, relativePath } = resolved;
+  const scoped = parseScopedPathScheme(params.path);
+  const destination_kind = scoped === null ? 'project_relative' : `${resolved.kind}_url`;
+  const target =
+    resolved.kind === 'cardwork'
+      ? resolved.locator
+      : scoped === null
+        ? relativePath.replaceAll('\\', '/')
+        : buildScopedPathUrl(resolved.kind, parseScopedPathUrl(params.path, resolved.kind).segments);
   admitSourceWrite(ctx, absolutePath);
   mkdirSync(dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, params.content, 'utf8');
-  const scoped = parseScopedPathScheme(params.path);
-  const destination_kind =
-    scoped === null
-      ? 'project_relative'
-      : resolved.kind === 'project'
-        ? 'project_url'
-        : resolved.kind === 'tmp'
-          ? 'tmp_url'
-          : 'system_url';
-  const target =
-    scoped === null
-      ? relativePath.replaceAll('\\', '/')
-      : buildScopedPathUrl(resolved.kind, parseScopedPathUrl(params.path, resolved.kind).segments);
   return {
     kind: 'applied',
     data: {
@@ -699,7 +711,7 @@ export function authorizeWriteProject(
   if (params.path.startsWith('work:///'))
     throw toolInputError('Webfetch save_as does not support work URLs.');
   assertWorkspaceAuthority(ctx, ['write', 'webfetch']);
-  admitSourceWrite(ctx, resolveWritePath(ctx, params.path).absolutePath);
+  admitSourceWrite(ctx, resolveWritePath(ctx, params.path, 'webfetch').absolutePath);
 }
 
 export async function globProject(
@@ -749,7 +761,7 @@ export async function grepProject(
   let contentTruncated = false;
   const onMatch = (match: GrepMatch): void => window.add(match);
 
-  const redact = scoped.kind === 'work';
+  const redact = scoped.kind === 'work' || scoped.kind === 'cardwork';
   await visitScopedFiles(searchContext, raw, async (entry) => {
     if (include && !include.test(entry.matchPath) && !include.test(entry.displayPath)) return;
     const outcome =
@@ -904,7 +916,7 @@ export async function editProject(
     });
   }
   assertWorkspaceAuthority(ctx, ['edit']);
-  const resolved = resolveWritePath(ctx, params.path);
+  const resolved = resolveWritePath(ctx, params.path, 'edit');
   const { absolutePath, relativePath } = resolved;
   admitSourceWrite(ctx, absolutePath);
   const content = readFileSync(absolutePath, 'utf8');
@@ -920,7 +932,7 @@ export async function editProject(
   return {
     kind: 'applied',
     data: {
-      path: relativePath,
+      path: resolved.kind === 'cardwork' ? resolved.locator : relativePath,
       replacements: params.replace_all === true ? occurrences : 1,
       bytes: Buffer.byteLength(next, 'utf8'),
       edited: true,

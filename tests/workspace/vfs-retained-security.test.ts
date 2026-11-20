@@ -1,15 +1,29 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse, relative, resolve, sep } from 'node:path';
 
-import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { displayPathForResolved, listScopedPath, resolveScopedPath, visitFiles, visitScopedFiles } from '../../src/workspace/vfs.js';
-import { authorizeWriteProject, editProject, readProject as readWithObservations, writeProject } from '../../src/tools/project-file-tools.js';
-import { testWorkspaceAuthority } from '../helpers/capability-grants.js';
+// Jest snapshots named built-in exports; forward these four calls to the
+// original modules so operation-local spies observe actual filesystem use.
+jest.unstable_mockModule('node:fs', () => ({
+  ...fs, default: fs,
+  readdirSync: (...args: Parameters<typeof fs.readdirSync>) => fs.readdirSync(...args),
+  lstatSync: ((...args) => Reflect.apply(fs.lstatSync, fs, args)) as typeof fs.lstatSync,
+}));
+jest.unstable_mockModule('node:fs/promises', () => ({
+  ...fsPromises, default: fsPromises,
+  readdir: (...args: Parameters<typeof fsPromises.readdir>) => fsPromises.readdir(...args),
+  lstat: (...args: Parameters<typeof fsPromises.lstat>) => fsPromises.lstat(...args),
+}));
+
+const { CardService, initProjectTree } = await import('../helpers/canonical-project.js');
+const { displayPathForResolved, listScopedPath, resolveScopedPath, visitFiles, visitScopedFiles } = await import('../../src/workspace/vfs.js');
+const { authorizeWriteProject, editProject, globProject, grepProject, readProject: readWithObservations, writeProject } = await import('../../src/tools/project-file-tools.js');
+const { testWorkspaceAuthority } = await import('../helpers/capability-grants.js');
 const readProject = async (...args: Parameters<typeof readWithObservations>) => (await readWithObservations(...args)).data;
 import { buildScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
-import { cardNamespace } from '../../src/persistence/layout.js';
+const { cardNamespace, cardPublicWorkRoot, cardReposWorkRoot } = await import('../../src/persistence/layout.js');
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -20,6 +34,155 @@ function systemUrl(absolutePath: string): string {
 }
 
 describe('workspace VFS and project-file security', () => {
+  it('keeps managed writes inside ordinary owned destinations without granting legacy aliases', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cardwork-authored-destinations-'));
+    roots.push(root);
+    const ctx = { projectRoot: root, cardId: 'card-a', agentName: 'executor' as const, authority: testWorkspaceAuthority('card-a') };
+    const publicRoot = cardPublicWorkRoot(root, ctx.cardId);
+    const repos = cardReposWorkRoot(root, ctx.cardId);
+    const work = 'cardwork:///card-a';
+    const file = `${work}/public/purpose/where-plan.ts`;
+    await expect(writeProject(ctx, { path: file, content: 'before' })).resolves.toMatchObject({ kind: 'applied', data: { target: file } });
+    await expect(writeProject(ctx, { path: `${work}/repos/absent/new.ts`, content: 'no' })).rejects.toThrow();
+    expect(existsSync(repos)).toBe(false);
+    mkdirSync(join(repos, 'checkout'), { recursive: true });
+    const checkoutFile = `${work}/repos/checkout/src/case%253F.ts`;
+    await expect(writeProject(ctx, { path: checkoutFile, content: 'ordinary' })).resolves.toMatchObject({ data: { target: checkoutFile } });
+    expect(readFileSync(join(repos, 'checkout/src/case%3F.ts'), 'utf8')).toBe('ordinary');
+    writeFileSync(join(repos, 'not-a-checkout.ts'), 'ordinary bytes but not a checkout');
+    await expect(readProject(ctx, { path: `${work}/repos/not-a-checkout.ts` })).rejects.toThrow();
+    await expect(readProject(ctx, { path: `${work}/repos` })).resolves.toMatchObject({ entries: { items: [{ name: 'checkout', type: 'dir' }] } });
+    await expect(globProject(ctx, { directory: `${work}/repos`, pattern: '**/*.ts' })).resolves.toMatchObject({ matches: { items: [checkoutFile] } });
+    writeFileSync(join(repos, 'checkout/.git'), 'gitdir: git-internal');
+    mkdirSync(join(publicRoot, '.git'));
+    mkdirSync(join(publicRoot, '.saivage'));
+    writeFileSync(join(publicRoot, '.env'), 'fixture');
+    await expect(writeProject(ctx, { path: `${work}/public/.gitignore`, content: 'ordinary' })).resolves.toMatchObject({ kind: 'applied' });
+    symlinkSync(join(publicRoot, 'purpose'), join(publicRoot, 'linked'));
+    symlinkSync(join(publicRoot, 'purpose/where-plan.ts'), join(publicRoot, 'leaf.ts'));
+    symlinkSync('public', join(publicRoot, '..', 'shell'));
+    symlinkSync(publicRoot, join(root, 'alias'));
+    symlinkSync(publicRoot, join(publicRoot, '..', 'tmp'));
+    for (const path of [work, `${work}/public`, `${work}/repos`, `${work}/repos/checkout`,
+      `${work}/public/.git/new.ts`, `${work}/repos/checkout/.git`,
+      `${work}/public/.env`, `${work}/public/.saivage/file.ts`, `${work}/public/purpose`,
+      `${work}/public/leaf.ts`, `${work}/public/linked/new-parent/new.ts`,
+      '.saivage/work/cards/card-a/shell/purpose/where-plan.ts',
+      'project:///.saivage/work/cards/card-a/public/purpose/where-plan.ts',
+      'work:///cards/card-a/public/purpose/where-plan.ts',
+      'tmp:///card-a/new-parent/new.ts', systemUrl(join(root, 'alias/new-parent/new.ts')),
+      'alias/new-parent/new.ts', 'project:///alias/new-parent/new.ts']) {
+      await expect(writeProject(ctx, { path, content: 'no' })).rejects.toThrow();
+    }
+    expect(existsSync(join(publicRoot, 'new-parent'))).toBe(false);
+    expect(existsSync(join(publicRoot, 'purpose/new-parent'))).toBe(false);
+    expect(readFileSync(join(publicRoot, 'purpose/where-plan.ts'), 'utf8')).toBe('before');
+    expect(readFileSync(join(publicRoot, '../shell/purpose/where-plan.ts'), 'utf8')).toBe('before');
+    for (const path of [`${work}/public/leaf.ts`, `${work}/public/linked/where-plan.ts`,
+      `${work}/public/.env`, `${work}/public/.git`, `${work}/repos/checkout/.git`])
+      await expect(readProject(ctx, { path })).rejects.toThrow();
+    await expect(readProject(ctx, { path: 'work:///cards/card-a/shell/purpose/where-plan.ts' })).resolves.toMatchObject({ content: { content: 'before' } });
+    await expect(globProject(ctx, { directory: `${work}/public`, pattern: '**/*.ts' })).resolves.toMatchObject({ matches: { items: [file] } });
+  });
+
+  it.each([true, false])('lists and visits exact native cardwork names (genuine replacement character: %s)', async (genuine) => {
+    const root = mkdtempSync(join(tmpdir(), 'cardwork-native-bytes-'));
+    roots.push(root);
+    const base = cardPublicWorkRoot(root, 'card-a');
+    const locator = 'cardwork:///card-a/public';
+    const ctx = { projectRoot: root, cardId: 'card-a', agentName: 'executor' as const, authority: testWorkspaceAuthority('card-a') };
+    mkdirSync(join(base, 'a'), { recursive: true });
+    mkdirSync(join(base, 'bad\\dir'));
+    const invalid = Buffer.concat([Buffer.from(`${base}/a`), Buffer.from([0xff]), Buffer.from('.ts')]);
+    writeFileSync(invalid, 'needle invalid bytes');
+    writeFileSync(join(base, 'a\\b.ts'), 'needle not the nested file');
+    writeFileSync(join(base, 'bad\\dir', 'inside.ts'), 'needle not a visited subtree');
+    writeFileSync(join(base, 'a/b.ts'), 'needle nested');
+    writeFileSync(join(base, 'neighbor.ts'), 'needle ordinary');
+    if (genuine) writeFileSync(join(base, 'a�.ts'), 'needle genuine');
+
+    async function checkListing(failMetadata = false) {
+      const readdir = jest.spyOn(fs, 'readdirSync');
+      const realLstat = fs.lstatSync;
+      const lstat = jest.spyOn(fs, 'lstatSync');
+      if (failMetadata) lstat.mockImplementation(((p, ...args) => {
+        if (p === join(base, 'neighbor.ts')) throw Object.assign(new Error('listing metadata denied'), { code: 'EACCES' });
+        return Reflect.apply(realLstat, fs, [p, ...args]);
+      }) as typeof realLstat);
+      try {
+        const pending = readProject(ctx, { path: locator });
+        if (failMetadata) await expect(pending).rejects.toThrow('listing metadata denied');
+        else await expect(pending).resolves.toMatchObject({ entries: { items: [
+          { name: 'a', type: 'dir' },
+          ...(genuine ? [{ name: 'a�.ts', type: 'file' }] : []),
+          { name: 'neighbor.ts', type: 'file' },
+        ] } });
+        expect(readdir.mock.calls).toEqual([[base, { encoding: 'buffer' }]]);
+        const paths = lstat.mock.calls.map(([p]) => p);
+        expect(paths).not.toContainEqual(invalid);
+        for (const name of ['a\\b.ts', 'bad\\dir', ...(!genuine ? ['a�.ts'] : [])])
+          expect(paths).not.toContain(join(base, name));
+        const neighbor = paths.indexOf(join(base, 'neighbor.ts'));
+        expect(neighbor).toBeGreaterThanOrEqual(0);
+        expect(lstat.mock.invocationCallOrder[neighbor]).toBeGreaterThan(readdir.mock.invocationCallOrder[0]!);
+      } finally {
+        readdir.mockRestore();
+        lstat.mockRestore();
+      }
+    }
+
+    async function checkTraversal(failMetadata = false) {
+      const readdir = jest.spyOn(fsPromises, 'readdir');
+      const realLstat = fsPromises.lstat;
+      const lstat = jest.spyOn(fsPromises, 'lstat');
+      if (failMetadata) lstat.mockImplementation((async (p, ...args) => {
+        if (p === join(base, 'neighbor.ts')) throw Object.assign(new Error('traversal metadata denied'), { code: 'EACCES' });
+        return Reflect.apply(realLstat, fsPromises, [p, ...args]);
+      }) as typeof realLstat);
+      try {
+        const pending = globProject(ctx, { directory: locator, pattern: '**/*.ts' });
+        if (failMetadata) await expect(pending).rejects.toThrow('traversal metadata denied');
+        else await expect(pending).resolves.toMatchObject({ matches: { items: [
+          `${locator}/a/b.ts`,
+          ...(genuine ? [`${locator}/a%EF%BF%BD.ts`] : []),
+          `${locator}/neighbor.ts`,
+        ] } });
+        expect(readdir.mock.calls).toEqual([[base, { encoding: 'buffer' }], [join(base, 'a'), { encoding: 'buffer' }]]);
+        const paths = lstat.mock.calls.map(([p]) => p);
+        expect(paths).not.toContainEqual(invalid);
+        for (const name of ['a\\b.ts', 'bad\\dir', ...(!genuine ? ['a�.ts'] : [])])
+          expect(paths).not.toContain(join(base, name));
+        for (const [path, dirIndex] of [[join(base, 'neighbor.ts'), 0], [join(base, 'a/b.ts'), 1]] as const) {
+          const index = paths.indexOf(path);
+          expect(index).toBeGreaterThanOrEqual(0);
+          expect(lstat.mock.invocationCallOrder[index]).toBeGreaterThan(readdir.mock.invocationCallOrder[dirIndex]!);
+        }
+      } finally {
+        readdir.mockRestore();
+        lstat.mockRestore();
+      }
+    }
+
+    await checkListing();
+    await checkTraversal();
+    if (!genuine) {
+      await checkListing(true);
+      await checkTraversal(true);
+    }
+    const nested = `${locator}/a/b.ts`;
+    await expect(grepProject(ctx, { path: locator, pattern: 'needle' })).resolves.toMatchObject({
+      matches: { items: [
+        { path: nested, preview: 'needle nested' },
+        ...(genuine ? [{ path: `${locator}/a%EF%BF%BD.ts`, preview: 'needle genuine' }] : []),
+        { path: `${locator}/neighbor.ts`, preview: 'needle ordinary' },
+      ] },
+    });
+    if (genuine) await expect(readProject(ctx, { path: `${locator}/a%EF%BF%BD.ts` })).resolves.toMatchObject({ content: { content: 'needle genuine' } });
+    await expect(editProject(ctx, { path: nested, old_string: 'needle', new_string: 'updated' })).resolves.toMatchObject({ kind: 'applied', data: { path: nested, replacements: 1 } });
+    expect(readFileSync(join(base, 'a/b.ts'), 'utf8')).toBe('updated nested');
+    expect(readFileSync(join(base, 'a\\b.ts'), 'utf8')).toBe('needle not the nested file');
+  });
+
   it('visits filesystem scopes depth-first by explicit string order', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-vfs-order-'));
     roots.push(root);

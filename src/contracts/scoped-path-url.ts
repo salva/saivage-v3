@@ -1,3 +1,5 @@
+import { cardIdSchema } from '../schemas/index.js';
+
 export interface ParsedScopedPathUrl {
   segments: string[];
   query: URLSearchParams | null;
@@ -44,4 +46,34 @@ export function buildScopedPathUrl(scheme: string, segments: readonly string[]):
     enc.push(encodeURIComponent(s));
   }
   return `${scheme}:///${enc.join('/')}`;
+}
+
+export interface CardworkAddress {
+  cardId: string;
+  area: 'public' | 'repos';
+  pathSegments: readonly string[];
+}
+
+export function encodeCardworkSegment(segment: string): string {
+  if (segment === '' || segment === '.' || segment === '..' || /[/\\\0]/.test(segment))
+    throw new Error('Invalid cardwork path segment.');
+  return encodeURIComponent(segment).replace(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+export function buildCardworkUrl({ cardId, area, pathSegments }: CardworkAddress): string {
+  if (!cardIdSchema.safeParse(cardId).success || (area !== 'public' && area !== 'repos'))
+    throw new Error('Invalid cardwork owner or area.');
+  return `cardwork:///${[cardId, area, ...pathSegments].map(encodeCardworkSegment).join('/')}`;
+}
+
+export function parseCardworkUrl(raw: string): CardworkAddress {
+  const { segments: [cardId = '', area, ...pathSegments], query, hadFragment } =
+    parseScopedPathUrl(raw, 'cardwork');
+  if (query !== null || hadFragment || (area !== 'public' && area !== 'repos'))
+    throw new Error('Invalid cardwork URL.');
+  const address: CardworkAddress = { cardId, area, pathSegments };
+  if (buildCardworkUrl(address) !== raw) throw new Error('Noncanonical cardwork URL.');
+  return address;
 }

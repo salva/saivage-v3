@@ -13,6 +13,7 @@ import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { globToRegExp, normalizeRel } from './glob-matcher.js';
 import {
+  parseCardworkUrl,
   PublicationOutcomeUnknownError,
   type FirstGlobalProtection,
   type WorkGcProtectionSource,
@@ -20,7 +21,12 @@ import {
   type WorkGcProgressPort,
 } from '../contracts/index.js';
 import { cardIdSchema } from '../schemas/index.js';
-import { inspectWorkGcCanonicalState, saivageWorkRoot } from '../persistence/index.js';
+import {
+  cardPublicWorkRoot,
+  cardReposWorkRoot,
+  inspectWorkGcCanonicalState,
+  saivageWorkRoot,
+} from '../persistence/index.js';
 
 interface Candidate {
   readonly path: string;
@@ -233,6 +239,23 @@ export async function inventoryWorkGarbage(
 
 type ReferenceOrigin = 'content' | 'operational';
 
+// Allow recognition of a malformed explicit value without normalizing it for the codec.
+const cardworkScheme = /^\s*cardwork:/iu;
+
+/** Outer-link punctuation can be part of an exact query value (notably a terminal period). */
+function carriesCardworkQuery(span: string): boolean {
+  if (
+    !span.includes('?') ||
+    !/^[a-z][a-z0-9+.-]*:\/\//iu.test(span) ||
+    /^(?:project|system|work|tmp):/u.test(span)
+  ) return false;
+  const url = URL.parse(span);
+  if (url === null) return false;
+  for (const value of url.searchParams.values())
+    if (cardworkScheme.test(value)) return true;
+  return false;
+}
+
 /** Content identifies concrete artifacts, not administrative containers. Never reads contents. */
 class WorkReferences {
   readonly paths = new Set<string>();
@@ -352,10 +375,23 @@ class WorkReferences {
 
   private referenceBases(value: string, bases: readonly string[]): readonly string[] {
     return isAbsolute(value) ||
+      cardworkScheme.test(value) ||
       /^(?:project|system|work|tmp):\/\//u.test(value) ||
       (/^file:\/\//u.test(value) && !/[?#]/u.test(value))
       ? []
       : bases;
+  }
+
+  private cardworkPath(value: string, source: WorkGcProtectionSource): string | null {
+    let address;
+    try {
+      address = parseCardworkUrl(value);
+    } catch {
+      this.protectAll('reference_scope_unknown', source);
+      return null;
+    }
+    const areaRoot = address.area === 'public' ? cardPublicWorkRoot : cardReposWorkRoot;
+    return join(areaRoot(this.projectRoot, address.cardId), ...address.pathSegments);
   }
 
   private async scopes(
@@ -368,13 +404,18 @@ class WorkReferences {
     const key = JSON.stringify([origin, source, value, this.referenceBases(value, bases)]);
     const previous = this.scopeReferences.get(key);
     if (previous !== undefined) return previous;
-    if (value.includes('${') || value.includes('$(')) {
+    const cardwork = cardworkScheme.test(value);
+    if (!cardwork && (value.includes('${') || value.includes('$('))) {
       await this.token(value, bases, origin, source, true);
       return [];
     }
     let paths: string[];
-    const scheme = /^(project|system|work|tmp):\/\/\/(.*)$/su.exec(value);
-    if (scheme) {
+    const scheme = cardwork ? null : /^(project|system|work|tmp):\/\/\/(.*)$/su.exec(value);
+    if (cardwork) {
+      const path = this.cardworkPath(value, source);
+      if (path === null) return [];
+      paths = [path];
+    } else if (scheme) {
       let tail: string;
       try {
         tail = decodeURIComponent(scheme[2]!);
@@ -431,6 +472,10 @@ class WorkReferences {
     source: WorkGcProtectionSource,
   ): Promise<void> {
     if (this.firstGlobalProtection) return;
+    if (cardworkScheme.test(input)) {
+      await this.token(input, bases, origin, source, true);
+      return;
+    }
     await this.visit();
     if (!input || input.includes('\0')) return;
     const key = JSON.stringify(['glob', origin, source, input, this.referenceBases(input, bases)]);
@@ -509,7 +554,8 @@ class WorkReferences {
   ): Promise<void> {
     if (this.firstGlobalProtection) return;
     await this.visit();
-    if (!token || token.includes('\0')) return;
+    const cardwork = cardworkScheme.test(token);
+    if (!token || (!cardwork && token.includes('\0'))) return;
     const key = JSON.stringify([
       'token',
       origin,
@@ -520,6 +566,11 @@ class WorkReferences {
     ]);
     if (this.lexicalReferences.has(key)) return;
     this.lexicalReferences.add(key);
+    if (cardwork) {
+      const path = this.cardworkPath(token, source);
+      if (path !== null) this.path(path, origin, source);
+      return;
+    }
     if (token.includes('${') || token.includes('$(')) {
       this.protectAll('reference_scope_unknown', source);
       return;
@@ -579,7 +630,10 @@ class WorkReferences {
         if (path !== undefined) this.path(path, origin, source);
       } else if (/\.saivage|work:|tmp:/u.test(url.pathname))
         this.protectAll('reference_scope_unknown', source);
-      for (const value of url.searchParams.values()) await this.text(value, bases, origin, source);
+      for (const value of url.searchParams.values()) {
+        if (cardworkScheme.test(value)) await this.token(value, bases, origin, source, true);
+        else await this.text(value, bases, origin, source);
+      }
       return;
     }
     if (isAbsolute(token)) this.path(token, origin, source);
@@ -640,6 +694,8 @@ class WorkReferences {
       return pattern;
     }
     const decodeQuote = (quoted: string): string => {
+      const inner = quoted.slice(1, -1);
+      if (cardworkScheme.test(inner)) return inner;
       if (quoted.startsWith('"')) {
         try {
           return JSON.parse(quoted) as string;
@@ -647,7 +703,7 @@ class WorkReferences {
           /* Ordinary prose. */
         }
       }
-      return quoted.slice(1, -1);
+      return inner;
     };
     const assignment =
       String.raw`\b([a-zA-Z_]\w*)[ \t]*=[ \t]*("(?:\\.|[^"\\\r\n])*"|'[^'\r\n]*'|` +
@@ -681,6 +737,10 @@ class WorkReferences {
     // adjacent to words are deliberately not a programming-language literal grammar.
     const tokens = new Set<string>();
     const addQuoted = (quoted: string): void => {
+      if (cardworkScheme.test(quoted)) {
+        tokens.add(quoted);
+        return;
+      }
       if (/[\r\n]/u.test(quoted)) return;
       if (
         quoted.includes('/') ||
@@ -691,16 +751,21 @@ class WorkReferences {
         tokens.add(quoted);
     };
     for (const match of [
-      ...text.matchAll(/`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|(?:\]\()([^\r\n]+?)\)/gu),
+      ...text.matchAll(/`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|\]\(<(\s*cardwork:[^>\r\n]*)>\)|\]\(([^\r\n]+?)\)/giu),
     ]) {
       if (this.firstGlobalProtection) return false;
       await this.visit();
       if (match[0].startsWith('"')) {
         const decoded = decodeQuote(match[0]);
-        if (/[\r\n]/u.test(decoded) || /^[{[]/u.test(decoded))
+        if (!cardworkScheme.test(decoded) && (/[\r\n]/u.test(decoded) || /^[{[]/u.test(decoded)))
           await this.text(decoded, bases, origin, source, false, scopes);
         else addQuoted(decoded);
-      } else addQuoted(match[1] ?? match[2]!);
+      } else {
+        const quoted = match[1] ?? match[2] ?? match[3]!;
+        const angleDestination = match[3] === undefined ? undefined : /^<([^<>]*)>$/u.exec(quoted)?.[1];
+        addQuoted(angleDestination !== undefined && carriesCardworkQuery(angleDestination)
+          ? angleDestination : quoted);
+      }
       text =
         text.slice(0, match.index) +
         ' '.repeat(match[0].length) +
@@ -713,7 +778,9 @@ class WorkReferences {
     for (let start = 0; start < text.length; start++) {
       if (text[start] !== "'") continue;
       await this.visit();
-      const explicitUri = /^(?:project|system|work|tmp|file):\/\//u.test(text.slice(start + 1));
+      const afterQuote = text.slice(start + 1);
+      const explicitUri = cardworkScheme.test(afterQuote) ||
+        /^(?:project|system|work|tmp|file):\/\//u.test(afterQuote);
       if (!explicitUri && wordBefore(start)) continue;
       for (let end = start + 1; end < text.length && text[end] !== '\n'; end++) {
         if (text[end] !== "'") continue;
@@ -727,15 +794,20 @@ class WorkReferences {
       }
     }
     for (const match of text.matchAll(
-      /(?:[a-z]+:\/\/\/?|\/|\.\.?\/|\.saivage\/)[^\s<>"'`]+|[a-zA-Z0-9_.*?-]+\/[^\s<>"'`]+|[^\s<>"'`]*[*?][^\s<>"'`]*|\b[a-zA-Z0-9_-]+\.(?:txt|md|jsonl?|log|png|jpg|csv|sh|js|ts|yaml|yml)\b/gu,
+      /[([{]*(\b[cC][aA][rR][dD][wW][oO][rR][kK]:[^\s<>"'`]*)|(?:[a-z]+:\/\/\/?|\/|\.\.?\/|\.saivage\/)[^\s<>"'`]+|[a-zA-Z0-9_.*?-]+\/[^\s<>"'`]+|[^\s<>"'`]*[*?][^\s<>"'`]*|\b[a-zA-Z0-9_-]+\.(?:txt|md|jsonl?|log|png|jpg|csv|sh|js|ts|yaml|yml)\b/gu,
     )) {
       await this.visit();
-      tokens.add(/[*?]/u.test(match[0]) ? match[0].replace(/[),.;:]+$/u, '') : match[0]);
+      const span = match[1] ?? match[0];
+      tokens.add(match[1] !== undefined
+        ? span.replace(/^(cardwork:.*?)[,;:)\]}]+$/iu, '$1')
+        : /[),.;:]$/u.test(span) && /[*?]/u.test(span) && !carriesCardworkQuery(span)
+          ? span.replace(/[),.;:]+$/u, '') : span);
     }
     for (const token of tokens) {
       if (this.firstGlobalProtection) break;
       await this.token(token, bases, origin, source);
-      const stripped = /[*?]/u.test(token) ? token : token.replace(/[),.;:\]}]+$/u, '');
+      const stripped = cardworkScheme.test(token) || /[*?]/u.test(token)
+        ? token : token.replace(/[),.;:\]}]+$/u, '');
       if (stripped !== token) await this.token(stripped, bases, origin, source);
     }
     this.textReferences.set(key, false);
@@ -784,7 +856,8 @@ class WorkReferences {
         bases,
         origin,
         source,
-        /(?:path|url|cwd|directory|root|file|dependencies)$/iu.test(key),
+        /(?:path|url|cwd|directory|root|file|dependencies)$/iu.test(key) ||
+          (key === 'target' && cardworkScheme.test(value)),
         scopes,
       );
     } else if (Array.isArray(value)) {

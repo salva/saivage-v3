@@ -1,6 +1,6 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -11,7 +11,10 @@ import { webToolBinders, type WebProviderContext } from '../../src/tools/web-too
 import { workspaceToolBinders, type WorkspaceProviderContext } from '../../src/tools/workspace-provider.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { WebfetchDataSchema, WebfetchTextDataSchema } from '../../src/contracts/webfetch.js';
-import { projectHistoricalToolResultForOutbound } from '../../src/contracts/index.js';
+import { buildCardworkUrl, projectHistoricalToolResultForOutbound, settleToolActionOutcome, toolSucceeded } from '../../src/contracts/index.js';
+import { projectDynamicForOutbound } from '../../src/redaction/index.js';
+import { cardPublicWorkRoot, cardReposWorkRoot } from '../../src/persistence/layout.js';
+import { resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { CardService, initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { CardService as ConfiguredCardService } from '../../src/cards/card-service.js';
@@ -32,6 +35,153 @@ const bindWeb = (context: WebProviderContext) => bindToolProvider('web', webTool
 const bindWorkspace = (context: WorkspaceProviderContext) => bindToolProvider('workspace', workspaceToolBinders, { authority: testWorkspaceAuthority(context.cardId ?? null), ...context });
 
 describe('WebProvider', () => {
+  it('returns reusable settled managed receipts and refuses names that outbound policy would change', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cardwork-receipts-'));
+    const cardId = 'project';
+    const area = 'public' as const;
+    const publicRoot = cardPublicWorkRoot(root, cardId);
+    const locator = (...pathSegments: string[]) => buildCardworkUrl({ cardId, area, pathSegments });
+    const context = { projectRoot: root, cardId, agentName: 'executor' as const };
+    const surface = buildInvocationSurfaceFixture('executor', [bindWorkspace(context), bindWeb(context)]);
+    const projectReceipt = (target: string) => settleToolActionOutcome(toolSucceeded({
+      destination_kind: 'cardwork_url', target, written: true, bytes: 7,
+    })).providerResult;
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('fetched café', { headers: { 'content-type': 'text/plain' } }),
+    );
+    const url = 'https://93.184.216.34';
+    try {
+      mkdirSync(publicRoot, { recursive: true });
+      const cases = ['tok_example_fixture.ts', 'token=example-fixture.ts'];
+      expect(projectDynamicForOutbound(locator(cases[0]!))).not.toBe(locator(cases[0]!));
+      expect(projectReceipt(locator(cases[0]!))).toMatchObject({
+        success: true, data: { target: expect.stringContaining('[REDACTED]') },
+      });
+      expect(projectDynamicForOutbound(cases[1]!)).not.toBe(cases[1]!);
+      expect(projectDynamicForOutbound(locator(cases[1]!))).toBe(locator(cases[1]!));
+      for (const name of cases) {
+        const existing = locator(name);
+        const absent = locator('missing-parent', name);
+        writeFileSync(join(publicRoot, name), 'needle unchanged');
+        mkdirSync(join(publicRoot, `${name}-dir`));
+        writeFileSync(join(publicRoot, `${name}-dir`, 'child.ts'), 'needle hidden');
+        const failure = { success: false, error: 'Cardwork address cannot be represented as an unchanged receipt.' };
+        for (const [tool, args] of [
+          ['write', { path: absent, content: 'must not write' }],
+          ['edit', { path: existing, old_string: 'unchanged', new_string: 'must not edit' }],
+          ['read', { path: existing }],
+          ['read', { path: locator(`${name}-dir`, 'child.ts') }],
+          ['glob', { directory: existing, pattern: '*' }],
+          ['grep', { path: existing, pattern: 'needle' }],
+          ['webfetch', { url, save_as: absent }],
+        ] as const) {
+          expect(await invokeTestTool(surface, tool, args)).toEqual(failure);
+          expect(existsSync(join(publicRoot, 'missing-parent'))).toBe(false);
+        }
+        expect(readFileSync(join(publicRoot, name), 'utf8')).toBe('needle unchanged');
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      const writeTarget = locator('case?.ts');
+      const content = 'needle needle\ntoken=example-fixture-value';
+      expect(writeTarget).toBe('cardwork:///project/public/case%3F.ts');
+      const written = await invokeTestTool(surface, 'write', { path: writeTarget, content });
+      expect(written).toMatchObject({
+        success: true, data: { target: writeTarget, destination_kind: 'cardwork_url', bytes: Buffer.byteLength(content) },
+      });
+      if (!written.success) throw new Error(written.error);
+      const file = (written.data as { target: string }).target;
+      expect(await invokeTestTool(surface, 'read', { path: locator() })).toMatchObject({
+        success: true, data: { path: locator(), entries: { total: 1, items: [{ name: 'case?.ts', type: 'file' }] } },
+      });
+      expect(await invokeTestTool(surface, 'read', { path: file })).toMatchObject({
+        success: true, data: { path: file, content: { content: 'needle needle\ntoken=[REDACTED]' } },
+      });
+      for (const directory of [locator(), file]) {
+        expect(await invokeTestTool(surface, 'glob', { directory, pattern: '**/*.ts' })).toMatchObject({
+          success: true, data: { matches: { total: 1, items: [file] } },
+        });
+        expect(await invokeTestTool(surface, 'grep', { path: directory, pattern: 'needle' })).toMatchObject({
+          success: true, data: { matches: { total: 1, items: [{ path: file, preview: 'needle needle' }] } },
+        });
+      }
+      const edit = { path: file, old_string: 'needle', new_string: '$&' };
+      expect(await invokeTestTool(surface, 'edit', edit)).toMatchObject({ success: false, error: expect.stringContaining('multiple') });
+      expect(await invokeTestTool(surface, 'edit', { ...edit, replace_all: true })).toMatchObject({
+        success: true, data: { path: file, replacements: 2 },
+      });
+      expect(readFileSync(join(publicRoot, 'case?.ts'), 'utf8')).toBe('$& $&\ntoken=example-fixture-value');
+
+      const save = locator('case*.ts');
+      expect(save).toBe('cardwork:///project/public/case%2A.ts');
+      const saved = await invokeTestTool(surface, 'webfetch', { url, save_as: save });
+      expect(saved).toMatchObject({
+        success: true, data: { saved_as: save, bytes: Buffer.byteLength('fetched café'),
+          write: { kind: 'workspace_file', data: { target: save, destination_kind: 'cardwork_url' } } },
+      });
+      if (!saved.success) throw new Error(saved.error);
+      const { write: { data: { target } } } = saved.data as { write: { data: { target: string } } };
+      expect(await invokeTestTool(surface, 'read', { path: target })).toMatchObject({
+        success: true, data: { path: save, content: { content: 'fetched café' } },
+      });
+
+      // This prefix is inert on its own; only the complete locator extends its
+      // shape into a redaction match. Checking each decoded basename is insufficient.
+      const prefixOnly = 'tok_';
+      const ordinaryName = 'fixture.ts';
+      const combined = locator(prefixOnly, ordinaryName);
+      for (const name of [prefixOnly, ordinaryName])
+        expect(projectDynamicForOutbound(name)).toBe(name);
+      expect(projectReceipt(combined))
+        .toMatchObject({ success: true, data: { target: expect.stringContaining('[REDACTED]') } });
+      mkdirSync(join(publicRoot, prefixOnly));
+      writeFileSync(join(publicRoot, prefixOnly, ordinaryName), 'untouched');
+      expect(await invokeTestTool(surface, 'read', { path: locator(prefixOnly) })).toMatchObject({
+        success: true, data: { entries: { total: 0 } },
+      });
+      expect(await invokeTestTool(surface, 'edit', { path: combined, old_string: 'untouched', new_string: 'denied' }))
+        .toEqual({ success: false, error: 'Cardwork address cannot be represented as an unchanged receipt.' });
+      expect(readFileSync(join(publicRoot, prefixOnly, ordinaryName), 'utf8')).toBe('untouched');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires both workspace clauses before fetch and freshly admits the managed save after fetch', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'webfetch-cardwork-final-admission-'));
+    const cardId = 'card-a';
+    const checkout = join(cardReposWorkRoot(root, cardId), 'checkout');
+    const context = { projectRoot: root, cardId, agentName: 'executor' as const };
+    const args = { url: 'https://93.184.216.34', save_as: 'cardwork:///card-a/repos/checkout/target.txt' };
+    mkdirSync(checkout, { recursive: true });
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      rmdirSync(checkout);
+      symlinkSync(root, checkout);
+      return new Response('not saved', { headers: { 'content-type': 'text/plain' } });
+    });
+    try {
+      for (const denied of ['write', 'webfetch']) {
+        const authority = { anchorCardId: cardId, tools: ['write', 'webfetch'].map((tool) =>
+          resolveRuntimeTool('card', tool, tool === denied
+            ? [{ kind: 'record', scopes: ['self'], patterns: ['*'] }]
+            : [{ kind: 'workspace' }]),
+        ) };
+        const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ ...context, authority })]);
+        expect(await invokeTestTool(surface, 'webfetch', args)).toMatchObject({ success: false, error: expect.stringContaining(denied) });
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+      const surface = buildInvocationSurfaceFixture('executor', [bindWeb(context)]);
+      expect(await invokeTestTool(surface, 'webfetch', args)).toMatchObject({ success: false, error: expect.stringContaining('ordinary directories') });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(existsSync(join(root, 'target.txt'))).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('freshly denies the actual record write when its card is deleted during a deferred fetch', async () => {
     const root = mkdtempSync(join(tmpdir(), 'web-record-final-admission-')); initProjectTree(root);
     const cards = new CardService(root);
