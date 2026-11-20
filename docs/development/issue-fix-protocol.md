@@ -119,12 +119,12 @@ one implementation manager holding the lock at a time.
 
 | Role | Owns | Must not |
 | --- | --- | --- |
-| Batch coordinator (main primary agent) | Accepts the batch; performs intake of each issue's existing tracker entry before launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned session IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; move an entry to Done without its completion evidence. The exception is, for a clearly trivial direct wording fix, the author and reviewer pair under [Direct trivial fixes](#direct-trivial-fixes). |
+| Batch coordinator (main primary agent) | Accepts the batch; checks scope eligibility before intake or launch; assigns one unique working path per issue; launches and tracks issue fixers one whole run at a time; records returned session IDs and dispositions in its own session context; applies each issue's factual lifecycle to the ignored tracker files at a quiescent boundary; decides when a waiting fixer may resume; runs aggregate acceptance once allowed. | Take over any issue's design, review, or implementation; invoke an issue designer, design reviewer, implementation author, or implementation reviewer for ordinary issue work; request manager implementation directly; write a tracker file while an issue call that could launch a manager is unsettled; mark an issue Done without completion evidence or treat a terminal archival as completed delivery. The exception is, for a clearly trivial direct wording fix, the author and reviewer pair under [Direct trivial fixes](#direct-trivial-fixes). |
 | Issue fixer (`issue-fixer`) | One issue end to end: designer and design-reviewer delegation, finding triage, design-value reassessment, final approval record, freshness decisions, implementation-manager delegation, read-only reconciliation, and reporting, including the issue's tracker evidence. Writes only ignored planning and review artifacts. | Write `docs/working/todo.md` or `docs/working/done.md`; edit implementation or model-facing assets, run validation or generators, stage or commit, author wording, invoke any developer, documenter, or implementation reviewer, or run prompt or documentation review itself. |
 | Issue designer (`issue-designer`) | Writes and revises the issue's self-contained plan, including revisions prompted by review or implementation learning. | Approve its own plan or decide merit. |
 | Design reviewer (`design-reviewer`) | Adversarially reviews every current design or plan revision. Read-only apart from its assigned review artifact. | Edit any plan, asset, source, or configuration; take the issue fixer's merit decision; review implementation assets. |
 | Optional secondary design reviewer (`design-reviewer-secondary`) | Only when a requester explicitly asks for it: the same design-review criteria, failure and reporting boundaries, and verdicts as `design-reviewer`. | Substitute for ordinary design review, or for any documentation or prompt review. |
-| Implementation manager (`implementation-manager`) | The sole implementation orchestrator and the only agent that invokes implementation authors and reviewers in a full issue run. Holds the one lock covering all implementation mutation, validation, generated artifacts, staging, commits and stabilization. Under that lock it keeps only its own issue's existing factual tracker entry current, and never moves an entry to Done. | Author implementation or model-facing wording directly; write any tracker entry other than its own issue's factual status; delegate a tracker write. |
+| Implementation manager (`implementation-manager`) | The sole implementation orchestrator and the only agent that invokes implementation authors and reviewers in a full issue run. Holds the one lock covering all implementation mutation, validation, generated artifacts, staging, commits and stabilization. Under that lock it records only factual progress in its own issue's existing tracker entry. | Author implementation or model-facing wording directly; write any tracker entry other than its own issue's factual status; file a completed delivery or terminal assessment; delegate a tracker write. |
 | Code developer (`code-developer`) | Leaf implementer of manager-assigned runtime, source, configuration, tooling, tests, fixtures, and navigation work. Supplies source facts. Mechanically applies reviewed inline wording. | Author documentation or model-facing wording, delegate, acquire or release locks, stage, or commit. |
 | Documentation developer (`doc-developer`) | Ordinary documentation assigned by the implementation manager, or by the acting primary for a clearly trivial direct fix: facts, structure, clear progression, explanation, and reader usefulness. | Author model-facing instructions, delegate, use shell, Lua, or execute tools, build, validate, stage, commit, or invoke a reviewer. |
 | Documentation reviewer (`doc-reviewer`) | Independent review of ordinary documentation for facts, quality, structure, and progression, invoked by the implementation manager or, for a direct fix, the acting primary. Read-only apart from its assigned review artifact. | Edit any asset; review model-facing instructions; take the author's role. |
@@ -772,10 +772,11 @@ judges whether repository changes invalidated an approved design.
 
 For a batch, the coordinator must:
 
-1. Before launch, find or add the issue's existing tracker entry (see
-   [Tracker lifecycle ownership](#tracker-lifecycle-ownership)). Give each issue fixer a
-   complete issue statement, a unique absolute working-plan path, and the entry identifier
-   with the tracker paths.
+1. Apply the tracker skill's read-only **Scope eligibility** rule first (see
+   [Tracker lifecycle ownership](#tracker-lifecycle-ownership)). Only eligible scope proceeds
+   to tracker addition or merge, selection of an existing row, or launch. Give each issue
+   fixer a complete statement of only the eligible scope, a unique absolute working-plan path,
+   and the entry identifier with the tracker paths.
 2. Launch one new issue fixer at a time, with agent `issue-fixer` through the exposed native
    subagent tool. Its whole
    run is the unit of selection. Do not launch the next new issue, or resume any waiting
@@ -831,15 +832,22 @@ never race for the lock.
 
 ### Tracker lifecycle ownership
 
-`docs/working/todo.md` and `docs/working/done.md` record each issue's lifecycle. Only these
-roles write them, each limited to facts it observed:
+`docs/working/todo.md` tracks active work; `docs/working/done.md` archives both completed
+deliveries and, separately, terminal assessments. The
+[saivage-todo-protocol](https://github.com/salva/saivage-v3/blob/HEAD/.github/skills/saivage-todo-protocol/SKILL.md)
+defines **Scope eligibility** and **Settlement mapping**. Issue-team responsibilities are:
 
-- **Batch coordinator.** Performs intake before launching a new issue. It finds the existing
-  entry by identifier and merges into it, keeping that identifier, or adds the entry as Open
-  or Analyzed when none exists. At a quiescent boundary it then applies each affected issue's
-  latest evidenced lifecycle once. The boundary requires that every previously launched or
-  resumed issue call has settled (a returned waiting fixer counts as settled; a fixer that
-  could still launch a manager does not), and that no implementation manager is active or
+- **Batch coordinator.** Uses **Scope eligibility** before adding work, merging it into an
+  existing parent, selecting an existing row, or launching. Eligibility is about the proposed
+  scope, not just its identifier. A settled `ABANDONED` report excludes the scope it names even
+  when filing is pending, just as explicit terminal evidence in `todo.md` or `done.md` or a
+  permanent discard in `discarded.md` does. A missing or stale row does not override that
+  evidence. For a mixed parent, only independently actionable scope remains eligible. This
+  decision is read-only; genuinely new scope follows ordinary intake. At a quiescent boundary
+  the coordinator applies each affected issue's latest evidenced lifecycle once. The boundary
+  requires that every previously launched or resumed issue call has settled (a returned
+  waiting fixer counts as settled; a fixer that could still launch a manager does not), and
+  that no implementation manager is active or
   retains the lock. Settlement comes from task results and reports. The coordinator does not
   inspect or poll the lock to create the boundary. If ownership or settlement is unknown, it
   keeps the facts in session context, reports the update as pending, and edits nothing. It
@@ -855,25 +863,35 @@ Each role acts only on the tracker authority in its effective instructions: its 
 together with the shared instructions that currently take effect for it, under their priority.
 The shared todo skill describes the lifecycle but grants no write authority those effective
 instructions do not give. A session that lacks an assigned action, or meets an unresolved
-instruction conflict, reports the update as pending or blocked, and no other session takes it over. The adoption rules for running sessions are in
-[Final reporting](#final-reporting).
+instruction conflict, reports the update as pending or blocked, and no other session takes it
+over. The adoption rules for running sessions are in [Final reporting](#final-reporting).
+
+Historical reconciliation belongs only to the coordinator. It requires reports establishing
+settled calls, a stable worktree, and no active manager or retained implementation lock. It also
+requires effective authority for the moves, with any conflict resolved. Delivery, lock release,
+and reading updated source do not replace previously loaded instructions. If either prerequisite
+is missing or uncertain, or the item's scope or evidence is unclear, the affected reconciliation
+remains pending without edits or a substitute writer.
 
 Status may lag while the selected issue run is in progress. The coordinator applies each item's latest
 evidenced state once, so no per-round notification, intermediate status gate, or queue is
 needed. An issue is **Designed** only after its plan has passed review and the fixer has
-recorded its approval; waiting for the lock is a note on that entry. The mapping from evidence
-to status is defined in
-[saivage-todo-protocol](https://github.com/salva/saivage-v3/blob/HEAD/.github/skills/saivage-todo-protocol/SKILL.md).
+recorded its approval; waiting for the lock is a note on that entry.
 
-A completed issue moves its full entry to `done.md` only with its approved-plan record, the
-manager's validation results, the commit hashes, and stable read-only reconciliation. If any
-of that evidence is missing, the entry stays out of Done and the missing evidence is named.
-An abandoned issue is kept as Analyzed, not recorded as Done. Its entry carries an explicit
-terminal ABANDONED note giving the merit reason and the abandoned scope. If no implementation
-occurred, the note says so. After partial delivery, the entry retains the delivered units,
-validation and commit references, and it identifies the abandoned remainder, which is terminal
-rather than pending work. Such an entry never claims whole-issue completion. Completion
-records implementation only; aggregate workflow results are tracked separately. Session IDs remain session context and are never tracker fields.
+Done means completed delivery. The completed entry and its temporary Done pointer require
+the unchanged approved-plan record, the manager's validation results, the commit hashes, and
+stable read-only reconciliation. If any of that evidence is missing, the entry stays out of
+Done and the missing evidence is named. Completion records implementation only; aggregate
+workflow results are tracked separately.
+
+A settled `ABANDONED` assessment is filed under `## Closed without implementation` in `done.md`.
+The heading describes the closed scope, not the item's entire history. The archived assessment
+preserves the merit reason, exact scope, and evidence, including any stabilized delivery, its
+commit references, and validation with failures and limits. It distinguishes no implementation
+from an abandoned remainder after partial delivery. The closed scope leaves the active queue
+without a Done pointer; any independently actionable parent scope stays under its existing
+identifier, cross-linked to the assessment. Archive placement conveys neither implementation
+nor acceptance. Session IDs remain session context and are never tracker fields.
 
 ## Final approval and freshness gate
 
@@ -1222,16 +1240,18 @@ proposed fix before implementation or only the identified remainder after stabil
 delivery. It accounts for every attempt, not just the last, and gives delivered and abandoned
 scope separately; partial delivery never means the issue or original plan was completed.
 It states that there were no implementation changes, validation, or commits only when that is
-true of the whole implementation history. Design review
-and planning activity are not implementation validation. Its `Tracker evidence` line supports
-Analyzed with a terminal ABANDONED note, never Done. Abandonment authorizes no cleanup, no
+true of the whole implementation history. Design review and planning activity are not
+implementation validation. Its `Tracker evidence` line names the entry identifier, records
+support for terminal archival under `Closed without implementation` (not Done or an applied
+move), gives the merit reason, and refers to the report for the exact abandoned scope,
+supporting evidence, and any stabilized delivery. Abandonment authorizes no cleanup, no
 reverting of coherent delivered units, no additional validation by the fixer, and no lock release.
 
 The issue fixer generates no new implementation evidence after the manager returns. It never
 writes `todo.md` or `done.md`, before or after the return. Every disposition report carries a
-`Tracker evidence` line naming the entry identifier, the lifecycle state the evidence supports,
-the manager's applied or pending tracker status when a manager ran, and any pending correction.
-The coordinator uses that line at its next safe boundary.
+`Tracker evidence` line naming the entry identifier, the lifecycle or disposition the evidence
+supports, the manager's applied or pending tracker status when a manager ran, and any pending
+correction. The coordinator uses that line for filing at its next safe boundary.
 
 ## Cancellation and error handling
 

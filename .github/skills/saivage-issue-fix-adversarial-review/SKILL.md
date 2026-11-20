@@ -22,7 +22,7 @@ You never take over an issue's design, review, or implementation, and you never 
 
 ## Launch the batch
 
-1. Intake each issue before launching it. Read `saivage-todo-protocol`, then find the issue's existing entry in `docs/working/todo.md` by its identifier, including a table row inside a section. Merge into that entry and keep its identifier; never create a duplicate. If none exists, add it as Open, or as Analyzed when investigation already exists, with its facts and evidence path.
+1. Read `saivage-todo-protocol` and use its [Scope eligibility](../saivage-todo-protocol/SKILL.md#scope-eligibility) decision before additions, merges, scheduled selection of an existing row, or launch, even while tracker reconciliation is pending. Follow its intake procedure for eligible new work and pass only eligible scope.
 2. Give each issue a unique absolute working-plan path under `docs/working/<date>-<issue-slug>/`.
 3. Give each new fixer a complete issue statement, its absolute plan path, and its existing tracker entry identifier with the tracker paths.
 4. Launch one new fixer at a time, through the exposed subagent tool. Its whole run (design, review, freshness, manager handoff and read-only reconciliation) is the unit of selection. Do not launch the next new issue, or resume a waiting fixer, while the selected fixer can still launch an implementation manager. Parallel fixers only add lock contention.
@@ -64,13 +64,7 @@ At each eligible boundary, select exactly one next run: one new issue, one recor
 
 Apply the tracker lifecycle from `saivage-todo-protocol` only at a quiescent boundary: every previously launched or resumed issue call has settled (a fixer whose disposition report has returned counts as settled, including a waiting one; a fixer that could still launch a manager does not), no implementation manager is active or retains the lock, and no launch or resume follows until the bounded update finishes. Establish this from task results and reports; do not inspect, poll, or wait on the lock to create it. If ownership or settlement is unknown, keep the pending facts in session context, report tracker maintenance as pending, and edit nothing.
 
-At each boundary, apply each affected item's latest evidenced lifecycle once, using the protocol's settlement mapping:
-
-- `COMPLETED` with approval facts, manager validation, commit hashes, and stable reconciliation: move the entry to Done. If any of that evidence is missing, the entry stays out of Done and the missing evidence is named.
-- `WAITING_FOR_IMPLEMENTATION_LOCK` with an approved plan: Designed, with the waiting as a note.
-- `ABANDONED`: Analyzed, with an explicit terminal ABANDONED note giving the merit reason and the abandoned scope. Retain delivered units, validation and commit references when any exist. Never move the entry to Done. Claim no implementation only when none occurred. Do not relaunch.
-- `BLOCKED`, `FAILED`, or `CANCELLED`: Blocked, with the named cause or the cancellation note.
-- A design returned to revision after a manager return: Analyzed, with the plan revision needed.
+At each boundary, apply each affected item's latest evidenced lifecycle once under the tracker skill's [Settlement mapping](../saivage-todo-protocol/SKILL.md#settlement-mapping) and its evidence and authority requirements. For historical reconciliation, follow the tracker skill's [Safe timing](../saivage-todo-protocol/SKILL.md#safe-timing) rule, including when to report it as pending without edits.
 
 Then select the next run under the rules above. Before a cancelled waiter is resumed, apply its pending cancellation note first. Do not add per-round notifications, intermediate status gates, a queue, or a registry. The next launch or resume waits for the bounded update to finish.
 
