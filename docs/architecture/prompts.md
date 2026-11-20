@@ -6,12 +6,18 @@ locator values, while `workspace-provider.ts` and `web-tools.ts` own managed
 address, search and receipt help for their selected tools. This is ordinary tool
 selection, not a new prompt lifetime.
 
-All six shipped shared Executor hosts still refer to `$SAIVAGE_CARD_SHELL_ROOT`.
-Card-bound `run_command` supplies that variable with the same canonical `public`
-path as `SAIVAGE_CARD_PUBLIC_ROOT`. The reference needs neither a host refresh nor
-a composition-time rewrite, and it does not depend on a legacy `shell` link.
-WORK-01 changes no Executor host or materialized override; source changes do not
-hot-update installed custom hosts. Later workflow wording belongs to PRM-05.
+All six shipped shared Executor hosts describe disposable command work in
+purpose-named children of `$SAIVAGE_CARD_PUBLIC_ROOT`. Card-bound `run_command`
+supplies it as the absolute path to the card work root's `public/` directory. Its
+selected tool help still documents `SAIVAGE_CARD_SHELL_ROOT` as the identical
+string, not a separate `shell/` path or link. Saivage does not inject these locators
+for global `run_command` or compiled `shell.run`. `workspace-provider.ts` owns granted
+`cardwork:///` addressing; private checkouts under `repos/` and `work:///` output
+receipts are distinct from public scratch space. This wording belongs to the
+shipped source and its packaged copies. Composition does not rewrite hosts, and
+source or package changes do not replace materialized or custom overrides or
+hot-update a running installation.
+[Installed adoption](#loaded-configuration-and-installed-adoption) requires separate authorization.
 
 Selected `read_agent_session` tool help owns diagnostic-first navigation, exact
 visible-entry inspection, coverage limitations and lossless hex-slice decoding

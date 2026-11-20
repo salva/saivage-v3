@@ -213,6 +213,13 @@ try {
           composedWorkflowRoles.add(role);
           assertGuidanceComposition(packagedInstruction, packagedRoot, role, `${templateName} packaged ${cardType}/${stateId}`);
           assertGuidanceComposition(sourceInstruction, sourceRoot, role, `${templateName} source ${cardType}/${stateId}`);
+          if (role === 'executor') {
+            const workspaceDirection = packagedInstruction.split('\n').find((line) =>
+              line.startsWith('- ') && line.includes('disposable command work'));
+            if (workspaceDirection === undefined || !/\bpublic\//.test(workspaceDirection) || !/\$SAIVAGE_CARD_PUBLIC_ROOT\b/.test(workspaceDirection) || workspaceDirection.includes('SAIVAGE_CARD_SHELL_ROOT')) {
+              throw new Error(`Executor workspace direction must name public/ and $SAIVAGE_CARD_PUBLIC_ROOT together without the legacy locator for ${templateName}/${cardType}/${stateId}.`);
+            }
+          }
         }
       }
     }
