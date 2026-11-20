@@ -49,14 +49,14 @@ import {
 } from './layout.js';
 import { publishFreshFile, type PublicationTemporaryIdFactory } from './replace-file.js';
 import { publishHeadFile } from './publish-head.js';
-import { rowWorkReferences } from './work-gc-protection.js';
+import { rowWorkReferences, type WorkGcReference } from './work-gc-protection.js';
 
 /** Only the current selected segment supplies retention roots and a horizon. */
 export function readWorkGcConversation(
   projectRoot: string,
   sessionId: ConversationSessionId,
   optional = false,
-): { horizon: number | null; references: Iterable<unknown> } {
+): { horizon: number | null; references: Iterable<WorkGcReference> } {
   const loc = location(projectRoot, sessionId);
   const bytes = readCanonicalBytesOrMissing(loc.indexPath);
   if (bytes === null) {
@@ -116,7 +116,7 @@ export function readWorkGcConversation(
       compaction: z.unknown(),
     })
     .parse(source.next().value);
-  function* references(): Generator<unknown> {
+  function* references(): Generator<WorkGcReference> {
     if (genesis.kind === 'compacted_segment_genesis') {
       const history = z
         .object({
@@ -124,10 +124,9 @@ export function readWorkGcConversation(
           protectedPrompts: z.custom<unknown[]>(Array.isArray),
         })
         .parse(genesis.compaction);
-      yield history.summaryText;
+      yield { kind: 'content', value: history.summaryText };
       for (const prompt of history.protectedPrompts)
-        yield z.object({ message: z.object({ content: z.string() }) }).parse(prompt).message
-          .content;
+        yield { kind: 'content', value: z.object({ message: z.object({ content: z.string() }) }).parse(prompt).message.content };
     }
     for (const value of source) {
       z.object({ session_id: z.literal(sessionId) }).parse(value);

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import Fastify from 'fastify';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, rmSync, existsSync, utimesSync, appendFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, rmSync, existsSync, utimesSync, appendFileSync, symlinkSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -34,6 +35,7 @@ import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { deferred } from '../../src/runtime/actors/deferred.js';
 import { readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { appendCardExecutions } from '../../src/persistence/card-execution-log.js';
 import { cardConversationVersionFile } from '../../src/persistence/layout.js';
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { runtimeCardsOperatorApiContracts } from '../../src/contracts/operator-api-runtime-cards.js';
@@ -393,30 +395,32 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         } finally { release.resolve(); await settled; }
       }
       if (flags.length) {
-        const privateSentinel = 'PRIVATE-online-global-source';
+        const privateSentinel = 'PRIVATE-online-required-source';
         const unresolvedAlias = join(root, privateSentinel);
         symlinkSync(join(root, 'missing-alias-target'), unresolvedAlias);
-        author.acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: unresolvedAlias }), { kind: 'agent', agent: 'analyst' });
+        appendCardExecutions(root, 'project', [{ kind: 'invocation_started', row_id: randomUUID(), invocation_id: randomUUID(),
+          card_id: 'project', timestamp: '2026-10-24T00:00:00.000Z', operation: 'shell.run', contract_version: 1,
+          provider: { kind: 'builtin', name: 'shell' }, binding: { kind: 'node', activation_id: randomUUID(), node_id: 'run', ordinal: 0 },
+          output_source: 'command-stdout', artifact_paths: [privateSentinel], input: [], config: [],
+          shell: { script: 'echo fixture', cwd: root, argv: [], env: {} } }]);
+        const beforeRefusal = snapshot(join(root, '.saivage'));
+        const priorStatus = app.runtimeApi.getStatus().status;
         const globalOutput = jest.spyOn(console, 'log').mockImplementation(() => {});
         const globalProgress = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
         try {
-          await run(['node', 'saivage', 'gc-work', '--dry-run']);
+          await run(['node', 'saivage', 'gc-work', ...flags]);
           const result = WorkGcResponseSchema.parse(JSON.parse(globalOutput.mock.calls.at(-1)![0] as string));
-          expect(result).toMatchObject({ disposition: 'completed', result: { first_global_protection: {
-            reason: 'reference_scope_unknown', source: 'record_content' }, observed_count: 3, would_delete_count: 0, retained: { protected: 3 } } });
+          expect(result).toMatchObject({ disposition: 'refused', reason: 'reference_scope_unresolved',
+            restoration: 'not_resumed', result: null });
           const stderr = globalProgress.mock.calls.map(([text]) => String(text)).join('');
-          expect(stderr).toContain('first_global_protection=reason:reference_scope_unknown,source:record_content');
+          expect(stderr).not.toContain('GC selection');
           expect(stderr).not.toContain('[object Object]');
           expect(stderr + JSON.stringify(result)).not.toContain(privateSentinel);
           expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
-          const abortGlobal = new AbortController();
-          const partial = await app.collectWorkGarbage({ mode: 'dry_run' }, abortGlobal.signal, progress => {
-            if (progress.phase === 'selection') abortGlobal.abort();
-          });
-          expect(partial).toMatchObject({ disposition: 'interrupted', reason: 'cancelled', result: {
-            first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' }, would_delete_count: 0 } });
+          expect(app.runtimeApi.getStatus().status).toBe(priorStatus);
+          expect(snapshot(join(root, '.saivage'))).toEqual(beforeRefusal);
         } finally { globalProgress.mockRestore(); globalOutput.mockRestore(); }
-        author.acceptRecord('project', 'review-global.md', 'Current assessment without the unknown alias.', { kind: 'agent', agent: 'analyst' });
+        unlinkSync(unresolvedAlias);
         const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
         const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
         appendFileSync(path, '{torn');

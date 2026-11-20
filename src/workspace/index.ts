@@ -3,6 +3,7 @@ export {
   inventoryWorkGarbage,
   collectWorkGarbage,
   WorkGcInterruptedError,
+  WorkGcReferenceScopeError,
 } from './work-garbage-collector.js';
 export { inspectAgentReadPath } from './agent-read-path.js';
 export {

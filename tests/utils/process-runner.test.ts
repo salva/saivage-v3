@@ -22,6 +22,9 @@ async function compactGcFixture(root: string): Promise<void> {
   const horizons = await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, {
     async content() {},
     async operational() {},
+    async conversation() {},
+    async path() {},
+    async dependencies() {},
   });
   expect(horizons.get('project')).toBe(Date.parse('2026-10-24T00:01:00Z'));
 }

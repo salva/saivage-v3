@@ -214,8 +214,9 @@ or `tmp/stash`.
 A purpose-named card child such as `foo`, reserved-area child such as `tmp/foo`,
 stash artifact or process-specific capture directory is concrete. Known resolved
 aliases follow the same rule. Operational inputs, unfinished execution selections
-and process-owner protections retain their existing root/file/subtree authority;
-unknown recognized scope remains conservative. Ignored content-root mentions can
+and process-owner protections retain their existing root/file/subtree authority.
+An actual operational root or uncertain process owner can protect all work;
+content suggestions cannot. Ignored content-root mentions can
 make old work eligible despite intended blanket retention. Historical-only
 attachments may irreversibly disappear after separately authorized deletion;
 canonical histories remain unchanged.
@@ -237,9 +238,13 @@ Eligibility uses mtime, not ctime or access time; ctime remains part of the fres
 identity check. A needed file introduced with preserved old mtime or referenced only
 by excluded shell syntax can be deleted. Code rollback cannot restore deleted bytes.
 
-Preserve non-shell reference inference, including nested JSON, quoted/backtick and
-bare paths, Markdown links, typed URIs, query references, naked wildcards, prose
-directory/pattern pairs and structured paths, arrays and literal/value wrappers.
+Treat non-shell content as advisory. In prose, infer only complete slash-bearing
+native paths or supported filesystem locators, including in quotes, backticks and
+Markdown destinations. Bare filenames and naked wildcards are not prose references.
+Keep bounded structured whole path values (including basenames), arrays, nested
+JSON, literal and named-value wrappers, and explicit pattern carriers. Treat
+non-filesystem URLs as units; consider independent references in decoded query
+values, not in the server pathname.
 Exclude shell syntax by its source: omit `run_command` arguments' `command` while
 retaining `cwd`; omit compiled `shell.run` action `config.script` including its
 literal wrapper for both node actions and `afterActivationCommit`, while retaining
@@ -253,31 +258,70 @@ fence delimiters; an unclosed such fence masks its remaining body. Preserve surr
 prose, unlabelled and non-shell blocks, inline backticks and the same behavior in
 nested decoded text. Unlabelled text is not classified as shell: its ordinary lexical
 references can still protect files. Do not infer shell source from a field name alone
-or use a general shell recognizer. Keep non-shell whole-value filename handling.
-Unresolved substitutions in recognized non-shell references require conservative
-unknown-scope handling rather than prefix inference.
+or use a general shell recognizer. Preserve operational inference, including
+whole-value filenames and recognized argument and environment dependencies in
+their applicable execution bases. Commissioned Git source roots remain filter
+inputs, not exact directory selections that can blanket-protect work.
 
 Mark explicit and recognized inferred
 references from those roots, then recheck each exact candidate before unlink.
-Unknown ownership, unresolved
-recognized reference scope or surviving-writer footprint requires retention/refusal.
-Ambiguous free-text filename inference is bounded precise glob matching with an intentional
-loss rule. A recognized glob (a structured `pattern`, a wildcard path, or a same-line
-`directory`/`pattern` prose pair) matches the actual ordinary files and directories beneath
-its resolved directory or cwd scope, or beneath the standard fallback bases when no scope is
-given. Matching uses the `globToRegExp` dialect: `*` and `?` stay inside one path segment,
-whole-segment `**` spans levels, and other characters are literal. Each entry counts once per
+Unknown ownership or surviving-writer footprint requires retention/refusal.
+Take exact addresses and pathname matchers from their owning source slots once,
+apart from independent content. Interpret whole native addresses literally, with
+project-relative tool paths based at the project root; logical record addresses do
+not name work. Decode exact locators once and keep decoded punctuation literal.
+The pattern slot of a logical `record:///` glob call supplies neither a work
+matcher nor an exact mark; keep independent content. In structured content and
+filesystem glob calls, a whole canonical `cardwork` pattern is an exact address,
+independent of the search directory. Keep exact marks for explicit concrete grep paths and for glob
+search roots that are files; a glob directory supplies scope, not a subtree mark.
+An omitted path supplies no subtree mark. Grep's content regex is not a path
+reference, and `include` does not narrow an exact grep path mark. Apply the content
+root exclusions above to call and receipt marks. Calls, failed results and complete untagged displays
+provide bounded suggestions, not required addresses. Interpret displays as
+received, preserving bounded locator and applicable literal native meanings
+without guessing original bytes or reconstructing fragments.
+
+Require conversation addresses only from successful receipts with same-row
+`context_policy.settlement_origin: executed` and the `cardwork_url` write
+destination: `write`'s `data.target`, or both `webfetch`'s
+`data.saved_as` and `data.write.data.target` in the
+`workspace_file` branch. Refuse before selection if a required receipt address
+or recognized operational dependency cannot be bounded. Report
+`reference_scope_unresolved` unless `cancelled` takes precedence.
+An absent suffix below a known ancestor is not itself unresolved.
+Unbounded suggestions contribute no protection and cause no refusal. Keep
+independent bounded marks; do not infer a prefix, suffix or fallback base from an
+unresolved expression or explicit scope.
+
+Match recognized patterns (structured `pattern`, qualified wildcard paths and
+same-line quoted `directory`/`pattern` pairs) against ordinary inventory relative
+to the effective directory or cwd scope, including bounded lexical/resolved scopes,
+or under the standard fallback bases when no scope is given. GC can bound an
+advisory directory independently of tool admission. Resolve fixed prefixes before
+matching the remaining suffix. In owned native matchers, preserve percent and
+substitution-shaped bytes. For legacy
+inferred scoped wildcards, decode once before splitting and check the whole
+decoded expression for unresolved substitutions.
+For both candidate precheck and inventory count, match the remaining pattern
+against the name relative to the effective scope, normalizing `\` to `/` in both
+the pattern and relative name. This normalization does not apply to whole native
+addresses. After normalization, `globToRegExp` treats `*` and `?` as single-segment
+wildcards and whole-segment `**` as spanning levels; other characters are literal.
+Each entry counts once per
 glob; the scope directory itself and entries outside the scope do not count. Zero matches add
 nothing. One to fifty matches protect exactly those entries; a matched directory protects its
 subtree, and its descendants count only if they match the glob themselves. Fifty-one or more
 matches discard that glob's whole contribution, so none of its matches is protected, not even
 the first fifty. Independent exact references, operational dependencies, process-owner
-protections and other explicit roots still protect as before. Heuristics may still miss
-genuine free-text references, and needed work reachable only through a broad or missed glob
-can be deleted; no lossless, error-probability or age-based safety guarantee is claimed. This
-exception does not weaken explicit/structured references, conservative handling of
-unresolved recognized aliases and substitutions, ordinary consumer validation,
-writer exclusion or candidate checks. Keep directories. Default/explicit dry-run uses
+protections and other explicit roots still protect. A separately authorized delete
+can irreversibly remove needed work retained only by discarded heuristics, including
+bare filenames, naked wildcards and unbounded suggestions in content, calls,
+diagnostics or displays. Even a complete display can have lost original bytes to
+normalization, packing or redaction. A broad or missed match can also expose needed
+work; infer no lossless, error-probability or age-based guarantee. This exception
+does not weaken ordinary consumer validation, writer
+exclusion or candidate checks. Keep directories. Default/explicit dry-run uses
 the same selection without collector file effects; offline preview does publish/release the
 lifecycle lock and prints its result only after successful release. Delete is
 irreversible and has no lossless guarantee. GC has no elapsed deadline or duration

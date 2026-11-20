@@ -54,7 +54,7 @@ it('decodes only the selected current conversation entry and payloads, without r
   writeFileSync(path, JSON.stringify(envelope) + '\n');
   const parse = jest.spyOn(JSON, 'parse');
   const result = readWorkGcConversation(root, 'agent:planner:project');
-  expect([...result.references]).toEqual(['Synthetic GC boundary.', 'protected.txt']);
+  expect([...result.references]).toEqual(['Synthetic GC boundary.', 'protected.txt'].map(value => ({ kind: 'content', value })));
   expect(result.horizon).toBe(Date.parse('2026-10-24T00:01:00Z'));
   expect(parse).toHaveBeenCalledTimes(2);
   parse.mockRestore();
@@ -127,11 +127,13 @@ it('folds finished executions before decoding irrelevant artifacts and native fa
 });
 it('omits owned shell arguments but preserves arbitrary command fields and ignored rows', () => {
   const content = JSON.stringify({ tool_calls: [{ function: { name: 'run_command',
-    arguments: JSON.stringify({ command: 'shell-only.txt', cwd: 'work:///cards/project/tmp' }) } }] });
-  expect([...rowWorkReferences({ kind: 'tool_call', tool: 'run_command', content })]).toEqual([{ cwd: 'work:///cards/project/tmp' }]);
+    arguments: JSON.stringify({ command: 'shell-only.txt', cwd: 'jobs/${name}' }) } }] });
+  expect([...rowWorkReferences({ kind: 'tool_call', tool: 'run_command', content })]).toEqual([
+    { kind: 'address', syntax: 'native', value: 'jobs/${name}' }, { kind: 'content', value: {} },
+  ]);
   expect([...rowWorkReferences({ kind: 'provider_private', content: false })]).toEqual([]);
   expect([...rowWorkReferences({ kind: 'text', content: '{"command":"keep.txt"}' })])
-    .toEqual(['{"command":"keep.txt"}']);
+    .toEqual([{ kind: 'content', value: '{"command":"keep.txt"}' }]);
   expect(() => [...rowWorkReferences({ kind: 'unknown' })]).toThrow();
 });
 it.each(['inline', 'running', 'incomplete'] as const)('keeps all reference-bearing process result fields (%s)', kind => {
@@ -145,8 +147,47 @@ it.each(['inline', 'running', 'incomplete'] as const)('keeps all reference-beari
   };
   expect([...rowWorkReferences({ kind: 'tool_result', tool: 'run_command',
     content: JSON.stringify({ success: true, data }) })]).toEqual([
-    ['stdout-reference.txt', 'stderr-reference.log'],
-    ...(kind === 'inline' ? [] : [{ url: data.stdout_url }]),
-    ...(kind === 'running' ? [{ url: data.stderr_url }] : []),
+    { kind: 'content', value: ['stdout-reference.txt', 'stderr-reference.log'] },
+    ...(kind === 'inline' ? [] : [{ kind: 'address', syntax: 'locator', value: data.stdout_url }]),
+    ...(kind === 'running' ? [{ kind: 'address', syntax: 'locator', value: data.stderr_url }] : []),
   ]);
+});
+
+it('projects owned call slots just once and leaves independent bodies as content', () => {
+  const project = (tool: string, args: unknown) => [...rowWorkReferences({ kind: 'tool_call', tool,
+    content: JSON.stringify({ tool_calls: [{ function: { name: tool, arguments: JSON.stringify(args) } }] }),
+  })];
+  expect(project('grep', { path: 'tmp:///project/search', pattern: 'tmp:///project/do-not-lex.*', include: 'dir/*.md' }))
+    .toEqual([{ kind: 'address', syntax: 'locator', value: 'tmp:///project/search' },
+      { kind: 'content', value: 'dir/*.md' }, { kind: 'content', value: {} }]);
+  expect(project('glob', { directory: 'record:///project', pattern: '*' }))
+    .toEqual([{ kind: 'content', value: {} }]);
+  expect(project('view_image', { path: 'reports/one?.png' }))
+    .toEqual([{ kind: 'address', syntax: 'native', value: 'reports/one?.png' }, { kind: 'content', value: {} }]);
+  expect(project('write', { path: 'reports/case${name}.ts', content: './independent.md' }))
+    .toEqual([{ kind: 'address', syntax: 'native', value: 'reports/case${name}.ts' },
+      { kind: 'content', value: { content: './independent.md' } }]);
+});
+
+it('projects both same-branch Webfetch copies without deriving requiredness from adjacent data', () => {
+  const data = { saved_as: 'cardwork:///project/public/one%3F', write: {
+    kind: 'workspace_file', data: { destination_kind: 'cardwork_url', target: 'cardwork:///project/public/two%2A' },
+  }, redacted_url: 'https://fixture.invalid/?selected=tmp%3A%2F%2F%2Fproject%2Fevidence' };
+  const result = (tool: string, origin: string, payload: unknown) =>
+    [...rowWorkReferences({ kind: 'tool_result', tool, context_policy: { settlement_origin: origin },
+      content: JSON.stringify(payload) })];
+  const addresses = (required: boolean) => [data.saved_as, data.write.data.target].map(value => ({
+    kind: 'address', syntax: 'cardwork', value, ...(required ? { required: true } : {}),
+  }));
+  expect(result('webfetch', 'executed', { success: true, data }).filter(ref => ref.kind === 'address'))
+    .toEqual(addresses(true));
+  expect(result('webfetch', 'unsupported', { success: true, data }).filter(ref => ref.kind === 'address'))
+    .toEqual(addresses(false));
+  expect(result('webfetch', 'executed', { success: false, error: './independent.md', data }))
+    .toEqual([{ kind: 'content', value: './independent.md' }, { kind: 'content', value: data }]);
+  expect(result('unrelated', 'executed', { success: true, data }))
+    .toEqual([{ kind: 'content', value: data }]);
+  expect(result('grep', 'executed', { success: true, data: { matches: { items: [
+    { content_hex: 'aabb', offset_bytes: 3 }, { path: data.saved_as, preview: './keep.md' },
+  ] } } }).filter(ref => ref.kind === 'address')).toEqual([{ kind: 'address', syntax: 'display', value: data.saved_as }]);
 });

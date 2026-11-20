@@ -61,21 +61,33 @@ contention can trigger real containment, which must not be treated as success.
 
 `web:test:operator-smoke` includes `native-git.spec.ts`: public classic-git init,
 actual server/local scripted providers and real Git delivery, correction and
-terminated-command browser evidence. Its correction case asserts a GC preview and
-deletion of two selected files while checking preserved captures/index/ref and
-unchanged unlinked evidence. This describes test assertions, not a current run result.
+terminated-command browser evidence. The named `public native Git correction:
+real server evidence in browser` case asserts that GC previews two files and
+deletes exactly the historical capture and scratch, preserving current captures,
+the index/ref, unlinked evidence and paused state. This describes test assertions,
+not a current run result.
 The owning
 `tests/workspace/work-garbage-collector.test.ts` separately uses fresh public
 commissioning, compacted configured card sessions, minimal bootstrap records,
 actual sequential bootstrap captures and a strict-valid incomplete native artifact
 selection to verify selective retention plus deletion of an unselected control.
-Neither witness changes GC reference interpretation or certifies model compliance.
+These native witnesses are separate from the reference-interpretation tests and
+do not certify model compliance.
 
 `tests/persistence/work-gc-projections.test.ts` exercises necessary owner-local
 decoding and refusal without truncation; `tests/workspace/work-garbage-collector.test.ts`
 checks current-selection I/O without old-history reads, compaction horizons,
-source-aware shell exclusion and retained non-shell inference, including glob
-thresholds. These are bounded fixture checks, not a performance, security or
+source-aware shell exclusion and retained non-shell inference. Its bound search
+fixtures check the call, settled receipt and both together, comparing preview
+and delete totals and asserting exact survivors after delete. The 50/51 witness
+puts 50 or 51 distinct scope-relative matches in nested directories and returns
+one independent, complete top-level display path. At 50 the call protects the
+nested matches; at 51 it protects
+none. The receipt protects only its own path, not the scope or the nested matches.
+Separate fixtures check a whole cardwork pattern as an exact address independent
+of `directory`, and a directory spelling GC can bound even though the tool
+rejects it. Neither the directory alone nor an empty receipt grants a subtree
+mark. These are bounded fixture checks, not a performance, security or
 release-wide guarantee; ordinary consumer validation remains a separate concern.
 
 `tests/cli/native-public-lifecycle.test.ts` exercises the selected native bundle's

@@ -13,7 +13,10 @@ import {
   collectWorkGarbage,
   inventoryWorkGarbage,
   WorkGcInterruptedError,
+  WorkGcReferenceScopeError,
 } from '../workspace/index.js';
+import { workGcQualityPaths } from '../persistence/index.js';
+import { qualityToolNames } from '../schemas/quality-operation-config.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { SaivageConfig } from '../schemas/index.js';
 import type { CompiledProjectWorkflows, ProcessRunner } from '../runtime/runtime-api.js';
@@ -59,14 +62,26 @@ function workflowInputs(workflows: CompiledProjectWorkflows): unknown {
 export function workGcOperationalInputs(config: SaivageConfig) {
   // Compiled card inputs and selected prompt paths are projected by their owner.
   // Model/provider metadata and raw workflow declarations are not dependencies.
+  const operationalPaths: string[] = [];
+  const operationalDependencies: string[] = [];
+  for (const server of Object.values(config.mcpServers ?? {})) {
+    if (server.transport !== 'stdio') continue;
+    if (server.command.includes('/') && !/^[a-z][a-z0-9+.-]*:\/\//iu.test(server.command))
+      operationalPaths.push(server.command);
+    else operationalDependencies.push(server.command);
+    operationalDependencies.push(...(server.args ?? []), ...Object.values(server.env ?? {}));
+  }
+  for (const agent of Object.values(config.agents))
+    for (const name of qualityToolNames) {
+      const selected = agent.quality_tools?.[name];
+      if (selected) operationalPaths.push(...workGcQualityPaths(selected));
+    }
   return {
-    mcp: Object.values(config.mcpServers ?? {}).flatMap((server) =>
-      server.transport === 'stdio'
-        ? [{ command: server.command, args: server.args, env: server.env }]
-        : [],
-    ),
-    quality: Object.values(config.agents).map((agent) => agent.quality_tools),
-    git: config.git_workflow?.enabled ? { source_roots: config.git_workflow.source_roots } : null,
+    operationalDependencies,
+    operationalPaths,
+    operationalInputs: {
+      git: config.git_workflow?.enabled ? { source_roots: config.git_workflow.source_roots } : null,
+    },
   };
 }
 
@@ -95,7 +110,8 @@ export function workGcFailureResponse(
 ): WorkGcResponse {
   const cause = error instanceof WorkGcMaintenanceError ? error.cause : error;
   const result = cause instanceof WorkGcInterruptedError ? cause.result : completedResult;
-  const original = cause instanceof WorkGcInterruptedError ? cause.cause : cause;
+  const unresolved = cause instanceof WorkGcReferenceScopeError;
+  const original = unresolved || cause instanceof WorkGcInterruptedError ? cause.cause : cause;
   const code =
     original !== null && typeof original === 'object' && 'code' in original
       ? original.code
@@ -107,7 +123,7 @@ export function workGcFailureResponse(
   return {
     mode: request.mode,
     disposition: result ? 'interrupted' : 'refused',
-    reason: cancelled ? 'cancelled' : reason,
+    reason: cancelled ? 'cancelled' : unresolved ? 'reference_scope_unresolved' : reason,
     restoration,
     failure: cancelled
       ? null
@@ -201,7 +217,7 @@ export function runWorkGcOperation(input: {
           // Executable dependencies live in the selected configuration/operation definitions.
           // Expanded role instructions are checked for composition consistency above; their
           // retained conversation selections are independently marked by the canonical owner.
-          operationalInputs: workGcOperationalInputs(fresh.config),
+          ...workGcOperationalInputs(fresh.config),
           protection: input.processRunner.workGcProtection(),
           assertCollecting: () => signal.throwIfAborted(),
           fatal: failFatally,

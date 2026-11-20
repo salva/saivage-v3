@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 
 afterEach(() => vi.unstubAllGlobals());
-const response = { mode: 'dry_run', disposition: 'refused', reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EIO', syscall: 'read' }, result: null };
+const response = { mode: 'dry_run', disposition: 'refused', reason: 'reference_scope_unresolved', restoration: 'resumed', failure: { code: 'EIO', syscall: 'realpath' }, result: null };
 it('consumes the declared stream incrementally, reports progress, and waits for EOF', async () => {
   let source!: ReadableStreamDefaultController<Uint8Array>;
   const body = new ReadableStream<Uint8Array>({ start(controller) { source = controller; } });
@@ -14,7 +14,7 @@ it('consumes the declared stream incrementally, reports progress, and waits for 
   let settled = false;
   const call = gcWork({ mode: 'dry_run' }, undefined, observer).then(value => { settled = true; return value; });
   const progress = { phase: 'retention_marking', elapsed_ms: 0, observed_count: 0,
-    first_global_protection: { reason: 'reference_scope_unknown', source: 'conversation_content' } };
+    first_global_protection: { reason: 'operational_root', source: 'operational_input' } };
   source.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'progress', progress }) + '\n'));
   await vi.waitFor(() => expect(observer).toHaveBeenCalledWith(progress));
   const terminal = new TextEncoder().encode(JSON.stringify({ type: 'result', response }) + '\n');

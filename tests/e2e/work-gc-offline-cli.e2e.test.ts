@@ -108,22 +108,27 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
   expect(readCurrentConversationSegment(root, session)).toEqual(segment);
 }, 45_000);
 
-it('offline strict terminal and stderr attribute a global mark without exposing its private source', async () => {
+it('offline required reference refusal is safe and terminal after lifecycle release', async () => {
   const root = fixture(), sentinel = 'PRIVATE-offline-global-source';
   const candidate = work(root, `cards/project/tmp/${sentinel}`);
   const alias = join(root, sentinel);
   symlinkSync(join(root, 'missing-alias-target'), alias);
-  new CardService(root).acceptRecord('project', 'review-global.md', JSON.stringify({ source_path: alias }), { kind: 'agent', agent: 'analyst' });
-  const preview = await cli(root, { separate: true });
-  const response = WorkGcResponseSchema.parse(JSON.parse(preview.stdout));
-  expect(preview.code).toBe(0);
-  expect(response).toMatchObject({ disposition: 'completed', result: { first_global_protection: {
-    reason: 'reference_scope_unknown', source: 'record_content' }, retained: { protected: 1 }, would_delete_count: 0 } });
-  expect(preview.output).toContain('first_global_protection=reason:reference_scope_unknown,source:record_content');
-  expect(preview.output + preview.stdout).not.toContain(sentinel);
-  expect(preview.output).not.toContain('[object Object]');
-  expect(existsSync(candidate)).toBe(true);
-  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  appendCardExecutions(root, 'project', [{ kind: 'invocation_started', row_id: randomUUID(), invocation_id: randomUUID(),
+    card_id: 'project', timestamp: '2026-10-24T00:00:00.000Z', operation: 'shell.run', contract_version: 1,
+    provider: { kind: 'builtin', name: 'shell' }, binding: { kind: 'node', activation_id: randomUUID(), node_id: 'run', ordinal: 0 },
+    output_source: 'command-stdout', artifact_paths: [sentinel], input: [], config: [],
+    shell: { script: 'echo fixture', cwd: root, argv: [], env: {} } }]);
+  for (const deleteMode of [false, true]) {
+    const result = await cli(root, { delete: deleteMode });
+    expect(result).toMatchObject({ code: 1, lockPresentAtResponse: false });
+    expect(WorkGcResponseSchema.parse(result.response)).toMatchObject({
+      disposition: 'refused', reason: 'reference_scope_unresolved', restoration: 'not_resumed', result: null,
+    });
+    expect(result.output).not.toContain(sentinel);
+    expect(result.output).not.toContain('GC selection');
+    expect(existsSync(candidate)).toBe(true);
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  }
 }, 30_000);
 
 it.each(['SIGINT', 'SIGTERM'] as const)('holds bound exclusion across inventory yields; %s cancellation settles before release', async signal => {

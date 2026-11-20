@@ -1,10 +1,10 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, utimesSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runWorkGcOperation, workGcFailureResponse } from '../../src/application/work-gc-operation.js';
 import { WorkGcMaintenanceError, WorkGcResponseSchema, WorkGcBusyError, PublicationOutcomeUnknownError, type WorkGcProgress } from '../../src/contracts/index.js';
-import { WorkGcInterruptedError } from '../../src/workspace/index.js';
+import { WorkGcInterruptedError, WorkGcReferenceScopeError } from '../../src/workspace/index.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import type { ResolvedConfigAuthority } from '../../src/config/index.js';
@@ -50,7 +50,7 @@ it('composes fresh inputs with actual engine preview and deletion, preserving ef
 it('projects compiled shell hooks once, excludes raw scripts, and preserves literal args and MCP executable dependencies', async () => {
   const { input, loadEffective } = fixture(), config = structuredClone(TEST_SAIVAGE_CONFIG);
   const base = join(input.projectRoot, '.saivage/work/cards/project/tmp');
-  for (const name of ['script-only.txt', 'literal', 'mcp-program']) {
+  for (const name of ['script-only.txt', 'literal', 'mcp-program', 'mcp-env']) {
     const path = join(base, name); writeFileSync(path, 'data'); utimesSync(path, 1, 1);
   }
   config.card_types.project!.workflow.after_activation_commit = {
@@ -60,14 +60,40 @@ it('projects compiled shell hooks once, excludes raw scripts, and preserves lite
       inputs: { args: { literal: [join(base, 'literal')] } } },
   };
   config.mcpServers = { dependency: { format_version: 1, transport: 'stdio',
-    command: join(base, 'mcp-program'), args: [], disabled: false, autostart: false,
+    command: join(base, 'mcp-program'), args: [], env: { CONFIG: 'report.md' }, disabled: false, autostart: false,
     policy: { controllerCardId: 'project', exposure: 'card' } } };
+  symlinkSync(join(base, 'mcp-env'), join(input.projectRoot, 'report.md'));
   const workflows = compileProjectWorkflows(config);
   loadEffective.mockReturnValue({ config, workflows, warnings: [] });
   const result = await runWorkGcOperation({ ...input, config, workflows });
   expect(result).toMatchObject({ disposition: 'completed', result: {
-    first_global_protection: null, would_delete_count: 2, retained: { protected: 2 },
+    first_global_protection: null, would_delete_count: 2, retained: { protected: 3 },
   } });
+});
+it('refuses a required compiled cwd safely before selection, preserving actual restoration and cancellation precedence', async () => {
+  const { input, path, loadEffective } = fixture(), config = structuredClone(TEST_SAIVAGE_CONFIG);
+  const cwd = 'fixture-private-${name}';
+  symlinkSync(join(input.projectRoot, 'missing-target'), join(input.projectRoot, cwd));
+  config.card_types.project!.workflow.after_activation_commit = {
+    statuses: ['done'], execution: { kind: 'action', action: 'shell.run', contract_version: 1,
+      config: { script: 'echo fixture', cwd }, inputs: { args: { literal: [] } } },
+  };
+  const workflows = compileProjectWorkflows(config);
+  loadEffective.mockReturnValue({ config, workflows, warnings: [] });
+  for (const mode of ['dry_run', 'delete'] as const) {
+    const response = await runWorkGcOperation({ ...input, config, workflows, request: { mode } });
+    expect(WorkGcResponseSchema.parse(response)).toMatchObject({
+      mode, disposition: 'refused', reason: 'reference_scope_unresolved', restoration: 'resumed',
+      failure: { code: 'ENOENT' }, result: null,
+    });
+    expect(JSON.stringify(response)).not.toContain(cwd);
+    expect(existsSync(path)).toBe(true);
+  }
+  expect(workGcFailureResponse({ mode: 'delete' }, new WorkGcMaintenanceError(
+    true, new WorkGcReferenceScopeError(), true,
+  ), 'collection_failed', true, 'resumed')).toMatchObject({
+    disposition: 'refused', reason: 'cancelled', restoration: 'resumed', failure: null, result: null,
+  });
 });
 it('refuses changed selected configuration without reconciling or deleting', async () => {
   const { input, path, loadEffective } = fixture();

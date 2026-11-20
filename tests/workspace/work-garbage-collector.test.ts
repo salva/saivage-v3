@@ -34,11 +34,11 @@ const { initializeRecordBaseline } = await import('../../src/persistence/authore
 const { appendConversationBatch, publishCompactedConversationSegment, readCurrentConversationSegment } = await import('../../src/persistence/conversation-file.js');
 const { versionFilename } = await import('../../src/persistence/canonical-conversation-artifacts.js');
 const { appendCardExecutions } = await import('../../src/persistence/card-execution-log.js');
-const { collectWorkGarbage, inventoryWorkGarbage } = await import('../../src/workspace/work-garbage-collector.js');
+const { collectWorkGarbage, inventoryWorkGarbage, WorkGcReferenceScopeError } = await import('../../src/workspace/work-garbage-collector.js');
 const { OPERATIONAL_RESULT_POLICY_TEMPLATE } = await import('../../src/tools/invocation.js');
 const { toolRowPolicies } = await import('../helpers/row-policy-fixtures.js');
 const { composeContextProjection, providerConversationFromComposedContext } = await import('../../src/runtime/actors/context/composition-projector.js');
-const { inspectWorkGcCanonicalState, workGcActionInputs } = await import('../../src/persistence/current-generated-graph.js');
+const { inspectWorkGcCanonicalState } = await import('../../src/persistence/current-generated-graph.js');
 const { cardAgentSessionId } = await import('../../src/schemas/index.js');
 const { compactWorkGcCard } = await import('../helpers/work-gc-compaction.js');
 const { buildCardworkUrl, settleToolActionOutcome } = await import('../../src/contracts/index.js');
@@ -49,6 +49,22 @@ const { bindToolProvider } = await import('../helpers/bind-tool-provider.js');
 const { buildInvocationSurfaceFixture } = await import('../helpers/invocation-surface-fixture.js');
 const { testWorkspaceAuthority } = await import('../helpers/capability-grants.js');
 const { testLlmToolInvocationContext } = await import('../helpers/llm-test-helpers.js');
+const { workGcOperationalInputs, workGcFailureResponse } = await import('../../src/application/work-gc-operation.js');
+const { surfaceToolContracts } = await import('../../src/tools/runtime-tool-catalog.js');
+const { admitRecordMutation, mutateRecord } = await import('../../src/application/record-mutation-service.js');
+const { appendLlmTurnToolCallBatch, buildSettledToolResult, selectInvocationResultPolicy } = await import('../../src/runtime/actors/llm-delivery-log.js');
+
+const ignoreReferences = {
+  content: async () => {}, operational: async () => {}, conversation: async () => {},
+  path: async () => {}, dependencies: async () => {},
+};
+function captureReferences(values: unknown[]) {
+  return { ...ignoreReferences,
+    conversation: async (reference: Parameters<Parameters<typeof inspectWorkGcCanonicalState>[3]['conversation']>[0]) => {
+      if (reference.kind === 'content') values.push(reference.value);
+    },
+  };
+}
 
 const roots: string[] = [];
 afterEach(() => {
@@ -99,7 +115,7 @@ async function canonicalBytes(root: string): Promise<Map<string, Buffer>> {
     return value;
   }) as typeof read);
   try {
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async () => {}, operational: async () => {} });
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, ignoreReferences);
   } finally { spy.mockRestore(); }
   expect(bytes.size).toBeGreaterThan(0);
   return bytes;
@@ -118,16 +134,35 @@ function toolExchange(tool: string, content: string, argumentsText = '{}') {
 }
 
 function boundWorkspace(root: string) {
-  const context = { projectRoot: root, cardId: 'project', agentName: 'executor' as const,
-    authority: testWorkspaceAuthority('project') };
-  const surface = buildInvocationSurfaceFixture('executor', [
+  const store = new CardService(root);
+  const authority = testWorkspaceAuthority('project');
+  const agentName = 'planner' as const;
+  const context = { projectRoot: root, cardId: 'project', agentName, authority, store,
+    recordMutations: {
+      admit: (request: Parameters<typeof admitRecordMutation>[1]) => admitRecordMutation(store, request),
+      mutate: (request: Parameters<typeof mutateRecord>[1]) => mutateRecord(store, request),
+    } };
+  const surface = buildInvocationSurfaceFixture(agentName, [
     bindToolProvider('workspace', workspaceToolBinders, context),
     bindToolProvider('web', webToolBinders, context),
   ]);
-  return async (tool: string, args: object) => {
+  return async (tool: string, args: object, keep?: 'call' | 'receipt' | 'both') => {
+    const sessionId = 'agent:planner:project' as const, inputId = randomUUID(), toolCallId = randomUUID();
     const result = await invokeToolForLlm(surface, tool, args,
-      testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: tool }),
+      testLlmToolInvocationContext({ sessionId, sourceInputId: inputId, toolCallId, toolName: tool }),
       new AbortController().signal);
+    if (keep) {
+      const input = { sessionId, inputId, compiledToolContracts: surfaceToolContracts(surface) } as
+        Parameters<typeof appendLlmTurnToolCallBatch>[1];
+      const resultPolicy = selectInvocationResultPolicy(input, tool);
+      const settled = buildSettledToolResult({ session_id: sessionId, source_input_id: inputId,
+        tool_call_id: toolCallId, tool_name: tool, resultPolicy, settlement: result });
+      if (keep !== 'receipt')
+        appendLlmTurnToolCallBatch({ projectRoot: root }, input,
+          { id: toolCallId, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }, resultPolicy);
+      if (keep !== 'call') appendConversationBatch({ projectRoot: root }, [settled.message]);
+      return { ...settled.facts, row: settled.message };
+    }
     return settleToolActionOutcome(result.kind === 'executed' ? result.execution.providerOutcome : result.providerOutcome);
   };
 }
@@ -250,14 +285,14 @@ describe('exact cardwork retention', () => {
     ['interior noncanonical escape', 'Keep cardwork:///project/public/one%2fescape.ts, please'],
     ['raw wildcard in pattern', JSON.stringify({ pattern: 'cardwork:///project/public/*.ts' })],
     ['malformed directory', 'directory="cardwork:///project/public/%ZZ", pattern="*.ts"'],
-  ])('keeps the unknown-scope hold for %s instead of guessing', async (_, content) => {
+  ])('discards the unbounded suggestion for %s instead of guessing', async (_, content) => {
     const root = fixture();
     work(root, 'cards/project/public/one.ts');
     work(root, 'tmp/stash/unrelated');
     baseline(root, content);
     expect(await cardworkPreview(root)).toMatchObject({
-      first_global_protection: { reason: 'reference_scope_unknown' },
-      retained: { protected: 2 }, would_delete_count: 0,
+      first_global_protection: null,
+      retained: { protected: 0 }, would_delete_count: 2,
     });
   });
 
@@ -331,10 +366,10 @@ describe('exact cardwork retention', () => {
     if (kind === 'unknown scope')
       baseline(root, JSON.stringify({ directory: 'work:///cards/project/shell/${unknown}', pattern: '*.ts' }));
     else baseline(root, `${publicUrl()} cardwork:///project/repos/checkout`);
-    const protectedCount = kind === 'known' ? 2 : kind === 'absent' ? 3 : 4;
+    const protectedCount = kind === 'known' ? 2 : kind === 'absent' ? 3 : 0;
     expect(await cardworkPreview(root)).toMatchObject({
       observed_count: 4, opaque_entries: 1, retained: { protected: protectedCount },
-      first_global_protection: kind === 'unknown scope' ? { reason: 'reference_scope_unknown' } : null,
+      first_global_protection: null,
       would_delete_count: 4 - protectedCount,
     });
   });
@@ -419,9 +454,7 @@ describe('work GC two-phase selection', () => {
     expect(lstatSync(paths[0]!).ctimeMs).toBeGreaterThan(early);
     const cutoff = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: early - 1 }, context());
     expect(cutoff).toMatchObject({ would_delete_count: 0, retained: { recent: 4 } });
-    const horizons = await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, {
-      content: async () => {}, operational: async () => {},
-    });
+    const horizons = await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, ignoreReferences);
     expect(horizons.get('project')).toBe(early);
   });
 
@@ -436,21 +469,21 @@ describe('work GC two-phase selection', () => {
     await parity(root, paths, paths.slice(0, 3));
   });
 
-  it.each(['```BaSh extra\nshell-only.txt\n```', '~~~zsh\nshell-only.txt\n~~~',
-    '~~~shell\nshell-only.txt', '```sh\n~~~\nshell-only.txt\n```'])(
+  it.each(['```BaSh extra\n./shell-only.txt\n```', '~~~zsh\n./shell-only.txt\n~~~',
+    '~~~shell\n./shell-only.txt', '```sh\n~~~\n./shell-only.txt\n```'])(
     'masks only matching explicit shell fences: %s', async fence => {
       const root = fixture(), paths = ['shell-only.txt', 'prose.txt', 'inline.txt', 'unlabelled.txt']
         .map(name => work(root, `cards/project/tmp/${name}`));
-      baseline(root, JSON.stringify({ nested: `${fence}\nprose.txt \`inline.txt\`\n\`\`\`\nunlabelled.txt\n\`\`\`` }));
-      const unclosed = fence === '~~~shell\nshell-only.txt';
+      baseline(root, JSON.stringify({ nested: `${fence}\n./prose.txt \`./inline.txt\`\n\`\`\`\n./unlabelled.txt\n\`\`\`` }));
+      const unclosed = fence === '~~~shell\n./shell-only.txt';
       await parity(root, paths, unclosed ? [] : paths.slice(1));
     });
 
   it('ignores known shell arguments and ignored current row contents before alias resolution, but retains literal prose', async () => {
     const root = fixture(), paths = ['shell-only.txt', 'literal.txt', 'control']
       .map(name => work(root, `cards/project/tmp/${name}`));
-    const rows = toolExchange('run_command', JSON.stringify({ success: false, error: 'literal.txt' }),
-      JSON.stringify({ command: 'cat tmp:///project/shell-only.txt', cwd: 'tmp:///project/context' }));
+    const rows = toolExchange('run_command', JSON.stringify({ success: false, error: './literal.txt' }),
+      JSON.stringify({ command: 'cat tmp:///project/shell-only.txt', cwd: 'jobs/${name}' }));
     appendConversationBatch({ projectRoot: root }, rows);
     const current = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const path = cardConversationVersionFile(root, 'project', 'planner', current.entry.filename);
@@ -542,6 +575,394 @@ describe('work GC two-phase selection', () => {
     expect(await canonicalBytes(root)).toEqual(bytes);
   }
 
+  const selections = ['call', 'receipt', 'both'] as const;
+  const searchCarriers = ['whole locator', 'dot prefix', 'alias prefix', 'trailing separator', 'bad percent', 'filtered grep'] as const;
+  it.each(searchCarriers.flatMap(carrier => selections.map(keep => ({ carrier, keep }))))
+  ('uses bound $carrier search with $keep independently', async ({ carrier, keep }) => {
+    const root = fixture(), run = boundWorkspace(root);
+    const search = 'tmp:///project/search';
+    const literal = work(root, 'cards/project/public/case?.ts');
+    const wildcardSibling = work(root, 'cards/project/public/caseX.ts');
+    const note = work(root, 'cards/project/tmp/search/note.md');
+    const other = work(root, 'cards/project/tmp/search/other.bin');
+    const outside = work(root, 'cards/project/tmp/outside.md');
+    const candidates = [literal, wildcardSibling, note, other, outside];
+    let selected: string[] = [];
+    let args: object = { directory: search, pattern: './*.md' };
+    let tool = 'glob';
+    switch (carrier) {
+      case 'whole locator':
+        args = { directory: search, pattern: publicUrl('case?.ts') };
+        selected = [literal];
+        break;
+      case 'dot prefix':
+        selected = [note];
+        break;
+      case 'alias prefix': {
+        const actual = work(root, 'cards/project/tmp/actual/note.md');
+        candidates.push(actual, work(root, 'cards/project/tmp/actual/other.bin'));
+        symlinkSync(dirname(actual), join(dirname(note), 'link'), 'dir');
+        selected = [actual];
+        args = { directory: search, pattern: 'link/*.md' };
+        break;
+      }
+      case 'trailing separator':
+        args = { directory: `${search}/`, pattern: './*.md' };
+        selected = [note];
+        break;
+      case 'bad percent':
+        args = { directory: 'tmp:///project/bad%ZZ', pattern: './*.md' };
+        break;
+      case 'filtered grep':
+        tool = 'grep';
+        args = { path: search, include: '*.md', pattern: 'absent-sentinel' };
+        selected = [note, other];
+        break;
+    }
+    const settled = await run(tool, args, keep);
+    if (carrier === 'trailing separator' || carrier === 'bad percent') {
+      expect(settled.providerResult).toMatchObject({ success: false, error: expect.any(String) });
+      expect(settled.settledResultBytes).toContain(carrier === 'bad percent' ? 'bad%ZZ' : `${search}/`);
+    } else expect(settled.providerResult).toMatchObject({ success: true, data: { matches: { items: [] } } });
+    await parity(root, candidates, keep === 'receipt' ? [] : selected);
+  });
+
+  it.each([50, 51].flatMap(count => selections.map(keep => ({ count, keep }))))
+  ('counts $count distinct nested files independently of the bound display match ($keep)', async ({ count, keep }) => {
+    const root = fixture();
+    const top = work(root, 'cards/project/tmp/search/report0.md');
+    const nested = Array.from({ length: count }, (_, index) =>
+      work(root, `cards/project/tmp/search/z/search/report${index}.md`));
+    const outside = work(root, 'cards/project/tmp/else/z/search/report0.md');
+    const other = work(root, 'cards/project/tmp/search/z/search/other.bin');
+    const result = await boundWorkspace(root)('glob', {
+      directory: 'tmp:///project/search', pattern: '**/search/report*.md', max_results: 1,
+    }, keep);
+    expect(result.providerResult).toMatchObject({ success: true,
+      data: { matches: { items: ['.saivage/work/cards/project/tmp/search/report0.md'] } } });
+    await parity(root, [top, ...nested, outside, other], [
+      ...(keep === 'call' ? [] : [top]),
+      ...(count === 50 && keep !== 'receipt' ? nested : []),
+    ]);
+  });
+
+  it.each(['grep', 'glob', 'substitution matcher', 'percent matcher'] as const)
+  ('takes literal owned $s search slots without re-lexing', async kind => {
+    const root = fixture();
+    const file = work(root, 'cards/project/tmp/search/explicit.bin');
+    const name = kind === 'percent matcher' ? '%3F.md' : '${name}.md';
+    const named = work(root, `cards/project/tmp/search/${name}`);
+    const nonmatch = work(root, 'cards/project/tmp/search/?.md');
+    const location = 'tmp:///project/search';
+    const invoke = boundWorkspace(root);
+    if (kind === 'grep') await invoke('grep', { path: `${location}/explicit.bin`, pattern: 'missing', include: '*.md' }, 'call');
+    else await invoke('glob', kind === 'glob'
+      ? { directory: `${location}/explicit.bin`, pattern: '*.md' }
+      : { directory: location, pattern: name }, 'call');
+    await parity(root, [file, named, nonmatch], [kind === 'grep' || kind === 'glob' ? file : named]);
+  });
+
+  it.each(['glob', 'grep'] as const)('treats real record %s paths as logical, not fallback scopes', async tool => {
+    for (const keep of selections) {
+      const root = fixture(), invoke = boundWorkspace(root);
+      const preview = work(root, 'cards/project/tmp/preview-evidence');
+      const control = work(root, 'cards/project/tmp/control.md');
+      const statusBody = 'tmp:///example/sample tmp:///project/preview-evidence';
+      new CardService(root).acceptRecord('project', 'status.md', statusBody, { kind: 'agent', agent: 'planner' });
+      // Separate the retained record body from the received preview witness.
+      const result = await invoke(tool, tool === 'glob'
+        ? { directory: 'record:///project', pattern: '*' }
+        : { path: 'record:///project', pattern: 'tmp:///example/.*' }, keep);
+      expect(result.providerResult).toMatchObject({ success: true, data: { matches: { items:
+        tool === 'glob' ? expect.arrayContaining(['record:///status.md?card=project'])
+          : [expect.objectContaining({ path: 'record:///status.md?card=project', preview: statusBody })],
+      } } });
+      new CardService(root).acceptRecord('project', 'status.md', 'Updated current assessment.', { kind: 'agent', agent: 'planner' });
+      await parity(root, [preview, control], tool === 'grep' && keep !== 'call' ? [preview] : []);
+    }
+  });
+
+  it.each(['glob', 'grep'] as const)('preserves complete native %s displays with literal punctuation', async tool => {
+    for (const keep of selections) {
+      const root = fixture();
+      const scope = 'cards/project/tmp/search';
+      const selected = work(root, `${scope}/\${name}?/report.md`, 'needle');
+      const other = work(root, `${scope}/\${name}?/other.bin`);
+      const outside = work(root, 'cards/project/tmp/outside');
+      const result = await boundWorkspace(root)(tool, tool === 'glob'
+        ? { directory: 'tmp:///project/search', pattern: '${name}?/*.md' }
+        : { path: 'tmp:///project/search/%24%7Bname%7D%3F/report.md', pattern: 'needle' }, keep);
+      expect(result.providerResult).toMatchObject({ success: true, data: { matches: { items:
+        tool === 'glob' ? [`.saivage/work/${scope}/\${name}?/report.md`]
+          : [{ path: `.saivage/work/${scope}/\${name}?/report.md`, preview: 'needle' }],
+      } } });
+      await parity(root, [selected, other, outside], [selected]);
+    }
+  });
+
+  it.each(selections)('preserves bound native write and Webfetch copies without using card bases (%s)', async keep => {
+    for (const tool of ['write', 'webfetch'] as const) {
+      const root = fixture(), invoke = boundWorkspace(root);
+      const path = 'reports/case${name}.ts';
+      const selected = work(root, `cards/project/public/${path}`);
+      const wrongBase = work(root, `cards/project/tmp/${path}`);
+      const wildcardSibling = work(root, 'cards/project/public/reports/caseAnamets');
+      const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('fixture'));
+      const result = await invoke(tool, tool === 'write' ? { path, content: 'fixture' }
+        : { url: 'https://93.184.216.34', save_as: path }, keep);
+      fetch.mockRestore();
+      const tag = { destination_kind: 'project_relative', target: path };
+      expect(result.providerResult).toMatchObject({ success: true, data: tool === 'write' ? tag
+        : { saved_as: path, write: { kind: 'workspace_file', data: tag } } });
+      rmSync(join(root, 'reports'), { recursive: true });
+      symlinkSync(dirname(selected), join(root, 'reports'), 'dir');
+      await parity(root, [selected, wrongBase, wildcardSibling], [selected]);
+    }
+  });
+
+  it.each(['read', 'edit'] as const)('consumes the bound %s address and independent read content', async tool => {
+    for (const keep of selections) {
+      const root = fixture();
+      const name = 'case?#%${name}.ts', path = publicUrl(name);
+      const selected = work(root, `cards/project/public/${name}`, 'tmp:///project/independent.txt');
+      const independent = work(root, 'cards/project/tmp/independent.txt');
+      const control = work(root, 'cards/project/public/caseX.ts');
+      const settled = await boundWorkspace(root)(tool, tool === 'read' ? { path }
+        : { path, old_string: 'tmp:///project/independent.txt', new_string: 'edited' }, keep);
+      expect(settled.providerResult).toMatchObject({ success: true, data: { path } });
+      utimesSync(selected, 1, 1);
+      await parity(root, [selected, independent, control], tool === 'read' && keep !== 'call' ||
+        tool === 'edit' && keep !== 'receipt' ? [selected, independent] : [selected]);
+    }
+  });
+
+  it('uses only complete items from the real packer, not JSON byte slices', async () => {
+    const root = fixture();
+    const selected = work(root, 'cards/project/tmp/search/file.md');
+    const control = work(root, 'cards/project/tmp/control');
+    const result = await boundWorkspace(root)('glob', { directory: 'tmp:///project/search', pattern: '*',
+      position: { item_index: 0, item_byte_offset: 1 }, response_bytes: 512 }, 'receipt');
+    expect(result.providerResult).toMatchObject({ success: true,
+      data: { matches: { items: [expect.objectContaining({ content_hex: expect.any(String), offset_bytes: 1 })] } } });
+    await parity(root, [selected, control], []);
+  });
+
+  it.each(['fold', 'redact'] as const)('uses received %s display bytes without reconstructing originals', async change => {
+    for (const keep of selections) {
+      const root = fixture();
+      const scope = 'cards/project/tmp/search';
+      const originalName = change === 'fold' ? 'deep\\report.md' : 'tok_example_fixture.md';
+      const displayName = change === 'fold' ? 'deep/report.md' : 'tok-[REDACTED]';
+      const original = work(root, `${scope}/${originalName}`);
+      const displayed = work(root, `${scope}/${displayName}`);
+      const control = work(root, `${scope}/control.bin`);
+      const result = await boundWorkspace(root)('glob', { directory: 'tmp:///project/search',
+        pattern: change === 'fold' ? '**/report.md' : 'tok_*.md',
+      }, keep);
+      const expected = `.saivage/work/${scope}/${displayName}`;
+      expect(result.providerResult).toMatchObject({ success: true, data: { matches: {
+        items: change === 'fold' ? [expected, expected] : [expected],
+      } } });
+      expect(result.settledResultBytes).not.toContain(JSON.stringify(originalName).slice(1, -1));
+      await parity(root, [original, displayed, control], [
+        ...(keep === 'receipt' ? [] : [original]),
+        ...(change === 'fold' || keep !== 'call' ? [displayed] : []),
+      ]);
+    }
+  });
+
+  it.each(['glob', 'grep'] as const)('compares admitted %s locators with normalized native lookalikes', async tool => {
+    for (const spelling of ['admitted', 'native', 'unresolved native'] as const) {
+      const root = fixture();
+      const name = 'case?.ts', path = publicUrl(name);
+      const selected = work(root, `cards/project/public/${name}`, 'needle');
+      const control = work(root, 'cards/project/tmp/control');
+      const directory = spelling === 'admitted' ? publicUrl() : '.';
+      if (directory === '.') writeFileSync(join(root, path.replaceAll('/', '\\')), 'needle');
+      const result = await boundWorkspace(root)(tool, tool === 'glob'
+        ? { directory, pattern: spelling === 'admitted' ? 'case*' : path }
+        : { path: directory, pattern: 'needle' }, 'receipt');
+      expect(result.providerResult).toMatchObject({ success: true, data: { matches: { items:
+        tool === 'glob' ? [path] : [expect.objectContaining({ path })],
+      } } });
+      if (spelling === 'unresolved native') {
+        const realpath = fs.realpathSync;
+        jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+          if (String(path) === selected) throw Object.assign(new Error('fixture alias failure'), { code: 'EACCES' });
+          return (realpath as any)(path, ...args);
+        }) as typeof realpath);
+      }
+      // The known lexical file remains marked even if optional metadata cannot bound an alias.
+      await parity(root, [selected, control], [selected]);
+    }
+  });
+
+  it.each(['write', 'webfetch'] as const)('does not project file addresses from bound logical %s saves', async tool => {
+    const root = fixture(), path = 'record:///status.md?card=project';
+    const control = work(root, 'cards/project/tmp/status.md');
+    const result = tool === 'write'
+      ? await boundWorkspace(root)(tool, { path, content: 'record fixture' }, 'both')
+      : await (async () => {
+        const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('record fixture'));
+        try { return await boundWorkspace(root)(tool, { url: 'https://93.184.216.34', save_as: path }, 'both'); }
+        finally { fetch.mockRestore(); }
+      })();
+    expect(result.providerResult).toMatchObject({ success: true, data: tool === 'write'
+      ? { current_url: path } : { saved_as: path, write: { kind: 'record', data: { current_url: path } } } });
+    await parity(root, [control], []);
+  });
+
+  it('keeps both content and lexical/decoded scope bases bounded without probing nonreferences', async () => {
+    const root = fixture();
+    const names = ['bare.md', 'quote.md', 'naked.asm', 'report.md', 'cwd/keep', 'cwd/nonmatch',
+      'nested/query', 'tree/inside', 'quoted dir/keep', 'head.md', 'else/head.md', 'tail.ts',
+      'do-not-expand/inside', 'search/note.md', 'search/other.bin', 'scope-only/inside'];
+    const files = names.map(name => work(root, `cards/project/tmp/${name}`));
+    const exact = work(root, 'cards/project/public/literal?.md');
+    const rootAlias = join(root, 'alias-card-root');
+    symlinkSync(join(root, '.saivage/work/cards/project'), rootAlias, 'dir');
+    const query = new URL('https://example.invalid/.saivage/work/cards/project/tmp/quote.md');
+    query.searchParams.set('keep', publicUrl('literal?.md'));
+    const realpath = fs.realpathSync, probes: string[] = [];
+    jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+      probes.push(String(path));
+      return (realpath as any)(path, ...args);
+    }) as typeof realpath);
+    baseline(root, JSON.stringify([
+      "bare.md 'quote.md' *.asm \"*.asm\" `${choice}?`",
+      'https://example.invalid/.saivage/work/cards/project/tmp/bare.md',
+      '[tmp:///project/bare.md](https://example.invalid/naked.asm)',
+      'Ignore ${base}/tail.ts and $(echo ./do-not-expand)/inside.',
+      'Keep ./report.md, ./tree and "quoted dir/keep".',
+      { env: { CONFIG: 'bare.md' } },
+      { cwd: { literal: 'tmp:///project/cwd' }, nested: { source_path: 'keep' } },
+      { directory: 'tmp:///project/search/', pattern: './*.md' },
+      { directory: { literal: 'tmp:///project/scope-only' } },
+      { cwd: { literal: 'tmp:///project/scope-only' } },
+      'directory="tmp:///project/scope-only"',
+      `work:///cards/project ${rootAlias}`,
+      { url: `${query.href}&another=${encodeURIComponent('tmp:///project/nested/query')}`,
+        pattern: './head.md' },
+    ]));
+    await parity(root, [...files, exact], [...[3, 4, 6, 7, 8, 9, 13].map(index => files[index]!), exact]);
+    expect(probes.some(path => /(?:bare\.md|quote\.md|naked\.asm|tail\.ts|do-not-expand|scope-only)/u.test(path))).toBe(false);
+  });
+
+  it.each(['node', 'after-commit'] as const)('uses compiled %s project cwd and action-relative env, with no script source', async kind => {
+    const root = fixture();
+    const cwd = join(root, 'jobs/${name}');
+    mkdirSync(cwd, { recursive: true });
+    const env = work(root, 'cards/project/tmp/env/report.md');
+    symlinkSync(env, join(cwd, 'report.md'));
+    const arg = work(root, 'cards/project/tmp/nested/inside.asm');
+    const scriptOnly = work(root, 'cards/project/tmp/script-only.md');
+    const artifact = work(root, 'cards/project/tmp/selected.bin');
+    const control = work(root, 'cards/project/tmp/outside/inside.asm');
+    const operation = TEST_WORKFLOWS.operations.get('shell.run')!;
+    const config = operation.config.parse({ cwd: 'jobs/${name}', env: { CONFIG: 'report.md' },
+      script: 'echo tmp:///project/script-only.md', artifacts: ['.saivage/work/cards/project/tmp/selected.bin'] });
+    const execution = { kind: 'action' as const, operation, config,
+      inputs: { args: { literal: ['tmp:///project/nested/%2A.asm'] } } };
+    const wf = TEST_WORKFLOWS.cardTypes.get('project')!;
+    const states = new Map(wf.states);
+    if (kind === 'node') {
+      const [key, state] = [...states].find(([, state]) => state.kind === 'node')!;
+      if (state.kind !== 'node') throw new Error('Expected a compiled node fixture.');
+      states.set(`${key}-gc-action`, { ...state, purpose: 'product', execution });
+    }
+    const workflows = { ...TEST_WORKFLOWS, cardTypes: new Map(TEST_WORKFLOWS.cardTypes).set('project', {
+      ...wf, states, ...(kind === 'after-commit' ? { afterActivationCommit: { statuses: ['done'] as const, execution } } : {}),
+    }) };
+    await parity(root, [env, arg, scriptOnly, artifact, control], [env, arg, artifact], { workflows });
+  });
+
+  it('marks only explicit content process cwd, including punctuation, not shell or admin roots', async () => {
+    const root = fixture();
+    const inside = work(root, 'cards/project/tmp/jobs/${name}/inside');
+    const elsewhere = work(root, 'cards/project/tmp/jobs/elsewhere/control');
+    const shell = work(root, 'cards/project/tmp/shell');
+    const path = 'jobs/${name}';
+    mkdirSync(join(root, 'jobs'), { recursive: true });
+    symlinkSync(dirname(inside), join(root, path), 'dir');
+    const command = 'echo tmp:///project/shell';
+    const session = readCurrentConversationSegment(root, 'agent:planner:project')!;
+    const file = cardConversationVersionFile(root, 'project', 'planner', session.entry.filename);
+    // GC projects each current call without needing a successful process or a result join.
+    const rows = [undefined, '.', '.saivage/work/cards/project', path].map(cwd =>
+      toolExchange('run_command', '{"success":true}', JSON.stringify({ command, cwd }))[0]);
+    appendFileSync(file, JSON.stringify({ version: 13, type: 'conversation-segment', rows }) + '\n');
+    await parity(root, [inside, elsewhere, shell], [inside]);
+  });
+
+  it.each([0, 50, 51])('bounds compiled legacy argv scoped globs to %i matches without losing exact selections', async count => {
+    const root = fixture();
+    const path = (tail: string) => work(root, `cards/project/tmp/${tail}`);
+    const matches = Array.from({ length: count }, (_, index) => path(`nested/match${index}.asm`));
+    const independent = path('nested/inside?exact');
+    const subtree = path('nested/subtree.d/child.bin');
+    const nonmatch = path('nested/insideXexact');
+    const outside = path('elsewhere/match0.asm');
+    const operation = TEST_WORKFLOWS.operations.get('shell.run')!;
+    const execution = { kind: 'action' as const, operation, config: operation.config.parse({
+      script: 'echo fixture', cwd: 'action-cwd',
+    }), inputs: { args: { literal: ['tmp:///project/nested/match%2A.asm', 'tmp:///project/nested/*.d'] } } };
+    const wf = TEST_WORKFLOWS.cardTypes.get('project')!;
+    const workflows = { ...TEST_WORKFLOWS, cardTypes: new Map(TEST_WORKFLOWS.cardTypes)
+      .set('project', { ...wf, afterActivationCommit: { statuses: ['done'], execution } }) };
+    baseline(root, JSON.stringify({ path: 'tmp:///project/nested/inside%3Fexact',
+      pattern: 'tmp:///project/%24%7Bscope%7D/ignorable*.md' }));
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'dry_run' },
+      context({ operationalDependencies: ['tmp:///project/%24%7Bscope%7D/ignorable*.md'] })))
+      .rejects.toBeInstanceOf(WorkGcReferenceScopeError);
+    await parity(root, [...matches, independent, subtree, nonmatch, outside],
+      [independent, subtree, ...(count === 50 ? matches : [])], { workflows });
+  });
+
+  it.each(['write', 'webfetch'] as const)('uses same-row executed tagged %s receipts, including after an advisory display', async tool => {
+    for (const selection of ['receipt', 'metadata failure', 'display failure', 'both failure'] as const) {
+      const root = fixture(), invoke = boundWorkspace(root);
+      const path = publicUrl('case?#%3F${name}*.ts');
+      const selected = work(root, 'cards/project/public/case?#%3F${name}*.ts', 'fixture');
+      const sibling = work(root, 'cards/project/public/caseX#%3F${name}Y.ts');
+      const control = work(root, 'cards/project/tmp/unselected');
+      if (selection === 'display failure' || selection === 'both failure') {
+        const search = await invoke('glob', { directory: path, pattern: '*' },
+          selection === 'both failure' ? 'both' : 'receipt');
+        expect(search.providerResult).toMatchObject({ success: true,
+          data: { matches: { items: expect.arrayContaining([path]) } } });
+      }
+      const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('fixture'));
+      const result = await invoke(tool, tool === 'write' ? { path, content: 'fixture' }
+        : { url: 'https://93.184.216.34', save_as: path },
+        selection === 'display failure' ? undefined : selection === 'both failure' ? 'both' : 'receipt');
+      fetch.mockRestore();
+      const tag = { destination_kind: 'cardwork_url', target: path };
+      expect(result.providerResult).toMatchObject({ success: true, data: tool === 'write' ? tag
+        : { saved_as: path, write: { kind: 'workspace_file', data: tag } } });
+      if ('row' in result && result.row) {
+        expect(result.row).toMatchObject({ tool, kind: 'tool_result', context_policy: { settlement_origin: 'executed' } });
+        expect(JSON.parse(result.row.content)).toEqual(result.providerResult);
+      }
+      utimesSync(selected, 1, 1);
+      if (selection === 'receipt') {
+        await parity(root, [selected, sibling, control], [selected]);
+        continue;
+      }
+      const realpath = fs.realpathSync;
+      const probe = jest.spyOn(fs, 'realpathSync').mockImplementation(((path: any, ...args: any[]) => {
+        if (String(path) === selected) throw Object.assign(new Error('fixture metadata sentry'), { code: 'EACCES', syscall: 'realpath' });
+        return (realpath as any)(path, ...args);
+      }) as typeof realpath);
+      if (selection === 'display failure') await parity(root, [selected, sibling, control], [selected]);
+      else for (const mode of ['dry_run', 'delete'] as const) {
+        await expect(collectWorkGarbage(await inventory(root), { mode }, context()))
+          .rejects.toBeInstanceOf(WorkGcReferenceScopeError);
+        expect([selected, sibling, control].every(existsSync)).toBe(true);
+      }
+      probe.mockRestore();
+    }
+  });
+
   it.each([0, 1, 50, 51])('counts %i actual scoped entries, including empty directories, before publishing any glob marks', async count => {
     const root = fixture(), scope = join(root, '.saivage/work/cards/project/tmp/search');
     const files: string[] = [], kept: string[] = [];
@@ -592,13 +1013,23 @@ describe('work GC two-phase selection', () => {
     const root = fixture();
     const selected = work(root, 'cards/project/tmp/one.asm');
     const control = work(root, 'cards/project/tmp/other.bin');
-    if (source === 'card') appendConversationBatch({ projectRoot: root }, [message('Keep "*.asm"')]);
+    const nested = work(root, 'cards/project/tmp/nested/one.asm');
+    if (source === 'card') appendConversationBatch({ projectRoot: root }, [message('Keep "./*.asm"')]);
     else {
       const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
-      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(),
-        'Keep "*.asm"', { kind: 'unavailable', reason: 'not_recorded' }));
+      const session = 'agent:analyst:global' as const, entryId = randomUUID();
+      const rows = buildGlobalAgentIngressRows(session, randomUUID(), 'Fixture boundary',
+        { kind: 'unavailable', reason: 'not_recorded' });
+      appendConversationBatch({ projectRoot: root }, rows);
+      publishCompactedConversationSegment({ projectRoot: root }, session, {
+        identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: new Date().toISOString(),
+          filename: versionFilename(2, entryId) },
+        history: { summaryText: 'Keep "./*.asm"', protectedPrompts: [],
+          requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } },
+        cutoffSourceIndex: 1, cutoffMessageId: rows[1].id, continuation: { kind: 'between_rounds' },
+      });
     }
-    await parity(root, [selected, control], source === 'card' ? [selected] : []);
+    await parity(root, [selected, control, nested], source === 'card' ? [selected] : []);
   });
 
   it('counts fifty physical entries once across overlapping card fallback bases', async () => {
@@ -778,24 +1209,30 @@ describe('work GC two-phase selection', () => {
   it('omits owned shell scripts but keeps literal action args and non-shell executable argv', async () => {
     const root = fixture(), files = ['script-output.txt', 'noextension', 'one.asm', 'control'].map(name =>
       work(root, `cards/project/tmp/${name}`));
-    await parity(root, files, files.slice(1, 3), { operationalInputs: {
-      action: workGcActionInputs({ operation: TEST_WORKFLOWS.operations.get('shell.run')!,
-        config: { script: 'cat tmp:///project/script-output.txt' },
-        inputs: { args: { literal: ['tmp:///project/*.asm'] } } }),
-      mcp: { command: join(root, '.saivage/work/cards/project/tmp/noextension'),
+    const wf = TEST_WORKFLOWS.cardTypes.get('project')!;
+    const operation = TEST_WORKFLOWS.operations.get('shell.run')!;
+    const execution = { kind: 'action' as const, operation,
+      config: operation.config.parse({ script: 'cat tmp:///project/script-output.txt', cwd: 'jobs/${name}' }),
+      inputs: { args: { literal: ['tmp:///project/*.asm'] } } };
+    const workflows = { ...TEST_WORKFLOWS, cardTypes: new Map(TEST_WORKFLOWS.cardTypes)
+      .set('project', { ...wf, afterActivationCommit: { statuses: ['done'], execution } }) };
+    await parity(root, files, files.slice(1, 3), { workflows, operationalInputs: {
+      mcp: { command: files[1],
         args: ['tmp:///project/noextension'] },
     } });
   });
 
-  it.each(['broken', 'malformed', 'substitution'] as const)('keeps conservative %s glob scope uncertainty', async kind => {
+  it.each(['broken', 'malformed', 'substitution'] as const)('drops %s suggested glob scope but refuses operational scope uncertainty', async kind => {
     const root = fixture();
-    work(root, 'cards/project/tmp/control');
+    const control = work(root, 'cards/project/tmp/control.asm');
     symlinkSync(join(root, 'missing'), join(root, 'broken'));
-    baseline(root, JSON.stringify({ directory: kind === 'broken' ? 'project:///broken'
-      : kind === 'malformed' ? 'work:///%ZZ' : '${UNKNOWN}', pattern: '*.asm' }));
-    const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result).toMatchObject({ first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' },
-      deleted_count: 0, retained: { protected: 1 } });
+    const inputs = { directory: kind === 'broken' ? 'project:///broken'
+      : kind === 'malformed' ? 'work:///%ZZ' : '${UNKNOWN}', pattern: '*.asm' };
+    baseline(root, JSON.stringify(inputs));
+    for (const mode of ['dry_run', 'delete'] as const)
+      await expect(collectWorkGarbage(await inventory(root), { mode }, context({ operationalInputs: inputs })))
+        .rejects.toBeInstanceOf(WorkGcReferenceScopeError);
+    await parity(root, [control], []);
   });
 
   it('skips reserved directories before matching, metadata access and threshold counting', async () => {
@@ -837,17 +1274,10 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(join(root, '.saivage/work/cards/project/tmp/entry-1599.bin'))).toBe(true);
   });
 
-  it.each(['conversation_content', 'record_content', 'pending_notification', 'operational_input', 'process_owner', 'process_capture'] as const)(
+  it.each(['operational_input', 'process_owner', 'process_capture'] as const)(
     'attributes the first sufficient global mark to %s without leaking input', async source => {
       const root = fixture(), sentinel = 'PRIVATE-attribution-sentinel';
       const candidate = work(root, `cards/project/tmp/${sentinel}`);
-      symlinkSync(join(root, 'missing'), join(root, sentinel));
-      const unknown = JSON.stringify({ source_path: join(root, sentinel) });
-      if (source === 'conversation_content') appendConversationBatch({ projectRoot: root }, [message(unknown)]);
-      if (source === 'record_content') baseline(root, unknown);
-      if (source === 'pending_notification') new CardService(root).enqueueNotification('project', {
-        id: randomUUID(), content: unknown, created_at: '2026-10-24T00:00:00.000Z',
-      });
       const snapshots: unknown[] = [];
       const { createWorkGcProgress } = await import('../../src/application/work-gc-progress.js');
       let time = 0;
@@ -862,7 +1292,7 @@ describe('work GC two-phase selection', () => {
       const brokenObserver = createWorkGcProgress(() => { throw new Error('PRIVATE observer failure'); });
       expect(await collectWorkGarbage(found, { mode: 'dry_run' }, context({ ...overrides, progress: brokenObserver }))).toEqual(plain);
       const mark = { reason: source === 'process_owner' ? 'process_owner_uncertain'
-        : source === 'operational_input' || source === 'process_capture' ? 'operational_root' : 'reference_scope_unknown', source };
+        : 'operational_root', source };
       expect(observed).toEqual(plain);
       expect(observed).toMatchObject({ first_global_protection: mark, retained: { protected: 1 }, would_delete_count: 0 });
       expect(snapshots).toContainEqual(expect.objectContaining({ first_global_protection: mark, phase: 'selection' }));
@@ -885,8 +1315,8 @@ describe('work GC two-phase selection', () => {
     symlinkSync(join(root, 'missing'), join(root, 'unknown-alias'));
     appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(), 'Keep project:///unknown-alias', { kind: 'unavailable', reason: 'not_recorded' }));
     expect(await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context())).toMatchObject({
-      first_global_protection: { reason: 'reference_scope_unknown', source: 'conversation_content' },
-      retained: { protected: 1 }, would_delete_count: 0,
+      first_global_protection: null,
+      retained: { protected: 0 }, would_delete_count: 1,
     });
   });
 
@@ -903,10 +1333,10 @@ describe('work GC two-phase selection', () => {
       return (realpath as any)(path, ...args);
     }) as typeof realpath);
     const progress = { phase() {}, increment() {}, update(value: unknown) { marks.push(value); } };
-    await expect(collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context({ progress })))
+    await expect(collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context({ progress, operationalPaths: [root] })))
       .resolves.toMatchObject({ retained: { protected: 1 }, would_delete_count: 0 });
     expect(marks.filter(value => 'first_global_protection' in (value as object)))
-      .toEqual([{ first_global_protection: { reason: 'reference_scope_unknown', source: 'record_content' } }]);
+      .toEqual([{ first_global_protection: { reason: 'operational_root', source: 'operational_input' } }]);
   });
 
   it('stops metadata resolution immediately after the lexical path itself marks all work', async () => {
@@ -940,7 +1370,7 @@ describe('work GC two-phase selection', () => {
     const workflow = TEST_WORKFLOWS.cardTypes.get('code')!;
     const execution = {
       kind: 'action' as const, operation: TEST_WORKFLOWS.operations.get('shell.run')!,
-      config: { script: 'printf ok', cwd: 'gc-operation-cwd' },
+      config: { script: 'printf ok', cwd: 'gc-operation-cwd', artifacts: [], env: {} },
       inputs: { args: { literal: [`${alias}/dedup-*.bin`, 'relative-literal'] } },
     };
     const workflows = { ...TEST_WORKFLOWS, cardTypes: new Map(TEST_WORKFLOWS.cardTypes)
@@ -1121,12 +1551,12 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(selected)).toBe(true); expect(garbage.every(path => !existsSync(path))).toBe(true);
   });
 
-  it.each(['work:///%ZZ', 'tmp:///not-a-card/', 'work:///cards/project/tmp?unknown'])('retains unknown scope for malformed recognized content URI %s', async reference => {
+  it.each(['work:///%ZZ', 'tmp:///not-a-card/', 'work:///cards/project/tmp?unknown'])('ignores malformed recognized content URI %s', async reference => {
     const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
     baseline(root, JSON.stringify({ path: reference }));
     const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(result).toMatchObject({ deleted_count: 0, retained: { protected: 1 } });
-    expect(existsSync(candidate)).toBe(true);
+    expect(result).toMatchObject({ deleted_count: 1, retained: { protected: 0 } });
+    expect(existsSync(candidate)).toBe(false);
   });
 
   it('still resolves administrative lexical content paths to concrete targets or unknown scope', async () => {
@@ -1141,8 +1571,8 @@ describe('work GC two-phase selection', () => {
       if (String(path) === w) throw Object.assign(new Error('unknown scope'), { code: 'EACCES' });
       return (realpath as any)(path, ...args);
     }) as typeof realpath);
-    expect((await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).deleted_count).toBe(0);
-    expect([selected, garbage].every(existsSync)).toBe(true);
+    expect((await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context())).deleted_count).toBe(2);
+    expect([selected, garbage].some(existsSync)).toBe(false);
   });
 
   it.each(['retainAll', 'capture parent', 'operational inputs', 'unfinished artifact', 'unfinished file', 'configured prompt', 'workflow inputs'] as const)(
@@ -1252,7 +1682,7 @@ describe('work GC two-phase selection', () => {
     const selected = ['relative-name', 'quoted space.txt', 'query.txt'].map(name => work(root, `cards/project/tmp/context/${name}`));
     work(root, 'cards/project/tmp/contextish/not-selected');
     const row = message(JSON.stringify({ cwd, inputs: [{ name: 'source_path', value: { literal: 'relative-name' } }],
-      prose: '`quoted space.txt`', nested: JSON.stringify({ endpoint: `https://example.invalid/?path=${encodeURIComponent('tmp:///project/context/query.txt')}` }) }));
+      prose: '`./quoted space.txt`', nested: JSON.stringify({ endpoint: `https://example.invalid/?path=${encodeURIComponent('tmp:///project/context/query.txt')}` }) }));
     appendConversationBatch({ projectRoot: root }, [row]);
     const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const read = fs.realpathSync;
@@ -1271,7 +1701,7 @@ describe('work GC two-phase selection', () => {
     expect(resolutions).toBeLessThanOrEqual(oldResolutions);
     expect(current.retained.protected).toBe(selected.length);
     const sources: unknown[] = [];
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async value => { sources.push(value); }, operational: async () => {} });
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, captureReferences(sources));
     expect(sources).toContain(row.content);
     expect(sources).not.toContainEqual(segment.index);
     expect(sources).not.toContainEqual(segment.genesis);
@@ -1409,7 +1839,7 @@ describe('work GC two-phase selection', () => {
       "Keep '.saivage/work/cards/project/tmp/data/O'Brien report.txt'",
       "Keep '.saivage/work/cards/project/tmp/data/O’Brien report.txt'",
       `Keep ${JSON.stringify(selected[5])}`,
-      "Keep 'relative-basename.txt'",
+      "Keep './relative-basename.txt'",
     ].join('\n'));
     const bytes = [...selected, control].map(path => readFileSync(path));
     const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
@@ -1442,7 +1872,7 @@ describe('work GC two-phase selection', () => {
     expect(readFileSync(needed)).toEqual(bytes);
   });
 
-  it.each(['realpath', 'fallback lstat'] as const)('retains all on exact %s ENAMETOOLONG without candidate effects', async operation => {
+  it.each(['realpath', 'fallback lstat'] as const)('refuses required %s ENAMETOOLONG without candidate effects', async operation => {
     const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
     const reference = join(root, 'recognized-reference');
     baseline(root, JSON.stringify({ source_path: reference }));
@@ -1464,15 +1894,20 @@ describe('work GC two-phase selection', () => {
     }) as typeof stat);
     const unlink = jest.spyOn(fs, 'unlinkSync');
     const bytes = readFileSync(candidate);
-    const result = await collectWorkGarbage(found, { mode: 'delete' }, context());
-    expect(result).toMatchObject({ retained: { protected: 1 }, deleted_count: 0 });
+    for (const mode of ['dry_run', 'delete'] as const) {
+      const error = await collectWorkGarbage(found, { mode }, context({ operationalPaths: [reference] })).catch((error: unknown) => error);
+      expect(error).toBeInstanceOf(WorkGcReferenceScopeError);
+      const response = workGcFailureResponse({ mode }, error, 'collection_failed', false, 'not_resumed');
+      expect(response).toMatchObject({ disposition: 'refused', reason: 'reference_scope_unresolved', result: null, failure: { code: 'ENAMETOOLONG' } });
+      expect(JSON.stringify(response)).not.toContain('recognized-reference');
+    }
     expect(observed).toContain('realpath');
     expect(observed.includes('lstat')).toBe(operation === 'fallback lstat');
     expect(unlink).not.toHaveBeenCalled();
     expect(readFileSync(candidate)).toEqual(bytes);
   });
 
-  it('conservatively retains a long synthetic backtick path without depending on host path limits', async () => {
+  it('discards an unbounded synthetic backtick path without depending on host limits', async () => {
     const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
     const reference = `data/${'component/'.repeat(80)}${'x'.repeat(531)}`;
     baseline(root, `Evidence: \`${reference}\``);
@@ -1487,7 +1922,7 @@ describe('work GC two-phase selection', () => {
     }) as typeof realpath);
     const result = await collectWorkGarbage(found, { mode: 'dry_run' }, context());
     expect(failures).toBeGreaterThan(0);
-    expect(result).toMatchObject({ retained: { protected: 1 }, would_delete_count: 0, deleted_count: 0 });
+    expect(result).toMatchObject({ retained: { protected: 0 }, would_delete_count: 1, deleted_count: 0 });
     expect(existsSync(candidate)).toBe(true);
   });
 
@@ -1541,7 +1976,7 @@ describe('work GC two-phase selection', () => {
     });
     const current = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const sources: unknown[] = [];
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async value => { sources.push(value); }, operational: async () => {} });
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, captureReferences(sources));
     expect(facts.latestRecordObservations).toHaveLength(1);
     expect(sources).toContain(row.content);
     expect(sources).toContain(current.conversation.effectiveCompactedHistory!.summaryText);
@@ -1587,15 +2022,18 @@ describe('work GC two-phase selection', () => {
       join(root, '.saivage/cards/project/card-head.json'), join(root, '.git/HEAD'),
       join(root, 'source.txt')].map(path => [path, readFileSync(path)] as const);
     const garbage = work(root, 'cards/project/tmp/unselected-control');
+    const operational = workGcOperationalInputs(fresh.config);
+    expect(operational.operationalInputs.git).toEqual({ source_roots: ['.'] });
     const unlinked = join(root, '.saivage/cards/card-z/records'); mkdirSync(unlinked, { recursive: true });
     writeFileSync(join(unlinked, 'executions.jsonl'), 'malformed unlinked evidence\n');
     const ref = readCard(root, 'project')!.git!.branch_ref, oid = fixtureGit(root, 'rev-parse', ref);
     const gitIndex = readFileSync(join(root, '.git/index'));
     const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: Date.now() + 1000 },
-      context({ workflows: fresh.workflows, operationalInputs: { config: fresh.config } }));
+      context({ workflows: fresh.workflows, ...operational }));
+    expect(preview.first_global_protection).toBeNull();
     expect(preview.would_delete_count).toBe(1 + captures.length);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: Date.now() + 1000 },
-      context({ workflows: fresh.workflows, operationalInputs: { config: fresh.config } }));
+      context({ workflows: fresh.workflows, ...operational }));
     expect(result.deleted_count).toBe(1 + captures.length);
     expect(captures.every(path => !existsSync(path))).toBe(true);
     expect(existsSync(garbage)).toBe(false);
@@ -1689,7 +2127,7 @@ describe('work GC two-phase selection', () => {
     const unmatched = toolExchange('read', JSON.stringify({ success: true }), JSON.stringify({ path: 'tmp:///project/call-argument.txt' }))[0]!;
     appendConversationBatch({ projectRoot: root }, [unmatched]);
     const values: unknown[] = [];
-    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, { content: async value => { values.push(value); }, operational: async () => {} });
+    await inspectWorkGcCanonicalState(root, TEST_WORKFLOWS, () => {}, captureReferences(values));
     expect(values).toContainEqual(image);
     expect(values).not.toContainEqual(rows[0]!.context_policy);
     const result = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
@@ -2146,7 +2584,7 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(candidate)).toBe(true);
   });
 
-  it.each(['looping', 'denied'] as const)('retains all for a recognized %s alias despite excluding unrelated possessive prose', async kind => {
+  it.each(['looping', 'denied'] as const)('discards a suggested %s alias despite excluding unrelated possessive prose', async kind => {
     const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
     const alias = join(root, 'alias');
     baseline(root, `The owner's resource/effect belongs to the child's task. Keep project:///alias/file`);
@@ -2159,7 +2597,7 @@ describe('work GC two-phase selection', () => {
       }) as typeof realpath);
     }
     const result = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
-    expect(result).toMatchObject({ retained: { protected: 1 }, would_delete_count: 0, deleted_count: 0 });
+    expect(result).toMatchObject({ retained: { protected: 0 }, would_delete_count: 1, deleted_count: 0 });
     expect(existsSync(candidate)).toBe(true);
   });
 
@@ -2228,14 +2666,14 @@ describe('work GC two-phase selection', () => {
     expect(existsSync(control)).toBe(true);
   });
 
-  it('unknown process footprints and unresolved aliases retain all, while cancellation stops before effects', async () => {
+  it('unknown process footprints retain all, and cancellation stops before effects for unresolved suggestions', async () => {
     const root = fixture();
     const candidate = work(root, 'cards/project/tmp/file');
     const found = await inventory(root);
     expect((await collectWorkGarbage(found, { mode: 'delete' }, context({ protection: { retainAll: true, capturePaths: [] } }))).deleted_count).toBe(0);
     symlinkSync('/missing-target', join(root, 'broken'));
     baseline(root, 'project:///broken/file');
-    expect((await collectWorkGarbage(found, { mode: 'delete' }, context())).retained.protected).toBe(1);
+    expect((await collectWorkGarbage(found, { mode: 'dry_run' }, context())).would_delete_count).toBe(1);
     await expect(collectWorkGarbage(found, { mode: 'delete' }, context({ assertCollecting: () => { throw new Error('cancelled'); } }))).rejects.toThrow('cancelled');
     expect(existsSync(candidate)).toBe(true);
   });

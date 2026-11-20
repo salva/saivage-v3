@@ -45,11 +45,11 @@ it('keeps the first mark sticky through throttled numeric updates and phase chan
   let time = 0;
   const sink = jest.fn();
   const reporter = createWorkGcProgress(sink, () => time)!;
-  const first = { reason: 'reference_scope_unknown', source: 'conversation_content' } as const;
+  const first = { reason: 'operational_root', source: 'operational_input' } as const;
   reporter.phase('retention_marking', { inspected_cards: 0 });
   reporter.update({ first_global_protection: first });
   reporter.increment('inspected_cards');
-  reporter.update({ first_global_protection: { reason: 'operational_root', source: 'operational_input' } });
+  reporter.update({ first_global_protection: { reason: 'process_owner_uncertain', source: 'process_owner' } });
   expect(sink).toHaveBeenCalledTimes(1);
   time = 1000;
   reporter.increment('inspected_cards');

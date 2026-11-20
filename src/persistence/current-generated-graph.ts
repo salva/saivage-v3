@@ -28,17 +28,7 @@ import { readWorkGcExecutionPaths } from './card-execution-log.js';
 import { cardRecordsRoot } from './layout.js';
 import { readProviderExchangeEntries } from './provider-exchange-log.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-
-export function workGcActionInputs(execution: {
-  readonly operation: { readonly id: string };
-  readonly config: unknown;
-  readonly inputs: unknown;
-}): unknown {
-  if (execution.operation.id !== 'shell.run')
-    return { config: execution.config, inputs: execution.inputs };
-  const { script: _script, ...config } = execution.config as Record<string, unknown>;
-  return { config, inputs: execution.inputs };
-}
+import { workGcQualityPaths, type WorkGcReference } from './work-gc-protection.js';
 
 const STRICT_FAILURE_PROCEDURE =
   'Startup will not manufacture authority or use previous slots. Keep the service stopped, disable restarts, positively verify no owning process, preserve a fresh complete stopped-project backup, then use separately consented exact-target saivage repair where supported and restart separately. Unsupported damage may require an explicitly authorized whole-generated-state reset.';
@@ -191,6 +181,9 @@ export async function inspectWorkGcCanonicalState(
       cardId: string | null,
       source: WorkGcProtectionSource,
     ) => Promise<void>;
+    readonly conversation: (value: WorkGcReference, cardId: string | null) => Promise<void>;
+    readonly path: (value: string, source: WorkGcProtectionSource) => Promise<void>;
+    readonly dependencies: (values: readonly string[], cwd: string, cardId: string | null, source: WorkGcProtectionSource) => Promise<void>;
     readonly done?: () => boolean;
   },
   progress?: WorkGcProgressPort,
@@ -204,7 +197,24 @@ export async function inspectWorkGcCanonicalState(
     ),
   ])) {
     if (references.done?.()) return owners;
-    await references.operational({ path }, null, 'workflow_input');
+    await references.path(resolve(projectRoot, path), 'workflow_input');
+  }
+  async function action(execution: { operation: { id: string }; config: unknown; inputs: unknown }, cardId: string) {
+    const source = 'workflow_input';
+    const id = execution.operation.id;
+    if (id === 'shell.run') {
+      const { cwd, artifacts, env } = execution.config as {
+        cwd: string; artifacts: readonly string[]; env: Readonly<Record<string, string>>;
+      };
+      const absolute = resolve(projectRoot, cwd);
+      await references.path(absolute, source);
+      for (const path of artifacts) await references.path(resolve(projectRoot, path), source);
+      await references.dependencies(Object.values(env), absolute, cardId, source);
+    } else if (id === 'code-quality.javascript.eslint' || id === 'code-quality.typescript.eslint' || id === 'code-quality.python.ruff') {
+      for (const path of workGcQualityPaths(execution.config as Parameters<typeof workGcQualityPaths>[0]))
+        await references.path(resolve(projectRoot, path), source);
+    } else await references.operational(execution.config, cardId, source);
+    await references.operational(execution.inputs, cardId, source);
   }
   async function conversation(
     session: ConversationSessionId,
@@ -217,7 +227,7 @@ export async function inspectWorkGcCanonicalState(
     for (const value of projection.references) {
       check();
       if (references.done?.()) return projection.horizon;
-      await references.content(value, cardId, 'conversation_content');
+      await references.conversation(value, cardId);
       if (references.done?.()) return projection.horizon;
     }
     progress?.increment('inspected_sessions');
@@ -298,45 +308,25 @@ export async function inspectWorkGcCanonicalState(
     if (references.done?.()) return owners;
     for (const path of readWorkGcExecutionPaths(projectRoot, card.id)) {
       if (references.done?.()) return owners;
-      await references.operational(
-        { path: resolve(projectRoot, path) },
-        card.id,
-        'unfinished_execution',
-      );
+      await references.path(resolve(projectRoot, path), 'unfinished_execution');
     }
     for (const state of workflow.states.values()) {
       if (references.done?.()) return owners;
       if (state.kind !== 'node') continue;
       if (state.execution.kind === 'action')
-        await references.operational(
-          workGcActionInputs(state.execution),
-          card.id,
-          'workflow_input',
-        );
+        await action(state.execution, card.id);
       else {
         await references.operational(state.execution.inputs, card.id, 'workflow_input');
-        await references.operational(
-          { path: state.execution.selectedAgentPrompt.path },
-          card.id,
-          'workflow_input',
-        );
+        await references.path(resolve(projectRoot, state.execution.selectedAgentPrompt.path), 'workflow_input');
       }
       for (const prompt of state.recordPrompts)
-        await references.operational(
-          { path: resolve(projectRoot, prompt.artifact.path) },
-          card.id,
-          'workflow_input',
-        );
+        await references.path(resolve(projectRoot, prompt.artifact.path), 'workflow_input');
     }
     if (workflow.afterActivationCommit)
-      await references.operational(
-        workGcActionInputs(workflow.afterActivationCommit.execution),
-        card.id,
-        'workflow_input',
-      );
+      await action(workflow.afterActivationCommit.execution, card.id);
     for (const prompt of workflow.processPrompts.values()) {
       if (references.done?.()) return owners;
-      await references.operational({ path: prompt.path }, card.id, 'workflow_input');
+      await references.path(resolve(projectRoot, prompt.path), 'workflow_input');
     }
     const horizons: (number | null)[] = [];
     for (const agent of cardConversationAgents(workflow)) {

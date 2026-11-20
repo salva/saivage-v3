@@ -27,50 +27,56 @@ directories are also concrete. Known resolved aliases follow their target's rule
 This applies to structured paths/URIs as well as prose: a root in a `path` or `cwd`
 field is not a concrete artifact. Previously blanket-protected old files (through
 administrative-root mentions or broad wildcards) can become eligible despite a human's
-intended blanket retention. Operational/unfinished-owner protections still cover their
-selected scopes, including roots; unknown recognized aliases can still retain all work.
-No reclamation or historical availability is promised.
+intended blanket retention. Operational and unfinished-owner protections still
+cover their selected scopes, including genuine root dependencies. Commissioned
+Git source roots are filters, not blanket work protection: a commissioned `.`
+does not override the `.saivage` source exclusion. No reclamation or historical
+availability is promised.
 
-Wildcard references protect only what they match, within their scope. Except for
-whole canonical `cardwork:///` addresses, a `pattern` field or a quoted or
-unquoted path containing `*` or `?` is matched against the ordinary files and
-directories under work in its scope. That scope is the paired
-`directory` (or `cwd`) when present; otherwise it is the project root for global
-conversations, or the project root, card root and card `tmp` for card content. The
-matching is anchored and case-sensitive: `*` and `?` stay within one path segment, and
-a whole `**` segment crosses levels. Each physical entry counts once across overlapping
-scopes. Empty directories count, but reserved `.saivage-tmp` names, symlinks and opaque
-entries never match. A glob with no matches protects nothing. A glob with 1 to 50
-matches protects exactly those files and directories, and a matched directory protects
-its whole subtree. A glob with 51 or more matches discards its whole contribution, so
-none of those matches is protected by that glob. Other references, operational
-dependencies and process owners still protect their own targets. Concretely, a glob
-matching exactly 50 files protects all 50; a 51st match makes that glob protect none of
-the 51. A single matching directory protects its subtree however many children it has.
-Needed work that is reachable only through a broad or over-threshold wildcard can be
-deleted; name needed files or subtrees with an explicit reference instead. A wildcard
-without an explicit scope is not, by itself, retention of all work.
+### Record a concrete dependency
 
-An admitted whole cardwork receipt is an exact reference when retained in a
-current content source that GC uses. For example,
-`cardwork:///card-n/public/case%3F.ts` names `case?.ts`, not its neighbors.
-In the same directory, `case%2A.ts` names `case*.ts`, and `case%253F.ts` names
-`case%3F.ts`. Whole canonical addresses are exact in structured values (even a
-`pattern` slot), bare prose, quotes, backticks, Markdown destinations, enclosing
-URL query values and nested decoded JSON. A query wrapper must encode the inner
-`%` again: the inner `%3F` travels as `%253F` in the query. Bare prose strips
-trailing commas, semicolons, colons and closing brackets, braces or parentheses,
-but not periods; backticks can delimit an address at the end of a sentence.
-Exact fields, quoted addresses and link values get no prose trimming. A
-recognized malformed address gets conservative unknown-scope handling, not
-wildcard interpretation or partial-path recovery.
+In current content that GC uses, give the full locator of the needed file or
+concrete directory, for example
+`{"path":"work:///cards/card-n/tmp/foo/report.md"}`. In prose, delimit the
+complete locator with backticks, or use a complete slash-bearing native path
+such as `./report.md` from the applicable base. A filename such as `report.md`
+or a naked wildcard such as `*.md` is not a prose reference, even in quotes.
+A structured whole path field can carry a basename; scope metadata alone
+does not select a subtree. Prefer the exact locator when a relative path could
+resolve under several bases.
 
-For a wildcard, use an exact `directory` (or structured `cwd`) of
-`cardwork:///card-n/public` with a separate relative `pattern` of `case?.ts`.
-The paired directory gives the match scope; it does not itself protect the
-subtree. The match cap applies to that pattern, not to an independent exact
-address: even at 51 matches an exact reference still protects its own target.
-Slices, previews and call-argument projections are not whole receipts.
+A whole canonical `cardwork:///card-n/public/case%3F.ts` names `case?.ts`,
+not its neighbors. In the same directory, `case%2A.ts` names `case*.ts` and
+`case%253F.ts` names `case%3F.ts`. In structured content or a filesystem `glob`
+call, a whole cardwork `pattern` is an exact suggestion independent of the match
+scope. A logical `record:///` glob call contributes no work matcher or exact mark
+from its pattern. Delimit a locator at the end of a sentence:
+a trailing period in bare cardwork prose can be part of the filename. If a
+cardwork locator appears inside a URL query value, encode the inner `%` again:
+the inner `%3F` travels as `%253F` in that query.
+
+For a wildcard, pair `directory: "cardwork:///card-n/public"` with
+`pattern: "case?.ts"` in structured content. A slash-bearing wildcard path
+such as `reports/*.md` can also be inferred from prose. Without an explicit
+scope, global conversation content uses the project root; card content uses
+the project root, card work root and card `tmp`. GC resolves the fixed directory
+prefix and matches relative to the effective scope. `*` and `?` stay within a
+segment; a whole `**` segment crosses levels. Entries outside the scope and
+the scope itself do not count. Zero distinct matches add nothing; 1–50 protect
+just the matched entries, including a matched concrete directory's subtree.
+At 51 or more, the matcher protects none of its matches. An independent exact
+reference still protects its target.
+
+Tool calls and their results can contribute separately. A concrete explicit
+filesystem `grep.path` can protect a subtree even with a filename filter or
+empty results. An omitted `grep.path` adds no subtree mark. `glob.directory`
+supplies search scope, not subtree protection, though an explicit file there
+can itself be protected. GC's ability to bound an advisory directory does not
+mean the tool accepts it. Complete search-result paths are separate suggestions
+as received; the 50/51 cutoff on the call's matcher is not a count of returned
+items. A complete display can already have changed through normalization,
+packing or redaction. GC neither reconstructs original bytes nor treats byte
+slices as paths.
 
 ## Preview first, delete separately
 
@@ -155,7 +161,7 @@ Explicitly shell-labelled Markdown fences (`sh`, `bash`, `shell`, `zsh`,
 case-insensitive first info token) are masked using matching delimiters; an
 unclosed fence masks the remaining body. Surrounding prose, unlabelled blocks,
 inline backticks and non-shell text still receive ordinary inference, including
-quoted and bare paths, nested JSON, structured references and wildcards.
+complete slash-bearing paths, supported locators and nested structured references.
 Unlabelled snippets are not classified as shell; their lexical references can still
 protect work. A file referenced only by excluded shell syntax can be deleted.
 
@@ -165,21 +171,14 @@ there is no saved selection, preview replay or confirmation token. The later del
 always recomputes inventory, fresh references and final identity checks. A reference
 added since preview can protect a formerly eligible file.
 
-Preview first, but neither preview nor an age cutoff proves that selected work is
-unneeded. Concrete explicit/structured paths are protected exactly. Wildcards protect
-only matches up to 50 per glob, so a broader pattern can leave needed work eligible.
-Filename inference from ambiguous free text is heuristic and can miss genuine
-references. For example, a
-space-containing native path mentioned only as `open(r'data/with space.txt'r'')`
-may be missed and become eligible when old enough. So can a filename containing
-line breaks mentioned only in free text: decoded CR/LF quotations are inspected
-for nested concrete references rather than
-treated as one filename/path. Exact explicit/structured references are unchanged.
-Later explicit delete can irreversibly remove old still-needed work. No error
-probability is estimated.
-Use unambiguous structured path fields or explicit work URIs identifying concrete
-files/subtrees when recording new references, rather than administrative roots or
-programming-language quote syntax in prose.
+Neither preview nor an age cutoff proves selected files are unneeded. Prose
+inference can miss a space-containing path in programming-language quote syntax
+or a filename with line breaks. Decoded CR/LF quotations are inspected for nested
+references rather than taken as one filename. Use a structured whole path or
+an exact locator instead. If losing a file would be unacceptable, preserve it
+separately before authorizing deletion. A delete can permanently remove needed
+work missed by inference, discarded at the match cutoff or known only through
+lossy output. There is no estimated error rate or rollback.
 This advice authorizes neither rewriting retained history nor a migration; adopting
 this isolated fix requires no conversion/reset on matching contracts. Source
 completion does not authorize any live operation.
@@ -265,23 +264,13 @@ lock and operator exclusion above. There is no GC elapsed maintenance/header/bod
 total-request deadline or duration setting; connection establishment remains finite.
 Nested extraction and candidate loops yield cooperatively, but individual synchronous
 reads, JSON parsing and regex operations are indivisible. No cancellation latency
-or throughput is promised. Some ambiguous single-line path-like prose still protects all
-candidates through the unknown-scope rules. Examples: an unresolved substitution
-(`${...}` or `$(...)`) in a recognized non-shell reference; a `#` fragment in a `project`, `system`,
-`work` or `tmp` URI in prose that has no `*` or `?`; and a `?` or `#` in such a URI used
-as an exact structured path field or as paired `directory`/`cwd` scope metadata. A
-completed preview may then reclaim zero bytes. Outside the exact cardwork address
-contract, a `?` in an inferred URI or quoted path is glob syntax: it is matched against
-entries within its scope, and a glob matching more than 50 entries contributes
-nothing rather than protecting all candidates. An unresolved recognized reference,
-including a path-length error during exact alias metadata resolution, also retains
-all; a sufficient global
-mark can skip remaining selection reads. Conversely, missed prose filenames can
-leave needed work eligible: useful reclamation is not proof of safe inference.
-The decoded-multiline correction removes one false global-retention trigger; it
-neither excludes other global-protection causes nor certifies candidates unneeded.
-Over-broad wildcard matches are no longer a global-retention trigger, but the other
-reasons listed above can still retain all candidates.
+or throughput is promised. An unbounded content suggestion contributes no
+protection and does not refuse GC. For example, a malformed `tmp:///project/bad%ZZ`
+scope in a call or its diagnostic echo adds no fallback matches. GC does not guess
+from `${base}/report.md` or follow an unresolvable alias to an assumed target.
+It keeps independent bounded marks. Long or decoded multiline quotations do not
+grant blanket protection; a complete, bounded reference found inside them can
+still protect its own target.
 
 ## Results, cancellation and restoration
 
@@ -316,18 +305,16 @@ global protection is retained for this attempt; it is neither the sole cause nor
 ranked cause, and encounter ordering need not be stable between attempts:
 
 * `process_owner_uncertain`: process ownership has an unresolved footprint.
-* `operational_root`: an operational input selects work or an ancestor broadly.
-* `reference_scope_unknown`: recognized reference scope/alias metadata cannot be
-  resolved. A wildcard without an explicit scope is not this reason.
+  Its source is `process_owner`.
+* `operational_root`: an operational dependency selects work or an ancestor.
+  Its source is `process_capture`, `unfinished_execution`, `workflow_input` or
+  `operational_input`.
 
-The source family is one of `process_owner`, `process_capture`, `card_content`,
-`pending_notification`, `record_content` (selected baseline/draft/latest accepted),
-`conversation_content` (including configured globals), `unfinished_execution`,
-`workflow_input`, or `operational_input`. These fixed labels disclose no path,
+These fixed labels disclose no path,
 card/session/record identity, token, content, object key, config value or exception.
 CLI stderr renders, for example,
-`first_global_protection=reason:reference_scope_unknown,source:conversation_content`;
-final JSON uses `"first_global_protection":{"reason":"reference_scope_unknown","source":"conversation_content"}`.
+`first_global_protection=reason:process_owner_uncertain,source:process_owner`;
+final JSON uses `"first_global_protection":{"reason":"process_owner_uncertain","source":"process_owner"}`.
 Null is `first_global_protection=null` on stderr and JSON null in the response.
 In progress it means no global mark observed yet; only a completed result's null
 means none was established in the collection. Individual protections can still
@@ -352,6 +339,21 @@ its hold release, never holding maintenance open for delivery.
 The terminal response carries `mode`, `disposition` (`completed`,
 `interrupted`, `refused`), `reason`, `restoration`, nullable `failure` and nullable `result`.
 `completed` does not mean every file was eligible or the target was reached.
+
+A required address that GC cannot bound stops collection before selection or
+deletion. Without cancellation, the response is `disposition: refused`,
+`reason: reference_scope_unresolved` and `result: null`. Cancellation takes
+precedence: if it wins, the response instead has `reason: cancelled` and
+`failure: null`. A cancelled response does not rule out an unresolved reference.
+The required address can be an operational dependency (for example, an unresolved
+alias for a compiled action's cwd) or the cardwork destination of a successful
+`write` or `webfetch` receipt tagged on that row as executed and as a cardwork
+destination. A missing suffix below a known ancestor
+is not itself unresolved. Unlike completed whole-work protection, this refusal
+has no accounting result. In both the refusal and cancellation outcomes,
+`restoration` reports what actually happened to execution. Failed calls and
+untagged displays cannot require this refusal
+just by quoting a path.
 
 `failure` is null for completion and cancellation. Other ordinary failures expose
 only `{code, syscall}`: code is one of `EACCES`, `EPERM`, `ENOENT`, `ENOTDIR`,

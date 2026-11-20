@@ -21,7 +21,7 @@ let app: FastifyInstance | undefined;
 let root: string | undefined;
 afterEach(async () => { await app?.close(); if (root) rmSync(root, { recursive: true, force: true }); });
 const refusal: WorkGcResponse = { mode: 'dry_run', disposition: 'refused',
-  reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EIO', syscall: 'read' }, result: null };
+  reason: 'reference_scope_unresolved', restoration: 'not_resumed', failure: { code: 'EACCES', syscall: 'realpath' }, result: null };
 it('strict route authenticates, rejects invalid filters and maps duplicate GC to busy without invoking twice', async () => {
   root = mkdtempSync(join(tmpdir(), 'gc-routes-'));
   app = Fastify({ logger: false });

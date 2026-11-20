@@ -2,7 +2,7 @@ import { expect, it, jest } from '@jest/globals';
 import { WorkGcStreamDecoder } from '../../src/contracts/work-gc-stream.js';
 import { WORK_GC_FRAME_MAX_BYTES, FirstGlobalProtectionSchema, WorkGcProgressSchema, WorkGcResponseSchema } from '../../src/contracts/work-gc.js';
 
-const response = { mode: 'dry_run', disposition: 'refused', reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EIO', syscall: 'read' }, result: null };
+const response = { mode: 'dry_run', disposition: 'refused', reason: 'reference_scope_unresolved', restoration: 'not_resumed', failure: { code: 'EACCES', syscall: 'realpath' }, result: null };
 const terminal = JSON.stringify({ type: 'result', response }) + '\n';
 const observation = JSON.stringify({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, observed_count: 0, first_global_protection: null } }) + '\n';
 it('decodes arbitrary chunk boundaries and resolves only at terminal plus EOF', () => {
@@ -65,7 +65,7 @@ it('accepts omitted, zero and positive floor retention counts and rejects malfor
     expect(() => read(count)).toThrow();
 });
 it('requires strict enum-only attribution on progress and every non-null result', () => {
-  const mark = { reason: 'reference_scope_unknown', source: 'conversation_content' };
+  const mark = { reason: 'operational_root', source: 'operational_input' };
   expect(FirstGlobalProtectionSchema.parse(mark)).toEqual(mark);
   const progress = { phase: 'selection', elapsed_ms: 0, first_global_protection: mark };
   expect(WorkGcProgressSchema.parse(progress)).toEqual(progress);
@@ -76,7 +76,8 @@ it('requires strict enum-only attribution on progress and every non-null result'
     expected_accounted_logical_bytes_remaining: 4, accounted_target_shortfall: null };
   const completed = { mode: 'dry_run', disposition: 'completed', reason: 'completed', restoration: 'not_resumed', failure: null, result };
   expect(WorkGcResponseSchema.parse(completed)).toEqual(completed);
-  for (const value of [undefined, { ...mark, reason: 'PRIVATE' }, { ...mark, source: 'PRIVATE' }, { ...mark, path: 'PRIVATE' }]) {
+  for (const value of [undefined, { ...mark, reason: 'PRIVATE' }, { ...mark, source: 'PRIVATE' },
+    { ...mark, source: 'record_content' }, { ...mark, source: 'process_owner' }, { ...mark, path: 'PRIVATE' }]) {
     const invalid = { ...progress, first_global_protection: value };
     expect(WorkGcProgressSchema.safeParse(invalid).success).toBe(false);
     expect(WorkGcResponseSchema.safeParse({ ...completed, result: { ...result, first_global_protection: value } }).success).toBe(false);
@@ -85,4 +86,5 @@ it('requires strict enum-only attribution on progress and every non-null result'
   }
   expect(WorkGcProgressSchema.parse({ ...progress, first_global_protection: null }).first_global_protection).toBeNull();
   expect(WorkGcResponseSchema.parse(response).result).toBeNull();
+  expect(WorkGcResponseSchema.safeParse({ ...response, disposition: 'interrupted', result }).success).toBe(false);
 });

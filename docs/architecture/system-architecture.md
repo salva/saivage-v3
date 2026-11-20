@@ -785,8 +785,12 @@ provenance and schema fields. Required JSON, selections, framing and association
 must decode; ordinary readers remain strict. Only unfinished execution
 artifact/capture selections contribute execution roots; authored-output provenance
 alone does not retain its producer's captures. Existing process and operational
-owners retain their protections. The canonical inspector supplies distinct content
-and operational callbacks to the collector's shared resolver. At both lexical and
+owners retain their protections. The canonical inspector supplies distinct content,
+conversation-reference and operational callbacks to the collector's shared resolver.
+Current conversation projections give producer-owned slots one meaning: content,
+whole address or scoped matcher. `readWorkGcConversation` and
+`inspectWorkGcCanonicalState` forward them without re-lexing consumed slots,
+joining calls to results or rerunning tool admission. At both lexical and
 resolved content mark points, an owner-local normalized-component predicate excludes
 administrative containers: the work root and its ancestors (including project and
 `.saivage`), work `cards`, valid card roots and their reserved `tmp`/`processes` roots, and global
@@ -794,10 +798,11 @@ work `processes`, `tmp` and `tmp/stash`. Arbitrary card children such as `foo`,
 reserved-area children such as `tmp/foo`, stash artifacts and process-specific
 capture directories remain concrete file/subtree marks. This applies equally to
 structured and inferred content paths and known aliases without changing inventory
-eligibility. Glob inference changes separately, as described below. Operational callbacks and process-owner capture parents
-keep existing root-valued protection. Resolution still runs for ignored lexical
-roots; unknown scope remains conservative. Current concrete references to older
-files still protect them; administrative content mentions do not.
+eligibility. Operational callbacks and process-owner capture parents keep
+root-valued protection; commissioned Git source filters do not become
+whole-project dependencies. Alias resolution can still find a concrete target
+for an ignored lexical root. Current concrete references protect older files;
+administrative content mentions do not.
 The minimum current compacted-genesis timestamp across unique configured card
 sessions is the card horizon; an empty set, empty session or ordinary genesis
 gives no horizon and protects that card's whole work area. Other cards' and global
@@ -827,23 +832,27 @@ and `observed_count` remain regular files only; directories serve only as glob m
 Extraction pairs a structured `directory`/`cwd` scope, or a bounded same-line quoted
 `directory`/`pattern` group in prose, with its `pattern`, consumes that metadata once and
 resolves the scope through the same metadata-only resolution used by exact paths.
-Unknown recognized aliases stay conservative. The matcher `globToRegExp()` is owned by
-`src/workspace/glob-matcher.ts`, which `src/workspace/vfs.ts` re-exports, so the
-collector and project glob tools share one dialect. For each glob, the collector scans
-the call-local entries within its scope with cooperative yields and counts distinct
-matches up to 51. Marks are added only after that pass completes: 0 matches add
-nothing, 1–50 protect the matched entries, and 51 add nothing from that glob. Matches are
-counted before administrative-root filtering, which still controls what content marks
-protect. No second filesystem walk, outside-work enumeration, persistent cache or saved
-selection is introduced, and newly appearing files are not collected.
+The collector and project glob tools share `globToRegExp()` from
+`src/workspace/glob-matcher.ts`, not the same match inputs. GC resolves a fixed
+directory prefix and matches entries relative to the effective scope. Where
+the matcher could affect selection, it scans call-local entries with cooperative
+yields and counts distinct matches up to 51. Zero matches add nothing; 1–50 protect the
+matched entries; at 51 the whole matcher contribution is discarded. Matching
+precedes administrative-root filtering. A complete search receipt contributes
+independent address suggestions as received; it does not feed that count.
+Neither a receipt nor a directory scope supplies a blanket subtree mark.
+There is no second walk, outside-work enumeration, persistent cache or saved
+selection; newly appearing files are not collected.
 
 Explicit structured path fields pass their entire exact value to reference handling
 before prose extraction. Recognized `project`, `system`, `work`, `tmp` and `file`
 URIs remain eligible independently of native single-quote boundaries, including
 nested query references. Free-text extraction uses matching backtick, double-quote
-and single-quote delimiters, preserving JSON double-quote escape decoding and the
-independent whole-text bare-token/Markdown-link passes. Inferred
-quotations containing decoded CR or LF are inspected as text, not promoted as one
+and single-quote delimiters, preserving JSON double-quote escape decoding and
+the independent bare-token/Markdown-link passes. Content prose needs a complete
+slash-bearing path or supported locator; quotes alone do not admit basenames or
+naked wildcards. Inferred quotations containing decoded CR or LF are inspected
+as text, not promoted as one
 filename/path; recursive decoded-text inspection still extracts nested concrete
 references, including quoted paths with spaces. The same multiline boundary applies
 to all inferred quotations, not exact structured path values. Native single-quoted
@@ -853,16 +862,18 @@ space-containing paths are recognized, but language literals such as
 `open(r'data/with space.txt'r'')` may miss the complete filename. This deliberate
 heuristic can expose old needed work to later deletion; no probability or age-based
 safety guarantee is claimed. Filenames containing line breaks may be missed when
-mentioned only in free text. Ambiguous single-line backtick/double-quoted prose can
-still protect all.
+mentioned only in free text. A complete untagged display can also be lossy:
+the resolver preserves applicable bounded locator and literal native
+interpretations, not a reconstruction of producer bytes.
 
-At the reference resolver only, filesystem errors leaving scope unknown from either
-`realpathSync` or its ENOENT fallback `lstatSync`, including ENAMETOOLONG, retain all
-for that collection. Missing suffix/ancestor handling and dangling-alias protection
-remain; unexpected non-filesystem exceptions propagate. This boundary does not catch
-required projection, inventory, candidate or publication failures. Retain-all can
-skip remaining retention reads and is not an integrity certificate. Recognized unknown
-aliases stay conservative even when unrelated prose guesses are excluded.
+Exact resolution preserves applicable lexical and known resolved marks. A
+missing suffix below a known ancestor can still be bounded. Errors in
+`realpathSync` or its `ENOENT` fallback `lstatSync` can leave a resolved address
+unknown. For a suggestion, only the unbounded contribution is dropped; for an
+operational dependency or a required destination from a tagged, executed,
+successful cardwork write receipt, unresolved scope refuses before selection.
+Unexpected exceptions propagate; this reference boundary does not catch
+projection, inventory, candidate or publication failures.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
 only the verified live lock endpoint/auth, with no fallback after delegation failure.
@@ -1955,17 +1966,19 @@ other ordinary failures require only closed allowlisted original `{code, syscall
 metadata (unrecognized code becomes `unknown`, absent/unrecognized syscall becomes
 null), never private error text or paths. Matching CLI/server contracts must be
 adopted together; no old-response compatibility is provided.
+
+Unresolved required scope stops collection before selection. The response path
+reports `reference_scope_unresolved` as a refusal with no selection result unless
+cancellation takes precedence; in that case it reports `reason: cancelled` and
+`failure: null`. Both outcomes record actual restoration.
+
 Each snapshot and non-null result also requires nullable `first_global_protection`:
 one fixed `{reason,source}` enum value, or null. The resolver owns a single call-local
-first mark, not a parallel writable retain-all flag. The exact branch establishing
-global retention records process uncertainty, an operational broad root, or unknown
-reference scope. Canonical callbacks carry semantic source labels for current card,
-pending notification, selected record, current conversation, unfinished execution
-and workflow inputs; process captures/ownership and operational configuration keep
-their own labels. Content versus operational origin still determines retention;
-labels do not. Recursive extraction carries the label without extra reads or provenance
-joins. Later marks cannot replace the first; a sufficient global mark stops remaining
-extraction and metadata resolution. It does not bypass cancellation or certify history.
+first mark, not a parallel writable retain-all flag. Only `process_owner_uncertain`
+or `operational_root` establishes it. Callbacks carry source labels without extra
+reads; origin, not the label, sets retention authority. Later marks cannot replace
+the first; a sufficient global mark stops remaining extraction and metadata resolution.
+It does not bypass cancellation or certify history.
 The same mark is retained without an observer and sent through existing throttled
 progress. Null/first-only observations are not completion or per-file necessity
 certificates; no new durable family, registry or diagnostic operation is introduced.

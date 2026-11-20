@@ -57,7 +57,7 @@ it('default and explicit preview send the same strict mode only to the published
     reply.writeHead(status, { 'content-type': status === 200 ? 'application/x-ndjson' : 'application/json' });
     if (status === 200) reply.write(JSON.stringify({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, observed_count: 0, first_global_protection: null } }) + '\n');
     reply.end(JSON.stringify(status === 200 ? { type: 'result', response: { mode: body.mode, disposition: 'refused',
-      reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EACCES', syscall: 'open' }, result: null } } : {}) + '\n');
+      reason: 'reference_scope_unresolved', restoration: 'not_resumed', failure: { code: 'EACCES', syscall: 'realpath' }, result: null } } : {}) + '\n');
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address();
@@ -103,8 +103,8 @@ it('default and explicit preview send the same strict mode only to the published
       expect(process.listenerCount('SIGINT')).toBe(sigint);
       expect(process.listenerCount('SIGTERM')).toBe(sigterm);
       expect(output.mock.calls.map(([text]) => JSON.parse(text as string))).toEqual(
-        bodies.map(({ mode }) => ({ mode, disposition: 'refused', reason: 'maintenance_refused',
-          restoration: 'not_acquired', failure: { code: 'EACCES', syscall: 'open' }, result: null })),
+        bodies.map(({ mode }) => ({ mode, disposition: 'refused', reason: 'reference_scope_unresolved',
+          restoration: 'not_resumed', failure: { code: 'EACCES', syscall: 'realpath' }, result: null })),
       );
       status = 401;
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('401');
@@ -120,7 +120,7 @@ it('incomplete real HTTP transport prints observations but no manufactured final
     requests++;
     reply.writeHead(200, { 'content-type': 'application/x-ndjson' });
     reply.end(JSON.stringify({ type: 'progress', progress: { phase: 'selection', elapsed_ms: 0, deleted_count: 1,
-      first_global_protection: { reason: 'reference_scope_unknown', source: 'conversation_content' } } }) + '\n');
+      first_global_protection: { reason: 'operational_root', source: 'operational_input' } } }) + '\n');
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address();
@@ -136,7 +136,7 @@ it('incomplete real HTTP transport prints observations but no manufactured final
     const listeners = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
     await expect(run(['node', 'saivage', 'gc-work', '--delete'])).rejects.toThrow('transport or response body read failed');
     expect(stdout).not.toHaveBeenCalled();
-    expect(stderr).toHaveBeenCalledWith('GC selection elapsed_ms=0 deleted_count=1 first_global_protection=reason:reference_scope_unknown,source:conversation_content\n');
+    expect(stderr).toHaveBeenCalledWith('GC selection elapsed_ms=0 deleted_count=1 first_global_protection=reason:operational_root,source:operational_input\n');
     expect([process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')]).toEqual(listeners);
     expect(requests).toBe(1);
   } finally {

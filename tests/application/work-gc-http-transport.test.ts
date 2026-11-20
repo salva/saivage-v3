@@ -19,7 +19,7 @@ async function listen(handler: RequestListener) {
   if (!address || typeof address === 'string') throw new Error('Missing fixture address');
   return { origin: `http://127.0.0.1:${address.port}`, auth: 'disabled' as const };
 }
-const response = { mode: 'dry_run', disposition: 'refused', reason: 'maintenance_refused', restoration: 'not_acquired', failure: { code: 'EACCES', syscall: 'open' }, result: null };
+const response = { mode: 'dry_run', disposition: 'refused', reason: 'reference_scope_unresolved', restoration: 'not_resumed', failure: { code: 'EACCES', syscall: 'realpath' }, result: null };
 const resultLine = JSON.stringify({ type: 'result', response }) + '\n';
 
 it('uses the selected Undici request with zero header/body deadlines, waits for delayed headers and split body, and closes its socket', async () => {
