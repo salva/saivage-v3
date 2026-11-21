@@ -2583,11 +2583,15 @@ An existing activation disables capture without reading it; a claimed UUID remai
 consumed even if setup fails. Automatic restart cannot rearm it.
 
 Capture is failure-only at the shared model transport boundary: non-2xx, terminal
-HTTP-200 SSE errors, malformed/truncated responses, network/inactivity failures and
-explicit parsed `content_filter` refusals. Auth refresh, pretransport setup/admission,
-ordinary success and cancellation produce no dump. Summary business-validation
-failures such as empty prose or `length` do not qualify. Existing refusal handling,
-summary recovery, retries, routing and canonical evidence outcomes are unchanged.
+HTTP-200 SSE errors, malformed/truncated responses, Codex body-read failures,
+network/inactivity failures and explicit parsed `content_filter` refusals. Auth
+refresh, pretransport setup/admission, ordinary success and cancellation produce
+no dump. An already-aborted owner signal at capture time also suppresses a dump,
+even for an otherwise qualifying `body_read_error`. This gate does not relabel
+the failure or suppress ordinary attempt exchange recording. Summary
+business-validation failures such as empty prose or `length` do not qualify.
+Existing refusal handling, summary recovery, retries, routing and canonical
+evidence outcomes are unchanged.
 An explicit finish-reason refusal can therefore have a diagnostic while canonical
 exchange evidence still says `ok`.
 
@@ -2605,8 +2609,10 @@ attempt uses the actor's actual preceding-attempt count, not pass-local zero. Ac
 HTTP status is null until a response is observed; any embedded status is separate.
 Structured provider codes are ephemeral, not inferred from error prose.
 
-The private diagnostic family is format3 with
-`privacy_policy:failed-provider-request-privacy-2` and strict overload failure kind.
+The private `failed-provider-request-diagnostic` family uses `format_version:4`
+and `privacy_policy:failed-provider-request-privacy-2`. Its strict `failure_kind`
+enum includes `server_overloaded` and `body_read_error`; a native read code is
+not `provider_code`.
 It has no runtime reader/index; retained captures remain unconsumed. Its historical
 source change is recorded in the format reference, not a current conversation or
 shared-envelope version claim. Each document
@@ -3307,13 +3313,14 @@ A hash mismatch raises the one internal integrity failure and performs no generi
 Invocation Service rethrows that same failure before classification, attempt or candidate accounting, indexing, availability mutation, wait, retry, failover, later-candidate credential/provider I/O, or publication.
 After a valid hash, the shared runner performs exactly one generic capability check; mismatch likewise precedes credentials, recorder, network, and writes.
 The selected closed protocol adapter then carries its credential requirement into delayed resolution, which performs no capability or protocol selection, and the exact planned bytes are sent and reused on retry.
-The selected adapter directly consumes the successful fetched `Response`; the structured recorder retains response status, usage, finish reason, terminal-tool evidence, and raw caught error evidence without buffering or capturing a raw response body.
+The selected adapter directly consumes the successful fetched `Response`; the structured recorder retains status, usage, finish reason and terminal-tool evidence on success, and raw caught error evidence on failure, without buffering or capturing a raw response body.
 
 For every started attempt whose success or error reaches the runner, the runner settles exactly one raw in-process exchange before returning or constructing recovery.
-Raw caught name/message and an available typed status are evidence before classification; typed Codex protocol failures classified after HTTP 200 retain response and error status 200. The request-local inactivity error supplies no HTTP status.
+The HTTP lifecycle records the actual opened response status independently of attempt exchange recording. An error exchange retains the raw caught name and message but takes its optional `response_status` and `error.status` only from the caught typed failure. Codex `body_read_error` carries the actual opened status, including 200. Codex `parse_error` and the request-local inactivity error do not supply a typed status; an absent exchange status does not establish that no response opened.
 An aborted signal relabels a caught in-attempt value as typed cancellation only when that value is identity-equal to `signal.reason`.
-The request scope preserves exact abort-associated reasons across fetch/body APIs. If owner cancellation races with inactivity timeout before a failed outcome is delivered, the original owner reason wins only for that timeout/abort path; unrelated parse/network failures are not relabeled merely because the owner was later aborted.
-The Codex parser rethrows the exact caught effective request-signal reason (owner cancellation or inactivity timeout) or Error/DOMException named `AbortError`, releases its reader lock, and leaves raw evidence and classification to the shared runner. An independent AbortError is `cancelled/abort`, not timeout; an unrelated failure during an aborted signal remains its parse failure. Before natural EOF, every exit requests cancellation with rejection handled immediately, without awaiting cancellation or draining the stream. Pending or rejected cancellation never delays or replaces a known completion or original failure; natural EOF does not request cancellation.
+The request scope preserves exact abort-associated reasons across fetch/body APIs. If owner cancellation races with a request timeout before a failed outcome is delivered, the original owner reason wins only for that timeout/abort path; unrelated failures are not relabeled merely because the owner was later aborted.
+The Codex parser rethrows the exact caught effective request-signal reason or any Error/DOMException named `AbortError`. If the request scope does not associate that native abort with its signal, an opened HTTP 200 gets `failed`/`protocol` in the HTTP lifecycle, but the attempt is independently `cancelled`/`abort`, not an owner cancellation or timeout, and is not retried. An unrelated ordinary failure while the signal is aborted stays classified by the operation that failed: `body_read_error` for a rejected read, `parse_error` for a failure processing delivered data.
+On ordinary exits the parser releases its reader lock. Before natural EOF it requests cancellation with rejection handled immediately, without awaiting cancellation or draining the stream. Pending or rejected cancellation never delays or replaces a known completion or original failure; natural EOF does not request cancellation. Publication uncertainty escapes by identity before further classification, observation, retry or reader cleanup.
 For owner cancellation, a direct Invocation Service caller performs no retry or availability mutation and retains the indexed raw exchange.
 Once an ordinary or pinned attempt returns known success, racing abort does not erase that completion, private context, or indexed attempts. No late availability success update occurs after abort. A retained graceful owner persists known output and publishes evidence through its normal path, matching cancelled tool calls without executing or continuing them; there is no alternate publication path or completeness guarantee.
 In contained production, normal actor output persistence and per-attempt redacted owner-session evidence publication execute inside the admitted raw lifecycle callback before wrapper settlement and consumer delivery.
@@ -3326,7 +3333,7 @@ Provider input-context evidence is strict and structured.
 Matching is case-sensitive; message prose, recursive/nested markers, malformed bodies, status alone, generic token language, and output-limit evidence do not qualify.
 Responses `incomplete_details.reason: 'max_output_tokens'` is the distinct `output_token_limit_exceeded` failure.
 Typed terminal evidence remains eligible after HTTP 200.
-Every failure retains the actual HTTP response status; an embedded terminal status is classification evidence and never replaces transport evidence.
+These direct provider failure classifications retain the actual HTTP response status; an embedded terminal status is classification evidence and never replaces transport evidence.
 The durable lifecycle `blocker_cause: 'token_budget_exceeded'` is an independent current card-result value and remains unchanged.
 
 Direct provider failure classification has one explicit source boundary and one precedence across non-OK HTTP responses, Codex `error`/`response.failed` terminals, and public Responses failed terminals, including terminals delivered after HTTP 200: HTTP or embedded 401 is permanent authentication; HTTP or embedded 429, exact rate-limit evidence, and exact `usage_limit_reached` are rate limit, retaining valid timing metadata; HTTP or embedded 5xx and exact transient markers are server transient; eligible simultaneous exact input-context and explicit content evidence is a fail-closed provider-protocol ambiguity; eligible exact input context follows; then direct content-policy evidence; then remaining HTTP or embedded 403/direct auth; then the existing opened-200 prompt-policy rejection; then valid retry/reset metadata alone is rate limit; then the path's existing unmatched failure. Thus 503 plus Retry-After uses transient cooling, residual 403 plus timing remains terminal auth, and explicit 429 retains its timing horizon.
@@ -3351,16 +3358,31 @@ Blank lines dispatch fields; EOF finalizes decoding, commits pending CR and a no
 Comments and unknown fields are ignored.
 The last case-sensitive `event` wins and empty/absent event means `message`; each `data` value removes at most one space after the first colon and values join with exactly `\n`.
 Only exact normalized `[DONE]` is the sentinel.
-The unchanged joined `dataText` is parsed once and is the sole Codex stream-failure evidence; framing, comments, chunks, and line-ending spelling are not evidence.
-Malformed UTF-8 or JSON is a typed parse error, never skipped.
+The unchanged joined `dataText` is parsed once and supplies the event evidence for provider-declared `error` and `response.failed`; framing, comments, chunks, and line-ending spelling are not provider failure evidence. Malformed UTF-8 or JSON, invalid events or completions, and truncation remain `parse_error` with fixed parser messages that do not copy input fragments, identifiers or caught messages.
+
+An ordinary rejection of the Codex body reader's `read()` is `body_read_error`, not a parse failure or provider-declared error. It returns no partial candidate. The exchange records the actual opened status and the fixed message `OpenAI Codex response body read interrupted.` even with private capture disabled. The message may append one allowlisted code in parentheses: `UND_ERR_SOCKET`, `UND_ERR_BODY_TIMEOUT`, `ECONNRESET`, `ETIMEDOUT` or `EPIPE`. Only an own data `code` on the rejection or on its immediate own data `cause` qualifies, in that order. This code is not provider evidence, a request-owned timeout or an attribution of responsibility. The failure uses the same ordinary finite retry decision and delay as `parse_error`, without an availability update from that decision.
+
+For an opened HTTP 200, `body_disposition` describes how consumption ended,
+independently of the failure classification. Representative terminal observations:
+
+| Example | `outcome` | `error_code` | `body_disposition` |
+|---|---|---|---|
+| Ordinary rejected read | `failed` | `body_read_error` | `incomplete` |
+| Delivered chunk contains malformed JSON before EOF or a policy stop | `failed` | `protocol` | `incomplete` |
+| `response.completed` with a valid response ID stops consumption before EOF, but there is no finalized tool call or completed assistant message | `failed` | `protocol` | `cancelled_by_policy` |
+| Natural EOF with no completion or provider error event, or a parse failure while finalizing at EOF | `failed` | `protocol` | `consumed` |
+| Provider-declared `error` or `response.failed` dispatched while finalizing at EOF | `failed` | `provider_failure` | `consumed` |
+
+The lifecycle carries no native exception text or code. Provider-declared terminal failures retain their separate classification. Request-owned inactivity/deadline timeouts and owner cancellation retain `timeout` with `inactivity` or `deadline`, and `cancelled` with `owner_abort`, respectively.
+
 The Codex parser validates every recognized output-text delta but never assembles deltas into returned text, and nested content-part/output-text done forms are not completion authorities.
 Function items require a real nonempty string `call_id`, or, only when absent, a real nonempty string `id`; no identifier is fabricated or stringified. Argument deltas require a usable real call/item reference resolving to a pending function and a string delta; unknown targets and malformed deltas fail at consumption. Real item aliases are removed on finalization, and arguments-done followed by item-done deduplicates under the real call identity. A self-contained completed function item remains supported.
 Provisional function names remain raw and may be absent or malformed until replaced by a valid late completion name. Each new finalization selects the completion name when non-nullish, otherwise the pending name, and requires a string of length greater than zero; missing, empty, or non-string selected names fail as typed `parse_error` without exposing the raw value. Explicit non-nullish invalid completion names override pending names and fail immediately. Names are not trimmed or checked against a tool registry, and already-finalized identities are ignored before name validation.
 Its message candidate is the latest complete assistant `response.output_item.done`, replacing any prior completed message in full.
 Only `response.completed` carrying a non-null, non-array object `response` with a string `response.id` permits success; a malformed completion is a typed parse failure even when a message or finalized tool candidate exists.
-Physical EOF or `[DONE]` before that valid completion is typed truncation even with a candidate, while an EOF-finalized valid completion event retains the line reader's dispatch semantics.
+`[DONE]` before that valid completion is typed truncation even with a candidate. At physical EOF the parser first processes any final dispatched event; if that processing neither completes nor reports a failure, the missing completion is typed truncation.
 A pre-completion `error` or `response.failed` supersedes every candidate.
-After valid completion the parser returns finalized tools before the latest message and stops immediately without awaiting physical closure or consuming later framed or physical events.
+After valid completion the parser returns finalized tools before the latest message, or fails with `parse_error` if neither exists. It does not await physical closure or consume later framed or physical events.
 
 ### Local request admission and authoritative recovery
 

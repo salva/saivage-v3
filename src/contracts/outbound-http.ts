@@ -37,6 +37,7 @@ export type OutboundHttpCode =
   | 'network'
   | 'http_status'
   | 'protocol'
+  | 'body_read_error'
   | 'provider_failure'
   | 'inactivity'
   | 'deadline'

@@ -2,6 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 
 import { readOpenAICodexStream } from '../../src/agents/llm-codex-parser.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../src/contracts/llm-failure.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 
 const encoder = new TextEncoder();
 
@@ -129,7 +130,7 @@ describe('OpenAI Codex stream parser', () => {
       + event({ type: 'response.function_call_arguments.delta', item_id: 'item-1', delta: '{"city":' })
       + event({ type: 'response.function_call_arguments.delta', call_id: 'call-original', delta: '"Madrid"}' });
     const invalidNames = [undefined, null, '', 7, { secret: 'must not be disclosed' }, ['lookup']];
-    const errorMessage = 'Error reading OpenAI Codex stream: OpenAI Codex finalized function name must be a nonempty string.';
+    const errorMessage = 'OpenAI Codex finalized function name must be a nonempty string.';
     for (const name of invalidNames) {
       // A nameless completion consumes the raw provisional value, never a string coercion.
       await expectParseError(stream(added(name) + done(undefined) + finalizedTool() + completion()), errorMessage);
@@ -172,8 +173,81 @@ describe('OpenAI Codex stream parser', () => {
     const controller = new AbortController();
     controller.abort(new Error('owner stopped'));
     const body = new ReadableStream<Uint8Array>({ pull(streamController) { streamController.error(new Error('different failure')); } });
-    await expect(readOpenAICodexStream(body, 200, controller.signal)).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
+    await expect(readOpenAICodexStream(body, 200, controller.signal)).rejects.toMatchObject({ failure: { kind: 'body_read_error' } });
     expect(body.locked).toBe(false);
+  });
+
+  it('rejects a partial candidate by failed operation, exposing only allowlisted own data codes', async () => {
+    const get = jest.fn(() => { throw new Error('Must not invoke accessor'); });
+    const cases = [
+      [Object.assign(new Error('synthetic-private-message'), { code: 'UND_ERR_SOCKET', cause: { code: 'EPIPE' } }), 'UND_ERR_SOCKET'],
+      [Object.assign(new SyntaxError('synthetic-private-syntax', { cause: { code: 'ECONNRESET', message: 'synthetic-private-nested' } }), { code: 'synthetic-private-code' }), 'ECONNRESET'],
+      [Object.assign(new Error('synthetic-private-message', { cause: { code: 'synthetic-private-nested-code', cause: { code: 'ETIMEDOUT' } } }), { stack: 'synthetic-private-stack' }), undefined],
+      [new Error('synthetic-private-message mentioning EPIPE'), undefined],
+      [Object.defineProperties(new Error('synthetic-private-message'), { code: { get }, cause: { get } }), undefined],
+    ] as const;
+    for (const [reason, code] of cases) {
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      const body = new ReadableStream<Uint8Array>({ start(value) {
+        controller = value;
+        value.enqueue(encoder.encode(message('partial candidate')));
+      } });
+      const onData = jest.fn(() => controller.error(reason));
+      const expected = `OpenAI Codex response body read interrupted.${code ? ` (${code})` : ''}`;
+      await expect(readOpenAICodexStream(body, 201, undefined, onData)).rejects.toMatchObject({
+        message: expected, failure: { kind: 'body_read_error', provider: 'openai-codex', status: 201, message: expected },
+      });
+      expect(onData).toHaveBeenCalledTimes(1);
+      expect(body.locked).toBe(false);
+    }
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('keeps malformed delivered JSON private (image input=%s)', async imageBearing => {
+    await expect(readOpenAICodexStream(stream('data: synthetic-private-json\n\n'), 200, undefined, undefined, imageBearing))
+      .rejects.toMatchObject({ failure: { kind: 'parse_error', message: 'Invalid JSON payload in OpenAI Codex stream.' } });
+  });
+
+  it('uses a fixed parse reason for invalid UTF-8', async () => {
+    await expectParseError(byteStream(Uint8Array.of(0xff)), 'Malformed OpenAI Codex stream.');
+  });
+
+  it.each([
+    ['delta', 'OpenAI Codex argument delta targets an unknown function call.'],
+    ['done', 'OpenAI Codex completed arguments target an unknown function call.'],
+  ])('keeps the unknown-target %s identifier private', async (suffix, reason) => {
+    await expectParseError(stream(event({
+      type: `response.function_call_arguments.${suffix}`, item_id: `synthetic-private-id-${suffix}`,
+      delta: '{}', arguments: '{}',
+    })), reason);
+  });
+
+  it('rethrows an independent AbortError unchanged and releases the reader', async () => {
+    const reason = new DOMException('independent native abort', 'AbortError');
+    const owner = new AbortController();
+    const body = new ReadableStream<Uint8Array>({ pull(controller) { controller.error(reason); } });
+    await expect(readOpenAICodexStream(body, 200, owner.signal)).rejects.toBe(reason);
+    expect(owner.signal.aborted).toBe(false);
+    expect(body.locked).toBe(false);
+  });
+
+  it('keeps classified and fatal read failures by identity with only ordinary cleanup', async () => {
+    const classified = new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message: 'classified' });
+    const fatal = new PublicationOutcomeUnknownError();
+    for (const reason of [classified, fatal]) {
+      const body = new ReadableStream<Uint8Array>({ pull(controller) { controller.error(reason); } });
+      const reader = body.getReader();
+      jest.spyOn(body, 'getReader').mockReturnValue(reader);
+      const read = jest.spyOn(reader, 'read');
+      const cancel = jest.spyOn(reader, 'cancel');
+      const release = jest.spyOn(reader, 'releaseLock');
+      const disposition = jest.fn();
+      await expect(readOpenAICodexStream(body, 200, undefined, undefined, false, disposition)).rejects.toBe(reason);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(cancel).toHaveBeenCalledTimes(reason === fatal ? 0 : 1);
+      expect(release).toHaveBeenCalledTimes(reason === fatal ? 0 : 1);
+      expect(disposition.mock.calls).toEqual([['incomplete']]);
+    }
   });
 
   it.each([
@@ -325,7 +399,7 @@ describe('OpenAI Codex stream parser', () => {
       expect((error as LlmRequestError).failure).toMatchObject({
         kind: 'parse_error',
         provider: 'openai-codex',
-        message: 'Error reading OpenAI Codex stream: OpenAI Codex stream truncated before response.completed.',
+        message: 'OpenAI Codex stream truncated before response.completed.',
       });
       return;
     }

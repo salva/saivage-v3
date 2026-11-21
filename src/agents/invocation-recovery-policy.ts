@@ -93,6 +93,7 @@ class InvocationRecoveryPolicy {
       case 'local_setup_error':
         return { kind: 'terminal' };
       case 'parse_error':
+      case 'body_read_error':
         return { kind: 'retry', wait: 'standard', retryDelayMs: context.recoveryDelayMs };
       case 'cancelled':
         return { kind: 'terminal' };

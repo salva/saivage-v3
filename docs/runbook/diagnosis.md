@@ -264,6 +264,27 @@ coexist with JSON. These are not canonical JSONL, app Events, API or UI Debug da
 | outbound_http_terminal | Response handling ended, **before** later credentials/evidence/records; not logical completion or remote-effect proof. consumed=EOF; not_consumed=header-only; cancelled_by_policy=bounded/parser policy, not user cancellation; incomplete=unfinished. |
 | outbound_http_retry_wait | Scheduler chose sleep. delay is duration; optional deadline is availability Unix time, not request timeout/next-send promise. Hashed waiting candidate can change on wake. No countdown. |
 
+For a Codex HTTP 200, use `error_code` on `outbound_http_terminal` to identify the
+failure class and `body_disposition` to see how far consumption got. Neither
+HTTP 200 nor the disposition alone establishes success or failure. Examples:
+
+| `outcome` | `error_code` | `body_disposition` | Example |
+|---|---|---|---|
+| `failed` | `body_read_error` | `incomplete` | The body reader rejected a read. |
+| `failed` | `protocol` | `incomplete` | Delivered data was malformed before EOF, or a native abort was not claimed by the request scope. Do not infer a rejected read from `incomplete`. |
+| `failed` | `protocol` | `cancelled_by_policy` | A completion event stopped the read early, but there was no finalized tool call or completed assistant message to return. |
+| `failed` | `protocol` | `consumed` | The reader reached EOF without completion, or parsing failed while finalizing at EOF. |
+| `failed` | `provider_failure` | `consumed` | Finalizing at EOF dispatched a provider `error` or `response.failed` event. |
+
+The lifecycle records the actual opened status and has no native exception code.
+A settled error exchange can omit status even when the lifecycle shows 200, as
+with a Codex parse error. A typed `body_read_error` carries the actual opened
+status into the exchange, and its safe error message can include one allowlisted
+native code even with private captures off. The code is optional; a timeout-like
+native code does not mean Saivage's request timer expired. Neither a rejected
+read nor a `protocol` failure assigns responsibility. An independent abort is
+not a request-owned timeout or owner cancellation.
+
 Correlate request_id/input_id, source_session/card and invocation_session. Source is
 initiating agent/card, not destination MCP or saved-record card; globals omit card,
 ownerless startup omits source. Agent/model refs are hashed labels, not content
@@ -295,9 +316,12 @@ Use a new UUID, not a recurring service argument. Exact destination is
 Exclusive activation mkdir consumes the UUID even on later failure; reuse disables
 capture without opening old content. Normal canonical startup gates still apply.
 
-The source owner `src/agents/failed-provider-request-diagnostics.ts` emits format3 /
-`failed-provider-request-privacy-2`. Shared16 publication-attempt slots across
-primary/summary within one monotonic hour, completion-time eligibility; no timer.
+The source owner `src/agents/failed-provider-request-diagnostics.ts` emits
+`format_version:4` with unchanged `privacy_policy:failed-provider-request-privacy-2`.
+Format 4 admits `failure_kind:body_read_error`; the native read code is not
+`provider_code`. Older captures remain untouched. Primary and summary requests
+share 16 publication-attempt slots within one monotonic hour; eligibility is
+checked at completion, with no timer.
 Known capture failures/omissions consume slots without refund/retry. File <=8MiB total
 UTF-8 JSON; oversized raw bodies are not parsed, oversized projected envelopes become
 metadata-only <=16KiB (`raw_body_size_limit`/`stored_envelope_size_limit`). No prefix
@@ -305,12 +329,19 @@ masquerades as full body. <=128MiB publications/temporaries per activation plus 
 setup; repeated activations can accumulate without bound.
 
 Qualifies: non2xx, HTTP200 terminal SSE errors, malformed/truncated responses,
-network/inactivity after model transport entry, parsed content_filter refusals.
+Codex body-read failures, network/inactivity after model transport entry,
+parsed content_filter refusals.
 Not success, refresh, pretransport/admission, cancellation or successful-request
 empty/length summary validation. Finish-reason refusal can still have canonical
 status ok. Fixed stderr enabled/disabled/limit-reached/capture-failed notices expose
 no content. Known prepublication error preserves provider outcome; publication
 uncertainty exits before warning/settlement/retry/cleanup even if cancelled.
+
+If the owner's signal is already aborted at capture time, no dump is written
+even for an otherwise qualifying failure with capture slots available. That
+gate does not change the failure classification or ordinary exchange recording.
+A `body_read_error` can therefore retain its safe exchange message without a
+private dump; the missing dump does not make it an owner-cancelled attempt.
 
 **Authorized local inspection only.** Files omits/refuses namespace and aliases
 before access; no UI/API link/export/replay. These contain sensitive project/prompt

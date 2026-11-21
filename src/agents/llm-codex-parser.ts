@@ -1,3 +1,4 @@
+import { types } from 'node:util';
 import {
   LlmRequestError,
   PublicationOutcomeUnknownError,
@@ -28,6 +29,7 @@ export async function readOpenAICodexStream(
   const reader = body.getReader();
   onBodyDisposition('incomplete');
   let naturalEOF = false;
+  let reading = false;
   let publicationUnknown = false;
   const sse = new IncrementalSseReader();
   let message: string | undefined;
@@ -44,7 +46,10 @@ export async function readOpenAICodexStream(
 
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      reading = true;
+      const chunk = await reader.read();
+      reading = false;
+      const { done, value } = chunk;
       if (done) {
         naturalEOF = true;
         onBodyDisposition('consumed');
@@ -63,7 +68,7 @@ export async function readOpenAICodexStream(
         ) {
           return completedCodexResult(toolCalls, message, usage);
         }
-        throw new Error('OpenAI Codex stream truncated before response.completed.');
+        throw codexParseError('OpenAI Codex stream truncated before response.completed.');
       }
       if (
         consumeCodexEvents(
@@ -91,14 +96,20 @@ export async function readOpenAICodexStream(
     )
       throw err;
     if (err instanceof LlmRequestError) throw err;
-    throw new LlmRequestError({
-      kind: 'parse_error',
-      provider: 'openai-codex',
-      message:
-        suppressBodyPreview && err instanceof SyntaxError
-          ? 'Error reading OpenAI Codex stream: invalid JSON payload.'
-          : `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}`,
-    });
+    if (reading) {
+      const code =
+        bodyReadCode(ownDataValue(err, 'code')) ??
+        bodyReadCode(ownDataValue(ownDataValue(err, 'cause'), 'code'));
+      throw new LlmRequestError({
+        kind: 'body_read_error',
+        provider: 'openai-codex',
+        status: responseStatus,
+        message: code
+          ? `OpenAI Codex response body read interrupted. (${code})`
+          : 'OpenAI Codex response body read interrupted.',
+      });
+    }
+    throw codexParseError('Malformed OpenAI Codex stream.');
   } finally {
     if (!publicationUnknown) {
       // Cancellation may never settle; cleanup must not replace the known result or failure.
@@ -106,6 +117,29 @@ export async function readOpenAICodexStream(
       reader.releaseLock();
     }
   }
+}
+
+function ownDataValue(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== 'object' || types.isProxy(value)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+}
+
+function bodyReadCode(value: unknown): string | undefined {
+  switch (value) {
+    case 'UND_ERR_SOCKET':
+    case 'UND_ERR_BODY_TIMEOUT':
+    case 'ECONNRESET':
+    case 'ETIMEDOUT':
+    case 'EPIPE':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function codexParseError(message: string): LlmRequestError {
+  return new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message });
 }
 
 function completedCodexResult(
@@ -116,7 +150,7 @@ function completedCodexResult(
   const metadata = usage === undefined ? {} : { usage };
   if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls, ...metadata };
   if (message !== undefined) return { kind: 'message', content: message, ...metadata };
-  throw new Error(
+  throw codexParseError(
     'OpenAI Codex response completed without a finalized tool call or completed assistant message.',
   );
 }
@@ -135,7 +169,7 @@ function consumeCodexEvents(
   for (const output of outputs) {
     onData();
     if (output === SSE_DONE)
-      throw new Error('OpenAI Codex stream ended before response.completed.');
+      throw codexParseError('OpenAI Codex stream ended before response.completed.');
     if (
       handleOpenAICodexEvent(
         output.dataText,
@@ -163,12 +197,19 @@ export function handleOpenAICodexEvent(
   setUsage: (usage: LlmUsage | undefined) => void,
   suppressBodyPreview = false,
 ): boolean {
-  const event = JSON.parse(dataText) as Record<string, unknown>;
+  let event: Record<string, unknown>;
+  try {
+    event = JSON.parse(dataText) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw codexParseError('Invalid JSON payload in OpenAI Codex stream.');
+    throw error;
+  }
 
   const type = event['type'];
   if (type === 'response.output_text.delta') {
     if (typeof event['delta'] !== 'string')
-      throw new Error('OpenAI Codex output text delta must be a string.');
+      throw codexParseError('OpenAI Codex output text delta must be a string.');
   } else if (type === 'response.output_item.added') {
     const item = event['item'] as Record<string, unknown> | undefined;
     if (item?.['type'] === 'function_call') {
@@ -185,7 +226,7 @@ export function handleOpenAICodexEvent(
     }
   } else if (type === 'response.output_item.done') {
     const item = directObject(event['item']);
-    if (!item) throw new Error('OpenAI Codex completed output item must be an object.');
+    if (!item) throw codexParseError('OpenAI Codex completed output item must be an object.');
     if (item['type'] === 'function_call') {
       const callId = realCodexIdentity(item, 'id');
       const itemId = optionalCodexItemIdentity(item);
@@ -206,15 +247,15 @@ export function handleOpenAICodexEvent(
     const id = realCodexIdentity(event, 'item_id');
     const pending = pendingToolCalls.get(id);
     if (!pending)
-      throw new Error(`OpenAI Codex argument delta targets unknown function call '${id}'.`);
+      throw codexParseError('OpenAI Codex argument delta targets an unknown function call.');
     if (typeof event['delta'] !== 'string')
-      throw new Error('OpenAI Codex argument delta must be a string.');
+      throw codexParseError('OpenAI Codex argument delta must be a string.');
     pending.args += event['delta'];
   } else if (type === 'response.function_call_arguments.done') {
     const id = realCodexIdentity(event, 'item_id');
     const pending = pendingToolCalls.get(id);
     if (!pending)
-      throw new Error(`OpenAI Codex completed arguments target unknown function call '${id}'.`);
+      throw codexParseError('OpenAI Codex completed arguments target an unknown function call.');
     finalizeCodexToolCall(
       toolCalls,
       finalizedToolCalls,
@@ -242,7 +283,7 @@ export function handleOpenAICodexEvent(
   } else if (type === 'response.completed') {
     const response = directObject(event['response']);
     if (!response || typeof response['id'] !== 'string') {
-      throw new Error(
+      throw codexParseError(
         'OpenAI Codex response.completed must carry an object response with a string id.',
       );
     }
@@ -255,7 +296,7 @@ export function handleOpenAICodexEvent(
 function realCodexIdentity(value: Record<string, unknown>, fallbackKey: 'id' | 'item_id'): string {
   const selected = value['call_id'] === undefined ? value[fallbackKey] : value['call_id'];
   if (typeof selected !== 'string' || selected.length === 0)
-    throw new Error('OpenAI Codex function call must carry a nonempty real identity.');
+    throw codexParseError('OpenAI Codex function call must carry a nonempty real identity.');
   return selected;
 }
 
@@ -263,7 +304,7 @@ function optionalCodexItemIdentity(item: Record<string, unknown>): string | unde
   const id = item['id'];
   if (id === undefined) return undefined;
   if (typeof id !== 'string' || id.length === 0)
-    throw new Error('OpenAI Codex function item id must be a nonempty string.');
+    throw codexParseError('OpenAI Codex function item id must be a nonempty string.');
   return id;
 }
 
@@ -284,24 +325,24 @@ function finalizeCodexToolCall(
 ): void {
   if (finalizedToolCalls.has(id)) return;
   if (typeof name !== 'string' || name.length === 0)
-    throw new Error('OpenAI Codex finalized function name must be a nonempty string.');
+    throw codexParseError('OpenAI Codex finalized function name must be a nonempty string.');
   finalizedToolCalls.add(id);
   toolCalls.push({ id, type: 'function', function: { name, arguments: args || '{}' } });
 }
 
 function completedCodexMessageContent(item: Record<string, unknown>): string {
   if (item['role'] !== 'assistant')
-    throw new Error('OpenAI Codex completed message role must be assistant.');
+    throw codexParseError('OpenAI Codex completed message role must be assistant.');
   const content = item['content'];
   if (!Array.isArray(content))
-    throw new Error('OpenAI Codex completed message content must be an array.');
+    throw codexParseError('OpenAI Codex completed message content must be an array.');
   let message = '';
   for (const part of content) {
     if (!part || typeof part !== 'object') continue;
     const typedPart = part as Record<string, unknown>;
     if (typedPart['type'] !== 'output_text') continue;
     if (typeof typedPart['text'] !== 'string')
-      throw new Error('OpenAI Codex completed output text must be a string.');
+      throw codexParseError('OpenAI Codex completed output text must be a string.');
     message += typedPart['text'];
   }
   return message;

@@ -159,7 +159,9 @@ export async function consumeProviderRequest<T>(
         : error instanceof LlmRequestError
           ? error.failure.kind === 'parse_error'
             ? 'protocol'
-            : 'provider_failure'
+            : error.failure.kind === 'body_read_error'
+              ? 'body_read_error'
+              : 'provider_failure'
           : responseOk === undefined
             ? 'network'
             : 'protocol',

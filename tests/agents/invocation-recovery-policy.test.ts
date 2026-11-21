@@ -74,10 +74,14 @@ describe('InvocationRecoveryPolicy', () => {
   });
 
   it('uses standard retry control for parse errors without provider-health mutation', () => {
-    expect(policy.decideFailure(
+    const parse = policy.decideFailure(
       new LlmRequestError({ kind: 'parse_error', provider: 'openai-compatible', message: 'invalid json', bodyPreview: '{' }),
       baseContext,
-    )).toEqual({ kind: 'retry', wait: 'standard', retryDelayMs: 25 });
+    );
+    expect(parse).toEqual({ kind: 'retry', wait: 'standard', retryDelayMs: 25 });
+    expect(policy.decideFailure(new LlmRequestError({
+      kind: 'body_read_error', provider: 'openai-codex', status: 200, message: 'read interrupted',
+    }), baseContext)).toEqual(parse);
   });
 
   it('terminates typed prompt-policy rejection without identical retry', () => {

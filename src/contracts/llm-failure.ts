@@ -44,6 +44,7 @@ export type LlmTransportFailure =
       providerResponse: string;
     }
   | { kind: 'output_token_limit_exceeded'; provider: string; message: string; status: number }
+  | { kind: 'body_read_error'; provider: string; message: string; status: number }
   | { kind: 'parse_error'; provider: string; message: string; bodyPreview?: string }
   | { kind: 'cancelled'; provider: string; message: string; reason: 'abort' | 'timeout' }
   | {

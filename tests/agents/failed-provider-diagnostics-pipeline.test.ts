@@ -16,7 +16,7 @@ import {
   createInvocationServiceProvider,
   executeInternalSummaryTurn,
 } from '../../src/application/invocation-service-provider.js';
-import { AdmittedProviderTurnFailure, NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
+import { AdmittedProviderTurnFailure, NO_FRESHNESS_EFFECTS, ProviderTurnFailure } from '../../src/contracts/index.js';
 import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 import {
@@ -149,7 +149,65 @@ function refusal() {
 }
 
 describe('failed diagnostics through real invocation owners', () => {
-  it('writes strict diagnostic 3 overload with unchanged privacy and original-attempt offset', async () => {
+  it.each(['read', 'read-without-capture', 'delta', 'done'] as const)(
+    'projects only bounded Codex failure evidence for %s', async mode => {
+      jest.useFakeTimers();
+      const enabled = mode !== 'read-without-capture';
+      const f = fixture('openai-codex-backend', enabled);
+      const sentinel = `synthetic-private-codex-${mode}`;
+      const isRead = mode === 'read' || mode === 'read-without-capture';
+      const failureKind = isRead ? 'body_read_error' : 'parse_error';
+      const message = isRead
+        ? 'OpenAI Codex response body read interrupted. (UND_ERR_SOCKET)'
+        : mode === 'delta'
+          ? 'OpenAI Codex argument delta targets an unknown function call.'
+          : 'OpenAI Codex completed arguments target an unknown function call.';
+      const failed = isRead
+        ? new Response(new ReadableStream({
+          start(controller) {
+            controller.error(new TypeError(sentinel, { cause: { code: 'UND_ERR_SOCKET', message: sentinel } }));
+          },
+        }), { status: 200 })
+        : new Response(`data: ${JSON.stringify({
+          type: `response.function_call_arguments.${mode}`, item_id: sentinel, delta: '{}', arguments: '{}',
+        })}\n\n`, { status: 200 });
+      const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(failed);
+      const admission = f.service.preflightPinnedContentPolicyRequest({
+        inputId, agentName: 'planner', sessionId: session, systemPrompt: 'system',
+        providerConversation: { sourceSessionId: session, messages: [] }, tools: [], terminalToolNames: [],
+        modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: {},
+        routePass: { kind: 'pinned-content-policy-retry', candidate: f.candidate },
+      });
+      if (admission.kind !== 'admitted') throw new Error('must admit');
+      const failure = await f.service.executePinnedContentPolicyRequest(admission, { attemptIndex: 0 })
+        .catch((error: unknown) => error);
+      if (!(failure instanceof ProviderTurnFailure)) throw new Error('Expected failed provider turn');
+      expect(failure.originalFailure).toMatchObject({ failure: { kind: failureKind, message } });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      if (enabled) expect(f.dumps()).toMatchObject([{
+        format_version: 4, privacy_policy: 'failed-provider-request-privacy-2',
+        observation: 'transport_failure', failure_kind: failureKind, provider_code: null,
+        http_status: 200, attempt_index: 0,
+      }]);
+      else expect(f.dumps()).toEqual([]);
+      f.service.projectProviderExchanges(session, 'primary', inputId, failure.provider_exchanges,
+        { assistantOutputIds: [], terminalConversationOutputId: null });
+      const entries = readProviderExchangeEntries(f.root, session);
+      expect(entries.map(entry => entry.data)).toMatchObject([
+        { attempt_index: 0, payload: { status: 'error', error: { name: 'LlmRequestError', message } } },
+      ]);
+      const recorded = entries[0]!.data.payload;
+      if (recorded.status !== 'error') throw new Error('Expected recorded error exchange');
+      expect(recorded.error.message).not.toContain(sentinel);
+      if (isRead) {
+        expect(recorded.response_status).toBe(200);
+        expect(recorded.error.status).toBe(200);
+      }
+      expect(jest.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('writes strict diagnostic 4 overload with unchanged privacy and original-attempt offset', async () => {
     jest.useFakeTimers();
     const f = fixture('openai-chat-completions');
     const fetch = jest.spyOn(globalThis, 'fetch')
@@ -167,7 +225,7 @@ describe('failed diagnostics through real invocation owners', () => {
     await expect(pending).resolves.toMatchObject({ result: { content: 'recovered' } });
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(f.dumps()).toHaveLength(1);
-    expect(f.dumps()[0]).toMatchObject({ format_version: 3, privacy_policy: 'failed-provider-request-privacy-2',
+    expect(f.dumps()[0]).toMatchObject({ format_version: 4, privacy_policy: 'failed-provider-request-privacy-2',
       failure_kind: 'server_overloaded', input_id: inputId, source_session_id: session,
       invocation_session_id: session, attempt_index: 4, http_status: 503,
       raw_request_sha256: hash(String(fetch.mock.calls[0]![1]!.body)) });
@@ -316,7 +374,7 @@ describe('failed diagnostics through real invocation owners', () => {
     expect(f.dumps()).toHaveLength(1);
     const [dump] = f.dumps();
     expect(dump).toMatchObject({
-      format_version: 3,
+      format_version: 4,
       privacy_policy: 'failed-provider-request-privacy-2',
       source_session_id: session,
       invocation_session_id: session,
@@ -459,7 +517,7 @@ describe('failed diagnostics through real invocation owners', () => {
       const [dump] = f.dumps();
       expect(f.dumps()).toHaveLength(1);
       expect(dump).toMatchObject({
-        format_version: 3,
+        format_version: 4,
         privacy_policy: 'failed-provider-request-privacy-2',
         body_disposition: 'redacted',
         reencoded: true,
@@ -879,7 +937,7 @@ describe('failed diagnostics through real invocation owners', () => {
     expect(f.dumps()).toHaveLength(1);
     const submitted = String(fetch.mock.calls[0]![1]!.body);
     expect(f.dumps()[0]).toMatchObject({
-      format_version: 3,
+      format_version: 4,
       privacy_policy: 'failed-provider-request-privacy-2',
       body_disposition: 'exact',
       reencoded: false,

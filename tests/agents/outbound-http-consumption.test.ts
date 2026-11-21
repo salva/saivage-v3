@@ -1,12 +1,95 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { consumeProviderRequest, ProviderInactivityTimeoutError, ProviderRequestDeadlineError } from '../../src/agents/llm-request-inactivity.js';
+import { readOpenAICodexStream } from '../../src/agents/llm-codex-parser.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { controlledResponse, pendingHeaders } from '../helpers/provider-inactivity.js';
 import { capturedHttp, deferred, microtasks, assertLifecycles, assertPrivateMetadata } from '../helpers/http-lifecycle.js';
 
 const context = { service: 'provider', purpose: 'primary', endpoint: 'provider.chat', method: 'POST' } as const;
+const codexContext = { ...context, endpoint: 'provider.codex' } as const;
+const consumeCodex: Parameters<typeof consumeProviderRequest>[3] = (response, c) =>
+  readOpenAICodexStream(response.body!, response.status, c.signal, c.onData, false, c.onBodyDisposition);
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
 describe('provider-owned HTTP observation boundary', () => {
+  it.each(['read', 'json', 'delta', 'done', 'eof', 'unowned-abort'] as const)(
+    'reports the actual HTTP 200 Codex body disposition and code for %s', async mode => {
+      const capture = capturedHttp();
+      const reason = mode === 'unowned-abort'
+        ? new DOMException('synthetic-private-abort', 'AbortError')
+        : Object.assign(new Error('synthetic-private-native', { cause: { message: 'synthetic-private-cause' } }), { code: 'EPIPE' });
+      const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          if (mode === 'read' || mode === 'unowned-abort') controller.error(reason);
+          else if (mode === 'eof') controller.close();
+          else controller.enqueue(new TextEncoder().encode(mode === 'json'
+            ? 'data: synthetic-private-json\n\n'
+            : `data: ${JSON.stringify({ type: `response.function_call_arguments.${mode}`, item_id: 'synthetic-private-id', delta: '{}', arguments: '{}' })}\n\n`));
+        },
+      }), { status: 200 }));
+      const pending = consumeProviderRequest('https://example.invalid', {}, undefined, consumeCodex, { context: codexContext, emitter: capture.sink });
+      if (mode === 'unowned-abort') await expect(pending).rejects.toBe(reason);
+      else await expect(pending).rejects.toMatchObject({ failure: { kind: mode === 'read' ? 'body_read_error' : 'parse_error' } });
+      expect(fetch.mock.calls[0]![1]!.signal!.aborted).toBe(false);
+      assertLifecycles(capture.records, 1);
+      expect(capture.records.at(-1)).toMatchObject({
+        status: 200, outcome: 'failed', error_code: mode === 'read' ? 'body_read_error' : 'protocol',
+        body_disposition: mode === 'eof' ? 'consumed' : 'incomplete',
+      });
+      assertPrivateMetadata(capture.records, ['EPIPE', 'synthetic-private-']);
+    },
+  );
+  it.each(['owner', 'inactivity', 'unrelated'] as const)(
+    'keeps the HTTP 200 Codex request-scope association for %s', async mode => {
+      jest.useFakeTimers();
+      const capture = capturedHttp();
+      const owner = new AbortController();
+      const reason = { exact: 'owner' };
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => new Response(new ReadableStream({
+        start(c) {
+          init!.signal!.addEventListener('abort', () => c.error(mode === 'unrelated'
+            ? new Error('synthetic-private-native')
+            : Object.assign(new Error('synthetic-private-abort'), { name: 'AbortError' })), { once: true });
+        },
+      }), { status: 200 }));
+      const pending = consumeProviderRequest('https://example.invalid', {}, owner.signal, consumeCodex, { context: codexContext, emitter: capture.sink }).catch(e => e);
+      await microtasks();
+      expect(capture.records.map(r => r.event)).toEqual(['outbound_http_dispatch', 'outbound_http_headers']);
+      if (mode === 'inactivity') await jest.advanceTimersByTimeAsync(120_000);
+      else owner.abort(reason);
+      const result = await pending;
+      if (mode === 'owner') expect(result).toBe(reason);
+      else if (mode === 'inactivity') expect(result).toBeInstanceOf(ProviderInactivityTimeoutError);
+      else expect(result).toMatchObject({ failure: { kind: 'body_read_error', status: 200 } });
+      assertLifecycles(capture.records, 1);
+      expect(capture.records.at(-1)).toMatchObject({
+        status: 200, body_disposition: 'incomplete',
+        outcome: mode === 'owner' ? 'cancelled' : mode === 'inactivity' ? 'timeout' : 'failed',
+        error_code: mode === 'owner' ? 'owner_abort' : mode === 'inactivity' ? 'inactivity' : 'body_read_error',
+      });
+      assertPrivateMetadata(capture.records, ['synthetic-private-']);
+      expect(jest.getTimerCount()).toBe(0);
+    },
+  );
+  it('propagates fatal Codex read uncertainty after headers without terminal or cleanup', async () => {
+    jest.useFakeTimers();
+    const capture = capturedHttp();
+    const fatal = new PublicationOutcomeUnknownError();
+    const owner = new AbortController();
+    const remove = jest.spyOn(owner.signal, 'removeEventListener');
+    const release = jest.spyOn(ReadableStreamDefaultReader.prototype, 'releaseLock');
+    const cancel = jest.spyOn(ReadableStreamDefaultReader.prototype, 'cancel');
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream({
+      start(c) { c.error(fatal); },
+    }), { status: 200 }));
+    await expect(consumeProviderRequest('https://example.invalid', {}, owner.signal, consumeCodex, { context: codexContext, emitter: capture.sink })).rejects.toBe(fatal);
+    expect(capture.records.map(r => r.event)).toEqual(['outbound_http_dispatch', 'outbound_http_headers']);
+    expect(capture.records[1]).toMatchObject({ status: 200 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(remove).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    // Discard the virtual clock without triggering the retained callbacks.
+  });
   it.each(['success', 'failure', 'abort'] as const)('observes pending headers and body before %s settlement', async mode => {
     const capture = capturedHttp(); const headers = deferred<Response>(); const owner = new AbortController();
     const fetch = jest.spyOn(globalThis, 'fetch').mockReturnValue(headers.promise);

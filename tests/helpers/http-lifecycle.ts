@@ -32,7 +32,7 @@ export function assertPrivateMetadata(records: OutboundHttpEvent[], secrets: str
     expect(['GET', 'POST', 'HEAD']).toContain(record.method);
     if (record.event === 'outbound_http_terminal') {
       expect(['completed', 'http_error', 'failed', 'cancelled', 'timeout']).toContain(record.outcome);
-      expect(['none', 'network', 'http_status', 'protocol', 'provider_failure', 'inactivity', 'deadline', 'owner_abort', 'body_limit', 'unknown']).toContain(record.error_code);
+      expect(['none', 'network', 'http_status', 'protocol', 'body_read_error', 'provider_failure', 'inactivity', 'deadline', 'owner_abort', 'body_limit', 'unknown']).toContain(record.error_code);
       expect(['consumed', 'not_consumed', 'cancelled_by_policy', 'incomplete']).toContain(record.body_disposition);
     }
   }

@@ -7,13 +7,16 @@ import { join } from 'node:path';
 import { executeInternalSummaryTurn } from '../../src/application/invocation-service-provider.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
-import { AdmissionIntegrityError, LocalExactAdmissionError, NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
+import { AdmissionIntegrityError, LocalExactAdmissionError, NO_FRESHNESS_EFFECTS, ProviderTurnFailure } from '../../src/contracts/index.js';
+import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
 import { buildLlmOptions } from '../../src/agents/llm-options-factory.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { admitSummaryRequest, buildSummaryRequestInput, invokeSummaryRequest, type AdmittedSummaryRequest } from '../../src/runtime/actors/compaction/summarizer.js';
 import { invocationProviderRegistry, chatSuccess } from '../helpers/invocation-provider-fixture.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { capturedHttp, assertLifecycles } from '../helpers/http-lifecycle.js';
+import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 
 const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const;
@@ -25,6 +28,89 @@ afterEach(() => {
 });
 
 describe('executeInternalSummaryTurn byte reuse', () => {
+  it.each(['read-failure', 'independent-abort'] as const)(
+    'settles admitted Codex summary %s through dispatch and actual exchange publication', async mode => {
+      jest.useFakeTimers({ now: 0 });
+      const projectRoot = mkdtempSync(join(tmpdir(), 'internal-summary-codex-failure-'));
+      roots.push(projectRoot);
+      initProjectTree(projectRoot);
+      const candidate = { ...CANDIDATE, provider: 'openai-codex' } as const;
+      const registry = invocationProviderRegistry([candidate],
+        { [candidate.provider]: { transportProtocol: 'openai-codex-backend' } },
+        { [candidate.provider]: makeCodexJwt('synthetic-account') });
+      const availability = new MemoryCandidateAvailability();
+      const markFailed = jest.spyOn(availability, 'markFailed');
+      const http = capturedHttp();
+      const service = new InvocationService({ projectRoot, registry, candidateAvailability: availability,
+        freshness: NO_FRESHNESS_EFFECTS, outboundHttp: http.sink });
+      const input = buildSummaryRequestInput({ candidate, sourceSessionId: 'agent:planner:project', instruction: 'instruction', items: [] });
+      const verdict = service.preparePrimaryRequestAdmission(input).candidates[0];
+      if (verdict?.kind !== 'admitted') throw new Error('Expected Codex admission');
+      const request = verdict.plan.request;
+      const admitted = admitSummaryRequest({
+        serialization: { imageCount: request.imageCount, serializedRequest: request.serializedBody,
+          requestSha256: request.requestHash, estimatedInputTokens: request.estimatedWireInputTokens },
+        contextUtilizationFraction: .9, contextWindowTokens: 100_000, maxOutputTokens: 10_000,
+      });
+      if (admitted.kind !== 'admitted') throw new Error('Expected summary admission');
+      const controller = new AbortController();
+      const independent = mode === 'independent-abort';
+      const reason = independent ? new DOMException('synthetic native abort', 'AbortError') : new TypeError('synthetic native read failure');
+      const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) =>
+        new Response(new ReadableStream({
+          pull(stream) {
+            expect(init!.signal!.aborted).toBe(false);
+            stream.error(reason);
+          },
+        }), { status: 200 }));
+      const project = jest.spyOn(service, 'projectProviderExchanges');
+      const settled = invokeSummaryRequest({
+        input, admitted, signal: controller.signal, summarizerProvider: {
+          candidate, contextWindowTokens: 100_000, maxOutputTokens: 10_000,
+          materializeImage: async () => { throw new Error('No images'); },
+          serializeSummaryRequest: () => { throw new Error('Already admitted'); },
+          completeTurn: (next, packed, signal) => executeInternalSummaryTurn(service, next, signal, packed),
+          projectProviderExchanges: (...args) => service.projectProviderExchanges(...args),
+        },
+      }).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(independent ? 0 : 240_000);
+      const final = await settled;
+      const count = independent ? 1 : 4;
+      const message = independent ? reason.message : 'OpenAI Codex response body read interrupted.';
+      expect(final).toBeInstanceOf(ProviderTurnFailure);
+      expect(final).toMatchObject({ failure_phase: 'provider_attempt', originalFailure: { failure: independent
+        ? { kind: 'cancelled', reason: 'abort' }
+        : { kind: 'body_read_error', status: 200, message } } });
+      expect(fetch).toHaveBeenCalledTimes(count);
+      expect(project).toHaveBeenCalledTimes(1);
+      expect(project.mock.calls[0]![3]).toHaveLength(count);
+      expect(readProviderExchangeEntries(projectRoot, 'agent:planner:project').map(entry => entry.data)).toMatchObject(
+        Array.from({ length: count }, (_, index) => ({
+          session_id: internalCompactionSummarySessionId('agent:planner:project'),
+          source_input_id: input.inputId, attempt_index: index,
+          payload: { status: 'error', terminal_conversation_output_id: null,
+            ...(independent
+              ? { error: { message: expect.stringContaining(message) } }
+              : { response_status: 200, error: { name: 'LlmRequestError', message, status: 200 } }),
+          },
+        })),
+      );
+      assertLifecycles(http.records, count);
+      expect(http.records.filter(record => record.event === 'outbound_http_terminal')).toMatchObject(
+        Array.from({ length: count }, () => ({
+          status: 200, outcome: 'failed', body_disposition: 'incomplete',
+          error_code: independent ? 'protocol' : 'body_read_error',
+        })),
+      );
+      expect(http.records.filter(record => record.event === 'outbound_http_retry_wait')).toMatchObject(
+        independent ? [] : Array.from({ length: 3 }, () => ({ retry_reason: 'standard', delay_ms: 60_000 })),
+      );
+      expect(controller.signal.aborted).toBe(false);
+      expect(markFailed).not.toHaveBeenCalled();
+      expect(jest.getTimerCount()).toBe(0);
+    },
+  );
+
   it('publishes only the real retryable summary attempt when cancellation interrupts its retry wait', async () => {
     jest.useFakeTimers({ now: 0 });
     const projectRoot = mkdtempSync(join(tmpdir(), 'internal-summary-retry-cancellation-'));

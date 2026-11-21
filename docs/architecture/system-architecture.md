@@ -1577,6 +1577,11 @@ header session-id derives from that body. It is not encryption/auth/global ident
 or a cache-hit/economics guarantee. Protocol parsers preserve real call identities,
 latest complete output and strict terminal signal. Codex valid response.completed
 returns known result without waiting EOF, no delta-text assembler/fallback terminator.
+`agents/llm-codex-parser.ts` distinguishes an ordinary rejected body read
+(`body_read_error`) from delivered-data processing and premature EOF (`parse_error`),
+without yielding partial output. Provider-declared terminal failures retain their
+separate classification. The parser owns the safe failure message and reports body
+disposition at consumption; it does not own the HTTP lifecycle.
 
 ### Failure, retries and evidence
 
@@ -1628,12 +1633,22 @@ never publication uncertainty. This is deployment-retained stdout/journal, not a
 log, public Debug or lossless durable request ledger. CLI/browser/stdio peers and
 dependency tooling are not covered external fetch owners.
 
+For provider fetches, `agents/llm-request-inactivity.ts` owns abort association
+and the terminal observation. For an opened Codex response it maps the typed
+`body_read_error` to the same-named HTTP `error_code`, and `parse_error` to
+`protocol`, retaining actual status and body disposition without native error
+text or code. A native `AbortError` not claimed by the request scope remains
+`failed`/`protocol` in this observation; attempt classification separately treats
+it as terminal `cancelled`/`abort`.
+
 Opt-in `FailedProviderRequestDiagnostics` observes actual serialized failed requests
 after canonical admission/exclusion. Exclusive activation UUID and self-ignore
 precede finite 16 slots/one hour, 8 MiB documents or 16 KiB metadata; reuse disables
-without inspecting retained data. Current diagnostic 3/privacy 2 positive native-position
-projection distinguishes exact/redacted/omitted/reencoded fidelity, drops extensions/
-images/credentials and reports hashes/counts without a general secret-free claim.
+without inspecting retained data. The strict private diagnostic `format_version:4`
+admits `body_read_error` in `failure_kind`; `failed-provider-request-privacy-2`
+is unchanged. Its native-position projection distinguishes exact/redacted/omitted/reencoded
+fidelity, drops extensions/images/credentials and reports hashes/counts without
+a general secret-free claim.
 It is sensitive private text, no replay fixture/provider receipt/canonical evidence
 or UI export. Publication uncertainty is fatal before notices/retry/cleanup. Files
 excludes lexical/resolved namespace; diagnostics stay outside reset and have no

@@ -189,7 +189,7 @@ describe('private diagnostic wire-derived projection and finite activation', () 
       const [{ document }] = f.documents();
       const stored = JSON.parse(document.stored_body);
       expect(document).toMatchObject({
-        format_version: 3,
+        format_version: 4,
         privacy_policy: 'failed-provider-request-privacy-2',
         body_disposition: 'redacted',
         raw_request_sha256: hash(submitted),

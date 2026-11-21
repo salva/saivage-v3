@@ -543,7 +543,7 @@ source-era values; they must not be read as today's accepted-version list.
 | Observed definitions | `.saivage/config/observed-collections.json`; `retrieval/collection-definitions.ts` | New `format_version:1`, `type:observed-collections`; strict logical names/purposes/kinds/roots and bounded slash patterns. Absent disables retrieval; reset preserves operator input. |
 | Private observed native deployment | `.saivage/config/observed-collections-native.json`; same schema owner, `retrieval/xerj-deployment.ts` producer | New `format_version:1`, `type:xerj-observed-deployment`; loopback endpoint, exact native/model identities and root→prefix association. No concrete destinations/progress. Selects fixed raw `xerj.key` encoding and derived deployment bundle. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; exceptional lifecycle exclusion, outside generated-root replacement. |
-| Private failed-provider diagnostics | `.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`; `agents/failed-provider-request-diagnostics.ts` | `format_version:3`, `kind:failed-provider-request-diagnostic`, `privacy_policy:failed-provider-request-privacy-2`; opt-in finite private observation, no retained runtime reader/index. |
+| Private failed-provider diagnostics | `.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`; `agents/failed-provider-request-diagnostics.ts` | `format_version:4`, `kind:failed-provider-request-diagnostic`, `privacy_policy:failed-provider-request-privacy-2`; strict `failure_kind` includes `body_read_error`. Opt-in finite private observation, no retained runtime reader/index. |
 
 ### Scoped dynamic MCP authority — 2026-11-11
 
@@ -809,7 +809,7 @@ compatibility proofs or operation permission.
 | Compaction semantics versus transient construction | [Summary maintenance6→7](#loss-tolerant-summary-maintenance-2026-10-10); [C01 framing](#c01-historical-prefix-framing-—-no-durable-impact-2026-10-15); [C02 condensation](#c02-decision-relevant-condensation-—-no-durable-impact-2026-10-15); [C05 packing](#c05-whole-component-packing-—-no-durable-impact-2026-10-15); [B01 deletion](#b01-prepared-context-attestation-deletion-—-no-durable-impact-2026-10-14); [dead invocation context](#dead-invocation-context-deletion-—-no-durable-impact-2026-10-14). |
 | Image selections and transient image boundaries | [Image4→5](#conversation-image-results-—-2026-10-07-conversation-format-4→5); [ordered5→6 / known incompatibilities](#known-incompatible-changes); [operator inspection](#durable-preserving-operator-image-inspection-2026-10-08); [AR03 facts](#ar-03-producer-neutral-image-normalization-facts-—-no-durable-impact-2026-10-15); [AR08 eligibility](#ar-08-shared-image-eligibility-facts-—-no-durable-impact-2026-10-15). |
 | Outbound MCP persistence versus live lifecycle | [Definitions](#minimal-dynamic-mcp-definitions-2026-10-10); [restart](#explicit-selected-mcp-restart-—-no-durable-impact-2026-10-18); [lifecycle baseline](#durable-preserving-mcp-cancellation-native-results-and-lifecycle-source-baseline-422b315f); [AR05 counter](#ar-05-redundant-mcp-closure-counter-removal-—-no-durable-impact-2026-10-15); [AR06 result typing](#ar-06-native-mcp-result-typing-—-no-durable-impact-2026-10-15); [F05 telemetry](#durable-preserving-native-mcp-invocation-telemetry-f-05-2026-10-09); [F07 discovery](#durable-preserving-mcp-discovery-settlement-f-07-2026-10-09); [schema language](#durable-preserving-mcp-schema-language-fix); [F10 deletion](#f10-dead-mcp-health-and-aggregate-api-deletion-—-no-durable-impact-2026-10-14). |
-| Provider diagnostics and operational observation | [Introduction](#historical-introduction-private-failed-provider-diagnostic-family-2026-10-09); [F01 privacy](#protocol-owned-failed-provider-diagnostic-privacy-f-01-2026-10-09); [overload](#provider-overload-diagnostics-2026-10-12); [HTTP lifecycle](#outbound-http-lifecycle-—-no-durable-impact-2026-10-14); [summary cancellation](#urgent-internal-summary-cancellation-—-no-durable-impact-2026-10-16). |
+| Provider diagnostics and operational observation | [Introduction](#historical-introduction-private-failed-provider-diagnostic-family-2026-10-09); [F01 privacy](#protocol-owned-failed-provider-diagnostic-privacy-f-01-2026-10-09); [overload](#provider-overload-diagnostics-2026-10-12); [HTTP lifecycle](#outbound-http-lifecycle-—-no-durable-impact-2026-10-14); [summary cancellation](#urgent-internal-summary-cancellation-—-no-durable-impact-2026-10-16); [Codex body-read diagnostics](#codex-body-read-diagnostics-2026-11-21). |
 | Durable-preserving reads and display | [Absolute reads](#ordinary-absolute-agent-reads-—-no-durable-impact-2026-10-16); [native cwd](#native-absolute-command-cwd-—-no-durable-impact-2026-10-14); [unavailable processes](#durable-preserving-unavailable-process-observations-2-2026-10-09); [record UI](#current-record-ui-settlement-ownership-—-no-durable-impact-2026-10-14); [conversation UI](#durable-preserving-conversation-api-ui-change); [Markdown refresh](#durable-preserving-markdown-dependency-refresh-2026-10-08); [card ID admission](#durable-preserving-card-inspection-id-admission); [timeline](#durable-preserving-timeline-local-presentation); [F06 YAML tooling](#f06-workflow-yaml-structural-authority-—-no-durable-impact-2026-10-15). |
 | Pre-policy equal-number incompatibilities and unknown boundaries | [Known incompatible changes](#known-incompatible-changes), including heads1→1, shared envelope1→1 and unestablished producer/inline-output source boundaries. |
 
@@ -819,6 +819,26 @@ Everything below describes its named source boundary. “Unchanged” compares t
 entry's source/target, not that historical value to today's baseline. Original
 source parents, reported applicability, evidence limits and adoption consequences
 are retained; no historical version is retrospectively repaired.
+
+### Codex body-read diagnostics (2026-11-21)
+
+Exact implementation parent `702e0a50850ed1f6d6692f28049a284d623c9476`
+has diagnostic format 3. The strict schema and writer in
+`agents/failed-provider-request-diagnostics.ts` advance
+`kind:failed-provider-request-diagnostic` **`format_version:3→4`**.
+The closed `failure_kind` enum adds `body_read_error` for an ordinary rejected
+Codex body read, a value the old strict schema does not accept.
+`privacy_policy:failed-provider-request-privacy-2`, the request projection and
+capture limits are unchanged. The HTTP lifecycle code is operational, not
+canonical. Provider exchanges use existing error message/status fields;
+the shared envelope, conversation and compaction contracts, and API are unchanged.
+
+This is a fresh bump, not an assumed unreleased cutover. Installed versions and
+applicability are unknown. Fresh opt-in captures from the new source write only
+format 4. Older captures remain untouched, with no runtime reader or index, so
+this change alone requires no retained-state migration or reset. Reverting source
+only changes future classification and captures; it neither rewrites old
+observations nor recovers a failed Run. Source completion authorizes no deployment.
 
 ### Literal authored protection keys: workflow 2 to 3 (2026-10-21)
 

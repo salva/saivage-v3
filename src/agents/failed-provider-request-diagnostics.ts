@@ -36,7 +36,7 @@ const countsSchema = z
 // This family is private advisory output, not canonical provider evidence.
 const diagnosticSchema = z
   .object({
-    format_version: z.literal(3),
+    format_version: z.literal(4),
     kind: z.literal('failed-provider-request-diagnostic'),
     diagnostic_id: z.string().uuid(),
     activation_id: z.string().uuid(),
@@ -67,6 +67,7 @@ const diagnosticSchema = z
       'content_policy',
       'output_token_limit_exceeded',
       'parse_error',
+      'body_read_error',
       'cancelled',
       'local_setup_error',
       'unknown',
@@ -137,7 +138,7 @@ function projectObservation(
   }
   const present = (value: string) => presentation(value, credential);
   const document = {
-    format_version: 3 as const,
+    format_version: 4 as const,
     kind: 'failed-provider-request-diagnostic' as const,
     diagnostic_id: diagnosticId,
     activation_id: activationId,
