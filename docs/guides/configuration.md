@@ -118,9 +118,22 @@ safe adoption of retained state.
 
 ## Wire provider, routes and summary
 
-Choose a model **and matching transport**. Do not infer native tools, exclusive
-tool choice or image support from a provider brand or an ordinary successful chat
-request. Binding validates local capabilities; it does not probe credential validity.
+Fresh configurations from all six bundled profiles, including provisioned
+`classic-git`, start with `providers: {}`. Provision compatible providers and
+credentials for the primary routes and verify the fixed compaction candidate
+separately. The bundle selects `gpt-6.2-sol` directly for Analyst and Executor
+and through the `review` profile's preferred list for Reviewer. Planner and
+Oversight still use the `planning` profile with preferred `gpt-5.6`. No bundled
+route selects `gpt-6.2-astra`. These are fresh defaults, not a rewrite of saved
+configuration.
+
+For GPT-6.2 tool and image use with OpenAI's API, choose a compatible Responses
+configuration. If using Codex instead, verify that configuration separately.
+Do not infer native tools, exclusive tool choice or image support from a provider
+brand, a custom URL or an ordinary successful chat request. Binding checks local
+capabilities; it does not probe credential validity. See the
+[capability defaults and overrides](../reference/configuration.md#capability-object)
+and [transport behavior and published limits](../spec/system-specification.md#explicit-image-observations).
 
 The following is a **three-section replacement excerpt** for a freshly initialized
 bundled profile, not a standalone configuration. Retain `agents`, `analyst_agent`,
@@ -175,12 +188,20 @@ Empty `equivalents`/`failover` add nothing; they do not disable explicit candida
 or provider/account selection. Provider priority defaults **50**, account priority
 **100**, lower first. See [model routes](../reference/configuration.md#models-and-route-expansion).
 
-The summarizer is a fixed Registry-resolved provider/account/model candidate with
-its own capacity and 2000-token output request. It is not an agent route or the
-smallest fallback. Image-bearing sessions need compatible primary **and summary**
-capability, including retained images even if you later remove the producer tool.
-There is no automatic transport reroute. Do not substitute Sol/Astra into a Chat
-tools example: those exact models' Chat tool capability resolves unsupported.
+Set `contextWindowTokens` and `maxOutputTokens` for the primary candidates
+according to the service you actually use, and choose each route's `max_tokens`
+within the output capacity of the candidates you intend to use. Check
+`compaction.summarizer_candidate` separately: the fresh bundle selects exactly
+`{ provider: openai, account: null, model: gpt-6.2-sol }`. If you keep that tuple,
+the `openai` provider's implicit account must serve it; otherwise configure the
+exact tuple you intend to use. The summarizer does not follow agent routes or
+fallbacks. Verify its own context and output capacity for the fixed 2,000-token
+output request and the configured utilization. See
+[context budgets](#set-context-budgets-and-oversight).
+
+Image-bearing sessions need compatible primary **and summary** candidates,
+including when retained images outlast the tool that produced them. Chat never
+admits images, and Saivage does not automatically switch transports.
 
 ## Select agents, tools and skills
 

@@ -17,6 +17,9 @@ import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
+import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
+import { projectProviderExchange } from '../../src/agents/provider-exchange-outbound.js';
 
 const A: Candidate = { provider: 'cand-a', account: null, model: 'model-a' };
 const B: Candidate = { provider: 'cand-b', account: null, model: 'model-b' };
@@ -62,6 +65,51 @@ function service(candidates: readonly Candidate[], overrides: Record<string, Sai
 }
 
 describe('ordinary primary-request local admission', () => {
+  it.each([
+    ['gpt-6.2-sol', false], ['gpt-6.2-sol', true],
+    ['gpt-6.2-astra', false], ['gpt-6.2-astra', true],
+  ] as const)('uses ordinary custom Chat wire and retained evidence for %s (tools=%s)', async (model, withTools) => {
+    const selected: Candidate = { provider: 'custom-chat', account: null, model };
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-primary-admission-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const svc = new InvocationService({
+      projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([selected]),
+      candidateAvailability: new MemoryCandidateAvailability(),
+    });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(chatSuccess('settled text'));
+    const { preparedCompaction: _compaction, ...base } = request([selected]);
+    const invocation: InvocationRequest = {
+      ...base,
+      providerConversation: { sourceSessionId: SESSION, messages: [message('text-query', 'Inspect this text.')] },
+      modelParams: { temperature: 0.37, maxTokens: 2000 },
+      tools: withTools ? [TOOL] : [],
+      capabilityRequest: { requiresTools: withTools, requiresExclusiveToolChoice: withTools },
+    };
+    const admission = svc.preparePrimaryRequestAdmission(invocation);
+    if (admission.kind !== 'admitted') throw new Error('Expected custom Chat admission.');
+    expect(admission.executionAuthority.admittedCandidateIdentities).toEqual([selected]);
+    const completion = await svc.executeAdmittedWithRecovery(admission);
+    expect(completion.result).toMatchObject({ kind: 'message', content: 'settled text' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(String(url)).toBe('https://custom-chat.example.test/v1/chat/completions');
+    const wire = JSON.parse(String(init?.body));
+    expect(wire).toMatchObject({ model, temperature: 0.37, max_tokens: 2000 });
+    if (withTools) expect(wire.tools).toEqual([TOOL]);
+    else expect(wire).not.toHaveProperty('tools');
+
+    svc.projectProviderExchanges(SESSION, 'primary', invocation.inputId, completion.provider_exchanges, {
+      assistantOutputIds: [], terminalConversationOutputId: null,
+    });
+    const entries = readProviderExchangeEntries(projectRoot, SESSION);
+    expect(entries).toHaveLength(1);
+    expect(projectProviderExchange(entries[0]!.data.payload)).toMatchObject({
+      status: 'ok', transport: 'generic', model: wire.model, source_input_id: invocation.inputId,
+      request_params: { temperature: wire.temperature, max_tokens: wire.max_tokens, offered_tools_count: withTools ? 1 : 0 },
+    });
+  });
+
   it.each([undefined, .60, .90, 1])('uses absent .80 headroom or exactly supplied U=%s with retained bindings and real wire equality', (u) => {
     const prepared = request([A]);
     const { preparedCompaction: _compaction, ...common } = prepared;

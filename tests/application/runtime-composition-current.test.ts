@@ -32,6 +32,8 @@ import { settleToolActionOutcome } from '../../src/contracts/index.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { chatSuccess } from '../helpers/invocation-provider-fixture.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { templateConfig } from '../helpers/system-template-config.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -97,6 +99,25 @@ function toolCalls(...calls: Array<{ id: string; name: string }>): Response {
 }
 
 describe('current runtime composition', () => {
+  it('composes the materialized classic-typed image bindings with its fixed Sol summary on Responses', () => {
+    const template = resolveSystemTemplate('classic-typed');
+    const config = effectiveSaivageConfigSchema.parse(templateConfig(template));
+    config.providers.openai = {
+      models: ['gpt-6.2-sol', 'gpt-5.6'],
+      capabilities: {
+        transportProtocol: 'openai-responses',
+        contextWindowTokens: 1_050_000,
+        maxOutputTokens: 128_000,
+      },
+    };
+
+    const { app, workflows } = composeSummaryFixture(config, template.promptRoot);
+    const analyst = workflows.agentBindings.get('analyst');
+    expect(analyst?.capabilityRequest.requiresImages).toBe(true);
+    expect(analyst?.candidateChain).toEqual([{ provider: 'openai', account: null, model: 'gpt-6.2-sol' }]);
+    expect(app.analystRuntime.getAvailableToolNames()).toContain('view_image');
+  });
+
   it.each([
     ['openai-chat-completions', true, false],
     ['openai-responses', false, false],
@@ -113,12 +134,13 @@ describe('current runtime composition', () => {
     else expect(compose).toThrow('Image-enabled agents require an image-compatible summary candidate.');
   });
 
-  function composeSummaryFixture(config: typeof TEST_SAIVAGE_CONFIG) {
+  function composeSummaryFixture(config: typeof TEST_SAIVAGE_CONFIG, defaultPromptRoot?: string) {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-composition-summary-'));
     roots.push(projectRoot);
-    initProjectTree(projectRoot);
+    const structural = compileProjectWorkflows(config, { defaultPromptRoot });
+    initProjectTree(projectRoot, structural);
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(compileProjectWorkflows(config), new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
+    const workflows = bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction, { internalAnalystEnabled: true });
     const processRegistry = new ManagedProcessGroupRegistry();
     const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
     const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
@@ -132,7 +154,7 @@ describe('current runtime composition', () => {
       mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort,
       analystSessionId: 'agent:analyst:global', onOversightOwnerFailure(error) { throw error; },
     });
-    return { app, projectRoot };
+    return { app, projectRoot, workflows };
   }
 
   it.each([false, true])('independently checks actual retained summary source on text-only Chat (images=%s)', async (images) => {

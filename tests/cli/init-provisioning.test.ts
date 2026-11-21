@@ -34,7 +34,11 @@ describe('init provisioning before-effects admission', () => {
     if(result.status!==0)throw new Error(result.stderr);
     const configPath=join(root,'.saivage/saivage.yaml');
     const config=parse(readFileSync(configPath,'utf8'));
-    expect(config.card_types).toEqual(resolveSystemTemplate('classic-typed').config.card_types);
+    const typed = resolveSystemTemplate('classic-typed').config;
+    expect(config.card_types).toEqual(typed.card_types);
+    expect(config.models).toEqual(typed.models);
+    expect(config.compaction.summarizer_candidate).toEqual(typed.compaction.summarizer_candidate);
+    expect(config.providers).toEqual({});
     expect(config.git_workflow?.enabled??false).toBe(false);
     expect(JSON.parse(readFileSync(join(root,'.saivage/config/template.json'),'utf8')).template).toBe('classic-typed');
     const observed:string[]=[];

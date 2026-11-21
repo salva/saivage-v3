@@ -476,11 +476,11 @@ it.each(['local_exact_admission', 'preventive', 'authoritative_context_recovery'
 );
 
 it.each(['openai-responses', 'openai-codex-backend'] as const)(
-  'sends selected pixels as pure %s image output, omitted detail, exact wire+raster heuristic on both models',
+  'sends selected pixels as pure %s image output, omitted detail, exact wire+raster heuristic on compatible models',
   async (protocol) => {
     const f = await fixture(33, 65);
     const projection = await materializeProviderConversation(f.projectRoot, f.projection);
-    for (const model of ['gpt-6.1-sol', 'gpt-6-astra']) {
+    for (const model of ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6.2-sol', 'gpt-6.2-astra']) {
       const built = plan(projection, protocol, model);
       const output = (built.request.body.input as Array<Record<string, unknown>>).find(
         (item) => item.type === 'function_call_output',
@@ -1107,7 +1107,7 @@ it('keeps source-session ownership for retained images and rejects missing selec
   expect(capabilityRequestForTools(['view_image']).requiresImages).toBe(true);
 });
 
-it.each(['gpt-6.1-sol', 'gpt-6-astra'])(
+it.each(['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6.2-sol', 'gpt-6.2-astra'])(
   'retains exact admitted bytes through %s failover and repeated dispatch without reopening selected pixels',
   async (model) => {
     const f = await fixture(33, 65);

@@ -129,7 +129,17 @@ export class Provider {
         : builtIn;
     const providerLevel = mergeCapabilities(modelBuiltIn, this.capabilities);
     const accountLevel = mergeCapabilities(providerLevel, account.capabilities);
-    const effective = mergeCapabilities(accountLevel, this.modelCapabilities?.[model]);
+    const modelOverride = this.modelCapabilities?.[model];
+    const effective = mergeCapabilities(accountLevel, modelOverride);
+    if (
+      (model === 'gpt-6.2-sol' || model === 'gpt-6.2-astra') &&
+      (effective.transportProtocol === 'openai-responses' ||
+        effective.transportProtocol === 'openai-codex-backend') &&
+      (modelOverride?.imageInput ??
+        account.capabilities?.imageInput ??
+        this.capabilities?.imageInput) === undefined
+    )
+      return { ...effective, imageInput: true };
     if (
       (model === 'gpt-6.1-sol' || model === 'gpt-6-astra') &&
       effective.transportProtocol === 'openai-chat-completions'

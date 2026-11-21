@@ -49,6 +49,8 @@ async function assertPixels(url: unknown, original = false, green = false) {
 it.each([
   ['openai-responses', 'gpt-6.1-sol'], ['openai-responses', 'gpt-6-astra'],
   ['openai-codex-backend', 'gpt-6.1-sol'], ['openai-codex-backend', 'gpt-6-astra'],
+  ['openai-responses', 'gpt-6.2-sol'], ['openai-responses', 'gpt-6.2-astra'],
+  ['openai-codex-backend', 'gpt-6.2-sol'], ['openai-codex-backend', 'gpt-6.2-astra'],
 ] as const)('real loopback %s / %s command → immutable pixels → reopen → original → HTTP summary', async (protocol, model) => {
   const projectRoot = mkdtempSync(join(tmpdir(), 'image-native-e2e-'));
   initProjectTree(projectRoot);

@@ -33,6 +33,24 @@ describe('system template registry',()=>{
     }
   });
 
+  it.each(SYSTEM_TEMPLATES)('materializes the bundled model selections for $name', (template) => {
+    const config = templateConfig(template);
+    const routeFor = (agent: string) => config.models.routes[config.agents[agent]!.model_route];
+    expect(routeFor('analyst')).toEqual({ candidates: ['gpt-6.2-sol'], temperature: 0.7, max_tokens: 4096 });
+    expect(routeFor('executor')).toEqual({ candidates: ['gpt-6.2-sol'], temperature: 0.3, max_tokens: 8192 });
+    expect(routeFor('reviewer')).toEqual({ profile: 'review', temperature: 0.2, max_tokens: 4096 });
+    expect(routeFor('planner')).toEqual({ profile: 'planning', temperature: 0.7, max_tokens: 4096 });
+    expect(routeFor('oversight')).toEqual({ profile: 'planning', temperature: 0.2, max_tokens: 4096 });
+    expect(config.models.profiles).toEqual({
+      review: { preferred: ['gpt-6.2-sol'], allowed: [] },
+      planning: { preferred: ['gpt-5.6'], allowed: [] },
+    });
+    expect(config.models.equivalents).toEqual([]);
+    expect(config.models.failover).toEqual({});
+    expect(config.compaction.summarizer_candidate).toEqual({ provider: 'openai', account: null, model: 'gpt-6.2-sol' });
+    expect(config.providers).toEqual({});
+  });
+
   it.each(SYSTEM_TEMPLATES.filter(template=>template.name!=='newloop2'))('compiles the scoped status/review starters and existing authorship authority in $name',template=>{
     const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(templateConfig(template)),{defaultPromptRoot:template.promptRoot});
     const typed=template.name==='classic-typed'||template.name==='paad-typed'||template.name==='newloop';

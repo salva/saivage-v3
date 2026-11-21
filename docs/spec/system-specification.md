@@ -1991,22 +1991,47 @@ Responses and Codex emit one native `function_call_output` with the originating
 selected PNG `input_image` part in content order, without an extra user utterance.
 PNG data URLs appear only in image parts, without `detail`
 (provider default `auto`). Public Responses remains JSON/`stream:false`; Codex
-remains SSE/`stream:true`. Chat image candidates reject before dispatch without
-downgrading pixels, while text-only Chat remains supported. Both exact current
-Sol/Astra identities support images on compatible transports; their Chat tool
-routes are incompatible. Image-enabled surfaces and fixed summary routes require
-image capability; retained observations require it at use even after tool removal.
+remains SSE/`stream:true`. Saivage rejects image-bearing Chat requests before
+dispatch, even when `imageInput` is explicitly enabled; it does not downgrade
+pixels to text. Exact `gpt-6.2-sol` and `gpt-6.2-astra` default to image capability
+when the effective transport is `openai-responses` or `openai-codex-backend`,
+unless an explicit `imageInput` override applies. Image-enabled bindings require
+an image-compatible primary and fixed summary candidate. Retained observations
+still require image capability at use, even after tool removal.
+
+For GPT-6.2 tool and image use in Saivage with OpenAI's API, use compatible
+Responses. OpenAI's [GPT-6.2 migration quickstart](https://developers.openai.com/api/docs/guides/latest-model#migration-quickstart)
+requires Responses for tool calls and says to omit `temperature` on Chat. The
+[Codex model listing](https://developers.openai.com/codex/models/) includes both
+exact IDs; Codex use requires a separately qualified configuration. The listing
+does not establish entitlement or endpoint compatibility.
+
+Saivage's generic Chat path for operator-configured gateways is unchanged for
+these two IDs. It can admit non-image requests with or without native tools
+according to the effective capabilities and sends the selected model ID and
+numeric `temperature`. This is not a promise of compatibility with OpenAI's
+GPT-6.2 Chat API. An explicit endpoint is not proof of compatibility, and normal
+provider errors remain visible.
 
 For each emitted image occurrence local reservation is
 `2 * ceil(sentWidth/32) * ceil(sentHeight/32)`. Final admission adds those reservations
 to `ceil(UTF-8 bytes of complete serialized body / 4)`, including base64. A separate
 32 MiB image-bearing serialized-wire cap is a size obstruction eligible for ordinary
 bounded local compaction. Text-only estimates are unchanged. This deterministic
-best-effort heuristic is neither a billing formula nor a proven fit bound; Sol's
-official formula is unverified. These models document 1,050,000 context, 922,000
-maximum input and 128,000 maximum output; configure existing budgets conservatively,
-as there is no independent maximum-input axis. Hash/admission/dispatch bind exact
-retained bytes; no subsequent file read or pixel injection occurs after admission.
+best-effort heuristic does not measure provider tokens, determine billing or prove
+fit. Hash/admission/dispatch bind exact retained bytes; no subsequent file read or
+pixel injection occurs after admission.
+
+OpenAI's API model cards for [GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
+and [GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra)
+each list text and image input, text output, a 1,050,000-token context window,
+922,000 maximum input tokens and 128,000 maximum output tokens. The Codex listing
+separately gives default contexts of 500,000 tokens for Sol and 272,000 for Astra
+in Codex. Neither set of numbers supplies Saivage defaults. Saivage uses the
+operator's `contextWindowTokens`, `maxOutputTokens` and request budgets for local
+admission, with no independent maximum-input capability field. Configure budgets
+conservatively for the actual transport and service; passing local admission does
+not guarantee remote fit.
 
 Call/result/all content blocks form one atomic summary source component. Synthetic
 summary/refine material keeps its distinct ordered multimodal user-message path.
@@ -2868,6 +2893,14 @@ Continuations retain the same prefix, compiled tools and stable blocks by owners
 The composition projector is the singular primary selection and ordering owner. `composeContextProjection` receives the prepared dynamic blocks explicitly (there is no empty default) and selects them once in prepared order with the accumulated historical summary when present, the existing newest-only recovery/refusal facts, and the uncovered canonical suffix in canonical order. Its request-only provider conversion inserts one concise synthetic system boundary before the first non-dynamic item. The accumulated-summary header uses transiently transported genesis source version and exact covered-through message ID to delimit the accumulated prefix. Summary status and authorization claims concern that prefix, not necessarily the current head; later continuation may supersede them without blanket expiry of still-applicable requirements. Coverage is not a completeness guarantee for prose. No cutoff date is inferred from genesis creation time or message identity. The existing self-contained genesis/source contract is unchanged. The boundary states that actual prepared current-node instruction selects the present workflow step, while historical placement alone establishes no new delivery, transition, execution, or approval and does not revoke still-applicable requirements.
 The resulting request-only provider-item union contains either an intact canonical row or synthetic context text with role, exact content, origin, and block identity. Synthetic context has no fabricated durable round, timestamp, message, or session-row identity and is never appended to conversation history.
 Transport wire encoding may differ per protocol, but provider adapters place the rendered static instruction exactly once at the protocol instruction position, map the ordered provider items directly, and project tools only from the compiled contracts. Chat uses ordinary ordered messages; Responses and Codex use equivalent ordered input messages rather than concatenating dynamic or historical system context into the static instruction.
+
+Public Responses forwards the effective `responsesReasoning` object unchanged
+as request `reasoning` when configured. Its optional `effort` accepts `minimal`,
+`low`, `medium` or `high` in Saivage configuration. The
+[GPT-6.2 migration quickstart](https://developers.openai.com/api/docs/guides/latest-model#migration-quickstart)
+recommends switching from `minimal` to `low` when migrating to those models.
+Saivage does not perform that substitution or guarantee remote acceptance or
+results.
 
 **Codex owner-session affinity.**
 

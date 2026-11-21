@@ -405,12 +405,26 @@ All fields are optional **overrides**, not universal service facts:
 | `maxOutputTokens` | Positive integer | No global numeric default |
 | `quirks` | String array | `[]` |
 
-Resolution is model override→account→provider→built-in model/provider→global.
-Built-in `openai-codex` uses Codex transport, `parallel_off` and its named quirk;
-`github-copilot` supplies its auth-profile quirk. Exact models `gpt-6.1-sol` and
-`gpt-6-astra` get built-in image support, but their Chat transport tool mode is
-unsupported. Image requirements reject Chat even if `imageInput: true`. Local
-declarations do not certify remote behavior or credential validity.
+Each capability resolves in order: model override → account → provider → built-in
+model/provider → global. Built-in `openai-codex` uses Codex transport, `parallel_off`
+and its named quirk; `github-copilot` supplies its auth-profile quirk.
+
+- Exact IDs `gpt-6.2-sol` and `gpt-6.2-astra` default to `imageInput: true` only
+  when the resolved transport is `openai-responses` or `openai-codex-backend`.
+  The highest-priority explicit `imageInput` value, `true` or `false`, wins
+  independently of which level supplied `transportProtocol`.
+- Exact older IDs `gpt-6.1-sol` and `gpt-6-astra` have a built-in `imageInput: true`
+  default. On `openai-chat-completions` their `toolsMode` is forced to
+  `unsupported`, even if an override says otherwise. That tool restriction does
+  not apply to the two newer IDs.
+
+Chat never admits image requests, even with `imageInput: true`. Local declarations
+do not certify remote behavior or credential validity.
+
+Public Responses sends the effective `responsesReasoning` object as `reasoning`
+without rewriting it. The [GPT-6.2 migration quickstart](https://developers.openai.com/api/docs/guides/latest-model#migration-quickstart)
+recommends `low` when migrating from `minimal`; accepting `minimal` in the
+configuration schema does not mean a remote service accepts it.
 
 Use the [coherent provider/routes/summary excerpt](../guides/configuration.md#wire-provider-routes-and-summary)
 instead of copying one capability row as a provider recipe. Secret-bearing auth
