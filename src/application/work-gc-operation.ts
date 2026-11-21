@@ -8,6 +8,7 @@ import {
   type WorkGcResult,
   type ApplicationFatalPort,
   type WorkGcProgressObserver,
+  type WorkGcProgressPort,
 } from '../contracts/index.js';
 import {
   collectWorkGarbage,
@@ -21,7 +22,7 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { SaivageConfig } from '../schemas/index.js';
 import type { CompiledProjectWorkflows, ProcessRunner } from '../runtime/runtime-api.js';
 import type { RuntimeApplication } from './runtime-composition.js';
-import { createWorkGcProgress } from './work-gc-progress.js';
+import { createObservedWorkGcProgress } from './work-gc-progress.js';
 
 // Compiled contracts contain immutable iterable maps/sets with private storage.
 // Project their entries, not Object.keys (which would silently omit selected inputs).
@@ -168,7 +169,7 @@ export function runWorkGcOperation(input: {
   /** Marks transport fatal bypass before entering the terminal port, including throwing ports. */
   onFatal?: () => void;
 }): Promise<WorkGcResponse> {
-  const progress = createWorkGcProgress(input.progress);
+  let progress: WorkGcProgressPort;
   let fatal = false;
   const markFatal = () => {
     fatal = true;
@@ -182,19 +183,24 @@ export function runWorkGcOperation(input: {
   let failureReason: WorkGcResponse['reason'] = 'inventory_failed';
   // Reserve synchronously. Only the accepted task is converted to a completion response.
   const task = input.run({
+    startObservation: () => {
+      const observed = createObservedWorkGcProgress(input.request.mode, input.progress);
+      progress = observed.progress;
+      return observed.read;
+    },
     isFatal: () => fatal,
     onFatal: markFatal,
     signal: input.signal,
     inventory: async (signal) => {
       const inventory = await inventoryWorkGarbage(input.projectRoot, signal, progress);
       failureReason = 'maintenance_refused';
-      progress?.phase('settling');
+      progress.phase('settling');
       return inventory;
     },
     collect: async (inventory, signal) => {
       signal.throwIfAborted();
       failureReason = 'operational_inputs_invalid';
-      progress?.phase('retention_marking');
+      progress.phase('retention_marking');
       const fresh = input.configAuthority.loadEffective();
       const operationalWorkflows = workflowInputs(fresh.workflows);
       if (

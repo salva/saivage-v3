@@ -55,7 +55,10 @@ export function registerOperatorContractRoutes(
     fatalPort: options.fatalPort,
   });
   const handlers = {
-    ...buildWorkGcOperatorContractHandlers(options.runtimeApplication),
+    ...buildWorkGcOperatorContractHandlers(
+      options.runtimeApplication,
+      options.authPolicy.authEnabled,
+    ),
     ...buildWorkflowOperatorContractHandlers(options.workflows),
     ...defineOperatorContractHandlers({
       'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),

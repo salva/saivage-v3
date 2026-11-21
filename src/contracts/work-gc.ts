@@ -8,9 +8,10 @@ export class WorkGcBusyError extends Error {
 import { z } from 'zod';
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const workGcMode = z.enum(['dry_run', 'delete']);
 export const WorkGcRequestSchema = z
   .object({
-    mode: z.enum(['dry_run', 'delete']),
+    mode: workGcMode,
     before: z
       .string()
       .datetime({ offset: true })
@@ -33,11 +34,9 @@ export const FirstGlobalProtectionSchema = z
 export type FirstGlobalProtection = z.infer<typeof FirstGlobalProtectionSchema>;
 export type WorkGcProtectionSource = FirstGlobalProtection['source'] |
   'card_content' | 'pending_notification' | 'record_content' | 'conversation_content';
-export const WorkGcProgressSchema = z
+const workGcPhase = z.enum(['inventory', 'settling', 'retention_marking', 'selection']);
+const workGcCounters = z
   .object({
-    first_global_protection: FirstGlobalProtectionSchema.nullable(),
-    phase: z.enum(['inventory', 'settling', 'retention_marking', 'selection']),
-    elapsed_ms: count,
     observed_count: count.optional(),
     observed_logical_bytes: count.optional(),
     opaque_entries: count.optional(),
@@ -51,23 +50,60 @@ export const WorkGcProgressSchema = z
     deleted_logical_bytes: count.optional(),
   })
   .strict();
+export const WorkGcProgressSchema = workGcCounters.extend({
+  first_global_protection: FirstGlobalProtectionSchema.nullable(),
+  phase: workGcPhase,
+  elapsed_ms: count,
+});
 export type WorkGcProgress = z.infer<typeof WorkGcProgressSchema>;
 export type WorkGcProgressObserver = (progress: WorkGcProgress) => void;
-export type WorkGcCounters = Omit<
-  WorkGcProgress,
-  'phase' | 'elapsed_ms' | 'first_global_protection'
->;
+export type WorkGcCounters = z.infer<typeof workGcCounters>;
 export type WorkGcProgressUpdate = WorkGcCounters &
   Partial<Pick<WorkGcProgress, 'first_global_protection'>>;
+const retentionSourceSteps = [
+  'card_projection',
+  'pending_notification',
+  'record_listing',
+  'record_projection',
+  'execution_workflow_inputs',
+  'conversation_projection',
+] as const;
+type WorkGcRetentionSourceStep = (typeof retentionSourceSteps)[number];
+const WorkGcActiveStatusSchema = z
+  .object({
+    mode: workGcMode,
+    phase: workGcPhase,
+    substep: z.enum([
+      'starting',
+      'enumerating',
+      'waiting_for_hold',
+      'operational_inputs',
+      ...retentionSourceSteps,
+      'classifying',
+    ]),
+    elapsed_ms: count,
+    step_elapsed_ms: count,
+    last_checkpoint_elapsed_ms: count,
+    counters: workGcCounters.extend({ reference_visits: count.optional() }),
+    first_global_protection: FirstGlobalProtectionSchema.nullable(),
+  })
+  .strict();
+export type WorkGcActiveStatus = z.infer<typeof WorkGcActiveStatusSchema>;
+export const WorkGcStatusSchema = z
+  .object({ active: WorkGcActiveStatusSchema.nullable() })
+  .strict();
+export type WorkGcStatus = z.infer<typeof WorkGcStatusSchema>;
 /** Transient observations only; never collection or publication authority. */
 export interface WorkGcProgressPort {
   phase(phase: WorkGcProgress['phase'], values?: WorkGcProgressUpdate): void;
   update(values: WorkGcProgressUpdate): void;
   increment(counter: keyof WorkGcCounters): void;
+  retentionSource?(step: WorkGcRetentionSourceStep): void;
+  referenceVisits?(total: number): void;
 }
 const WorkGcResultSchema = z
   .object({
-    mode: z.enum(['dry_run', 'delete']),
+    mode: workGcMode,
     observed_count: count,
     observed_logical_bytes: count,
     opaque_entries: count,
@@ -101,7 +137,7 @@ const WorkGcResultSchema = z
   });
 export const WorkGcResponseSchema = z
   .object({
-    mode: z.enum(['dry_run', 'delete']),
+    mode: workGcMode,
     disposition: z.enum(['completed', 'interrupted', 'refused']),
     reason: z.enum([
       'completed',

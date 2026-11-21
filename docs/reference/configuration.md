@@ -317,8 +317,8 @@ CLI bearer delegation uses `SAIVAGE_API_TOKEN` only when the live lock publishes
 bearer mode. Dead/unverifiable owners or live null endpoints refuse without
 fallback. Only a missing lock permits the interactive bound-lock offline procedure;
 it uses current resolved workflows/prompt closure without init or source commissioning.
-GC response waits have no elapsed deadline; connection establishment remains finite.
-HTTP 200 uses only `application/x-ndjson`: optional strict progress frames
+GC POST response waits have no elapsed deadline; connection establishment remains finite.
+POST HTTP 200 uses only `application/x-ndjson`: optional strict progress frames
 `{type:'progress',progress:...}`, then one final `{type:'result',response:...}`
 and EOF, each newline-terminated frame at most 16 KiB. The stream is no-store and
 nosniff. Complete terminal-plus-EOF is required; pre-admission 400/401/409 and
@@ -328,6 +328,14 @@ response JSON line after settlement and offline lock release. SIGINT/SIGTERM
 cancels the single online request or offline collection cooperatively. Dropped
 progress does not suppress final output; incomplete transport produces no final
 response and cannot certify deletion effects. Phases/count limits are in the runbook.
+
+`GET /api/runtime/gc-work/status` (`runtime.gcWorkStatus`) takes no inputs and
+needs no new YAML setting, environment variable or CLI flag. It uses the existing
+operator bearer header and returns 403 if operator authentication is disabled.
+Its no-store JSON response observes only the currently admitted online task;
+it does not start GC or replace the initiating POST's terminal response. There
+is no offline status endpoint.
+
 Follow the
 [preview-first procedure](../runbook/work-gc.md); each delete computes a new selection.
 Protection follows current semantic roots, not historical provenance, without a new

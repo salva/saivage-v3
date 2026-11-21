@@ -1,6 +1,11 @@
 import type { SaivageConfig } from '../schemas/index.js';
 import { runWorkGcOperation } from './work-gc-operation.js';
-import type { WorkGcRequest, WorkGcResponse } from '../contracts/index.js';
+import type {
+  WorkGcActiveStatus,
+  WorkGcRequest,
+  WorkGcResponse,
+  WorkGcStatus,
+} from '../contracts/index.js';
 import { createObservedCollections } from '../retrieval/index.js';
 import {
   PublicationOutcomeUnknownError,
@@ -78,12 +83,14 @@ export interface RuntimeApplication {
     progress?: import('../contracts/index.js').WorkGcProgressObserver,
     onFatal?: () => void,
   ): Promise<WorkGcResponse>;
+  getWorkGcStatus(): WorkGcStatus;
   assertWorkGcIngressAllowed(): void;
   cancelWorkGc(reason: Error): void;
   runWorkGc<I, T>(input: {
     signal: AbortSignal;
     isFatal?(): boolean;
     onFatal?(): void;
+    startObservation?(): () => WorkGcActiveStatus;
     inventory(signal: AbortSignal): Promise<I>;
     collect(inventory: I, signal: AbortSignal): Promise<T>;
   }): Promise<{ value: T; restoredRunning: boolean }>;
@@ -246,10 +253,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const promptTemplates = createPromptTemplateRegistry(services.workflows);
   const workflows = services.workflows;
   const oversightBinding = runtimeAgentBinding(workflows, workflows.oversight.name);
-  let workGcTask: Promise<unknown> | null = null;
-  let workGcAbort: AbortController | null = null;
+  let workGc: {
+    task: Promise<unknown>;
+    abort: AbortController;
+    read?: () => WorkGcActiveStatus;
+  } | null = null;
   const cancelWorkGc = (reason: Error): void => {
-    workGcAbort?.abort(reason);
+    workGc?.abort.abort(reason);
   };
   const runtimeSupervisor = createSupervisorRuntimeApi({
     cancelWorkGc,
@@ -539,12 +549,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         run: this.runWorkGc.bind(this),
       });
     },
+    getWorkGcStatus: () => ({ active: workGc?.read?.() ?? null }),
     assertWorkGcIngressAllowed: () => runtimeSupervisor.assertWorkGcIngressAllowed(),
     cancelWorkGc: (reason) => runtimeSupervisor.cancelWorkGc(reason),
     runWorkGc(input) {
-      if (workGcTask) throw new WorkGcBusyError();
+      if (workGc) throw new WorkGcBusyError();
+      const read = input.startObservation?.();
       const abort = new AbortController();
-      workGcAbort = abort;
       const signal = AbortSignal.any([input.signal, abort.signal]);
       const task = Promise.resolve().then(async () => {
         signal.throwIfAborted();
@@ -566,11 +577,10 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           collect: (heldSignal) => input.collect(inventory, heldSignal),
         });
       });
-      workGcTask = task;
+      workGc = { task, abort, read };
       void task.then(
         () => {
-          workGcTask = null;
-          workGcAbort = null;
+          workGc = null;
         },
         (error) => {
           if (input.isFatal?.()) return;
@@ -578,8 +588,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
             input.onFatal?.();
             services.fatalPort.publicationOutcomeUnknown(error);
           }
-          workGcTask = null;
-          workGcAbort = null;
+          workGc = null;
         },
       );
       return task;
@@ -588,7 +597,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       cancelWorkGc(new Error('Application closing.'));
       // Ordinary GC refusal/cancellation is not an application cleanup failure.
       try {
-        await workGcTask;
+        await workGc?.task;
       } catch (error) {
         if (error instanceof PublicationOutcomeUnknownError)
           services.fatalPort.publicationOutcomeUnknown(error);

@@ -310,6 +310,7 @@ class WorkReferences {
   private async visit(): Promise<void> {
     this.check();
     if (++this.visited % 256 === 0) {
+      this.progress?.referenceVisits?.(this.visited);
       await setImmediate();
       this.check();
     }

@@ -523,7 +523,8 @@ requirement warrants them.
   stream changes can need storage and interfaces, `tests/boot/work-gc-fatal-child.test.ts`,
   application/CLI/contract/route suites and the `work-gc-running-cli`,
   `work-gc-offline-cli`, `work-gc-application-close` and `work-gc-throwing-fatal`
-  E2E suites. Native retention changes retain their native fixtures.
+  E2E suites. See [online work GC status coverage](#online-work-gc-status-coverage)
+  for the focused diagnostic witnesses. Native retention changes retain their native fixtures.
 * **Default prompts and config:** select relevant
   `tests/config/system-template-registry.test.ts`,
   `tests/config/project-planner-composition.test.ts`,
@@ -571,6 +572,73 @@ preview hashes. The child has a 15-second startup-inclusive subprocess timeout;
 each Jest case has a 20-second budget. Bounded classifier attribution can help
 investigate a failure, but CPU measurements do not replace the wall gate or give
 a machine-independent timing guarantee.
+
+### Online work GC status coverage
+
+Run the focused checks from the checkout root on supported Node 24/npm. Meet the
+[native prerequisites](#isolated-native-quality-prerequisites) for applicable
+child and E2E checks. Before the focused checks, run `npm run build` from the
+checkout root to prepare the matching CLI and `dist` artifacts; the focused
+Jest launchers do not build them. The running CLI E2E child loads `src/cli.ts`
+through `tsx`; it is not a packaged CLI test. The preview smoke requires
+Playwright Chromium and performs a separate web build.
+
+```bash
+npm run test:direct -- --runInBand --runTestsByPath \
+  tests/application/work-gc-progress.test.ts tests/application/work-gc-operation.test.ts \
+  tests/workspace/work-gc-progress.test.ts tests/server/work-gc-contract-routes.test.ts \
+  tests/server/operator-api-contracts.test.ts tests/server/auth-policy.test.ts \
+  tests/server/operator-handler-contract-types.test.ts
+npm run test:e2e:direct -- --runInBand --runTestsByPath \
+  tests/e2e/work-gc-running-cli.e2e.test.ts tests/e2e/work-gc-application-close.e2e.test.ts
+npm --prefix web run test -- src/__tests__/work-gc-client.test.ts
+npm run web:test:e2e:preview-smoke -- tests/playwright/smoke/work-gc-busy.spec.ts
+npm run validate:routine
+```
+
+* **Owner checkpoints.** Application tests use a controlled monotonic clock
+  to distinguish elapsed time from checkpoint/step timing and to check that
+  a dropped frame or throwing sink does not disable status or add stream fields.
+  Separate workspace fixtures exercise a bounded matcher with a late match and
+  non-pattern quoted prose with an independent exact reference. Each captures
+  at least two samples inside the same unfinished `record_projection`: visits
+  rise by 256 and the checkpoint advances while completed records stay flat.
+  The fixtures also check retention/deletion and absence of raw sentinels.
+  These are work witnesses, not wall-time, throughput or stall tests.
+* **Registry and auth.** Strict schema and handler tests check extra-field
+  rejection and safe errors. The route suite listens on ephemeral loopback
+  using `registerOperatorContractRoutes` and the real `AuthPolicy`; injection
+  alone is not this witness. It checks bearer 200/no-store, shared 401 for
+  missing, malformed or wrong headers and for a query `token` even with a valid
+  header, and fixed 403 with auth disabled. Denials do not call the getter.
+  For the adjacent POST, a preview request reaches the collector stub with a
+  valid bearer header or without a header in disabled mode. The client decodes
+  the stubbed refusal from NDJSON through EOF. Unauthorized bearer-mode requests
+  never reach the stub. This covers auth and transport, not collector admission
+  or execution; the actual collector is exercised separately in E2E.
+* **Transport independence.** The running CLI E2E reads GET over a separate
+  authorized socket against the same application. Without a subscriber, status
+  is active before abort and stays active after cancellation is observed but
+  before the held callback settles. It clears on release and settlement.
+  In a separate case a blocked `Writable` with `highWaterMark: 1` supplies real
+  backpressure: optional POST delivery is skipped while GET shows active work;
+  after settlement and entry to terminal delivery, GET is null even though the
+  sink is still blocked and admission has been released. The suite also checks
+  reservation, busy rejection without replacement and fresh state on a later
+  admission. These cases are separate from the real socket POST terminal-plus-EOF
+  and incomplete/disconnected transport cases.
+* **Browser and client.** Vitest checks the existing POST client, including
+  incremental local HTTP chunks and the terminal-plus-EOF requirement. The
+  filtered Playwright launcher builds the matching web sources (browser-import
+  guard, web typecheck and Vite production build), then serves its own preview.
+  Require both build and browser cases: the mounted Analyst send exercises the
+  browser client against a fixture GC-busy response, and the error and read-only
+  views must still render with the shared registry. This is a built-consumer
+  regression, not a test of the new GET or a live hold.
+
+These checks use disposable synthetic fixtures, not an installation or a
+duration-based reproduction. They do not replace affected retention, offline
+CLI, fatal no-follow-up or existing CI/release checks.
 
 ### Terminal ownership and deadlines
 

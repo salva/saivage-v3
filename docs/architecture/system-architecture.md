@@ -903,16 +903,24 @@ projection, inventory, candidate or publication failures.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
 only the verified live lock endpoint/auth, with no fallback after delegation failure.
-The application reserves its existing call-local completion task synchronously,
-so duplicates fail before stream headers. Deferred inventory still permits normal
-writers; only the later Supervisor hold owns settlement/exclusion. The optional
-owner-local, timer-free reporter updates counters in existing loops, after complete
-owning reads/classifications/known effects, without another pass or authority.
-No observer constructs no reporter or counter snapshots. Ordinary sink errors
-disable observation; publication uncertainty always bypasses reporting and cleanup,
-even with an injected throwing fatal port.
+The application reserves its call-local completion task synchronously and attaches
+one fresh RAM status reader to each admitted online GC. Duplicates fail before
+stream headers without replacing that reader. Reservation is not the Supervisor
+hold: deferred inventory still permits normal writers, and only the later hold
+owns settlement and exclusion. `getWorkGcStatus()` copies the current bounded
+snapshot synchronously without Supervisor ingress, project reads or transport
+backpressure. Ordinary settlement clears the reservation and reader after any
+hold restoration, before terminal delivery. The GET neither owns the task nor
+controls it.
 
-The registrar's declared success encoding is a bounded lossy Node NDJSON stream:
+Existing work owners update the timer-free reporter in their normal loops. The
+online reader works without a POST subscriber. Projection starts and sampled
+reference visits update the diagnostic snapshot without emitting POST frames or
+resetting the stream throttle. Ordinary sink errors disable only the optional
+sink. The fatal publication-uncertainty path bypasses reporting and cleanup
+including status clear, even with an injected throwing fatal port.
+
+The POST registrar's declared success encoding is a Node NDJSON stream with lossy progress:
 strict progress frames, one last result frame and EOF, each at most 16 KiB including
 newline. Pressure drops optional writes, with no latest-snapshot queue or collector
 wait; a false write is accepted, never resent. Owner completion and hold release
@@ -1991,13 +1999,13 @@ the runbook; human configuration lookup belongs to the configuration documentati
 
 ### Operator routes
 
-Work reclamation uses the strict `runtime.gcWork` operation with required
+Work reclamation POST uses the strict `runtime.gcWork` operation with required
 `mode: dry_run|delete` and three optional fields: RFC3339-zone `before` and
 nonnegative safe-integer `min_file_bytes` (per-file floor) and `target_bytes`
 (remaining accounted bytes). Unknown keys fail. HTTP 200 is `application/x-ndjson`,
 no-store and nosniff: zero or more `{type:'progress',progress:...}` frames then exactly one
 `{type:'result',response:...}` last and EOF, each newline terminated and at most
-16 KiB. No JSON-200 fallback; terminal-plus-EOF is required. Progress has the four
+16 KiB. No JSON-200 fallback; terminal-plus-EOF is required. POST progress has the four
 owner phases, elapsed milliseconds and optional cumulative counts, never completion,
 ETA or known total work. The terminal response carries `mode`,
 `disposition: completed|interrupted|refused`, a bounded `reason`,
@@ -2013,17 +2021,18 @@ reports `reference_scope_unresolved` as a refusal with no selection result unles
 cancellation takes precedence; in that case it reports `reason: cancelled` and
 `failure: null`. Both outcomes record actual restoration.
 
-Each snapshot and non-null result also requires nullable `first_global_protection`:
-one fixed `{reason,source}` enum value, or null. The resolver owns a single call-local
-first mark, not a parallel writable retain-all flag. Only `process_owner_uncertain`
+Each POST progress snapshot, active GET status and non-null result also requires
+nullable `first_global_protection`: one fixed `{reason,source}` pair, or null.
+The resolver owns a single call-local first mark, not a parallel writable retain-all
+flag. Only `process_owner_uncertain`
 or `operational_root` establishes it. Callbacks carry source labels without extra
 reads; origin, not the label, sets retention authority. Later marks cannot replace
 the first; a sufficient global mark stops remaining extraction and metadata resolution.
 It does not bypass cancellation or certify history.
-The same mark is retained without an observer and sent through existing throttled
-progress. Null/first-only observations are not completion or per-file necessity
-certificates; no new durable family, registry or diagnostic operation is introduced.
-Ordinary refusal/interruption can be a 200 response: inspect disposition, not HTTP
+The same mark is retained without a stream observer and sent through existing
+throttled progress. Null/first-only observations are not completion or per-file
+necessity certificates. No durable family or separate registry is introduced.
+Ordinary POST refusal/interruption can be a 200 response: inspect disposition, not HTTP
 status alone. Duplicate/held ingress uses 409
 `{error:'WorkGcBusy',message:'Work garbage collection is busy.'}`; existing validation,
 authentication and internal errors remain 400/401/500. The result separates
@@ -2033,6 +2042,12 @@ results, including known partial results, include the count
 `retained.below_min_file_bytes` if and only if `min_file_bytes` was supplied, even
 when the count is zero. See
 [result interpretation](../runbook/work-gc.md#results-cancellation-and-restoration).
+
+The adjacent `runtime.gcWorkStatus` GET declares a strict no-store JSON success
+response and uses shared operator-session admission. Its handler refuses with 403
+before calling the getter when operator authentication is disabled. It reads
+only the current process's reservation snapshot; it cannot replace a POST result.
+See the [status contract](../spec/system-specification.md#online-work-gc-status).
 
 <!-- saivage:operator-routes:start -->
 | Route | Purpose | Source |
@@ -2084,7 +2099,8 @@ when the count is zero. See
 | `GET /api/cards/:id/diff` | Projected card comparison. | `src/contracts/operator-api-runtime-cards.ts:757` |
 | `GET /api/runtime/status` | Supervisor runtime observation. | `src/contracts/operator-api-runtime-cards.ts:774` |
 | `POST /api/runtime/pause` | Bodyless cooperative Pause. | `src/contracts/operator-api-runtime-cards.ts:786` |
-| `POST /api/runtime/gc-work` | Explicit live-server work preview or deletion with transient NDJSON progress/result; collection requires paused/stopped execution. | `src/contracts/operator-api-work-gc.ts:13` |
+| `GET /api/runtime/gc-work/status` | Bearer-required RAM observation of the current online collection, not its result. | `src/contracts/operator-api-work-gc.ts:29` |
+| `POST /api/runtime/gc-work` | Explicit live-server work preview or deletion with transient NDJSON progress/result; collection requires paused/stopped execution. | `src/contracts/operator-api-work-gc.ts:43` |
 | `POST /api/runtime/resume` | Bodyless same-Run Resume. | `src/contracts/operator-api-runtime-cards.ts:799` |
 | `POST /api/runtime/stop-project` | Bodyless project containment. | `src/contracts/operator-api-runtime-cards.ts:813` |
 | `POST /api/runtime/restart-server` | Exact-confirmation authenticated restart. | `src/contracts/operator-api-runtime-cards.ts:826` |

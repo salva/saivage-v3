@@ -387,7 +387,12 @@ export {
   WORK_GC_BUSY_ERROR,
 } from './work-gc.js';
 export type { WorkGcRequest, WorkGcResponse, WorkGcResult } from './work-gc.js';
-export { WorkGcProgressSchema, WorkGcFrameSchema, WORK_GC_FRAME_MAX_BYTES } from './work-gc.js';
+export {
+  WorkGcProgressSchema,
+  WorkGcStatusSchema,
+  WorkGcFrameSchema,
+  WORK_GC_FRAME_MAX_BYTES,
+} from './work-gc.js';
 export type {
   FirstGlobalProtection,
   WorkGcProtectionSource,
@@ -396,8 +401,11 @@ export type {
   WorkGcProgressObserver,
   WorkGcProgressPort,
   WorkGcCounters,
+  WorkGcActiveStatus,
+  WorkGcStatus,
 } from './work-gc.js';
 export { WorkGcStreamDecoder } from './work-gc-stream.js';
+export { WORK_GC_STATUS_FORBIDDEN } from './operator-api-work-gc.js';
 export { validateProcessToolResult } from './process-result-validation.js';
 export {
   settleToolActionOutcome,

@@ -1,14 +1,14 @@
 import { afterEach, expect, it } from '@jest/globals';
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync } from 'node:fs';
+import { basename, join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { agentMessageSchema } from '../../src/schemas/index.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
-import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { inventoryWorkGarbage, collectWorkGarbage } from '../../src/workspace/work-garbage-collector.js';
-import { createWorkGcProgress } from '../../src/application/work-gc-progress.js';
-import type { WorkGcProgress } from '../../src/contracts/work-gc.js';
+import { createObservedWorkGcProgress, createWorkGcProgress } from '../../src/application/work-gc-progress.js';
+import { WorkGcStatusSchema, type WorkGcActiveStatus, type WorkGcProgress } from '../../src/contracts/work-gc.js';
 import { compactWorkGcCard } from '../helpers/work-gc-compaction.js';
 
 let root: string;
@@ -60,4 +60,60 @@ it.each(['dry_run', 'delete'] as const)('observes existing completed inspections
   expect(snapshots.at(-1)!.inspected_sessions).toBeGreaterThan(0);
   expect(snapshots.at(-1)!.inspected_records).toBeGreaterThan(0);
   expect(new Set(snapshots.map(value => value.phase))).toEqual(new Set(['inventory', 'retention_marking', 'selection']));
+});
+
+it.each(['matcher', 'quoted prose'] as const)('samples advancing %s visits inside one unfinished record', async kind => {
+  root = mkdtempSync(join(tmpdir(), 'gc-record-checkpoints-'));
+  initProjectTree(root);
+  compactWorkGcCard(root, TEST_WORKFLOWS);
+  const work = join(root, '.saivage/work');
+  const directory = join(work, 'cards/project/tmp/private-fixture-scope');
+  const count = kind === 'matcher' ? 800 : 2;
+  mkdirSync(directory, { recursive: true });
+  for (let index = 0; index < count; index++) {
+    const path = join(directory, `file-${index}.txt`);
+    writeFileSync(path, 'synthetic work');
+    utimesSync(path, 1, 1);
+  }
+  let time = 0;
+  const { progress, read } = createObservedWorkGcProgress('delete', undefined, () => time);
+  const inventory = await inventoryWorkGarbage(root, new AbortController().signal, progress);
+  // Use actual inventory order so the matcher cannot find its useful candidate early.
+  const kept = join(work, inventory.candidates.at(-1)!.path);
+  const removed = join(work, inventory.candidates[0]!.path);
+  const marker = 'private-fixture-record';
+  const content = kind === 'matcher'
+    ? `${marker} directory=${JSON.stringify(directory)}, pattern="?${basename(kept).slice(1)}"`
+    : `${Array.from({ length: 800 }, (_, i) => `label="${marker}-${i}"`).join('\n')}\nKeep \`work:///${inventory.candidates.at(-1)!.path}\`.`;
+  new CardService(root).acceptRecord('project', 'review-private-fixture.md', content, { kind: 'agent', agent: 'analyst' });
+
+  const snapshots: WorkGcActiveStatus[] = [];
+  let sampled = 0;
+  const result = await collectWorkGarbage(inventory, { mode: 'delete' }, {
+    progress, workflows: TEST_WORKFLOWS, operationalInputs: {},
+    protection: { retainAll: false, capturePaths: [] },
+    assertCollecting() {
+      // The existing cancellation check immediately after the visit's yield observes
+      // that batch before the next part of the record can run.
+      time++;
+      const status = read();
+      const visits = status.counters.reference_visits ?? 0;
+      if (visits === sampled) return;
+      sampled = visits;
+      if (status.substep === 'record_projection') snapshots.push(status);
+    },
+    fatal(error): never { throw error; },
+  });
+  expect(snapshots.length).toBeGreaterThanOrEqual(2);
+  const [first, second] = snapshots;
+  expect(first!.phase).toBe('retention_marking');
+  expect(second!.counters.inspected_records).toBe(first!.counters.inspected_records);
+  expect(second!.counters.reference_visits! - first!.counters.reference_visits!).toBe(256);
+  expect(second!.last_checkpoint_elapsed_ms).toBeGreaterThan(first!.last_checkpoint_elapsed_ms);
+  for (const active of snapshots) expect(WorkGcStatusSchema.parse({ active })).toEqual({ active });
+  for (const raw of [marker, directory, basename(kept), 'review-private-fixture.md'])
+    expect(JSON.stringify(snapshots)).not.toContain(raw);
+  expect(result).toMatchObject({ first_global_protection: null, retained: { protected: 1 }, deleted_count: count - 1 });
+  expect(existsSync(kept)).toBe(true);
+  expect(existsSync(removed)).toBe(false);
 });

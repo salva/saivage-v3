@@ -124,7 +124,36 @@ describe('operator API runtime contract without runtime ledgers', () => {
       { ...terminal, extra: true },
       { type: 'result', response: { ...response, failure: null } },
       { type: 'progress', progress: { ...progress.progress, path: 'not-an-observation' } },
+      { type: 'progress', progress: { ...progress.progress, reference_visits: 256 } },
     ]) expect(() => parseOperatorResponse('runtime.gcWork', 200, invalid)).toThrow();
+  });
+
+  it('declares a strict authenticated JSON status with bounded counters and no request inputs', () => {
+    const id = 'runtime.gcWorkStatus';
+    const status = operatorApiContracts[id];
+    expect(status).toMatchObject({ method: 'GET', path: '/api/runtime/gc-work/status', auth: 'operator-session' });
+    for (const field of ['body', 'params', 'query', 'responseEncoding']) expect(status).not.toHaveProperty(field);
+    expect(Object.keys(status.response)).toEqual(['200', '400', '401', '403', '500']);
+    expect(status.success).toBe(contractsModule.WorkGcStatusSchema);
+    expect(parseOperatorResponse(id, 200, { active: null })).toEqual({ active: null });
+    const active = { mode: 'dry_run', phase: 'retention_marking', substep: 'record_projection',
+      elapsed_ms: 1, step_elapsed_ms: 0, last_checkpoint_elapsed_ms: 1,
+      counters: { reference_visits: 256, inspected_records: 0 },
+      first_global_protection: { reason: 'operational_root', source: 'operational_input' } };
+    expect(parseOperatorResponse(id, 200, { active })).toEqual({ active });
+    for (const invalid of [
+      {}, { active: null, extra: true }, { active: { ...active, mode: 'wrong' } },
+      { active: { ...active, substep: 'private-record-name' } },
+      { active: { ...active, phase: 'replaying' } },
+      { active: { ...active, elapsed_ms: -1 } },
+      { active: { ...active, step_elapsed_ms: NaN } },
+      { active: { ...active, last_checkpoint_elapsed_ms: 1.5 } },
+      { active: { ...active, counters: { unexpected_count: 10 } } },
+      { active: { ...active, counters: { reference_visits: Number.MAX_SAFE_INTEGER + 1 } } },
+      { active: { ...active, first_global_protection: { ...active.first_global_protection, path: 'private' } } },
+      { active: { ...active, path: 'private' } },
+    ]) expect(() => parseOperatorResponse(id, 200, invalid)).toThrow();
+    expect(() => parseOperatorResponse(id, 403, { error: 'Forbidden', message: 'arbitrary text' })).toThrow();
   });
 
   it('registers only the exact mounted HTTP methods', () => {

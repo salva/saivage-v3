@@ -83,6 +83,7 @@ it.each([
       // No Analyst getter/submission or autonomous launch has occurred yet.
       const idlePreview = await app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal);
       expect(idlePreview).toMatchObject({ disposition: 'completed', restoration: 'not_resumed' });
+      expect(app.getWorkGcStatus()).toEqual({ active: null });
       expect(providerCalls).toBe(0);
       expect(app.runtimeApi.getRuntimeState()).toBeNull();
       expect(app.runtimeApi.getStatus().status).toBe('stopped');
@@ -94,8 +95,23 @@ it.each([
       expect(readFileSync(join(root, 'late-fetch.txt'), 'utf8')).toBe('Late canonical webfetch content.');
       expect(providerCalls).toBe(2);
     });
-    gc = app.runWorkGc({ signal: new AbortController().signal, inventory: async () => undefined, collect }).catch(error => error);
-    await new Promise<void>(resolve => setImmediate(resolve));
+    const settling = deferred<void>();
+    const analyst = app.analystRuntime;
+    const awaitNatural = analyst.awaitNaturalTurnCompletion.bind(analyst);
+    const naturalWait = jest.spyOn(analyst, 'awaitNaturalTurnCompletion').mockImplementation(() => {
+      settling.resolve();
+      return awaitNatural();
+    });
+    const runWorkGc = app.runWorkGc.bind(app);
+    const collection = jest.spyOn(app, 'runWorkGc').mockImplementation(input => runWorkGc({ ...input,
+      collect: async (inventory, signal) => {
+        await collect();
+        return input.collect(inventory, signal);
+      },
+    }));
+    gc = app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal);
+    await settling.promise;
+    expect(app.getWorkGcStatus().active).toMatchObject({ mode: 'dry_run', phase: 'settling', substep: 'waiting_for_hold' });
     expect(() => app.assertWorkGcIngressAllowed()).toThrow('busy'); expect(collect).not.toHaveBeenCalled();
     await expect(app.analystRuntime.submit({ userContent: 'Must refuse' })).rejects.toThrow('busy');
     await expect(app.runtimeApi.startProject()).rejects.toThrow('busy');
@@ -103,12 +119,17 @@ it.each([
     expect(autonomous).toHaveBeenCalledTimes(1); // only the explicit refused attempt
     if (mode === 'close') {
       const closing = close();
-      expect(await gc).toBeInstanceOf(Error); expect(collect).not.toHaveBeenCalled();
+      expect(await gc).toMatchObject({ disposition: 'refused', reason: 'cancelled' });
+      expect(collect).not.toHaveBeenCalled();
       releaseTool.resolve(); await turn; await closing;
+      expect(app.getWorkGcStatus()).toEqual({ active: null });
       expect(collect).not.toHaveBeenCalled(); expect(app.runtimeApi.getStatus().status).toBe('stopped');
     } else {
       releaseTool.resolve(); await turn;
-      expect(await gc).toMatchObject({ restoredRunning: false }); expect(collect).toHaveBeenCalledTimes(1);
+      expect(await gc).toMatchObject({ disposition: 'completed', restoration: 'not_resumed' });
+      expect(collect).toHaveBeenCalledTimes(1);
+      expect(app.getWorkGcStatus()).toEqual({ active: null });
+      naturalWait.mockRestore(); collection.mockRestore();
       expect(app.runtimeApi.getStatus().status).toBe(entryStatus);
       // Use the same real registry as the application, with a bootstrap-owned
       // survivor outside the runtime/Analyst scopes. Stopped is not containment.

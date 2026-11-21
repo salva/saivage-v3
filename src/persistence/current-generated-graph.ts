@@ -222,6 +222,7 @@ export async function inspectWorkGcCanonicalState(
   ): Promise<number | null> {
     check();
     if (references.done?.()) return null;
+    progress?.retentionSource?.('conversation_projection');
     const { cardId } = conversationSessionIdentity(session);
     const projection = readWorkGcConversation(projectRoot, session, optional);
     for (const value of projection.references) {
@@ -242,6 +243,7 @@ export async function inspectWorkGcCanonicalState(
     const id = pending.pop()!;
     if (reached.has(id)) throw new Error('Ambiguous GC card traversal.');
     reached.add(id);
+    progress?.retentionSource?.('card_projection');
     const card = readWorkGcCard(projectRoot, id);
     if (!card) continue;
     pending.push(...card.child_membership);
@@ -252,6 +254,7 @@ export async function inspectWorkGcCanonicalState(
     if (!workflow) throw new Error('GC reached a card without a compiled workflow.');
     for (const notification of card.pending) {
       if (references.done?.()) return owners;
+      progress?.retentionSource?.('pending_notification');
       await references.content(
         readWorkGcNotification(projectRoot, card.id, notification),
         card.id,
@@ -259,6 +262,7 @@ export async function inspectWorkGcCanonicalState(
       );
     }
     if (references.done?.()) return owners;
+    progress?.retentionSource?.('record_listing');
     const selectedDefinitions = new Map<string, Pick<RecordDefinition, 'filename' | 'bootstrap'>>(
       [...workflow.records.values()].map((record) => [
         record.name,
@@ -294,6 +298,7 @@ export async function inspectWorkGcCanonicalState(
     for (const filename of listed) {
       check();
       if (references.done?.()) return owners;
+      progress?.retentionSource?.('record_projection');
       for (const content of readWorkGcRecord(
         projectRoot,
         card.id,
@@ -306,6 +311,7 @@ export async function inspectWorkGcCanonicalState(
       await setImmediate();
     }
     if (references.done?.()) return owners;
+    progress?.retentionSource?.('execution_workflow_inputs');
     for (const path of readWorkGcExecutionPaths(projectRoot, card.id)) {
       if (references.done?.()) return owners;
       await references.path(resolve(projectRoot, path), 'unfinished_execution');

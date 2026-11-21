@@ -24,6 +24,7 @@ import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operat
 import type { CardService } from '../../src/cards/store-api.js';
 import type { McpToolsReadModelProvider } from '../../src/mcp/manager-api.js';
 import { SAIVAGE_VERSION } from '../../src/version.js';
+import { buildWorkGcOperatorContractHandlers } from '../../src/server/routes/operator-work-gc-handlers.js';
 
 declare const runtimeApplication: RuntimeApplication;
 declare const processRunner: ProcessRunner;
@@ -69,6 +70,14 @@ function runtimeAndMcpFactoryDependencyTypeFixtures(): void {
 
 function contractRuntimeDependencyTypeFixtures(): void {
   new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: null as never, fatalPort: testApplicationFatalPort });
+}
+
+function workGcFactoryDependencyTypeFixtures(): void {
+  buildWorkGcOperatorContractHandlers(runtimeApplication, true);
+  // @ts-expect-error Status cannot infer auth mode from the runtime application.
+  buildWorkGcOperatorContractHandlers(runtimeApplication);
+  // @ts-expect-error The work-GC handler factory requires the application status getter.
+  buildWorkGcOperatorContractHandlers({ collectWorkGarbage: runtimeApplication.collectWorkGarbage }, true);
 }
 
 const handlers = defineOperatorContractHandlers({
@@ -121,6 +130,20 @@ const gcFinal: OperatorApiSuccess<'runtime.gcWork'> = { mode: 'dry_run', disposi
 const gcStream: OperatorApiHandlerResult<'runtime.gcWork'> = { stream: (async function* () { yield new Uint8Array(); })() };
 // @ts-expect-error Streamed success cannot return the logical final response as JSON 200.
 const gcJsonSuccess: OperatorApiHandlerResult<'runtime.gcWork'> = { body: gcFinal };
+const gcStatusInputs: [
+  OperatorApiParams<'runtime.gcWorkStatus'>, OperatorApiQuery<'runtime.gcWorkStatus'>,
+  OperatorApiBody<'runtime.gcWorkStatus'>,
+] = [undefined, undefined, undefined];
+// @ts-expect-error GC status does not accept a request body.
+const gcStatusRequest: OperatorApiBody<'runtime.gcWorkStatus'> = { mode: 'dry_run' };
+const gcStatus: OperatorApiHandlerResult<'runtime.gcWorkStatus'> = { body: { active: null } };
+const gcStatusDisabled: OperatorApiHandlerResult<'runtime.gcWorkStatus'> = {
+  statusCode: 403, body: { error: 'Forbidden', message: 'Work garbage collection status requires operator authentication.' },
+};
+// @ts-expect-error GC status success is JSON, never a stream.
+const gcStatusStream: OperatorApiHandlerResult<'runtime.gcWorkStatus'> = gcStream;
+// @ts-expect-error GC status does not declare busy refusal.
+const gcStatusBusy: OperatorApiHandlerResult<'runtime.gcWorkStatus'> = { statusCode: 409, body: { error: 'WorkGcBusy', message: 'Work garbage collection is busy.' } };
 const readinessReady: OperatorApiHandlerResult<'health.readiness'> = { body: { status: 'ready', serverAvailability } };
 const nullRuntimeState: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectId: 'project', runtime: null, serverAvailability } };
 const stoppedRuntimeStatus: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime, serverAvailability,oversight:{agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped',state:'unavailable',remaining_wait_ms:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-01-01T00:00:00.000Z'} } };
@@ -154,6 +177,7 @@ describe('operator handler contract type fixtures', () => {
       invalidNoBody,
       implicitSuccess.statusCode,
       gcStream, gcJsonSuccess,
+      gcStatusInputs, gcStatusRequest, gcStatus, gcStatusDisabled, gcStatusStream, gcStatusBusy,
       explicitSuccess.statusCode,
       readinessReady.statusCode,
       nullRuntimeState,
@@ -170,6 +194,7 @@ describe('operator handler contract type fixtures', () => {
       processFactoryDependencyTypeFixtures,
       runtimeAndMcpFactoryDependencyTypeFixtures,
       contractRuntimeDependencyTypeFixtures,
+      workGcFactoryDependencyTypeFixtures,
     ]).toBeDefined();
   });
 });

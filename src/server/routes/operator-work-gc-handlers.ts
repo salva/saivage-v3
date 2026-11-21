@@ -1,9 +1,21 @@
-import { WorkGcBusyError, WORK_GC_BUSY_ERROR } from '../../contracts/index.js';
+import {
+  WorkGcBusyError,
+  WORK_GC_BUSY_ERROR,
+  WORK_GC_STATUS_FORBIDDEN,
+} from '../../contracts/index.js';
 import type { RuntimeApplication } from '../../application/index.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 
-export function buildWorkGcOperatorContractHandlers(application: RuntimeApplication) {
+export function buildWorkGcOperatorContractHandlers(
+  application: Pick<RuntimeApplication, 'getWorkGcStatus' | 'collectWorkGarbage'>,
+  authEnabled: boolean,
+) {
   return defineOperatorContractHandlers({
+    'runtime.gcWorkStatus': ({ reply }) => {
+      reply.header('Cache-Control', 'no-store');
+      if (!authEnabled) return { statusCode: 403, body: WORK_GC_STATUS_FORBIDDEN };
+      return { body: application.getWorkGcStatus() };
+    },
     'runtime.gcWork': ({ body, request, reply }) => {
       const cancellation = new AbortController();
       const stream = reply.createStream();

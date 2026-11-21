@@ -42,6 +42,7 @@ fs.fsyncSync = fd => {
 fs.closeSync = fd => { if (deleting) mark('descriptor-close'); return close(fd); };
 syncBuiltinESMExports();
 const application = {
+  getWorkGcStatus() { throw new Error('Unexpected status request'); },
   async collectWorkGarbage(_request: unknown, signal: AbortSignal) {
     const inventory = await inventoryWorkGarbage(root, signal);
     try {
@@ -54,10 +55,10 @@ const application = {
     } finally { mark('admission-release'); }
     throw new Error('Fatal returned');
   },
-} as unknown as RuntimeApplication;
+} satisfies Pick<RuntimeApplication, 'getWorkGcStatus' | 'collectWorkGarbage'>;
 new ContractRuntime({ authPolicy: new AuthPolicy({}),
   eventLogger: createEventLog(root), fatalPort: fatal }).mount(server,
-  workGcOperatorApiContracts, buildWorkGcOperatorContractHandlers(application));
+  workGcOperatorApiContracts, buildWorkGcOperatorContractHandlers(application, false));
 const origin = await server.listen({ host: '127.0.0.1', port: 0 });
 mark('request');
 const response = await fetch(`${origin}/api/runtime/gc-work`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'delete' }) });

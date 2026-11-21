@@ -10,12 +10,14 @@ function request(headers: Record<string, string> = {}, query: Record<string, unk
 describe('AuthPolicy', () => {
   it('preserves auth-disabled behavior for HTTP and WebSocket paths', () => {
     const policy = new AuthPolicy({ apiToken: undefined });
-    expect(policy.validateHttpRequest(request()).ok).toBe(true);
+    expect(policy.authEnabled).toBe(false);
+    expect(policy.validateHttpRequest(request())).toEqual({ ok: true, mode: 'disabled' });
     expect(policy.validateWebSocketRequest(request()).ok).toBe(true);
   });
 
   it('accepts exact bearer auth and rejects missing, malformed, and invalid headers', () => {
     const policy = new AuthPolicy({ apiToken: TOKEN });
+    expect(policy.authEnabled).toBe(true);
     expect(policy.validateHttpRequest(request({ authorization: `Bearer ${TOKEN}` }))).toEqual({ ok: true, mode: 'bearer' });
     expect(policy.validateHttpRequest(request())).toMatchObject({ ok: false, reason: 'missing' });
     expect(policy.validateHttpRequest(request({ authorization: TOKEN }))).toMatchObject({ ok: false, reason: 'malformed' });
@@ -24,7 +26,7 @@ describe('AuthPolicy', () => {
 
   it('rejects query token credentials even when a valid bearer header is present', () => {
     const policy = new AuthPolicy({ apiToken: TOKEN });
-    expect(policy.validateHttpRequest(request({ authorization: `Bearer ${TOKEN}` }, { token: TOKEN }))).toMatchObject({
+    expect(policy.validateHttpRequest(request({ authorization: `Bearer ${TOKEN}` }, { token: 'placeholder' }))).toMatchObject({
       ok: false,
       reason: 'query-token-prohibited',
     });

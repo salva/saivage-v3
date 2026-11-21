@@ -48,7 +48,7 @@ it('throwing fatal port bypasses real application/Supervisor release and every t
   });
   const stream = new ContractFrameStream(WorkGcFrameSchema), raw = new EventEmitter(), reply = new EventEmitter();
   const finish = jest.spyOn(stream, 'finish'), destroy = jest.spyOn(stream.body, 'destroy');
-  const handler = buildWorkGcOperatorContractHandlers(app)['runtime.gcWork'];
+  const handler = buildWorkGcOperatorContractHandlers(app, false)['runtime.gcWork'];
   try {
     await app.runtimeApi.start();
     handler({ body: { mode: 'delete' }, request: { raw }, reply: { raw: reply,

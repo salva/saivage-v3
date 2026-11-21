@@ -157,7 +157,7 @@ tracker. Caller response or an idle snapshot alone is insufficient. GC does not
 close/join the reusable LLM session's lifetime admission or use shutdown disposal
 to finish an accepted turn; failures refuse collection rather than becoming success.
 
-Explicit work-GC HTTP success is a strict `application/x-ndjson` stream, not a
+`POST /api/runtime/gc-work` success is a strict `application/x-ndjson` stream, not a
 JSON-200 response: zero or more `{type:'progress',progress:...}` observations,
 then exactly one `{type:'result',response:...}` last, newline terminated and EOF.
 Frames are at most 16 KiB including newline; responses are no-store/nosniff.
@@ -179,14 +179,14 @@ physical-space claim is made. CLI progress/prompt uses stderr; authoritative fin
 stdout remains one response JSON line, offline only after lock release. Transport
 loss produces no manufactured final response and never authorizes replay.
 
-Every progress snapshot and every non-null GC result requires nullable
+Every POST progress snapshot, active GET status and non-null GC result requires nullable
 `first_global_protection`. A non-null value is exactly `{reason, source}` with no
 extra fields. `process_owner_uncertain` has `source: process_owner`;
 `operational_root` has source `process_capture`, `unfinished_execution`,
 `workflow_input` or `operational_input`. It records only
 the first encountered sufficient global mark, not a ranked/unique cause or stable
-ordering across collections. Progress null means no mark observed yet; completed
-result null means none was established. Individual references can protect all
+ordering across collections. A null mark in progress or active status means none
+observed yet; in a completed result it means none was established. Individual references can protect all
 candidates with null. Partial results/progress do not certify completion, and
 refusals with `result:null` gain no fabricated attribution. The fixed value contains
 no paths, identities, tokens, excerpts, object keys, config values or error text.
@@ -370,8 +370,9 @@ failure ends collection; outcome uncertainty is fatal before reporting, cleanup 
 resume. Ordinary failures expose only bounded allowlisted original filesystem code
 and syscall metadata, never messages, stacks, paths or other private error content;
 unrecognized metadata is `unknown`/null, and completion/cancellation has no diagnostic.
-Uncertainty remains terminal before any normal response/output. This optional operation introduces no public maintenance status, automatic
-schedule, saved job or durable GC event/report.
+Uncertainty remains terminal before any normal response/output. The
+[online status](#online-work-gc-status) is bearer-only and in memory. GC has no
+automatic schedule, saved job or durable event/report.
 
 Analyst tool composition separates the configured policy identity and effective
 selected tools from actual authorship. External credential holders are attributed
@@ -2498,10 +2499,66 @@ Every `/api/*` operator contract requires operator-session admission through the
 Ordinary deployments require bearer authentication.
 With `SAIVAGE_API_TOKEN` configured, only the exact bearer header admits the request; rejection occurs before request validation or handler work.
 Set-but-blank and leading- or trailing-whitespace values fail startup rather than silently disabling authentication or starting a server whose configured token cannot be presented unchanged by the bearer protocol.
-Authentication-disabled mode, in which the same operator-session contracts admit headerless requests, is supported only when deployment-owned external isolation limits exposure to trusted origins.
+Authentication-disabled mode is supported only when deployment-owned external isolation limits exposure to trusted origins. In this mode shared operator-session admission permits headerless requests, but operation-specific requirements still apply: [`runtime.gcWorkStatus`](#online-work-gc-status) returns 403 rather than exposing diagnostics.
 Saivage neither establishes nor detects that isolation.
 Wildcard CORS remains enabled and is not authentication.
 API bearer credentials are accepted only in the `Authorization` header and never in URLs.
+
+### Online work GC status
+
+`runtime.gcWorkStatus` (`GET /api/runtime/gc-work/status`) is a read-only
+operator-session contract with no inputs. It requires enabled operator bearer
+authentication. A missing, malformed or invalid bearer header, or a `token`
+query parameter even with a valid bearer header, returns shared JSON 401
+(`{"error":"Unauthorized","statusCode":401}`) in bearer mode. In disabled mode
+the route returns fixed JSON 403 before reading
+status: `{"error":"Forbidden","message":"Work garbage collection status requires operator authentication."}`.
+The declared validation and unexpected internal errors are 400 and 500. This
+does not change admission to the initiating POST.
+
+HTTP 200 is JSON with `Cache-Control: no-store`. The strict `WorkGcStatusSchema`
+requires one property, `active`, which is null or an exact object with `mode`
+(`dry_run` or `delete`), `phase`, `substep`, `elapsed_ms`, `step_elapsed_ms`,
+`last_checkpoint_elapsed_ms`, `counters` and nullable `first_global_protection`.
+The reporter uses these phase/substep pairs:
+
+| Phase | Substep |
+| --- | --- |
+| `inventory` | `starting` at reservation, then `enumerating` |
+| `settling` | `waiting_for_hold` |
+| `retention_marking` | `operational_inputs`, then as reached: `card_projection`, `pending_notification`, `record_listing`, `record_projection`, `execution_workflow_inputs`, `conversation_projection` |
+| `selection` | `classifying` |
+
+Projection substeps record the last category started, not a completed read.
+
+Times and counts are nonnegative safe integers. `elapsed_ms` is time since
+reservation; `step_elapsed_ms` is time since entry to the current phase/substep
+pair, not cumulative across visits to that pair. `last_checkpoint_elapsed_ms`
+is the most recent checkpoint's offset from reservation, initially zero.
+These are whole milliseconds from one monotonic clock, not wall times. The
+observed checkpoint age is `elapsed_ms - last_checkpoint_elapsed_ms`. Owner work
+updates the checkpoint; reading only samples the clock and existing state.
+
+The closed `counters` object admits the optional POST counter names from
+[Analyst operations and external clients](#analyst-operations-and-external-clients)
+plus optional `reference_visits`. Omitted is distinct from measured zero.
+`reference_visits` is the cumulative number of visits that passed the initial
+cancellation check in `WorkReferences.visit()`, as of the latest published
+256-visit batch. It includes matcher and non-matcher work, repeated visits and
+visits that find nothing. No partial batch is published at early return or
+settlement. It is not a count of distinct references, completed items, matches
+or protected files. The snapshot contains no raw project text, paths or identities.
+
+Each accepted online collection has fresh RAM status even without a POST
+progress subscriber. A duplicate cannot replace it. Status is independent of
+the Supervisor hold and POST delivery: it starts before inventory and can retain
+its last checkpoint during cancellation or restoration. A label does not prove
+the indicated work is still running. Ordinary settlement clears the status before
+terminal delivery; `{"active":null}` means only that no online collection is
+currently observed, even while terminal bytes are draining. There is no terminal
+cache, offline status or change to the fatal publication boundary. For a POST,
+only the initiating stream's valid terminal frame plus EOF establishes its
+reported outcome.
 
 ### Exact availability vocabulary
 

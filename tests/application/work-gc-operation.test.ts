@@ -27,7 +27,8 @@ function fixture() {
     configAuthority: { loadEffective } as unknown as ResolvedConfigAuthority,
     processRunner: { workGcProtection: () => ({ retainAll: false, capturePaths: [] }) } as unknown as ProcessRunner,
     fatalPort: { publicationOutcomeUnknown: error => { throw error; } },
-    run: async ({ signal, inventory, collect }) => {
+    run: async ({ signal, inventory, collect, startObservation }) => {
+      startObservation!();
       const found = await inventory(signal);
       try { return { value: await collect(found, signal), restoredRunning: true }; }
       catch (error) { throw new WorkGcMaintenanceError(true, error); }
@@ -112,8 +113,10 @@ it('carries process attribution through real collection, observations and owner 
     processRunner: { workGcProtection: () => ({ retainAll: true, capturePaths: [] }) } as unknown as ProcessRunner,
     progress: value => snapshots.push(value),
     run: async args => {
+      const status = args.startObservation!();
       const found = await args.inventory(args.signal);
       const value = await args.collect(found, args.signal);
+      expect(status()).toMatchObject({ phase: 'selection', first_global_protection: mark });
       settled = true;
       return { value, restoredRunning: false };
     },
@@ -149,6 +152,7 @@ it('preserves known partial deletion and refuses hypothetical effects in delete 
   const request = { mode: 'delete', min_file_bytes: 4 } as const;
   const response = await runWorkGcOperation({ ...input, request,
     run: async args => {
+      args.startObservation!();
       await args.inventory(args.signal);
       throw new WorkGcMaintenanceError(false, new WorkGcInterruptedError(result, new Error('interrupted')), true);
     } });
@@ -172,9 +176,24 @@ it('delivers uncertainty to fatal before producing an ordinary refusal report', 
   })).rejects.toBe(terminal);
   expect(fatal).toHaveBeenCalledWith(unknown);
 });
-it('reserves synchronously and leaves an admission refusal synchronous', () => {
+it('supplies a fresh synchronous reservation observer only when the task accepts it', async () => {
   const { input } = fixture();
-  expect(() => runWorkGcOperation({ ...input, run() { throw new WorkGcBusyError(); } })).toThrow(WorkGcBusyError);
+  for (const mode of ['dry_run', 'delete'] as const) {
+    const completion = runWorkGcOperation({ ...input, request: { mode }, run: args => {
+      const status = args.startObservation!();
+      expect(status()).toMatchObject({ mode, phase: 'inventory', substep: 'starting',
+        last_checkpoint_elapsed_ms: 0, first_global_protection: null });
+      expect(status().counters).toEqual({});
+      expect(() => runWorkGcOperation({ ...input, run() { throw new WorkGcBusyError(); } }))
+        .toThrow(WorkGcBusyError);
+      expect(status().mode).toBe(mode);
+      return args.inventory(args.signal).then(found => {
+        expect(status()).toMatchObject({ phase: 'settling', counters: { observed_count: 1 } });
+        return args.collect(found, args.signal);
+      }).then(value => ({ value, restoredRunning: false }));
+    } });
+    await expect(completion).resolves.toMatchObject({ mode, disposition: 'completed' });
+  }
 });
 
 it.each(['direct', 'maintenance', 'interrupted'] as const)('projects only allowlisted original metadata through %s ownership', async owner => {

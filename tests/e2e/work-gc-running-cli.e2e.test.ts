@@ -17,7 +17,7 @@ import { ModelRouter } from '../../src/agents/model-router.js';
 import { bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { NO_FRESHNESS_EFFECTS, WorkGcFrameSchema, WorkGcResponseSchema, type WorkGcResponse } from '../../src/contracts/index.js';
+import { NO_FRESHNESS_EFFECTS, WorkGcFrameSchema, WorkGcResponseSchema, WorkGcStatusSchema, type WorkGcResponse } from '../../src/contracts/index.js';
 import { ContractFrameStream } from '../../src/server/contract-stream.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
@@ -121,13 +121,22 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
       expect(app.runtimeApi.getStatus().status).toBe('paused');
       const contracts = new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'synthetic-gc-token' }), eventLogger: createEventLog(root),
         fatalPort: testApplicationFatalPort });
-      contracts.mount(server, workGcOperatorApiContracts, buildWorkGcOperatorContractHandlers(app));
+      contracts.mount(server, workGcOperatorApiContracts, buildWorkGcOperatorContractHandlers(app, true));
       contracts.mount(server, { 'files.content': filesDebugOperatorApiContracts['files.content'] },
         buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: () => cards, configAuthority: authority, workflows }));
       contracts.mount(server, { 'health.liveness': runtimeCardsOperatorApiContracts['health.liveness'] },
         buildRuntimeCardOperatorContractHandlers({ projectRoot: root, cardStore: cards, runtimeApplication: app,
           restartCapability: { available: false }, serverAvailabilityProvider() { throw new Error('Unused readiness'); } }));
       const origin = await server.listen({ host: '127.0.0.1', port: 0 });
+      // The observer uses its own authenticated HTTP connection, never the collector's transport.
+      const readGc = async () => {
+        const response = await realFetch(`${origin}/api/runtime/gc-work/status`, {
+          headers: { authorization: 'Bearer synthetic-gc-token', connection: 'close' },
+          signal: AbortSignal.timeout(2000),
+        });
+        expect(response.status).toBe(200);
+        return WorkGcStatusSchema.parse(await response.json()).active;
+      };
       publishRuntimeControlEndpoint(lock, { origin, auth: 'bearer' });
       process.chdir(root);
       const before = snapshot(join(root, '.saivage'));
@@ -230,29 +239,71 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         while (!stream.body.writableNeedDrain)
           stream.optional({ type: 'progress', progress: { phase: 'inventory', elapsed_ms: 0, first_global_protection: null } });
         expect(stream.body.writableNeedDrain).toBe(true);
+        const optional = jest.spyOn(stream, 'optional');
+        const writes = jest.spyOn(stream.body, 'write');
+        const pressureHeld = deferred<void>(), releasePressure = deferred<void>();
+        const runWithPressure = app.runWorkGc.bind(app);
+        const pressureBarrier = jest.spyOn(app, 'runWorkGc').mockImplementation(input => runWithPressure({ ...input,
+          collect: async (inventory, signal) => {
+            const result = await input.collect(inventory, signal);
+            pressureHeld.resolve();
+            await releasePressure.promise;
+            return result;
+          },
+        }));
         const terminal = deferred<void>(), transportSettled = deferred<void>();
+        let finishing = false;
         const finish = stream.finish.bind(stream);
         jest.spyOn(stream, 'finish').mockImplementation(async (frame, signal) => {
+          finishing = true;
           terminal.resolve();
           try { await finish(frame, signal); } finally { transportSettled.resolve(); }
         });
         const raw = new EventEmitter(), reply = new EventEmitter();
-        const handler = buildWorkGcOperatorContractHandlers(app)['runtime.gcWork'];
+        const handler = buildWorkGcOperatorContractHandlers(app, true)['runtime.gcWork'];
         try {
           handler({ body: { mode: 'dry_run' }, request: { raw }, reply: { raw: reply,
             createStream: () => stream } } as unknown as Parameters<typeof handler>[0]);
+          await pressureHeld.promise;
+          expect(sink.writableNeedDrain).toBe(true);
+          expect(stream.body.writableNeedDrain).toBe(true);
+          expect(optional).toHaveBeenCalledWith({ type: 'progress', progress: expect.objectContaining({ phase: 'selection' }) });
+          expect(writes).not.toHaveBeenCalled();
+          expect(() => app.assertWorkGcIngressAllowed()).toThrow('busy');
+          expect(await readGc()).toMatchObject({ mode: 'dry_run', phase: 'selection', substep: 'classifying',
+            counters: { candidates_processed: expect.any(Number) } });
+          releasePressure.resolve();
           await terminal.promise;
           expect(stream.body.writableNeedDrain).toBe(true);
+          expect(await readGc()).toBeNull();
+          expect(stream.body.writableNeedDrain).toBe(true);
+          expect(stream.body.destroyed).toBe(false);
+          expect(writes).not.toHaveBeenCalled();
           expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
           expect(app.runtimeApi.getStatus().status).toBe('paused');
           // A fresh invocation is admitted while the preceding transport is stuck.
-          await expect(app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal))
+          pressureBarrier.mockRestore();
+          const fresh = app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal);
+          expect(app.getWorkGcStatus().active).toMatchObject({ phase: 'inventory', substep: 'starting',
+            counters: {}, last_checkpoint_elapsed_ms: 0, first_global_protection: null });
+          expect(app.getWorkGcStatus().active!.counters).toEqual({});
+          await expect(fresh)
             .resolves.toMatchObject({ disposition: 'completed', restoration: 'not_resumed' });
           reply.emit('close'); await transportSettled.promise;
           await new Promise<void>(resolve => setImmediate(resolve));
           expect(raw.listenerCount('aborted')).toBe(0); expect(reply.listenerCount('close')).toBe(0);
           expect(stream.body.destroyed).toBe(true);
-        } finally { slow = false; for (const callback of callbacks.splice(0)) callback(); stream.body.destroy(); sink.destroy(); }
+        } finally {
+          releasePressure.resolve();
+          pressureBarrier.mockRestore();
+          reply.emit('close');
+          await app.cleanupWorkGc();
+          if (finishing) await transportSettled.promise;
+          slow = false;
+          for (const callback of callbacks.splice(0)) callback();
+          stream.body.destroy();
+          sink.destroy();
+        }
 
         for (const mode of ['dry_run', 'delete'] as const) {
           const abortSelection = new AbortController();
@@ -280,10 +331,17 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         const selectionAbort = new AbortController();
         const selectingTask = app.collectWorkGarbage({ mode: 'dry_run' }, selectionAbort.signal);
         try {
-          await selecting.promise; selectionAbort.abort(); await cancelObserved.promise;
+          await selecting.promise;
+          const beforeAbort = await readGc();
+          expect(beforeAbort).toMatchObject({ phase: 'selection', substep: 'classifying', mode: 'dry_run' });
+          selectionAbort.abort(); await cancelObserved.promise;
+          const duringAbort = await readGc();
+          expect(duringAbort).toMatchObject({ substep: 'classifying',
+            counters: beforeAbort!.counters, last_checkpoint_elapsed_ms: beforeAbort!.last_checkpoint_elapsed_ms });
           expect(() => app.assertWorkGcIngressAllowed()).toThrow('busy');
           releaseCollector.resolve();
           await expect(selectingTask).resolves.toMatchObject({ disposition: 'interrupted', reason: 'cancelled', restoration: 'not_resumed' });
+          expect(await readGc()).toBeNull();
           expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
         } finally { selectionAbort.abort(); releaseCollector.resolve(); await selectingTask; selection.mockRestore(); }
 
@@ -308,16 +366,21 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
           const admitted = await pending;
           expect(admitted.status).toBe(200);
           expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
+          const reserved = await readGc();
+          expect(reserved).toMatchObject({ mode: 'dry_run', phase: 'inventory', substep: 'starting',
+            counters: {}, last_checkpoint_elapsed_ms: 0 });
           const duplicate = await realFetch(`${origin}/api/runtime/gc-work`, { method: 'POST',
             headers: { authorization: 'Bearer synthetic-gc-token', 'content-type': 'application/json' },
-            body: '{"mode":"dry_run"}' });
+            body: '{"mode":"delete"}' });
           expect(duplicate.status).toBe(409);
           expect(duplicate.headers.get('content-type')).toContain('application/json');
           expect(await duplicate.json()).toMatchObject({ error: 'WorkGcBusy' });
+          expect(await readGc()).toMatchObject({ mode: 'dry_run', substep: 'starting', last_checkpoint_elapsed_ms: 0 });
           abort.abort();
           await expect(admitted.text()).rejects.toThrow();
           expect(() => app.collectWorkGarbage({ mode: 'dry_run' }, new AbortController().signal)).toThrow('busy');
           releaseInventory.resolve(); await inventorySettled.promise; await app.cleanupWorkGc();
+          expect(await readGc()).toBeNull();
           expect(() => app.assertWorkGcIngressAllowed()).not.toThrow();
           expect(app.runtimeApi.getStatus().status).toBe('paused');
           expect(snapshot(join(root, '.saivage'))).toEqual(before);
@@ -376,6 +439,7 @@ it('real live-owner CLI previews have no effects and delete reclaims scratch whi
         const settled = held.catch(error => error);
         try {
           await entered.promise;
+          expect(app.getWorkGcStatus()).toEqual({ active: null }); // The generic harness has no GC mode.
           expect((await realFetch(`${origin}/health`)).status).toBe(200);
           const file = await realFetch(`${origin}/api/files/content?path=${encodeURIComponent('.saivage/work/cards/project/tmp/evidence.txt')}`,
             { headers: { authorization: 'Bearer synthetic-gc-token' } });

@@ -194,8 +194,50 @@ Online collection requires an actually paused frontier or genuinely stopped proj
 A running entry first requests pause; starting, closing, already-pausing or unresolved
 ownership transitions refuse. Stopped entry creates no gate waiter, activation or Run.
 Online shell background invocation is sufficient if desired; redirect output outside
-work. There is no job
-API, agent tool or UI button, and a second concurrent GC receives busy rejection.
+work. There is no job-control API, agent tool or UI button, and a second
+concurrent GC receives busy rejection.
+
+## Observe an online collection
+
+If output goes quiet, use a separate HTTP request to make one
+`GET /api/runtime/gc-work/status` against the verified online control endpoint.
+Check the installed release and the verified live owner's published endpoint
+and auth mode; do not guess an address or follow redirects. Use the existing
+operator bearer credential through your client's private `Authorization` header
+handling. Keep it out of URLs, command arguments, shell history, traces and logs.
+The diagnostic requires enabled bearer authentication; a server with authentication
+disabled returns 403. Do not weaken or change authentication to make the request.
+A bounded wait on this GET limits only the observation, not the collection.
+
+In a 200 response, `active` describes the last checkpoint of the currently
+observed task, even if the initiating POST drops progress or no stream is attached.
+Within one admission, rising `counters.reference_visits` shows measured reference
+work in 256-visit batches even when `counters.inspected_records` is flat. Those
+visits are not completed records or matches. The GET has no admission identity:
+samples alone cannot prove they came from the same invocation.
+`elapsed_ms - last_checkpoint_elapsed_ms` is the age of the last checkpoint in
+that snapshot. Only when the samples are known to be from the same admission,
+compare `last_checkpoint_elapsed_ms` directly: a higher offset shows a newer
+checkpoint, even if its age has grown. Checkpoint age does not tell you whether
+GC has stalled or whether the named substep is still running. A `/health`
+200 means only that HTTP answered. Synchronous work can delay HTTP observations.
+See the [status contract](../spec/system-specification.md#online-work-gc-status).
+
+If HTTP cannot answer, the fallback is a bounded, external, read-only process
+observation. In the correct service namespace, verify the exact service unit
+and its positive `MainPID` (for example, with
+`systemctl show --property=Id,MainPID -- <verified-unit>`). If ownership is
+unambiguous, take at most two `ps -p <pid> -o pid=,stat=,time=` samples a few
+seconds apart and verify the same unit and process owner afterward. Do not read
+argv, environment or logs, attach, profile or send signals. Process presence or
+CPU movement does not establish GC advancement. Absence, changed or unknown
+ownership, or a failed GET does not establish the prior outcome. Do not start
+another collector, cancel, restart or inspect artifacts to settle that outcome.
+
+`{"active":null}` means no task is currently observed, not that a particular
+attempt finished or had no effects. Ordinary settlement clears status before
+terminal delivery, so the initiating POST may still be draining. Only that POST's
+valid terminal frame plus EOF establishes its reported outcome.
 
 ## Without a server owner
 
@@ -212,8 +254,10 @@ Git commissioning, init or recovery. Valid running cards, current unmatched call
 and unfinished native attempts stay unchanged and protect current selections. A missing
 lock is not proof of process containment; safety depends on maintained operator
 quiescence. Competing acquisition refuses, never reroutes. Preview also publishes
-and releases this lock, but performs no collector file effects. Results print only
-after successful release. Command death may leave an abandoned lock requiring the
+and releases this lock, but performs no collector file effects. Offline GC has no
+status service. Its stderr progress is lossy; external process sampling cannot
+recover a checkpoint. Only its final stdout JSON line after successful lock release
+reports the outcome. Command death may leave an abandoned lock requiring the
 separate manual procedure; never remove it automatically. Successful GC does not
 certify whole-project startup compatibility or authorize start/Run.
 
@@ -283,9 +327,9 @@ count updates at most once per second in existing work loops. There are no timer
 heartbeats, percentages, ETA or known total-work denominators. Slow/broken stderr
 can drop observations without cancelling collection or suppressing final output.
 
-The phases are `inventory`, online-only `settling`, `retention_marking`, and
-`selection`. Inventory is not a settled hold; settling describes an attempt to
-park/join owners, not completed exclusion. Offline initial configuration loading
+POST progress frames and CLI stderr use `inventory`, online-only `settling`,
+`retention_marking`, and `selection`. Inventory is not a settled hold; settling
+describes an attempt to park/join owners, not completed exclusion. Offline initial configuration loading
 still precedes inventory. Elapsed milliseconds use an operation-local monotonic
 clock. Optional cumulative counts/logical bytes describe work already observed:
 inventory's accounted files/opaque entries; completed necessary card, record and
@@ -299,8 +343,8 @@ the last phase can include later settlement/release silence.
 records; `inspected_sessions` counts completed necessary session projections. These
 are not validation certificates. Inventory skips reserved temporary entries without counting them.
 
-Every progress snapshot and non-null final/partial result includes
-`first_global_protection`: null or exactly `{reason,source}`. The first sufficient
+Every POST progress snapshot, active GET status and non-null final/partial result
+includes `first_global_protection`: null or exactly `{reason,source}`. The first sufficient
 global protection is retained for this attempt; it is neither the sole cause nor a
 ranked cause, and encounter ordering need not be stable between attempts:
 
@@ -316,15 +360,15 @@ CLI stderr renders, for example,
 `first_global_protection=reason:process_owner_uncertain,source:process_owner`;
 final JSON uses `"first_global_protection":{"reason":"process_owner_uncertain","source":"process_owner"}`.
 Null is `first_global_protection=null` on stderr and JSON null in the response.
-In progress it means no global mark observed yet; only a completed result's null
-means none was established in the collection. Individual protections can still
+In progress or active status it means no global mark observed yet. Only a completed
+result's null means none was established in the collection. Individual protections can still
 cover every candidate with null. A non-null mark does not prove each file is
 individually needed or exclude additional causes. Progress can be throttled/dropped;
 a partial result is not completion, and `result:null` refusals do not fabricate a
 mark even if earlier progress observed one. Attribution changes no retention,
 validation, cancellation or fatal-publication boundary.
 
-HTTP 200 is one `application/x-ndjson` stream with `Cache-Control: no-store` and
+POST HTTP 200 is one `application/x-ndjson` stream with `Cache-Control: no-store` and
 `X-Content-Type-Options: nosniff`: zero or more
 `{type:'progress', progress: ...}` frames, exactly one last
 `{type:'result', response: ...}` frame, newline terminated, then EOF. Each encoded
@@ -415,5 +459,5 @@ or infer lossless recovery. Follow [uncertainty handling](./state-adoption.md#st
 
 The [operator API reference](../architecture/system-architecture.md#operator-routes)
 and [configuration reference](../reference/configuration.md#explicit-work-gc-inputs)
-describe the singular request contract. Enabling this optional command changes no
+describe collection and status. Using this optional command changes no
 durable format and authorizes no automatic collection or live deployment.
