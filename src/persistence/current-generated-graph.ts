@@ -183,7 +183,12 @@ export async function inspectWorkGcCanonicalState(
     ) => Promise<void>;
     readonly conversation: (value: WorkGcReference, cardId: string | null) => Promise<void>;
     readonly path: (value: string, source: WorkGcProtectionSource) => Promise<void>;
-    readonly dependencies: (values: readonly string[], cwd: string, cardId: string | null, source: WorkGcProtectionSource) => Promise<void>;
+    readonly dependencies: (
+      values: readonly string[],
+      cwd: string,
+      cardId: string | null,
+      source: WorkGcProtectionSource,
+    ) => Promise<void>;
     readonly done?: () => boolean;
   },
   progress?: WorkGcProgressPort,
@@ -199,19 +204,30 @@ export async function inspectWorkGcCanonicalState(
     if (references.done?.()) return owners;
     await references.path(resolve(projectRoot, path), 'workflow_input');
   }
-  async function action(execution: { operation: { id: string }; config: unknown; inputs: unknown }, cardId: string) {
+  async function action(
+    execution: { operation: { id: string }; config: unknown; inputs: unknown },
+    cardId: string,
+  ) {
     const source = 'workflow_input';
     const id = execution.operation.id;
     if (id === 'shell.run') {
       const { cwd, artifacts, env } = execution.config as {
-        cwd: string; artifacts: readonly string[]; env: Readonly<Record<string, string>>;
+        cwd: string;
+        artifacts: readonly string[];
+        env: Readonly<Record<string, string>>;
       };
       const absolute = resolve(projectRoot, cwd);
       await references.path(absolute, source);
       for (const path of artifacts) await references.path(resolve(projectRoot, path), source);
       await references.dependencies(Object.values(env), absolute, cardId, source);
-    } else if (id === 'code-quality.javascript.eslint' || id === 'code-quality.typescript.eslint' || id === 'code-quality.python.ruff') {
-      for (const path of workGcQualityPaths(execution.config as Parameters<typeof workGcQualityPaths>[0]))
+    } else if (
+      id === 'code-quality.javascript.eslint' ||
+      id === 'code-quality.typescript.eslint' ||
+      id === 'code-quality.python.ruff'
+    ) {
+      for (const path of workGcQualityPaths(
+        execution.config as Parameters<typeof workGcQualityPaths>[0],
+      ))
         await references.path(resolve(projectRoot, path), source);
     } else await references.operational(execution.config, cardId, source);
     await references.operational(execution.inputs, cardId, source);
@@ -319,11 +335,13 @@ export async function inspectWorkGcCanonicalState(
     for (const state of workflow.states.values()) {
       if (references.done?.()) return owners;
       if (state.kind !== 'node') continue;
-      if (state.execution.kind === 'action')
-        await action(state.execution, card.id);
+      if (state.execution.kind === 'action') await action(state.execution, card.id);
       else {
         await references.operational(state.execution.inputs, card.id, 'workflow_input');
-        await references.path(resolve(projectRoot, state.execution.selectedAgentPrompt.path), 'workflow_input');
+        await references.path(
+          resolve(projectRoot, state.execution.selectedAgentPrompt.path),
+          'workflow_input',
+        );
       }
       for (const prompt of state.recordPrompts)
         await references.path(resolve(projectRoot, prompt.artifact.path), 'workflow_input');

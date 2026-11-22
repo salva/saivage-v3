@@ -126,7 +126,11 @@ export function readWorkGcConversation(
         .parse(genesis.compaction);
       yield { kind: 'content', value: history.summaryText };
       for (const prompt of history.protectedPrompts)
-        yield { kind: 'content', value: z.object({ message: z.object({ content: z.string() }) }).parse(prompt).message.content };
+        yield {
+          kind: 'content',
+          value: z.object({ message: z.object({ content: z.string() }) }).parse(prompt).message
+            .content,
+        };
     }
     for (const value of source) {
       z.object({ session_id: z.literal(sessionId) }).parse(value);

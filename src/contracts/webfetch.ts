@@ -29,7 +29,13 @@ export type WebfetchMetadata = z.infer<typeof WebfetchMetadataSchema>;
 
 export const WorkspaceWriteDataSchema = z
   .object({
-    destination_kind: z.enum(['project_relative', 'project_url', 'tmp_url', 'system_url', 'cardwork_url']),
+    destination_kind: z.enum([
+      'project_relative',
+      'project_url',
+      'tmp_url',
+      'system_url',
+      'cardwork_url',
+    ]),
     target: z.string().min(1),
     bytes: z.number().int().safe().nonnegative(),
     written: z.literal(true),

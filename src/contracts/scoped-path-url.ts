@@ -57,8 +57,9 @@ export interface CardworkAddress {
 export function encodeCardworkSegment(segment: string): string {
   if (segment === '' || segment === '.' || segment === '..' || /[/\\\0]/.test(segment))
     throw new Error('Invalid cardwork path segment.');
-  return encodeURIComponent(segment).replace(/[!'()*]/g, (char) =>
-    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  return encodeURIComponent(segment).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
   );
 }
 
@@ -69,8 +70,11 @@ export function buildCardworkUrl({ cardId, area, pathSegments }: CardworkAddress
 }
 
 export function parseCardworkUrl(raw: string): CardworkAddress {
-  const { segments: [cardId = '', area, ...pathSegments], query, hadFragment } =
-    parseScopedPathUrl(raw, 'cardwork');
+  const {
+    segments: [cardId = '', area, ...pathSegments],
+    query,
+    hadFragment,
+  } = parseScopedPathUrl(raw, 'cardwork');
   if (query !== null || hadFragment || (area !== 'public' && area !== 'repos'))
     throw new Error('Invalid cardwork URL.');
   const address: CardworkAddress = { cardId, area, pathSegments };

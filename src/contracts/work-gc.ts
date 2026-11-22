@@ -22,18 +22,29 @@ export const WorkGcRequestSchema = z
   })
   .strict();
 export type WorkGcRequest = z.infer<typeof WorkGcRequestSchema>;
-const operationalProtectionSources = ['process_capture', 'unfinished_execution', 'workflow_input', 'operational_input'] as const;
+const operationalProtectionSources = [
+  'process_capture',
+  'unfinished_execution',
+  'workflow_input',
+  'operational_input',
+] as const;
 export const FirstGlobalProtectionSchema = z
   .object({
     reason: z.enum(['process_owner_uncertain', 'operational_root']),
     source: z.enum(['process_owner', ...operationalProtectionSources]),
   })
   .strict()
-  .refine((mark) => (mark.reason === 'process_owner_uncertain') === (mark.source === 'process_owner'),
-    'GC global protection source must match its reason.');
+  .refine(
+    (mark) => (mark.reason === 'process_owner_uncertain') === (mark.source === 'process_owner'),
+    'GC global protection source must match its reason.',
+  );
 export type FirstGlobalProtection = z.infer<typeof FirstGlobalProtectionSchema>;
-export type WorkGcProtectionSource = FirstGlobalProtection['source'] |
-  'card_content' | 'pending_notification' | 'record_content' | 'conversation_content';
+export type WorkGcProtectionSource =
+  | FirstGlobalProtection['source']
+  | 'card_content'
+  | 'pending_notification'
+  | 'record_content'
+  | 'conversation_content';
 const workGcPhase = z.enum(['inventory', 'settling', 'retention_marking', 'selection']);
 const workGcCounters = z
   .object({
@@ -180,8 +191,14 @@ export const WorkGcResponseSchema = z
       ctx.addIssue({ code: 'custom', message: 'GC result mode mismatch.' });
     if (value.disposition === 'completed' && (!value.result || value.reason !== 'completed'))
       ctx.addIssue({ code: 'custom', message: 'Completed GC requires its result.' });
-    if (value.reason === 'reference_scope_unresolved' && (value.disposition !== 'refused' || value.result !== null))
-      ctx.addIssue({ code: 'custom', message: 'Unresolved GC reference scope refuses before selection.' });
+    if (
+      value.reason === 'reference_scope_unresolved' &&
+      (value.disposition !== 'refused' || value.result !== null)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Unresolved GC reference scope refuses before selection.',
+      });
     if (
       (value.disposition === 'completed' || value.reason === 'cancelled') !==
       (value.failure === null)

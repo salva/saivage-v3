@@ -961,7 +961,7 @@ paths and classifier output, never infer jobs solely from a “docs” commit la
 | --- | --- |
 | `routine-docs` (always) | Dual clean install, one `validate:routine`; included docs:verify is its sole docs gate |
 | `backend-jest-build` | Ubuntu24.04/x64; dual clean install, pinned Node/Python and isolated quality provisioning, build, canonical npm test, compiled native quality witnesses |
-| `backend-e2e` | Root clean install, test:e2e; no web/browser/external service |
+| `backend-e2e` | Root clean install (`npm ci`), then compile backend/E2E fixtures and copy system-template prompts (`npx tsc && npx tsx scripts/copy-system-template-prompts.js`), then `npm run test:e2e`; no web/browser/external service |
 | `ui-vitest` | Dual clean install, web typecheck and complete Vitest |
 | `browser-smoke` | Ubuntu24.04/x64; dual clean install, Chromium and host libraries, pinned Node/Python and isolated quality provisioning, matching packaged runtime build, complete self-contained browser profile, failure artifacts |
 | `dependency-hygiene` | Dual clean install, audit:security |

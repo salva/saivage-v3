@@ -259,8 +259,7 @@ const pathKey = /(?:path|url|cwd|directory|root|file|dependencies)$/iu;
 const operationalName = /^(?:[\w.-]+)?\.(?:txt|md|jsonl?|log|png|jpg|csv|sh|js|ts|yaml|yml)$/u;
 
 function scopeValue(value: unknown): string | undefined {
-  while (value !== null && typeof value === 'object' && 'literal' in value)
-    value = value.literal;
+  while (value !== null && typeof value === 'object' && 'literal' in value) value = value.literal;
   return typeof value === 'string' ? value : undefined;
 }
 
@@ -270,11 +269,11 @@ function carriesCardworkQuery(span: string): boolean {
     !span.includes('?') ||
     !/^[a-z][a-z0-9+.-]*:\/\//iu.test(span) ||
     /^(?:project|system|work|tmp):/u.test(span)
-  ) return false;
+  )
+    return false;
   const url = URL.parse(span);
   if (url === null) return false;
-  for (const value of url.searchParams.values())
-    if (cardworkScheme.test(value)) return true;
+  for (const value of url.searchParams.values()) if (cardworkScheme.test(value)) return true;
   return false;
 }
 
@@ -289,7 +288,10 @@ class WorkReferences {
   get firstGlobalProtection(): FirstGlobalProtection | null {
     return this.#firstGlobalProtection;
   }
-  protectAll(reason: FirstGlobalProtection['reason'], source: FirstGlobalProtection['source']): void {
+  protectAll(
+    reason: FirstGlobalProtection['reason'],
+    source: FirstGlobalProtection['source'],
+  ): void {
     if (this.#firstGlobalProtection !== null) return;
     this.#firstGlobalProtection = Object.freeze({ reason, source });
     this.progress?.update({ first_global_protection: this.#firstGlobalProtection });
@@ -338,7 +340,8 @@ class WorkReferences {
     if (origin === 'content') {
       if (this.concreteContentPath(path)) this.paths.add(path);
     } else {
-      if (within(path, this.root)) this.protectAll('operational_root', source as FirstGlobalProtection['source']);
+      if (within(path, this.root))
+        this.protectAll('operational_root', source as FirstGlobalProtection['source']);
       if (within(this.root, path)) this.paths.add(path);
     }
   }
@@ -349,7 +352,12 @@ class WorkReferences {
     this.path(path, 'operational', source, true);
   }
 
-  private path(path: string, origin: ReferenceOrigin, source: WorkGcProtectionSource, required: boolean): void {
+  private path(
+    path: string,
+    origin: ReferenceOrigin,
+    source: WorkGcProtectionSource,
+    required: boolean,
+  ): void {
     if (this.firstGlobalProtection) return;
     path = resolve(path);
     const key = JSON.stringify([origin, source, required, path]);
@@ -401,7 +409,10 @@ class WorkReferences {
       const [card, ...rest] = segments;
       return join(this.root, 'cards', cardIdSchema.parse(card), 'tmp', ...rest);
     }
-    return join(scheme === 'system' ? '/' : scheme === 'work' ? this.root : this.projectRoot, ...segments);
+    return join(
+      scheme === 'system' ? '/' : scheme === 'work' ? this.root : this.projectRoot,
+      ...segments,
+    );
   }
 
   private locatorPath(value: string, required: boolean, advisoryScope = false): string | null {
@@ -414,8 +425,10 @@ class WorkReferences {
       const scheme = scopedScheme.exec(value)?.[1];
       if (scheme !== undefined) {
         // Advisory directory syntax permits a single terminal separator, not a second codec attempt.
-        const raw = advisoryScope && value.endsWith('/') && value.length > scheme.length + 4
-          ? value.slice(0, -1) : value;
+        const raw =
+          advisoryScope && value.endsWith('/') && value.length > scheme.length + 4
+            ? value.slice(0, -1)
+            : value;
         const parsed = parseScopedPathUrl(raw, scheme);
         if (parsed.query !== null || parsed.hadFragment) return this.unresolved(required);
         return this.scopedPath(scheme, parsed.segments);
@@ -435,7 +448,12 @@ class WorkReferences {
     return isAbsolute(value) ? [value] : bases.map((base) => resolve(base, value));
   }
 
-  private literalPaths(value: string, bases: readonly string[], required: boolean, advisoryScope = false): string[] {
+  private literalPaths(
+    value: string,
+    bases: readonly string[],
+    required: boolean,
+    advisoryScope = false,
+  ): string[] {
     if (cardworkScheme.test(value) || scopedScheme.test(value) || value.startsWith('file:')) {
       const path = this.locatorPath(value, required, advisoryScope);
       return path === null ? [] : [path];
@@ -484,13 +502,24 @@ class WorkReferences {
     }
     await this.visit();
     if (!input || input.includes('\0')) return;
-    const key = JSON.stringify(['glob', origin, source, input,
-      directory === undefined && (isAbsolute(input) || /^(?:project|system|work|tmp|file):/u.test(input)) ? [] : bases,
-      directory, nativeMatcher]);
+    const key = JSON.stringify([
+      'glob',
+      origin,
+      source,
+      input,
+      directory === undefined &&
+      (isAbsolute(input) || /^(?:project|system|work|tmp|file):/u.test(input))
+        ? []
+        : bases,
+      directory,
+      nativeMatcher,
+    ]);
     if (this.lexicalReferences.has(key)) return;
     this.lexicalReferences.add(key);
     const required = origin === 'operational';
-    const uri = nativeMatcher ? null : /^(?:(project|system|work|tmp):\/\/\/|file:\/\/(?:localhost)?\/)/u.exec(input);
+    const uri = nativeMatcher
+      ? null
+      : /^(?:(project|system|work|tmp):\/\/\/|file:\/\/(?:localhost)?\/)/u.exec(input);
     let pattern = input;
     if (uri) {
       try {
@@ -505,7 +534,8 @@ class WorkReferences {
       if (scopedScheme.test(pattern) || pattern.startsWith('file:')) this.unresolved(required);
       return;
     }
-    let scopes = directory === undefined ? [...bases] : this.suggestedScopes(directory, bases, required);
+    let scopes =
+      directory === undefined ? [...bases] : this.suggestedScopes(directory, bases, required);
     if (!scopes.length) return;
     const wildcard = pattern.search(/[*?]/u);
     const slash = pattern.lastIndexOf('/', wildcard < 0 ? pattern.length : wildcard);
@@ -522,8 +552,7 @@ class WorkReferences {
     } else if (slash >= 0) {
       scopes = this.scopes(this.nativePaths(pattern.slice(0, slash + 1), scopes), required);
     }
-    if (slash >= 0)
-      pattern = pattern.slice(slash + 1);
+    if (slash >= 0) pattern = pattern.slice(slash + 1);
     if (this.firstGlobalProtection) return;
     const matcher = globToRegExp(pattern);
     const matches = (scope: string, entry: string) =>
@@ -579,13 +608,19 @@ class WorkReferences {
     }
     if (anyUrl.test(token) && !scopedScheme.test(token) && !token.startsWith('file:')) {
       const url = URL.parse(token);
-      if (url) for (const value of url.searchParams.values())
-        if (cardworkScheme.test(value)) await this.token(value, bases, origin, source, true);
-        else await this.text(value, bases, origin, source, false, undefined, cwd);
+      if (url)
+        for (const value of url.searchParams.values())
+          if (cardworkScheme.test(value)) await this.token(value, bases, origin, source, true);
+          else await this.text(value, bases, origin, source, false, undefined, cwd);
       return;
     }
     if (substitution.test(token)) return void this.unresolved(required);
-    if (cwd !== undefined && !isAbsolute(token) && !scopedScheme.test(token) && !token.startsWith('file:')) {
+    if (
+      cwd !== undefined &&
+      !isAbsolute(token) &&
+      !scopedScheme.test(token) &&
+      !token.startsWith('file:')
+    ) {
       const scopes = this.suggestedScopes(cwd, bases, required);
       if (!scopes.length) return;
       bases = [...new Set([...bases, ...scopes])];
@@ -599,7 +634,8 @@ class WorkReferences {
       await this.glob(token, bases, origin, source);
       return;
     }
-    for (const path of this.literalPaths(token, bases, required)) this.path(path, origin, source, required);
+    for (const path of this.literalPaths(token, bases, required))
+      this.path(path, origin, source, required);
   }
 
   private async text(
@@ -679,8 +715,12 @@ class WorkReferences {
       const directories = fields.filter((field) => field[1] === 'directory');
       const patterns = fields.filter((field) => field[1] === 'pattern');
       if (!directories.length && !patterns.length) continue;
-      const scope = directories.length === 1 && patterns.length === 1
-        ? decodeQuote(directories[0]![2]!) : directories.length === 0 ? directory : undefined;
+      const scope =
+        directories.length === 1 && patterns.length === 1
+          ? decodeQuote(directories[0]![2]!)
+          : directories.length === 0
+            ? directory
+            : undefined;
       for (const field of patterns) {
         await this.glob(decodeQuote(field[2]!), bases, origin, source, scope);
         if (this.firstGlobalProtection) return false;
@@ -694,7 +734,9 @@ class WorkReferences {
       text = text.slice(0, match.index) + consumed + text.slice(match.index! + match[0].length);
     }
     // Keep inferred substitution bodies out of quote and token extraction.
-    text = text.replace(/\$\([^)]*\)|\$\{[^}]*\}/gu, (span) => span.replace(/[\s"'`<>]/gu, '\u0001'));
+    text = text.replace(/\$\([^)]*\)|\$\{[^}]*\}/gu, (span) =>
+      span.replace(/[\s"'`<>]/gu, '\u0001'),
+    );
     // Matching delimiters preserve common filenames with spaces. Native single quotes
     // adjacent to words are deliberately not a programming-language literal grammar.
     const tokens = new Set<string>();
@@ -704,11 +746,16 @@ class WorkReferences {
         return;
       }
       if (/[\r\n]/u.test(quoted)) return;
-      if (quoted.includes('/') || (origin === 'operational' &&
-        (/^[\w.*?-]+$/u.test(quoted) || operationalName.test(quoted)))) tokens.add(quoted);
+      if (
+        quoted.includes('/') ||
+        (origin === 'operational' && (/^[\w.*?-]+$/u.test(quoted) || operationalName.test(quoted)))
+      )
+        tokens.add(quoted);
     };
     for (const match of [
-      ...text.matchAll(/`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|\[[^\]\r\n]*\]\(<([^>\r\n]*)>\)|\[[^\]\r\n]*\]\(([^\r\n]+?)\)/gu),
+      ...text.matchAll(
+        /`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|\[[^\]\r\n]*\]\(<([^>\r\n]*)>\)|\[[^\]\r\n]*\]\(([^\r\n]+?)\)/gu,
+      ),
     ]) {
       if (this.firstGlobalProtection) return false;
       await this.visit();
@@ -719,7 +766,8 @@ class WorkReferences {
         else addQuoted(decoded);
       } else {
         const quoted = match[1] ?? match[2] ?? match[3]!;
-        const angleDestination = match[3] === undefined ? undefined : /^<([^<>]*)>$/u.exec(quoted)?.[1];
+        const angleDestination =
+          match[3] === undefined ? undefined : /^<([^<>]*)>$/u.exec(quoted)?.[1];
         addQuoted(angleDestination ?? quoted);
       }
       text =
@@ -735,7 +783,8 @@ class WorkReferences {
       if (text[start] !== "'") continue;
       await this.visit();
       const afterQuote = text.slice(start + 1);
-      const explicitUri = cardworkScheme.test(afterQuote) ||
+      const explicitUri =
+        cardworkScheme.test(afterQuote) ||
         /^(?:project|system|work|tmp|file):\/\//u.test(afterQuote);
       if (!explicitUri && wordBefore(start)) continue;
       for (let end = start + 1; end < text.length && text[end] !== '\n'; end++) {
@@ -751,24 +800,35 @@ class WorkReferences {
     }
     for (const match of text.matchAll(/[^\s<>"'`]+/gu)) {
       await this.visit();
-      const span = match[0].replace(/^[([{]+/u, '').replace(/^\w+=(?=\/|\.\.?\/|[a-z]+:\/\/)/iu, '');
-      if (!span.includes('/') && !cardworkScheme.test(span) &&
-        !(origin === 'operational' && (operationalName.test(span) || /[*?]/u.test(span)))) continue;
+      const span = match[0]
+        .replace(/^[([{]+/u, '')
+        .replace(/^\w+=(?=\/|\.\.?\/|[a-z]+:\/\/)/iu, '');
+      if (
+        !span.includes('/') &&
+        !cardworkScheme.test(span) &&
+        !(origin === 'operational' && (operationalName.test(span) || /[*?]/u.test(span)))
+      )
+        continue;
       // An unmatched substitution opener in an atom cannot contribute a suffix.
       if (substitution.test(span) && !anyUrl.test(span)) {
         this.unresolved(origin === 'operational');
         continue;
       }
-      tokens.add(cardworkScheme.test(span)
-        ? span.replace(/^(cardwork:.*?)[,;:)\]}]+$/iu, '$1')
-        : /[),.;:]$/u.test(span) && /[*?]/u.test(span) && !carriesCardworkQuery(span)
-          ? span.replace(/[),.;:]+$/u, '') : span);
+      tokens.add(
+        cardworkScheme.test(span)
+          ? span.replace(/^(cardwork:.*?)[,;:)\]}]+$/iu, '$1')
+          : /[),.;:]$/u.test(span) && /[*?]/u.test(span) && !carriesCardworkQuery(span)
+            ? span.replace(/[),.;:]+$/u, '')
+            : span,
+      );
     }
     for (const token of tokens) {
       if (this.firstGlobalProtection) break;
       await this.token(token, bases, origin, source, false, cwd);
-      const stripped = cardworkScheme.test(token) || /[*?]/u.test(token)
-        ? token : token.replace(/[),.;:\]}]+$/u, '');
+      const stripped =
+        cardworkScheme.test(token) || /[*?]/u.test(token)
+          ? token
+          : token.replace(/[),.;:\]}]+$/u, '');
       if (stripped !== token) await this.token(stripped, bases, origin, source, false, cwd);
     }
     this.textReferences.set(key, false);
@@ -792,13 +852,18 @@ class WorkReferences {
       await this.visit();
       const { syntax, value, required = false } = reference;
       const projectBases = [this.projectRoot];
-      if (syntax === 'cardwork' && !cardworkScheme.test(value)) return void this.unresolved(required);
+      if (syntax === 'cardwork' && !cardworkScheme.test(value))
+        return void this.unresolved(required);
       if (required && (!value || value.includes('\0'))) return void this.unresolved(required);
-      const paths = syntax === 'native' ? this.nativePaths(value, projectBases)
-        : syntax === 'display' ? [
-          ...this.literalPaths(value, projectBases, false),
-          ...(anyUrl.test(value) ? this.nativePaths(value, projectBases) : []),
-        ] : this.literalPaths(value, projectBases, required);
+      const paths =
+        syntax === 'native'
+          ? this.nativePaths(value, projectBases)
+          : syntax === 'display'
+            ? [
+                ...this.literalPaths(value, projectBases, false),
+                ...(anyUrl.test(value) ? this.nativePaths(value, projectBases) : []),
+              ]
+            : this.literalPaths(value, projectBases, required);
       for (const path of paths) this.path(path, 'content', source, required);
     } else {
       const projectBases = [this.projectRoot];
@@ -816,7 +881,14 @@ class WorkReferences {
         if (stat?.isFile()) this.mark(path, 'content', source);
       }
       if (!exact)
-        await this.glob(reference.pattern, projectBases, 'content', source, reference.directory, true);
+        await this.glob(
+          reference.pattern,
+          projectBases,
+          'content',
+          source,
+          reference.directory,
+          true,
+        );
     }
   }
 
@@ -826,16 +898,21 @@ class WorkReferences {
     bases: readonly string[],
     source: WorkGcProtectionSource,
   ): Promise<void> {
-    for (const value of values)
-      await this.dependency(value, [...new Set([cwd, ...bases])], source);
+    for (const value of values) await this.dependency(value, [...new Set([cwd, ...bases])], source);
   }
 
-  private async dependency(value: string, bases: readonly string[], source: WorkGcProtectionSource) {
+  private async dependency(
+    value: string,
+    bases: readonly string[],
+    source: WorkGcProtectionSource,
+  ) {
     const assigned = /^(?:--[\w-]+|[a-z_]\w*)=(.+)$/isu.exec(value)?.[1];
     if (assigned && (assigned.includes('/') || /\.[\w-]+$/u.test(assigned)))
       await this.token(assigned, bases, 'operational', source);
-    else if (value.includes('/') || (!value.startsWith('-') &&
-      (/^[\w.*?%-]+$/u.test(value) || /\.[\w-]+$/u.test(value))))
+    else if (
+      value.includes('/') ||
+      (!value.startsWith('-') && (/^[\w.*?%-]+$/u.test(value) || /\.[\w-]+$/u.test(value)))
+    )
       await this.token(value, bases, 'operational', source);
     await this.text(value, bases, 'operational', source);
   }
@@ -875,8 +952,7 @@ class WorkReferences {
         bases,
         origin,
         source,
-        pathKey.test(key) ||
-          (key === 'target' && cardworkScheme.test(value)),
+        pathKey.test(key) || (key === 'target' && cardworkScheme.test(value)),
         directory,
         cwd,
       );
@@ -896,18 +972,24 @@ class WorkReferences {
       let pattern = false;
       for (const [name, child] of Object.entries(object)) {
         if (this.firstGlobalProtection) break;
-        if ((name === 'directory' && explicitDirectory !== undefined) ||
-          (name === 'cwd' && explicitCwd !== undefined)) continue;
+        if (
+          (name === 'directory' && explicitDirectory !== undefined) ||
+          (name === 'cwd' && explicitCwd !== undefined)
+        )
+          continue;
         const meaning =
           name === 'literal'
             ? key
             : name === 'value' && typeof object.name === 'string'
               ? object.name
               : name;
-        pattern = (await this.value(child, origin, source, bases, meaning, localDirectory, localCwd)) || pattern;
+        pattern =
+          (await this.value(child, origin, source, bases, meaning, localDirectory, localCwd)) ||
+          pattern;
       }
       if (!pattern && origin === 'operational') {
-        if (explicitDirectory !== undefined) await this.token(explicitDirectory, bases, origin, source, true);
+        if (explicitDirectory !== undefined)
+          await this.token(explicitDirectory, bases, origin, source, true);
         if (explicitCwd !== undefined) await this.token(explicitCwd, bases, origin, source, true);
       }
       return pattern;
@@ -937,7 +1019,12 @@ async function markCanonical(
   await refs.operational(context.operationalInputs, 'operational_input');
   for (const path of context.operationalPaths ?? [])
     await refs.operationalPath(resolve(projectRoot, path), 'operational_input');
-  await refs.dependencies(context.operationalDependencies ?? [], projectRoot, [projectRoot], 'operational_input');
+  await refs.dependencies(
+    context.operationalDependencies ?? [],
+    projectRoot,
+    [projectRoot],
+    'operational_input',
+  );
   if (refs.firstGlobalProtection) return new Map();
   const owners = await inspectWorkGcCanonicalState(
     projectRoot,
@@ -948,7 +1035,8 @@ async function markCanonical(
       operational: (value, cardId, source) => refs.operational(value, source, bases(cardId)),
       conversation: (value, cardId) => refs.conversation(value, bases(cardId)),
       path: (value, source) => refs.operationalPath(value, source),
-      dependencies: (values, cwd, cardId, source) => refs.dependencies(values, cwd, bases(cardId), source),
+      dependencies: (values, cwd, cardId, source) =>
+        refs.dependencies(values, cwd, bases(cardId), source),
       done: () => refs.firstGlobalProtection !== null,
     },
     context.progress,

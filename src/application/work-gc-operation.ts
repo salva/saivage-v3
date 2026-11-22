@@ -17,9 +17,8 @@ import {
   WorkGcReferenceScopeError,
 } from '../workspace/index.js';
 import { workGcQualityPaths } from '../persistence/index.js';
-import { qualityToolNames } from '../schemas/quality-operation-config.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
-import type { SaivageConfig } from '../schemas/index.js';
+import { qualityToolNames, type SaivageConfig } from '../schemas/index.js';
 import type { CompiledProjectWorkflows, ProcessRunner } from '../runtime/runtime-api.js';
 import type { RuntimeApplication } from './runtime-composition.js';
 import { createObservedWorkGcProgress } from './work-gc-progress.js';

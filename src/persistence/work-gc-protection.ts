@@ -1,7 +1,9 @@
 import { z } from 'zod';
-import type { QualityToolBindings } from '../schemas/quality-operation-config.js';
+import type { QualityToolBindings } from '../schemas/index.js';
 
-type QualityConfig = NonNullable<QualityToolBindings[Exclude<keyof QualityToolBindings, 'format_version'>]>;
+type QualityConfig = NonNullable<
+  QualityToolBindings[Exclude<keyof QualityToolBindings, 'format_version'>]
+>;
 
 export function* workGcQualityPaths(config: QualityConfig): Generator<string> {
   yield config.cwd;
@@ -22,16 +24,26 @@ export function* workGcQualityPaths(config: QualityConfig): Generator<string> {
 
 export type WorkGcReference =
   | { readonly kind: 'content'; readonly value: unknown }
-  | { readonly kind: 'address'; readonly value: string; readonly syntax: 'native' | 'locator' | 'cardwork' | 'display'; readonly required?: boolean }
+  | {
+      readonly kind: 'address';
+      readonly value: string;
+      readonly syntax: 'native' | 'locator' | 'cardwork' | 'display';
+      readonly required?: boolean;
+    }
   | { readonly kind: 'glob'; readonly directory: string; readonly pattern: string };
 
 const content = (value: unknown): WorkGcReference => ({ kind: 'content', value });
 const locator = /^(?:cardwork|project|system|work|tmp|file):/iu;
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown> : {};
+    ? (value as Record<string, unknown>)
+    : {};
 
-function* address(value: unknown, syntax?: Extract<WorkGcReference, { kind: 'address' }>['syntax'], required = false): Generator<WorkGcReference> {
+function* address(
+  value: unknown,
+  syntax?: Extract<WorkGcReference, { kind: 'address' }>['syntax'],
+  required = false,
+): Generator<WorkGcReference> {
   if (typeof value !== 'string') return;
   if (syntax !== 'native' && syntax !== 'cardwork' && value.startsWith('record:///')) return;
   if (syntax === undefined) {
@@ -68,14 +80,21 @@ function* callReferences(name: string, args: unknown): Generator<WorkGcReference
     }
     case 'glob': {
       const { directory, pattern, ...rest } = object(args);
-      if (typeof directory === 'string' && !directory.startsWith('record:///') && typeof pattern === 'string')
+      if (
+        typeof directory === 'string' &&
+        !directory.startsWith('record:///') &&
+        typeof pattern === 'string'
+      )
         yield { kind: 'glob', directory, pattern };
       yield content(rest);
       return;
     }
     case 'run_command': {
       const { command: _command, cwd, ...rest } = z.record(z.unknown()).parse(args);
-      if (typeof cwd === 'string' && (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(cwd) || /^(?:project|system):/u.test(cwd)))
+      if (
+        typeof cwd === 'string' &&
+        (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(cwd) || /^(?:project|system):/u.test(cwd))
+      )
         yield* address(cwd, /^(?:project|system):\/\//u.test(cwd) ? 'locator' : 'native');
       yield content(rest);
       return;
@@ -85,7 +104,11 @@ function* callReferences(name: string, args: unknown): Generator<WorkGcReference
   }
 }
 
-function* writeAddress(value: unknown, destination: unknown, executed: boolean): Generator<WorkGcReference> {
+function* writeAddress(
+  value: unknown,
+  destination: unknown,
+  executed: boolean,
+): Generator<WorkGcReference> {
   if (destination === 'cardwork_url') yield* address(value, 'cardwork', executed);
   else if (destination === 'project_relative') yield* address(value, 'native');
   else yield* address(value);
@@ -97,13 +120,14 @@ function* resultData(tool: string, value: unknown, executed: boolean): Generator
     case 'grep': {
       const { matches, ...rest } = object(value);
       const { items } = object(matches);
-      if (Array.isArray(items)) for (const item of items) {
-        if (tool === 'glob') yield* address(item, 'display');
-        else {
-          yield* address(object(item).path, 'display');
-          yield content(object(item).preview);
+      if (Array.isArray(items))
+        for (const item of items) {
+          if (tool === 'glob') yield* address(item, 'display');
+          else {
+            yield* address(object(item).path, 'display');
+            yield content(object(item).preview);
+          }
         }
-      }
       yield content(rest);
       return;
     }
@@ -209,7 +233,11 @@ export function* rowWorkReferences(value: unknown): Generator<WorkGcReference> {
         if (data.status === 'running' || !data.stderr_complete)
           yield* address(z.string().parse(raw.stderr_url), 'locator');
       } else {
-        yield* resultData(tool, result.data, object(row.context_policy).settlement_origin === 'executed');
+        yield* resultData(
+          tool,
+          result.data,
+          object(row.context_policy).settlement_origin === 'executed',
+        );
         if (result.content !== undefined)
           for (const value of z.custom<unknown[]>(Array.isArray).parse(result.content)) {
             const block = z

@@ -408,7 +408,8 @@ export function resolveAgentReadPath(
     isRoot: false,
   };
   if (
-    resolved.kind !== 'record' && resolved.kind !== 'cardwork' &&
+    resolved.kind !== 'record' &&
+    resolved.kind !== 'cardwork' &&
     inspectAgentReadPath(resolved.absolutePath, resourceRootForRead(ctx.projectRoot, resolved))
       .blocked
   )

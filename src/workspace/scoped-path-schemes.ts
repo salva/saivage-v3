@@ -135,7 +135,9 @@ function checkOrdinaryPath(
         ? stat.isDirectory()
         : stat.isFile() || (target === 'either' && stat.isDirectory());
     if (!ordinary)
-      throw ctx.fail('Scoped workspace paths require ordinary directories and files, not symlinks.');
+      throw ctx.fail(
+        'Scoped workspace paths require ordinary directories and files, not symlinks.',
+      );
   }
 }
 
@@ -146,8 +148,13 @@ function unchangedForOutbound(value: string): boolean {
 }
 
 export function isCardworkComponentVisible(name: string, absolutePath: string): boolean {
-  return name !== '.git' && name !== '.saivage' &&
-    !isReadBlocked(name) && !isWriteBlocked(name) && !looksLikeSecretPath(absolutePath);
+  return (
+    name !== '.git' &&
+    name !== '.saivage' &&
+    !isReadBlocked(name) &&
+    !isWriteBlocked(name) &&
+    !looksLikeSecretPath(absolutePath)
+  );
 }
 
 function admittedChildLocator(name: string, parentLocator: string): string | null {
@@ -199,7 +206,10 @@ function resolveCardworkPath(
   const directory = pathSegments.length < (area === 'repos' ? 2 : 1);
   if (writing && directory)
     throw ctx.fail('Cardwork writes require a file below public or an existing repos checkout.');
-  const base = (area === 'public' ? cardPublicWorkRoot : cardReposWorkRoot)(ctx.projectRoot, cardId);
+  const base = (area === 'public' ? cardPublicWorkRoot : cardReposWorkRoot)(
+    ctx.projectRoot,
+    cardId,
+  );
   let absolutePath = base;
   for (const name of pathSegments) {
     absolutePath = join(absolutePath, name);
@@ -208,9 +218,8 @@ function resolveCardworkPath(
   }
   const relativePath = relative(ctx.projectRoot, absolutePath);
   if (writing) {
-    const requiredComponents = area === 'repos'
-      ? relative(ctx.projectRoot, base).split(sep).length + 1
-      : 0;
+    const requiredComponents =
+      area === 'repos' ? relative(ctx.projectRoot, base).split(sep).length + 1 : 0;
     checkOrdinaryPath(ctx, absolutePath, 'file', requiredComponents);
   } else {
     checkOrdinaryPath(ctx, absolutePath, directory ? 'directory' : 'either');
@@ -330,8 +339,7 @@ export const scopedPathResolvers = {
     if (mode === 'write' && cardId !== agent.cardId)
       throw ctx.fail('Card-scoped agents may write tmp files only for their current card.');
     const rel = cardTmpRelativePath(cardId!, ...rest);
-    if (mode === 'write')
-      checkOrdinaryPath(ctx, resolve(ctx.projectRoot, rel), 'file', 0);
+    if (mode === 'write') checkOrdinaryPath(ctx, resolve(ctx.projectRoot, rel), 'file', 0);
     return {
       kind: 'tmp',
       ...resolveContained(ctx, rel, 'tmp path'),
@@ -380,7 +388,9 @@ export function parseScopedPathScheme(raw: string): ScopedPathScheme | null {
     throw new Error(`Unsupported scoped URL scheme '${match[1]}'.`);
   if (!raw.startsWith(`${scheme}:///`))
     throw new Error(
-      scheme === 'cardwork' ? 'Invalid cardwork URL.' : `Invalid ${scheme} URL '${raw}' (expected ${scheme}:///).`,
+      scheme === 'cardwork'
+        ? 'Invalid cardwork URL.'
+        : `Invalid ${scheme} URL '${raw}' (expected ${scheme}:///).`,
     );
   return scheme;
 }

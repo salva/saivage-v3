@@ -80,10 +80,11 @@ export type WorkspaceContext = {
 type ResolvedToolPath =
   | Exclude<VfsResolved, { kind: 'record' }>
   | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
-type WritableToolPath = Extract<VfsResolved, { kind: 'cardwork' }> | Omit<
-  Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>,
-  'kind'
-> & { kind: 'project' | 'tmp' | 'system' };
+type WritableToolPath =
+  | Extract<VfsResolved, { kind: 'cardwork' }>
+  | (Omit<Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>, 'kind'> & {
+      kind: 'project' | 'tmp' | 'system';
+    });
 type ReadPosition =
   | { kind: 'collection'; item_index: number; item_byte_offset: number }
   | { kind: 'text'; byte_offset: number };
@@ -237,7 +238,9 @@ function assertScopedWritable(
     if (isWithinDestination(internalRoot, destination))
       throw toolInputError('Cannot modify Saivage internal state directories.');
     if (looksLikeSecretPath(destination))
-      throw toolInputError('Write access to the resolved destination is blocked for security reasons.');
+      throw toolInputError(
+        'Write access to the resolved destination is blocked for security reasons.',
+      );
   }
   try {
     if (lstatSync(resolved.absolutePath).isSymbolicLink())
@@ -293,7 +296,11 @@ export function readWorkspaceImageSource(
   maxBytes: number,
 ): { bytes: Buffer; sourcePath: string } {
   assertWorkspaceAuthority(ctx, ['view_image']);
-  if (path.startsWith('record:///') || path.startsWith('system:///') || path.startsWith('cardwork://'))
+  if (
+    path.startsWith('record:///') ||
+    path.startsWith('system:///') ||
+    path.startsWith('cardwork://')
+  )
     throw toolInputError('view_image supports project, work and own-card tmp paths only.');
   if (path.startsWith('tmp:///') && parseScopedPathUrl(path, 'tmp').segments[0] !== ctx.cardId)
     throw toolInputError('view_image tmp paths require the owning card context.');
@@ -673,7 +680,9 @@ export async function writeProject(
   }
   assertWorkspaceAuthority(ctx, requiredTools);
   const resolved = resolveWritePath(
-    ctx, params.path, requiredTools.includes('webfetch') ? 'webfetch' : 'write',
+    ctx,
+    params.path,
+    requiredTools.includes('webfetch') ? 'webfetch' : 'write',
   );
   const { absolutePath, relativePath } = resolved;
   const scoped = parseScopedPathScheme(params.path);
@@ -683,7 +692,10 @@ export async function writeProject(
       ? resolved.locator
       : scoped === null
         ? relativePath.replaceAll('\\', '/')
-        : buildScopedPathUrl(resolved.kind, parseScopedPathUrl(params.path, resolved.kind).segments);
+        : buildScopedPathUrl(
+            resolved.kind,
+            parseScopedPathUrl(params.path, resolved.kind).segments,
+          );
   admitSourceWrite(ctx, absolutePath);
   mkdirSync(dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, params.content, 'utf8');

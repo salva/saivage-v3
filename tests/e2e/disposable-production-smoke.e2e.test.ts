@@ -127,7 +127,11 @@ function runCli(root: string, command: 'init' | 'reset'): string {
   return result.stdout;
 }
 
-function testConfig(providerPort: number, appPort: number): SaivageConfig {
+function testConfig(
+  providerPort: number,
+  appPort: number,
+  analystWindow: number,
+): SaivageConfig {
   const config = effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
   for (const agent of Object.values(config.agents))
     agent.capabilities.grants = agent.capabilities.grants.map((grant) => ({ ...grant, tools: grant.tools.filter((tool) => tool !== 'view_image') })).filter((grant) => grant.tools.length > 0); // scripted Chat fixture
@@ -156,6 +160,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
       apiKey: 'test-only',
       baseUrl: `http://127.0.0.1:${providerPort}`,
       capabilities: { contextWindowTokens: 25_000, maxOutputTokens: 16_384 },
+      modelCapabilities: { 'analyst-model': { contextWindowTokens: analystWindow } },
     },
   };
   config.compaction = {
@@ -312,11 +317,20 @@ describe('disposable production-composition smoke', () => {
     const appPort = await unusedPort();
     let app: App | null = null;
     const plannerBodies: string[] = [];
+    let analystCalls = 0;
     const provider = createServer(async (request, response) => {
       const body = await requestBody(request);
       if (body.model === 'analyst-model') {
-        if (body.messages.at(-1)?.role === 'tool') finalMessage(response);
-        else toolCall(response, 1, 'start_project', {});
+        expect(toolNames(body)).toContain('start_project');
+        analystCalls++;
+        if (analystCalls === 1) {
+          expect(body.messages.at(-1)?.role).toBe('user');
+          toolCall(response, 1, 'start_project', {});
+        } else {
+          expect(analystCalls).toBe(2);
+          expectedSettlement(body, root, 'agent:analyst:global', 'call-1', 'start_project', {});
+          finalMessage(response);
+        }
       } else {
         plannerBodies.push(JSON.stringify(body));
         if (plannerBodies.length === 1)
@@ -336,11 +350,12 @@ describe('disposable production-composition smoke', () => {
       runCli(root, 'init');
       writeFileSync(
         join(root, '.saivage', 'saivage.yaml'),
-        stringify(testConfig(providerPort, appPort)),
+        stringify(testConfig(providerPort, appPort, 100_000)),
       );
       writeCustomPrompts(root);
       app = await start(root);
       await chat(app, 'Start project work.');
+      expect(analystCalls).toBe(2);
       await waitUntil(() => plannerBodies.length === 2, 'first overload');
       await new Promise((resolve) => setTimeout(resolve, 50));
       const providers = await api(app, '/api/providers');
@@ -392,6 +407,7 @@ describe('disposable production-composition smoke', () => {
     const appPort = await unusedPort();
     let app: App | null = null;
     let plannerCalls = 0;
+    let analystCalls = 0;
     let replacementInput = '';
     const provider = createServer(async (request, response) => {
       if (request.url !== '/v1/chat/completions') {
@@ -400,9 +416,17 @@ describe('disposable production-composition smoke', () => {
         return;
       }
       const body = await requestBody(request);
-      if (toolNames(body).includes('show_config')) {
-        if (body.messages.at(-1)?.role === 'tool') finalMessage(response);
-        else toolCall(response, 1, 'start_project', {});
+      if (body.model === 'analyst-model') {
+        expect(toolNames(body)).toContain('start_project');
+        analystCalls++;
+        if (analystCalls === 1) {
+          expect(body.messages.at(-1)?.role).toBe('user');
+          toolCall(response, 1, 'start_project', {});
+        } else {
+          expect(analystCalls).toBe(2);
+          expectedSettlement(body, root, 'agent:analyst:global', 'call-1', 'start_project', {});
+          finalMessage(response);
+        }
       } else if (body.model === 'planner-model') {
         plannerCalls++;
         if (plannerCalls === 1)
@@ -420,13 +444,14 @@ describe('disposable production-composition smoke', () => {
       runCli(root, 'init');
       writeFileSync(
         join(root, '.saivage', 'saivage.yaml'),
-        stringify(testConfig(providerPort, appPort)),
+        stringify(testConfig(providerPort, appPort, 100_000)),
       );
       writeCustomPrompts(root);
       app = await start(root);
       expect((await chat(app, 'Start project work.')).toolInvocations[0].result).toMatchObject({
         success: true,
       });
+      expect(analystCalls).toBe(2);
       await waitUntil(() => plannerCalls === 2, 'ordinary failed-tool continuation');
       const rows = readConversation(root, 'agent:planner:project').sourceRows;
       expect(
@@ -513,7 +538,7 @@ describe('disposable production-composition smoke', () => {
         id: number;
         phase: 'action' | 'final' | 'complete';
       } | null = null;
-      let summaryHandled = false;
+      let summaryCalls = 0;
       let postSummaryFinalWithoutToolTail = false;
       const analystChat = async (app: App, content: string, actionIndex: number) => {
         expect(activeTurn).toBeNull();
@@ -540,7 +565,8 @@ describe('disposable production-composition smoke', () => {
         const body = await requestBody(request);
         if (body.model === 'analyst-model' && toolNames(body).length === 0) {
           // Transport scaffolding only, not a claim of historical fidelity.
-          summaryHandled = true;
+          expect(activeTurn).toMatchObject({ id: 2, phase: 'final' });
+          expect(++summaryCalls).toBe(1);
           finalMessage(response, 'Synthetic fixture summary.');
           return;
         }
@@ -548,14 +574,25 @@ describe('disposable production-composition smoke', () => {
           if (!activeTurn || activeTurn.phase === 'complete')
             throw new Error('Unexpected Analyst call.');
           if (activeTurn.phase === 'final') {
-            postSummaryFinalWithoutToolTail ||=
-              summaryHandled &&
-              body.messages.at(-1)?.role !== 'tool' &&
-              body.messages.some((message) => message.content.includes('Synthetic fixture summary.'));
+            if (activeTurn.id === 2) {
+              expect(summaryCalls).toBe(1);
+              expect(
+                body.messages.some((message) => message.content.includes('Synthetic fixture summary.')),
+              ).toBe(true);
+              expect(body.messages.some((message) => message.tool_call_id === 'call-2')).toBe(false);
+              expect(body.messages.at(-1)?.role).not.toBe('tool');
+              postSummaryFinalWithoutToolTail = true;
+            } else {
+              expect(body.messages.at(-1)).toMatchObject({
+                role: 'tool',
+                tool_call_id: `call-${activeTurn.id}`,
+              });
+            }
             activeTurn.phase = 'complete';
             finalMessage(response);
             return;
           }
+          expect(body.messages.at(-1)?.role).toBe('user');
           activeTurn.phase = 'final';
           toolCall(response, activeTurn.id, activeTurn.action.name, activeTurn.action.args);
         } else if (body.model === 'planner-model') {
@@ -594,16 +631,17 @@ describe('disposable production-composition smoke', () => {
         runCli(root, 'init');
         writeFileSync(
           join(root, '.saivage', 'saivage.yaml'),
-          stringify(testConfig(providerPort, appPort)),
+          stringify(testConfig(providerPort, appPort, 28_000)),
         );
         writeCustomPrompts(root);
         app = await start(root);
         expect((await analystChat(app, 'Create the goal.', 0)).toolInvocations[0].result).toMatchObject({
           success: true,
         });
-        expect((await analystChat(app, 'Create its leaf.', 1)).toolInvocations[0].result).toMatchObject({
-          success: true,
-        });
+        expect(
+          (await analystChat(app, `Create its leaf.\n${'X'.repeat(3_984)}`, 1)).toolInvocations[0]
+            .result,
+        ).toMatchObject({ success: true });
         const queued = await analystChat(app, 'Urgently notify the inactive leaf.', 2);
         expect(queued.toolInvocations[0].result).toMatchObject({
           success: true,
@@ -707,7 +745,7 @@ describe('disposable production-composition smoke', () => {
       id: number;
       phase: 'action' | 'final' | 'complete';
     } | null = null;
-    let summaryHandled = false;
+    let summaryCalls = 0;
     let postSummaryFinalWithoutToolTail = false;
     const analystChat = async (app: App, content: string, actionIndex: number) => {
       expect(activeTurn).toBeNull();
@@ -734,7 +772,8 @@ describe('disposable production-composition smoke', () => {
       const body = await requestBody(request);
       if (body.model === 'analyst-model' && toolNames(body).length === 0) {
         // Transport scaffolding only, not a claim of historical fidelity.
-        summaryHandled = true;
+        expect(activeTurn).toMatchObject({ id: 1, phase: 'final' });
+        expect(++summaryCalls).toBe(1);
         finalMessage(response, 'Synthetic fixture summary.');
         return;
       }
@@ -742,14 +781,25 @@ describe('disposable production-composition smoke', () => {
         if (!activeTurn || activeTurn.phase === 'complete')
           throw new Error('Unexpected Analyst call.');
         if (activeTurn.phase === 'final') {
-          postSummaryFinalWithoutToolTail ||=
-            summaryHandled &&
-            body.messages.at(-1)?.role !== 'tool' &&
-            body.messages.some((message) => message.content.includes('Synthetic fixture summary.'));
+          if (activeTurn.id === 1) {
+            expect(summaryCalls).toBe(1);
+            expect(
+              body.messages.some((message) => message.content.includes('Synthetic fixture summary.')),
+            ).toBe(true);
+            expect(body.messages.some((message) => message.tool_call_id === 'call-1')).toBe(false);
+            expect(body.messages.at(-1)?.role).not.toBe('tool');
+            postSummaryFinalWithoutToolTail = true;
+          } else {
+            expect(body.messages.at(-1)).toMatchObject({
+              role: 'tool',
+              tool_call_id: `call-${activeTurn.id}`,
+            });
+          }
           activeTurn.phase = 'complete';
           finalMessage(response);
           return;
         }
+        expect(body.messages.at(-1)?.role).toBe('user');
         activeTurn.phase = 'final';
         toolCall(response, activeTurn.id, activeTurn.action.name, activeTurn.action.args);
       } else if (body.model === 'planner-model') {
@@ -770,13 +820,14 @@ describe('disposable production-composition smoke', () => {
       runCli(root, 'init');
       writeFileSync(
         join(root, '.saivage', 'saivage.yaml'),
-        stringify(testConfig(providerPort, appPort)),
+        stringify(testConfig(providerPort, appPort, 28_000)),
       );
       writeCustomPrompts(root);
       app = await start(root);
-      expect((await analystChat(app, 'Create the code child.', 0)).toolInvocations[0].result).toMatchObject({
-        success: true,
-      });
+      expect(
+        (await analystChat(app, `Create the code child.\n${'X'.repeat(5_300)}`, 0)).toolInvocations[0]
+          .result,
+      ).toMatchObject({ success: true });
       expect((await analystChat(app, 'Start project work.', 1)).toolInvocations[0].result).toMatchObject({
         success: true,
       });
@@ -847,7 +898,7 @@ describe('disposable production-composition smoke', () => {
       id: number;
       phase: 'action' | 'final' | 'complete';
     } | null = null;
-    let summaryHandled = false;
+    let summaryCalls = 0;
     let postSummaryFinalWithoutToolTail = false;
     const analystChat = async (app: App, content: string, actionIndex: number) => {
       expect(activeTurn).toBeNull();
@@ -874,7 +925,8 @@ describe('disposable production-composition smoke', () => {
       const body = await requestBody(request);
       if (body.model === 'analyst-model' && toolNames(body).length === 0) {
         // Transport scaffolding only, not a claim of historical fidelity.
-        summaryHandled = true;
+        expect(activeTurn).toMatchObject({ id: 3, phase: 'final' });
+        expect(++summaryCalls).toBe(1);
         finalMessage(response, 'Synthetic fixture summary.');
         return;
       }
@@ -882,14 +934,25 @@ describe('disposable production-composition smoke', () => {
         if (!activeTurn || activeTurn.phase === 'complete')
           throw new Error('Unexpected Analyst call.');
         if (activeTurn.phase === 'final') {
-          postSummaryFinalWithoutToolTail ||=
-            summaryHandled &&
-            body.messages.at(-1)?.role !== 'tool' &&
-            body.messages.some((message) => message.content.includes('Synthetic fixture summary.'));
+          if (activeTurn.id === 3) {
+            expect(summaryCalls).toBe(1);
+            expect(
+              body.messages.some((message) => message.content.includes('Synthetic fixture summary.')),
+            ).toBe(true);
+            expect(body.messages.some((message) => message.tool_call_id === 'call-3')).toBe(false);
+            expect(body.messages.at(-1)?.role).not.toBe('tool');
+            postSummaryFinalWithoutToolTail = true;
+          } else {
+            expect(body.messages.at(-1)).toMatchObject({
+              role: 'tool',
+              tool_call_id: `call-${activeTurn.id}`,
+            });
+          }
           activeTurn.phase = 'complete';
           finalMessage(response);
           return;
         }
+        expect(body.messages.at(-1)?.role).toBe('user');
         activeTurn.phase = 'final';
         toolCall(response, activeTurn.id, activeTurn.action.name, activeTurn.action.args);
         return;
@@ -906,7 +969,7 @@ describe('disposable production-composition smoke', () => {
       expect(runCli(root, 'init')).toContain('Configuration materialized from template classic');
       writeFileSync(
         join(root, '.saivage', 'saivage.yaml'),
-        stringify(testConfig(providerPort, appPort)),
+        stringify(testConfig(providerPort, appPort, 28_000)),
       );
       writeCustomPrompts(root);
       app = await start(root);
@@ -918,7 +981,11 @@ describe('disposable production-composition smoke', () => {
         data: { queued: true, interruption: { status: 'not_requested' } },
       });
       expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('running');
-      const urgent = await analystChat(app, 'Urgently interrupt the current root work.', 2);
+      const urgent = await analystChat(
+        app,
+        `Urgently interrupt the current root work.\n${'X'.repeat(4_028)}`,
+        2,
+      );
       expect(urgent.toolInvocations[0].result).toMatchObject({
         success: true,
         data: {
@@ -973,10 +1040,9 @@ describe('disposable production-composition smoke', () => {
     let publishedExecutorRequest: ChatRequest | undefined;
     let continuedExecutorRequest: ChatRequest | undefined;
     let summaryCallsBeforeC = 0;
-    // Leave 2,000 more estimated message tokens for the current prompt/tool surface:
-    // write/A must not trigger; adding B must trigger the write/A then B folds.
-    // C gets the same headroom so the published short summary continues unchanged.
-    // Keep B and the oversized corrected summary large: they force endpoint extension.
+    // At the Executor window below, write/A fit and B triggers the fold.
+    // B and the oversized corrected summary force endpoint extension; C fits
+    // after the resulting short summary without changing the selected segment.
     const sourceA = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(20_000)}`;
     const sourceB = `Refreshed unresolved task from the second observation. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`;
     const sourceC = `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(20_000)}`;
@@ -1250,9 +1316,10 @@ describe('disposable production-composition smoke', () => {
       writeFileSync(join(root, 'compaction-source-a.txt'), sourceA);
       writeFileSync(join(root, 'compaction-source-b.txt'), sourceB);
       writeFileSync(join(root, 'compaction-source-c.txt'), sourceC);
-      const config = testConfig(providerPort, appPort);
+      const config = testConfig(providerPort, appPort, 100_000);
       config.providers.fake!.modelCapabilities = {
-        'analyst-model': { contextWindowTokens: 100_000 },
+        ...config.providers.fake!.modelCapabilities,
+        'executor-model': { contextWindowTokens: 28_000 },
       };
       writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(config));
       writeCustomPrompts(root);
