@@ -539,12 +539,25 @@ uncertainty guidance described here is shared by the pair, not a claim about the
 other profiles or an update to installed materialized or
 custom hosts; adoption remains separate.
 
-The `classic-typed` shared Reviewer assesses the actual combined deliverable
-against its assigned criteria, using applicable reviewed work on unchanged inputs
-without demanding disposable historical logs. A current concern calls for relevant
-source inspection and a needed check through its responsible owner, not Reviewer
-execution. Author activity, disconnected passes and historical verdicts are not
-fresh independent acceptance; expressly exhaustive criteria remain exhaustive.
+In bundled `classic-typed`, the Planner records the outstanding independent
+decision in `status.md` before selecting `admit_review` and points to it in the
+result summary. For each child verdict it relies on, the Planner cites the exact
+immutable accepted review URL and identifies the portion it establishes, the
+applicable inputs or delivered candidate, and any material limits. The accepted
+edge gives the Reviewer the summary and an immutable pointer to the same card's
+accepted Planner `status.md`, not the record body. Descendant status and bootstrap
+pointers are separate context, not a recursive feed of child verdicts.
+
+The Reviewer reads the cited evidence as needed and can credit applicable,
+bounded approval on unchanged inputs without repeating the child review or
+requiring disposable historical logs. The Reviewer still makes a fresh independent
+decision on the whole current assigned scope, including changed inputs,
+interactions in the combined deliverable, and any broader or expressly exhaustive
+criteria. Needed checks are run by the responsible executing owner, not the
+Reviewer. Executor verification, validation or assessment, author checks, and
+child DONE can support delivery claims but do not supply first independent
+acceptance. For a completed architecture child, the separately exported system
+review is verdict evidence; the promoted `draft` result is not.
 
 Typed nodes retain reproduction before repair, verify-owned acceptance, informed
 retry/exhaustion, research classification/exhaustive outstanding scope, data

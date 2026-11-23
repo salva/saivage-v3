@@ -1,1 +1,1 @@
-The Planner has admitted this card for independent acceptance. Review the accepted planning result and cited subtree evidence; do not infer readiness from child count alone.
+Use the Planner's accepted `status.md` and result summary to locate the remaining decision and evidence. Inspect cited reviews as needed under the shared review method; the handoff does not narrow your assigned scope.

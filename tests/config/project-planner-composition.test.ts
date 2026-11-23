@@ -49,6 +49,7 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 
 type PlanningType = 'project' | 'goal';
 type VisibleContext = Readonly<{ role: 'user'; content: string }>;
+type ScriptedVisit = readonly [nodeId: string, outcome: string, summary?: string, pendingNotifications?: true];
 
 const transitionRenderer = new AgentNodeExecution({} as never, {} as never) as unknown as {
   transitionContext(process: CompiledCardTypeWorkflow, transition: NodeTransition): readonly VisibleContext[];
@@ -382,10 +383,46 @@ describe('shipped project Planner semantic composition', () => {
     },
   );
 
-  it.each([
-    { profile: 'newloop', cardType: 'goal', visits: [['plan', 'admit_review'], ['review', 'revision_required'], ['plan', 'admit_review'], ['review', 'approved']] },
-    { profile: 'newloop2', cardType: 'project', visits: [['frame-plan', 'ready'], ['alignment', 'aligned'], ['deliver', 'candidate_ready'], ['objective-assessment', 'candidate_ready'], ['integrated-acceptance', 'accepted'], ['debt-assessment', 'clear']] },
-  ] as const)('refreshes selected role, contract and projected node across $profile/$cardType handoffs', ({ profile, cardType, visits }) => {
+  // These are scripted choices, not prompt-compliance or runtime promotion tests.
+  const childVerdict = 'record:///review.md?card=card-a-a&v=3';
+  it.each<{
+    profile: 'classic-typed' | 'newloop' | 'newloop2';
+    cardType: PlanningType;
+    scenario: string;
+    visits: readonly ScriptedVisit[];
+  }>([
+    { profile: 'newloop', cardType: 'goal', scenario: 'revision loop', visits: [['plan', 'admit_review'], ['review', 'revision_required'], ['plan', 'admit_review'], ['review', 'approved']] },
+    { profile: 'newloop2', cardType: 'project', scenario: 'explicit review loop', visits: [['frame-plan', 'ready'], ['alignment', 'aligned'], ['deliver', 'candidate_ready'], ['objective-assessment', 'candidate_ready'], ['integrated-acceptance', 'accepted'], ['debt-assessment', 'clear']] },
+    {
+      profile: 'classic-typed', cardType: 'goal', scenario: 'sufficient direct evidence despite children',
+      visits: [['plan', 'complete_direct', 'The delivered child inventory and checked totals satisfy the brief. No independent verdict was required.']],
+    },
+    {
+      profile: 'classic-typed', cardType: 'goal', scenario: 'Executor-only status leaves first independent acceptance open',
+      visits: [
+        ['plan', 'admit_review', 'The DONE child’s Executor verified build A (record:///status.md?card=card-a-a&v=2). The brief still requires the first independent acceptance of build A.'],
+        ['review', 'approved', 'Independent acceptance of build A against the goal brief.'],
+      ],
+    },
+    {
+      profile: 'classic-typed', cardType: 'goal', scenario: 'bounded child verdict, changed combined delivery and notification re-admission',
+      visits: [
+        ['plan', 'admit_review', `${childVerdict} covers the unchanged parser on build A only. Build B changes the adapter; sibling interaction and the owner’s exhaustive error-path criterion remain unjudged.`],
+        ['review', 'approved', 'Independent review accepted combined build B against the current brief.', true],
+        ['handle-notifications', 'admit_review', `The owner reported a changed adapter input in build C. ${childVerdict} still covers only the unchanged parser; reassess the affected interaction and all required error paths.`],
+        ['review', 'approved', 'Combined build C independently accepted with the reported input.'],
+      ],
+    },
+    {
+      profile: 'classic-typed', cardType: 'project', scenario: 'constituent credit before independent project review and reassessment',
+      visits: [
+        ['plan', 'assess_completion', `${childVerdict} covers the unchanged parser, not the assembled project.`],
+        ['assess-completion', 'admit_review', `Credit ${childVerdict} for the unchanged parser only. The complete build B still needs independent judgment against the owner’s end-to-end criteria.`],
+        ['review', 'approved', 'Current project review independently accepts the complete build B against the owner objective.'],
+        ['assess-completion', 'complete_reviewed', 'Current project review record:///review.md?card=project&v=1 applies to complete build B; no continuing work remains.'],
+      ],
+    },
+  ])('refreshes selected role, contract and projected node across $profile/$cardType handoffs: $scenario', ({ profile, cardType, visits }) => {
     const template = resolveSystemTemplate(profile);
     const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)), {
       defaultPromptRoot: template.promptRoot,
@@ -404,8 +441,12 @@ describe('shipped project Planner semantic composition', () => {
     } as CardActivationInput;
     const histories = new Map<string, AgentMessage[]>();
     const contracts = new Map<string, string>();
+    const classicTyped = profile === 'classic-typed';
+    const recordVersions = new Map<string, number>();
     let previous: NodeTransition | undefined;
-    for (const [index, [nodeId, outcome]] of visits.entries()) {
+    if (classicTyped)
+      expect(process.states.get('entry:BACKLOG')?.on.get('entry:route')?.targetStateId).toBe(`node:${visits[0]![0]}`);
+    for (const [index, [nodeId, outcome, summary, pendingNotifications]] of visits.entries()) {
       const node = requireNode(process, nodeId);
       const agent = agentExecution(node).agent.name;
       const sessionId = `agent:${agent}:${cardId}` as ConversationSessionId;
@@ -423,7 +464,8 @@ describe('shipped project Planner semantic composition', () => {
           buildUserContextMessage(sessionId, input.activationId, 'process_transition', index * 10 + ordinal, message),
         ));
       // A role's first visit has only its received handoff, not the other role's session.
-      const blocks = transitionRenderer.nodeStableBlocks(input, node, requirePrompt(process, agentExecution(node).prompt.promptId));
+      const nodePromptId = agentExecution(node).prompt.promptId;
+      const blocks = transitionRenderer.nodeStableBlocks(input, node, requirePrompt(process, nodePromptId));
       const projected = providerConversationFromComposedContext(composeContextProjection({
         sourceSessionId: sessionId, effectiveHistory: null,
         dynamicBlocks: [blocks.card, blocks.node, ...(blocks.parent ? [blocks.parent] : [])], uncoveredRows: history,
@@ -440,19 +482,76 @@ describe('shipped project Planner semantic composition', () => {
         expect(projected.messages.map(message => message.content).join('\n')).toContain(previous.acceptedResult!.acceptedRecords[0]!.url);
         expect(projected.messages.map(message => message.content).join('\n')).toContain(`Accepted outcome: ${previous.acceptedResult!.outcome}`);
       }
+      if (classicTyped) {
+        const nodePromptPaths: Record<string, string> = {
+          plan: `${cardType === 'project' ? 'project' : '_shared'}/specialized-plan`,
+          review: '_shared/specialized-review',
+          'assess-completion': 'project/assess-completion',
+          'handle-notifications': '_shared/handle-notifications',
+        };
+        const role = nodeId === 'review' ? 'reviewer' : 'planner';
+        expect(agent).toBe(role);
+        expect(agentExecution(node).selectedAgentPrompt.path).toBe(join(template.promptRoot, 'agents', '_shared', `${role}.md`));
+        expect(process.processPrompts.get(nodePromptId)?.path).toBe(join(template.promptRoot, 'process', `${nodePromptPaths[nodeId]}.md`));
+        const outcomes = processNodeOutcomes(process, `node:${nodeId}`);
+        expect(nodeResultToolDefinition(process, `node:${nodeId}`).function.parameters).toMatchObject({
+          properties: { outcome: { enum: outcomes } },
+        });
+        expect(outcomes).toContain(outcome);
+        if (nodeId === 'handle-notifications') expect(outcomes).toEqual(['admit_review', 'blocked', 'failed']);
+        if (cardType === 'project' && nodeId === 'plan') expect(outcomes).not.toContain('complete_direct');
+        if (previous) {
+          const { context } = previous;
+          const { summary: incomingSummary, nodeId: source, acceptedRecords } = previous.acceptedResult!;
+          const contents = projected.messages.map(message => message.content);
+          expect(contents.find(content => content.startsWith(`Previous process node: ${source}\n`) &&
+            content.includes(`Summary: ${incomingSummary}\n`))).toContain(`Records:\n- ${acceptedRecords[0]!.url}`);
+          if (nodeId === 'review' || nodeId === 'handle-notifications') {
+            const edgePrompt = nodeId === 'review' ? 'specialized-plan-to-review' : 'review-to-notifications';
+            const route = process.states.get(context.source)!.on.get(context.event)!;
+            if (route.semantic.kind !== 'configured-outcome' && route.semantic.kind !== 'configured-pending-notifications')
+              throw new Error(`Expected configured handoff for ${context.event}`);
+            const declaration = route.semantic.prompt!;
+            expect(process.processPrompts.get(declaration.promptId)?.path)
+              .toBe(join(template.promptRoot, 'process', '_shared', `${edgePrompt}.md`));
+            expect(contents).toContain(requirePrompt(process, declaration.promptId));
+          }
+        }
+      }
       histories.set(agent, history);
-      const route = node.on.get(`result:${outcome}`)!;
+      const event = `result:${outcome}${pendingNotifications ? ':pending-notifications' : ''}`;
+      const route = node.on.get(event)!;
       expect(route).toBeDefined();
       const next = visits[index + 1];
       if (next) {
         expect(route.targetStateId).toBe(`node:${next[0]}`);
+        let result = accepted(node, outcome, cardId);
+        if (classicTyped) {
+          result = {
+            ...result, nodeOrdinal: index, event, summary: summary!,
+            acceptedRecords: result.acceptedRecords.map(({ name }) => {
+              const version = (recordVersions.get(name) ?? 0) + 1;
+              recordVersions.set(name, version);
+              return { name, version, url: `record:///${name}?card=${cardId}&v=${version}` };
+            }),
+          };
+        }
         previous = {
-          context: { source: `node:${nodeId}`, event: `result:${outcome}`, target: route.targetStateId },
-          acceptedResult: accepted(node, outcome, cardId),
+          context: { source: `node:${nodeId}`, event, target: route.targetStateId },
+          acceptedResult: result,
         } as NodeTransition;
-      } else expect(route.targetStateId).toBe('terminal:DONE');
+      } else {
+        expect(route.targetStateId).toBe('terminal:DONE');
+        if (classicTyped) expect(route.semantic).toMatchObject({
+          kind: 'configured-outcome',
+          terminalBehavior: {
+            promotion: outcome === 'complete_reviewed' ? { kind: 'latest-node', nodeId: 'review' } : { kind: 'current' },
+            exportRecords: [{ name: nodeId === 'review' ? 'review.md' : 'status.md' }],
+          },
+        });
+      }
     }
-    expect([...histories.keys()].sort()).toEqual(['planner', 'reviewer']);
+    expect([...histories.keys()].sort()).toEqual(visits.length === 1 ? ['planner'] : ['planner', 'reviewer']);
   });
 
   it('selects each bundled shared role with one generated node contract independently', () => {
