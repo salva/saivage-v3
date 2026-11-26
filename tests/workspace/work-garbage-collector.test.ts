@@ -99,6 +99,27 @@ function context(overrides: Partial<WorkGcCollectionContext> = {}): WorkGcCollec
     assertCollecting: () => {}, fatal: error => { throw error; }, ...overrides };
 }
 const inventory = (root: string) => inventoryWorkGarbage(root, new AbortController().signal);
+type Inventory = Awaited<ReturnType<typeof inventory>>;
+
+function traceInventory(found: Inventory, onRead?: (array: 'candidates' | 'entries', index: number) => void) {
+  const reads = { candidates: [] as number[], entries: [] as number[] };
+  let phase: string;
+  const watch = <T,>(array: 'candidates' | 'entries', values: readonly T[]) => new Proxy(values, {
+    get(target, key, receiver) {
+      // Native iteration and direct indexing must both pass through the index trap.
+      if (phase === 'retention_marking' && typeof key === 'string' && /^(?:0|[1-9]\d*)$/u.test(key)) {
+        reads[array].push(Number(key));
+        onRead?.(array, Number(key));
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  return {
+    inventory: { ...found, candidates: watch('candidates', found.candidates), entries: watch('entries', found.entries) },
+    reads,
+    progress: { phase(value: string) { phase = value; }, increment() {}, update() {} },
+  };
+}
 function message(content: string): ReturnType<typeof agentMessageSchema.parse> {
   return agentMessageSchema.parse({ id: randomUUID(), session_id: 'agent:planner:project', role: 'user',
     kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' },
@@ -173,6 +194,298 @@ const cardworkPreview = async (root: string) =>
   collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
 const oneCharacterCases = (count: number) =>
   [...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'].slice(0, count).map(char => `case${char}.ts`);
+
+describe('GC-07 indexed glob passes', () => {
+    const indices = <T,>(items: readonly T[], accepts: (item: T) => boolean = () => true) =>
+      items.flatMap((item, index) => accepts(item) ? [index] : []);
+    const workRoot = (root: string) => join(root, '.saivage/work');
+    const oldBefore = { before: 2000 };
+    const unrelated = (root: string) => ['tmp/stash/unrelated', 'cards/project/other'].flatMap(area =>
+      Array.from({ length: 72 }, (_, i) => work(root, `${area}/noise-${i}.dat`)));
+    const doubled = (path: string) => `${dirname(path)}//${path.slice(dirname(path).length + 1)}`;
+
+    async function preview(found: Inventory, inputs: Partial<WorkGcCollectionContext> = {}) {
+      const trace = traceInventory(found);
+      const result = await collectWorkGarbage(trace.inventory, { mode: 'dry_run', ...oldBefore },
+        context({ ...inputs, progress: trace.progress }));
+      return { result, reads: trace.reads };
+    }
+
+    function expectVisits(
+      actual: Awaited<ReturnType<typeof preview>>, control: Awaited<ReturnType<typeof preview>>,
+      candidates: number[], entries: number[],
+    ) {
+      expect(actual.reads.candidates).toEqual([...control.reads.candidates, ...candidates]);
+      expect(actual.reads.entries).toEqual([...control.reads.entries, ...entries]);
+    }
+
+    // Exact path witness: with no byte/target limit, every fresh selection reaching
+    // the file identity check in preview is eligible. Delete must leave precisely
+    // the independently specified complement on disk.
+    async function expectSelection(
+      found: Inventory, files: string[], kept: string[], inputs: Partial<WorkGcCollectionContext> = {},
+      freshInventory: () => Promise<Inventory> = () => inventory(found.projectRoot),
+    ) {
+      const eligible = files.filter(path => !kept.includes(path));
+      const checked: string[] = [];
+      const stat = fs.lstatSync;
+      let selecting = false;
+      const spy = jest.spyOn(fs, 'lstatSync').mockImplementation(((path: fs.PathLike, ...args: any[]) => {
+        if (selecting && files.includes(String(path))) checked.push(String(path));
+        return (stat as any)(path, ...args);
+      }) as typeof stat);
+      let result;
+      try {
+        result = await collectWorkGarbage(found, { mode: 'dry_run', ...oldBefore }, context({
+          ...inputs, progress: { phase(phase) { selecting = phase === 'selection'; }, increment() {}, update() {} },
+        }));
+      } finally {
+        spy.mockRestore();
+      }
+      expect(checked.sort()).toEqual([...eligible].sort());
+      expect(files.every(existsSync)).toBe(true);
+      expect(result.would_delete_count).toBe(eligible.length);
+      const deleted = await collectWorkGarbage(await freshInventory(), { mode: 'delete', ...oldBefore }, context(inputs));
+      expect(deleted.deleted_count).toBe(result.would_delete_count);
+      expect(deleted.deleted_logical_bytes).toBe(result.would_delete_logical_bytes);
+      expect(files.filter(existsSync).sort()).toEqual([...kept].sort());
+      expect(files.map(dirname).every(existsSync)).toBe(true);
+    }
+
+    it.each([0, 1, 50, 51])('limits narrow miss/late-hit/cutoff reads to their observed DFS indices (%i matches)', async count => {
+      const root = fixture(), noise = unrelated(root);
+      const files = Array.from({ length: 77 }, (_, i) =>
+        work(root, `cards/project/tmp/shard/${count > 1 && i < count ? 'hit' : 'miss'}-${i}.dat`));
+      const found = await inventory(root), directory = dirname(files[0]!);
+      const pathAt = (i: number) => join(workRoot(root), found.candidates[i]!.path);
+      const candidates = indices(found.candidates, item => dirname(join(workRoot(root), item.path)) === directory);
+      const entries = indices(found.entries, path => path === directory || dirname(path) === directory);
+      expect(candidates).toHaveLength(77);
+      expect(entries).toHaveLength(78);
+      // Select the one-hit name from the end of the real enumeration.
+      const late = pathAt(candidates.at(-1)!);
+      const expected = new Set(count === 1 ? [late] : files.slice(0, count));
+      const pattern = count === 1 ? late.slice(directory.length + 1) : 'hit-*.dat';
+      const first = candidates.findIndex(i => expected.has(pathAt(i)));
+      const cutoff = entries.filter(i => expected.has(found.entries[i]!)).at(-1)!;
+      const control = await preview(found);
+      baseline(root, JSON.stringify({ directory, pattern }));
+      expectVisits(await preview(found), control, count === 0 ? candidates : candidates.slice(0, first + 1),
+        count === 0 ? [] : count === 51 ? entries.filter(i => i <= cutoff) : entries);
+      await expectSelection(found, [...files, ...noise], count === 51 ? [] : [...expected]);
+    });
+
+    it.each(['file', 'file then 49 directory children', 'file then 50 directory children', '49 children', '50 children'] as const)(
+      'keeps the full legacy walk for a differently spelled overlapping %s scope', async kind => {
+        const root = fixture(), noise = unrelated(root);
+        const repeated = kind.startsWith('file then');
+        const isFile = kind === 'file' || repeated;
+        const discard = kind.includes('50');
+        const files = isFile ? [work(root, 'tmp/stash/legacy')] :
+          Array.from({ length: discard ? 50 : 49 }, (_, i) =>
+            work(root, `tmp/stash/legacy/child-${i}.dat`));
+        const path = isFile ? files[0]! : dirname(files[0]!);
+        const observedOnly = repeated ? Array.from({ length: discard ? 50 : 49 }, (_, i) => `child-${i}.dat`) : [];
+        const shadows = [join(root, 'first-directory-observation'), join(root, 'second-directory-observation')];
+        if (repeated) {
+          for (const shadow of shadows) mkdirSync(shadow);
+          for (const [i, name] of observedOnly.entries()) {
+            const artifact = join(shadows[i % 2]!, name);
+            writeFileSync(artifact, 'alternate');
+            utimesSync(artifact, 3, 3);
+          }
+        }
+        const observe = async () => {
+          if (!repeated) return inventory(root);
+          // Script a file observation followed by two directory observations at the same path.
+          // The live fixture remains a file; recent shadow children take part in
+          // the distinct-entry count, but cannot supply the usefulness witness.
+          const stat = fs.lstatSync, open = fs.opendirSync;
+          let observation = 0;
+          const metadata = jest.spyOn(fs, 'lstatSync').mockImplementation(((input: fs.PathLike, ...args: any[]) => {
+            const key = String(input);
+            const actual = observation > 0 && (key === path || dirname(key) === path)
+              ? join(shadows[observation - 1]!, relative(path, key)) : input;
+            return (stat as any)(actual, ...args);
+          }) as typeof stat);
+          const directories = jest.spyOn(fs, 'opendirSync').mockImplementation((input, ...args) => {
+            const dir = open(String(input) === path ? shadows[observation - 1]! : input, ...args);
+            if (String(input) === dirname(path)) {
+              const read = dir.readSync.bind(dir);
+              let file: ReturnType<typeof read> = null;
+              dir.readSync = () => {
+                const entry = read();
+                if (entry?.name === 'legacy') file = entry;
+                if (entry === null && observation < shadows.length) {
+                  observation++;
+                  return file;
+                }
+                return entry;
+              };
+            }
+            return dir;
+          });
+          try {
+            return await inventory(root);
+          } finally {
+            metadata.mockRestore();
+            directories.mockRestore();
+          }
+        };
+        const found = await observe(), control = await preview(found);
+        const candidatePath = (i: number) => join(workRoot(root), found.candidates[i]!.path);
+        const first = indices(found.candidates).find(i => files.includes(candidatePath(i)))!;
+        expect(found.subtrees.has(path)).toBe(kind !== 'file');
+        if (repeated) {
+          const span = found.subtrees.get(path)!;
+          expect(first).toBeLessThan(span.candidates[0]);
+          expect(found.entries.indexOf(path)).toBeLessThan(span.entries[0]);
+          expect(found.entries.slice(...span.entries)).toHaveLength(observedOnly.length + shadows.length);
+          expect(found.candidates.slice(...span.candidates)).toHaveLength(observedOnly.length);
+        }
+        expect(control.result.would_delete_count).toBe(files.length + noise.length);
+        expect(fs.realpathSync(doubled(path))).toBe(path);
+        baseline(root, JSON.stringify({ directory: doubled(path), pattern: '*' }));
+        // Independent legacy full-walk expectations: the equal file or first
+        // direct child witnesses usefulness, then only matching entries count.
+        const matches = new Set([path, ...files, ...observedOnly.map(name => join(path, name))]);
+        const last = indices(found.entries, entry => matches.has(entry)).at(-1)!;
+        expectVisits(await preview(found), control, indices(found.candidates).slice(0, first + 1),
+          discard ? indices(found.entries).slice(0, last + 1) : indices(found.entries));
+        await expectSelection(found, [...files, ...noise], discard ? [] : files, {}, observe);
+      });
+
+    it.each(['inner only', 'double match', 'noncontiguous'] as const)(
+      'unions traversal without changing relative bases or double-counting (%s)', async kind => {
+        const root = fixture(), noise = unrelated(root);
+        const outer = join(workRoot(root), 'cards/project/tmp');
+        const disjoint = kind === 'noncontiguous';
+        const shards = disjoint ? ['left', 'middle', 'right'] : [''];
+        const files = shards.flatMap(shard => Array.from({ length: 50 }, (_, i) =>
+          work(root, `cards/project/${disjoint ? `${i % 2 === 0 ? '' : 'tmp/'}${shard}` : 'tmp/tmp'}/hit-${i}.dat`)));
+        const found = await inventory(root), control = await preview(found);
+        const pathOf = (item: Inventory['candidates'][number]) => join(workRoot(root), item.path);
+        const shard = disjoint ? shards.find(name => {
+          const inShard = indices(found.candidates, item => [join(outer, name), join(dirname(outer), name)].includes(dirname(pathOf(item))));
+          return inShard.at(-1)! - inShard[0]! >= inShard.length;
+        })! : '';
+        // At most two pairs can be adjacent (one at either edge of tmp).
+        if (disjoint) expect(shard).toBeDefined();
+        const dirs = disjoint ? [join(dirname(outer), shard), join(outer, shard)] : [outer];
+        const under = (path: string) => dirs.some(dir => path === dir || path.startsWith(dir + sep));
+        const expected = new Set(files.filter(under));
+        const candidates = indices(found.candidates, item => under(pathOf(item)));
+        const entries = indices(found.entries, under);
+        const first = candidates.findIndex(i => expected.has(join(workRoot(root), found.candidates[i]!.path)));
+        const pattern = kind === 'inner only' ? 'hit-*.dat' : kind === 'double match' ? '**/hit-*.dat' : `./${shard}/hit-*.dat`;
+        baseline(root, JSON.stringify(disjoint ? { pattern } : { directory: 'tmp', pattern }));
+        expectVisits(await preview(found), control, candidates.slice(0, first + 1), entries);
+        await expectSelection(found, [...files, ...noise], [...expected]);
+      });
+
+    it.each(['empty', 'missing', 'file', 'protected/recent', 'old plus protected/recent'] as const)(
+      'preserves usefulness and complete threshold counting for %s scopes', async kind => {
+        const root = fixture(), noise = unrelated(root);
+        const part = 'cards/project/tmp/shard';
+        const directory = join(workRoot(root), part);
+        const files = kind === 'file' ? [work(root, part)] :
+          kind === 'empty' || kind === 'missing' ? [] :
+          Array.from({ length: 51 }, (_, i) =>
+            work(root, `${part}/hit-${i}.dat`, 'x', i === 0 || (i > 1 && kind === 'old plus protected/recent') ? 1000 : 3000));
+        if (kind === 'empty') mkdirSync(directory, { recursive: true });
+        const protectedAndRecent = kind === 'protected/recent' || kind === 'old plus protected/recent';
+        const inputs = protectedAndRecent ? { operationalInputs: { path: files[0] } } : {};
+        const found = await inventory(root), control = await preview(found, inputs);
+        const paths = found.candidates.map(item => join(workRoot(root), item.path));
+        const candidates = indices(paths, path => dirname(path) === directory);
+        const entries = indices(found.entries, path => path === directory || dirname(path) === directory);
+        const first = candidates.findIndex(i => paths[i] !== files[0] && found.candidates[i]!.mtimeMs < 2000);
+        const useful = kind === 'old plus protected/recent';
+        baseline(root, JSON.stringify({ directory, pattern: kind === 'file' ? '*' : 'hit-*.dat' }));
+        expectVisits(await preview(found, inputs), control, useful ? candidates.slice(0, first + 1) : candidates,
+          useful ? entries : []);
+        await expectSelection(found, [...files, ...noise],
+          useful ? files.slice(0, 2) : protectedAndRecent ? files : [], inputs);
+      });
+
+    it('visits a matching directory and protects its unmatched descendants', async () => {
+      const root = fixture(), files = unrelated(root);
+      const kept = Array.from({ length: 55 }, (_, i) =>
+        work(root, `cards/project/tmp/shard/hit.dat/child-${i}.bin`));
+      const found = await inventory(root), directory = dirname(dirname(kept[0]!)), control = await preview(found);
+      const candidates = indices(found.candidates, item => dirname(join(workRoot(root), item.path)) === dirname(kept[0]!));
+      const entries = indices(found.entries, path => path === directory || path === dirname(kept[0]!) || dirname(path) === dirname(kept[0]!));
+      baseline(root, JSON.stringify({ directory, pattern: 'hit*.dat' }));
+      expectVisits(await preview(found), control, candidates.slice(0, 1), entries);
+      await expectSelection(found, [...files, ...kept], kept);
+    });
+
+    it.each(['root', 'ancestor', 'outside alias', 'project alias', 'trailing separator', 'fixed prefix', 'literal backslash'] as const)(
+      'uses the correct index ranges for %s scopes and native names', async kind => {
+        const base = fs.realpathSync(fixture());
+        const root = kind === 'project alias' ? `${base}-alias` : base;
+        if (root !== base) {
+          roots.push(root);
+          symlinkSync(base, root, 'dir');
+        }
+        const noise = unrelated(root);
+        const selected = work(root, `tmp/stash/shard/${kind === 'literal backslash' ? 'a\\picked.dat' : 'picked.dat'}`);
+        const sibling = work(root, 'tmp/stash/shard/other.dat');
+        const scope = dirname(selected), w = workRoot(root);
+        const broad = kind === 'root' || kind === 'ancestor';
+        const full = broad || kind === 'trailing separator';
+        let directory = kind === 'root' ? w : kind === 'ancestor' ? dirname(w) : scope;
+        let pattern = broad ? '**/picked.dat' : kind === 'literal backslash' ? '**/picked.dat' : 'picked*.dat';
+        if (kind === 'outside alias') {
+          directory = join(base, 'inward');
+          symlinkSync(scope, directory, 'dir');
+        } else if (kind === 'trailing separator') directory += sep;
+        else if (kind === 'fixed prefix') {
+          directory = dirname(scope);
+          pattern = './shard/picked*.dat';
+        }
+        const found = await inventory(root), control = await preview(found);
+        const paths = found.candidates.map(item => join(w, item.path));
+        const candidates = indices(paths, path => full || dirname(path) === scope);
+        const entries = indices(found.entries, path => full || path === scope || dirname(path) === scope);
+        const first = candidates.indexOf(paths.indexOf(selected));
+        expect(first).toBeGreaterThanOrEqual(0);
+        baseline(root, JSON.stringify({ directory, pattern }));
+        expectVisits(await preview(found), control, candidates.slice(0, first + 1), entries);
+        await expectSelection(found, [selected, sibling, ...noise], [selected]);
+      });
+
+    it.each(['candidates', 'entries'] as const)(
+      'yields to event-loop cancellation inside the indexed %s pass before selection', async pass => {
+        const root = fixture(), noise = unrelated(root);
+        const files = Array.from({ length: 900 }, (_, i) =>
+          work(root, `cards/project/tmp/shard/part-${i}.bin`));
+        const found = await inventory(root), controller = new AbortController(), directory = dirname(files[0]!);
+        const firstInScope = found.candidates.find(item => dirname(join(workRoot(root), item.path)) === directory)!;
+        baseline(root, JSON.stringify({ directory,
+          pattern: pass === 'entries' ? firstInScope.path.split(sep).at(-1)! : '*.no-match' }));
+        let reads = 0;
+        let abort: Promise<void> | undefined;
+        const trace = traceInventory(found, (array) => {
+          if (array === pass && ++reads === 300)
+            abort = setImmediate().then(() => controller.abort(new Error('indexed glob cancelled')));
+        });
+        const selection = jest.fn(), unlink = jest.spyOn(fs, 'unlinkSync');
+        await expect(collectWorkGarbage(trace.inventory, { mode: 'delete', ...oldBefore }, context({
+          progress: { ...trace.progress, phase(phase) {
+            trace.progress.phase(phase);
+            if (phase === 'selection') selection();
+          } },
+          assertCollecting: () => controller.signal.throwIfAborted(),
+        }))).rejects.toThrow('indexed glob cancelled');
+        await abort;
+        expect(reads).toBeGreaterThanOrEqual(300);
+        expect(reads).toBeLessThan(900);
+        expect(selection).not.toHaveBeenCalled();
+        expect(unlink).not.toHaveBeenCalled();
+        expect([...files, ...noise].every(existsSync)).toBe(true);
+      });
+});
 
 describe('exact cardwork retention', () => {
   it.each(['refused', 'applied'] as const)('marks only the %s bound write’s actual settled result in the current conversation', async outcome => {
@@ -584,36 +897,33 @@ describe('work GC two-phase selection', () => {
       }
       const patterns = [
         { directory: join(root, '.saivage/work-other'), pattern: 'old-*.dat' },
-        { directory: join(root, 'docs'), pattern: 'notes-*.md' },
+        { directory: `${root}//docs`, pattern: 'notes-*.md' },
         { directory: join(root, 'reports'), pattern: 'result-?.json' },
       ];
       for (const { directory } of patterns) mkdirSync(directory);
 
       const found = await inventory(root);
-      let visits = 0;
-      const candidates = new Proxy(found.candidates, {
-        get(target, key, receiver) {
-          if (key !== Symbol.iterator) return Reflect.get(target, key, receiver);
-          return function* () {
-            for (const candidate of target) {
-              visits++;
-              yield candidate;
-            }
-          };
-        },
-      });
-      const preview = () => collectWorkGarbage({ ...found, candidates }, { mode: 'dry_run' }, context());
-      const withoutPatterns = await preview();
-      const withoutPatternsVisits = visits;
-      expect(withoutPatternsVisits).toBeGreaterThan(0);
+      const preview = async () => {
+        const trace = traceInventory(found);
+        const result = await collectWorkGarbage(trace.inventory, { mode: 'dry_run' },
+          context({ progress: trace.progress }));
+        return { result, reads: trace.reads };
+      };
+      const { result: withoutPatterns, reads: control } = await preview();
+      expect(control).toEqual({ candidates: [0], entries: [] });
       expect(withoutPatterns).toMatchObject({
         observed_count: 8, would_delete_count: 8, retained: { protected: 0 }, first_global_protection: null,
       });
 
       baseline(root, JSON.stringify(patterns));
-      visits = 0;
-      expect(await preview()).toEqual(withoutPatterns);
-      expect(visits).toBe(withoutPatternsVisits);
+      expect(await preview()).toEqual({ result: withoutPatterns, reads: control });
+      appendConversationBatch({ projectRoot: root }, [message(JSON.stringify({
+        directory: join(root, '.saivage/work/tmp/stash'), pattern: 'old-*.dat',
+      }))]);
+      const overlapping = await preview();
+      expect(overlapping.result).toMatchObject({ retained: { protected: 4 }, would_delete_count: 4 });
+      expect(overlapping.reads.candidates).toHaveLength(control.candidates.length + 1);
+      expect(overlapping.reads.entries).toHaveLength(5);
     });
 
     async function globOnlyRetention(
@@ -1475,11 +1785,13 @@ describe('work GC two-phase selection', () => {
     const { globToRegExp } = await import('../../src/workspace/glob-matcher.js');
     const matcher = globToRegExp('dedup-*.bin'), scope = dirname(control);
     const first = order === 'matching_first' ? selected[0]! : control;
-    // Reorder only metadata from the real inventory. Exercise both probe paths;
-    // leave the complete entry inventory in its actual opendir order.
-    const candidates = [...found.candidates].sort((a, b) =>
-      Number(join(root, '.saivage/work', b.path) === first) -
-      Number(join(root, '.saivage/work', a.path) === first));
+    const candidates = [...found.candidates];
+    // Swap only within the three sibling files; no directory's span changes.
+    const siblingStart = candidates.findIndex(item => dirname(join(root, '.saivage/work', item.path)) === scope);
+    const firstIndex = candidates.findIndex(item => join(root, '.saivage/work', item.path) === first);
+    expect(firstIndex).toBeGreaterThanOrEqual(siblingStart);
+    expect(firstIndex).toBeLessThan(siblingStart + 3);
+    [candidates[siblingStart], candidates[firstIndex]] = [candidates[firstIndex]!, candidates[siblingStart]!];
     const probeInputs: string[] = [];
     for (const candidate of candidates) {
       const path = join(root, '.saivage/work', candidate.path);

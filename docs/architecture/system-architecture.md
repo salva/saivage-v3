@@ -851,27 +851,33 @@ Call-local protection sets test candidate ancestors through the work root rather
 than scanning every mark for each candidate.
 
 Glob inference is owned by the collector's reference resolver in
-`src/workspace/work-garbage-collector.ts`. Inventory keeps one call-local list of the
-ordinary files and directories admitted by its existing yielding walk, excluding the
-work root, symlinks, opaque entries and reserved `.saivage-tmp` names. Deletion candidates
-and `observed_count` remain regular files only; directories serve only as glob matches.
+`src/workspace/work-garbage-collector.ts`. The yielding depth-first inventory walk
+records call-local bounds for each admitted directory in both the regular-file
+candidate array and the file-and-directory entry array. The arrays exclude the
+work root, symlinks, opaque entries and reserved `.saivage-tmp` names.
+Deletion candidates and `observed_count` remain regular files only.
 Extraction pairs a structured `directory`/`cwd` scope, or a bounded same-line quoted
 `directory`/`pattern` group in prose, with its `pattern`, consumes that metadata once and
 resolves the scope through the same metadata-only resolution used by exact paths.
 The collector and project glob tools share `globToRegExp()` from
 `src/workspace/glob-matcher.ts`, not the same match inputs. GC resolves the effective
 scopes, including any fixed directory prefix, and builds the matcher before checking
-for overlap with the work root. A final lexical or resolved scope overlaps if
-either path contains the other by native path containment, including equality.
-If none overlaps, GC skips both scans. Otherwise it first looks for an unprotected
-candidate that is older than the cutoff (if supplied) and matches within a scope,
-either directly or through a matching ancestor. If it finds none, GC skips the
-full inventory count. Both scans yield cooperatively as they visit entries.
-The inventory scan counts
-distinct entries that match relative to an effective scope, up to 51. Zero matches
-add nothing; 1–50 protect the matched entries, including subtrees of matched
-directories; at 51 the whole matcher contribution is discarded. Matching precedes
-administrative-root filtering. A complete search receipt contributes
+for overlap with the lexical inventory root. A disjoint scope contributes no
+visits. The root or an ancestor makes both full arrays available to the scans, as
+does any overlapping scope whose spelling differs from its normalized absolute
+native path. Otherwise, an inner scope contributes only its observed directory
+spans, if any. GC merges overlapping spans without changing the original relative
+match bases. The matcher excludes exact scope-string equality; a differently
+spelled path can still match at an empty relative name.
+GC first looks for a candidate not already protected by the resolver, strictly
+older than the cutoff if supplied, that matches directly or through a matching
+ancestor. Without such a candidate, GC skips the count. Otherwise it counts
+distinct matching entry paths across all effective scopes, including matches that
+are recent or already protected. Both scans run cooperative checkpoints on
+visited items only. Zero matches add nothing; at 51 distinct matches GC discards
+the entire glob contribution before marking. For 1–50 matches, GC applies the
+existing mark rules, including administrative-root filtering for content marks;
+a marked directory protects its subtree. A complete search receipt contributes
 independent address suggestions as received; it does not feed that count.
 Neither a receipt nor a directory scope supplies a blanket subtree mark.
 There is no second filesystem walk, outside-work enumeration, persistent cache

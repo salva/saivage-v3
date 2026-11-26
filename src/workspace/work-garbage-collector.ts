@@ -40,11 +40,19 @@ interface Candidate {
   readonly ctimeMs: number;
 }
 
+type Span = readonly [start: number, end: number];
+
+interface SubtreeSpans {
+  readonly candidates: Span;
+  readonly entries: Span;
+}
+
 /** Call-local observations, never a saved deletion plan or write authority. */
 interface WorkGcInventory {
   readonly projectRoot: string;
   readonly candidates: readonly Candidate[];
   readonly entries: readonly string[];
+  readonly subtrees: ReadonlyMap<string, SubtreeSpans>;
   readonly observed_logical_bytes: number;
   readonly opaque_entries: number;
 }
@@ -105,6 +113,21 @@ function within(root: string, path: string): boolean {
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
 }
 
+function* coalescedSpans(spans: Span[]): Iterable<Span> {
+  spans.sort(([a], [b]) => a - b);
+  let start = 0;
+  let end = 0;
+  for (const [nextStart, nextEnd] of spans) {
+    if (nextStart === nextEnd) continue;
+    if (nextStart > end) {
+      if (start < end) yield [start, end];
+      start = nextStart;
+    }
+    end = Math.max(end, nextEnd);
+  }
+  if (start < end) yield [start, end];
+}
+
 // Reserved publication names are discarded before ANY metadata/content access or accounting.
 function reserved(name: string): boolean {
   return name.endsWith('.saivage-tmp');
@@ -148,6 +171,7 @@ export async function inventoryWorkGarbage(
   const root = saivageWorkRoot(projectRoot);
   const candidates: Candidate[] = [];
   const entries: string[] = [];
+  const subtrees = new Map<string, SubtreeSpans>();
   let opaque = 0;
   let bytes = 0;
   const observe = () =>
@@ -213,9 +237,16 @@ export async function inventoryWorkGarbage(
       return;
     }
     if (stat.isDirectory()) {
+      const candidateStart = candidates.length;
+      const entryStart = entries.length;
       entries.push(path);
       for await (const name of names(path, check, true))
         await visit(join(path, name), [...parts, name], owner);
+      const prior = subtrees.get(path);
+      subtrees.set(path, {
+        candidates: [prior?.candidates[0] ?? candidateStart, candidates.length],
+        entries: [prior?.entries[0] ?? entryStart, entries.length],
+      });
     } else if (stat.isFile()) {
       const isLeaf =
         parts[0] === 'cards' ? depth >= 4 : parts[0] === 'processes' ? depth === 3 : depth >= 3;
@@ -243,6 +274,7 @@ export async function inventoryWorkGarbage(
     projectRoot,
     candidates,
     entries,
+    subtrees,
     observed_logical_bytes: bytes,
     opaque_entries: opaque,
   };
@@ -299,14 +331,16 @@ class WorkReferences {
   readonly root: string;
   private visited = 0;
   constructor(
-    readonly projectRoot: string,
-    readonly entries: readonly string[],
-    readonly candidates: readonly Candidate[],
+    private readonly inventory: WorkGcInventory,
     readonly before: number | undefined,
     readonly check: () => void,
     readonly progress?: WorkGcProgressPort,
   ) {
-    this.root = saivageWorkRoot(projectRoot);
+    this.root = saivageWorkRoot(inventory.projectRoot);
+  }
+
+  private get projectRoot(): string {
+    return this.inventory.projectRoot;
   }
 
   private async visit(): Promise<void> {
@@ -487,6 +521,28 @@ class WorkReferences {
     return this.scopes(this.literalPaths(value, bases, required, true), required);
   }
 
+  private globSpans(scopes: readonly string[]): { candidates: Span[]; entries: Span[] } {
+    const candidates: Span[] = [];
+    const entries: Span[] = [];
+    for (const scope of scopes) {
+      // Inventory uses lexical paths, even when the project root is alias-spelled.
+      const inner = within(this.root, scope);
+      // A noncanonical spelling can match an equal native path outside directory bounds.
+      if (inner ? scope === this.root || resolve(scope) !== scope : within(scope, this.root)) {
+        return {
+          candidates: [[0, this.inventory.candidates.length]],
+          entries: [[0, this.inventory.entries.length]],
+        };
+      }
+      if (!inner) continue;
+      const subtree = this.inventory.subtrees.get(scope);
+      if (subtree === undefined) continue;
+      candidates.push(subtree.candidates);
+      entries.push(subtree.entries);
+    }
+    return { candidates, entries };
+  }
+
   private async glob(
     input: string,
     bases: readonly string[],
@@ -557,32 +613,37 @@ class WorkReferences {
     const matcher = globToRegExp(pattern);
     const matches = (scope: string, entry: string) =>
       entry !== scope && within(scope, entry) && matcher.test(normalizeRel(relative(scope, entry)));
-    // Inventory paths are lexical descendants of the work root, even when it is alias-spelled.
-    if (!scopes.some((scope) => within(this.root, scope) || within(scope, this.root))) return;
+    const spans = this.globSpans(scopes);
     let useful = false;
-    for (const candidate of this.candidates) {
-      await this.visit();
-      if (this.before !== undefined && candidate.mtimeMs >= this.before) continue;
-      const path = join(this.root, candidate.path);
-      if (
-        !this.protects(path) &&
-        scopes.some((scope) => {
-          for (let entry = path; entry !== scope && within(scope, entry); entry = dirname(entry))
-            if (matches(scope, entry)) return true;
-          return false;
-        })
-      ) {
-        useful = true;
-        break;
+    probe: for (const [start, end] of coalescedSpans(spans.candidates)) {
+      for (let i = start; i < end; i++) {
+        const candidate = this.inventory.candidates[i]!;
+        await this.visit();
+        if (this.before !== undefined && candidate.mtimeMs >= this.before) continue;
+        const path = join(this.root, candidate.path);
+        if (
+          !this.protects(path) &&
+          scopes.some((scope) => {
+            for (let entry = path; entry !== scope && within(scope, entry); entry = dirname(entry))
+              if (matches(scope, entry)) return true;
+            return false;
+          })
+        ) {
+          useful = true;
+          break probe;
+        }
       }
     }
     if (!useful) return;
     const matched = new Set<string>();
-    for (const entry of this.entries) {
-      await this.visit();
-      if (scopes.some((scope) => matches(scope, entry))) {
-        matched.add(entry);
-        if (matched.size === 51) return;
+    for (const [start, end] of coalescedSpans(spans.entries)) {
+      for (let i = start; i < end; i++) {
+        const entry = this.inventory.entries[i]!;
+        await this.visit();
+        if (scopes.some((scope) => matches(scope, entry))) {
+          matched.add(entry);
+          if (matched.size === 51) return;
+        }
       }
     }
     for (const entry of matched) this.mark(entry, origin, source);
@@ -1096,14 +1157,7 @@ export async function collectWorkGarbage(
   check();
   await setImmediate();
   check();
-  const refs = new WorkReferences(
-    inventory.projectRoot,
-    inventory.entries,
-    inventory.candidates,
-    options.before,
-    check,
-    context.progress,
-  );
+  const refs = new WorkReferences(inventory, options.before, check, context.progress);
   const needsMarking = inventory.candidates.some(
     (candidate) => options.before === undefined || candidate.mtimeMs < options.before,
   );
