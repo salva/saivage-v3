@@ -195,7 +195,7 @@ const cardworkPreview = async (root: string) =>
 const oneCharacterCases = (count: number) =>
   [...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'].slice(0, count).map(char => `case${char}.ts`);
 
-describe('GC-07 indexed glob passes', () => {
+describe('indexed glob passes', () => {
     const indices = <T,>(items: readonly T[], accepts: (item: T) => boolean = () => true) =>
       items.flatMap((item, index) => accepts(item) ? [index] : []);
     const workRoot = (root: string) => join(root, '.saivage/work');
@@ -251,6 +251,123 @@ describe('GC-07 indexed glob passes', () => {
       expect(files.filter(existsSync).sort()).toEqual([...kept].sort());
       expect(files.map(dirname).every(existsSync)).toBe(true);
     }
+
+    function expectClassifications(result: Awaited<ReturnType<typeof preview>>['result'],
+      protectedPaths: string[], recent: string[], eligible: string[]) {
+      const bytes = (paths: string[]) => paths.reduce((sum, path) => sum + lstatSync(path).size, 0);
+      const remaining = bytes([...protectedPaths, ...recent]);
+      expect(result).toMatchObject({
+        observed_count: protectedPaths.length + recent.length + eligible.length,
+        observed_logical_bytes: remaining + bytes(eligible),
+        first_global_protection: null,
+        retained: { protected: protectedPaths.length, recent: recent.length, stale: 0, opaque: 0, target: 0 },
+        would_delete_count: eligible.length, would_delete_logical_bytes: bytes(eligible),
+        deleted_count: 0, deleted_logical_bytes: 0,
+        expected_accounted_logical_bytes_remaining: remaining,
+      });
+    }
+
+    it.each([0, 1, 50, 51])('keeps the two wide passes and their exact thresholds (%i matching entries)', async count => {
+      const root = fixture(), w = workRoot(root), noise = unrelated(root);
+      const many = count >= 50;
+      const siblings = many ? Array.from({ length: 12 }, (_, i) =>
+        work(root, `cards/project/tmp/hit-parent/child-${i}.bin`, 'children')) : [];
+      const exact = work(root, 'cards/project/tmp/hit-exact', 'exact');
+      const newer = work(root, 'cards/project/tmp/hit-recent', 'newer', 3000);
+      const empties = many ? Array.from({ length: count - 3 }, (_, i) =>
+        join(w, `cards/project/tmp/hit-empty-${i}`)) : [];
+      for (const empty of empties) mkdirSync(empty);
+      const files = [...noise, ...siblings, exact, newer];
+      const found = await inventory(root);
+      const paths = found.candidates.map(item => join(w, item.path));
+      const inputs = { operationalPaths: [exact] };
+      const control = await preview(found, inputs);
+      const late = paths.filter(path => noise.includes(path)).at(-1)!;
+      baseline(root, JSON.stringify({ pattern: count === 1
+        ? `project:///**/unrelated/${late.split(sep).at(-1)}`
+        : count === 0 ? 'project:///**/absent-*' : 'project:///**/hit-*' }));
+      const actual = await preview(found, inputs);
+      const first = count === 1 ? paths.indexOf(late) : paths.findIndex(path => siblings.includes(path));
+      const counted = new Set([...empties, ...siblings.map(dirname), exact, newer]);
+      const last = indices(found.entries, entry => counted.has(entry)).at(-1)!;
+      expectVisits(actual, control, indices(paths).slice(0, count === 0 ? paths.length : first + 1),
+        count === 0 ? [] : indices(found.entries).slice(0, count === 51 ? last + 1 : found.entries.length));
+      const protectedPaths = [exact, ...(count === 1 ? [late] : count === 50 ? [...siblings, newer] : [])];
+      const recent = count === 50 ? [] : [newer];
+      expectClassifications(actual.result, protectedPaths, recent,
+        files.filter(path => !protectedPaths.includes(path) && !recent.includes(path)));
+      await expectSelection(found, files, [...protectedPaths, ...recent], inputs);
+      expect(empties.every(existsSync)).toBe(true);
+    });
+
+    it.each([false, true])('keeps parent protection local to each wide probe (old witness=%s)', async useful => {
+      const root = fixture(), w = workRoot(root);
+      const covered = ['hit-a-covered', 'hit-c-covered'].flatMap(dir => ['hit-old', 'other'].map(name =>
+        work(root, `cards/project/tmp/${dir}/${name}`)));
+      const open = ['b-open', 'd-open'].flatMap(dir => ['one', 'two'].map(name =>
+        work(root, `cards/project/tmp/${dir}/${name}`)));
+      const exact = work(root, 'cards/project/tmp/d-open/hit-exact');
+      const fresh = work(root, 'cards/project/tmp/d-open/hit-fresh', 'fresh', 3000);
+      const witness = useful ? [work(root, 'cards/project/tmp/d-open/hit-useful')] : [];
+      const files = [...covered, ...open, exact, fresh, ...witness];
+      const found = await inventory(root);
+      const inputs = { operationalPaths: [...new Set(covered.map(dirname)), exact] };
+      const control = await preview(found, inputs);
+      // Check the second glob with the first glob's published mark already in place.
+      baseline(root, JSON.stringify([{ pattern: 'project:///**/hit-*' }, { pattern: 'work:///**/hit-*' }]));
+      const actual = await preview(found, inputs);
+      const paths = found.candidates.map(item => join(w, item.path));
+      const all = indices(paths);
+      expectVisits(actual, control,
+        [...(useful ? all.slice(0, paths.indexOf(witness[0]!) + 1) : all), ...all],
+        useful ? indices(found.entries) : []);
+      const protectedPaths = [...covered, exact, ...witness, ...(useful ? [fresh] : [])];
+      const recent = useful ? [] : [fresh];
+      expectClassifications(actual.result, protectedPaths, recent, open);
+      await expectSelection(found, files, [...protectedPaths, ...recent], inputs);
+    });
+
+    it('opens a wide count through a matching ancestor absent from inventory without publishing a mark', async () => {
+      const root = fixture(), file = work(root, 'tmp/stash/child.bin');
+      const found = await inventory(root), control = await preview(found);
+      baseline(root, JSON.stringify({ directory: root, pattern: '.saivage' }));
+      const actual = await preview(found);
+      expectVisits(actual, control, [0], indices(found.entries));
+      expectClassifications(actual.result, [], [], [file]);
+      await expectSelection(found, [file], []);
+    });
+
+    it('bounds wide lexical overlap before native backslash normalization', async () => {
+      const root = fixture();
+      const miss = work(root, 'cards/project/tmp/scope-ish/wrong.bin');
+      const alias = join(dirname(dirname(miss)), 'scope');
+      symlinkSync(root, alias, 'dir');
+      const found = await inventory(root), control = await preview(found);
+      baseline(root, JSON.stringify({ directory: alias, pattern: '*\\wrong.bin' }));
+      const actual = await preview(found);
+      expectVisits(actual, control, [0], []);
+      expectClassifications(actual.result, [], [], [miss]);
+      await expectSelection(found, [miss], []);
+    });
+
+    it.each(['owned native', 'card fallback'] as const)('preserves wide %s matching of native punctuation and deduplication', async source => {
+      const root = fixture();
+      const files = Array.from({ length: 50 }, (_, i) =>
+        work(root, `cards/project/tmp/name\\item%20-\${fixture}-${i}.bin`));
+      const other = work(root, 'cards/project/tmp/name\\item -${fixture}-other.bin');
+      const found = await inventory(root);
+      if (source === 'owned native') {
+        appendConversationBatch({ projectRoot: root }, [toolExchange('glob', JSON.stringify({ success: true }), JSON.stringify({
+          directory: root, pattern: '**/item%20-${fixture}-*.bin',
+        }))[0]!]);
+      } else {
+        // Project, card and card tmp all witness the same fifty entries.
+        baseline(root, JSON.stringify({ pattern: '**/item%20-*.bin' }));
+      }
+      const actual = await preview(found);
+      expectClassifications(actual.result, files, [], [other]);
+      await expectSelection(found, [...files, other], files);
+    });
 
     it.each([0, 1, 50, 51])('limits narrow miss/late-hit/cutoff reads to their observed DFS indices (%i matches)', async count => {
       const root = fixture(), noise = unrelated(root);
@@ -420,10 +537,10 @@ describe('GC-07 indexed glob passes', () => {
       await expectSelection(found, [...files, ...kept], kept);
     });
 
-    it.each(['root', 'ancestor', 'outside alias', 'project alias', 'trailing separator', 'fixed prefix', 'literal backslash'] as const)(
+    it.each(['root', 'ancestor', 'outside alias', 'project alias', 'wide project alias', 'trailing separator', 'fixed prefix', 'literal backslash'] as const)(
       'uses the correct index ranges for %s scopes and native names', async kind => {
         const base = fs.realpathSync(fixture());
-        const root = kind === 'project alias' ? `${base}-alias` : base;
+        const root = kind === 'project alias' || kind === 'wide project alias' ? `${base}-alias` : base;
         if (root !== base) {
           roots.push(root);
           symlinkSync(base, root, 'dir');
@@ -432,9 +549,9 @@ describe('GC-07 indexed glob passes', () => {
         const selected = work(root, `tmp/stash/shard/${kind === 'literal backslash' ? 'a\\picked.dat' : 'picked.dat'}`);
         const sibling = work(root, 'tmp/stash/shard/other.dat');
         const scope = dirname(selected), w = workRoot(root);
-        const broad = kind === 'root' || kind === 'ancestor';
+        const broad = kind === 'root' || kind === 'ancestor' || kind === 'wide project alias';
         const full = broad || kind === 'trailing separator';
-        let directory = kind === 'root' ? w : kind === 'ancestor' ? dirname(w) : scope;
+        let directory = kind === 'root' ? w : kind === 'ancestor' ? dirname(w) : kind === 'wide project alias' ? root : scope;
         let pattern = broad ? '**/picked.dat' : kind === 'literal backslash' ? '**/picked.dat' : 'picked*.dat';
         if (kind === 'outside alias') {
           directory = join(base, 'inward');
@@ -455,30 +572,50 @@ describe('GC-07 indexed glob passes', () => {
         await expectSelection(found, [selected, sibling, ...noise], [selected]);
       });
 
-    it.each(['candidates', 'entries'] as const)(
-      'yields to event-loop cancellation inside the indexed %s pass before selection', async pass => {
+    it.each([
+      ['candidates', 'narrow'], ['entries', 'narrow'], ['candidates', 'wide'], ['entries', 'wide'],
+    ] as const)(
+      'yields to event-loop cancellation inside the %s pass (%s) before selection', async (pass, range) => {
         const root = fixture(), noise = unrelated(root);
         const files = Array.from({ length: 900 }, (_, i) =>
           work(root, `cards/project/tmp/shard/part-${i}.bin`));
         const found = await inventory(root), controller = new AbortController(), directory = dirname(files[0]!);
         const firstInScope = found.candidates.find(item => dirname(join(workRoot(root), item.path)) === directory)!;
-        baseline(root, JSON.stringify({ directory,
-          pattern: pass === 'entries' ? firstInScope.path.split(sep).at(-1)! : '*.no-match' }));
+        const name = pass === 'entries' ? firstInScope.path.split(sep).at(-1)! : '*.no-match';
+        baseline(root, JSON.stringify(range === 'wide' ? { pattern: `project:///**/${name}` } : { directory, pattern: name }));
         let reads = 0;
+        let checks = 0;
+        let checksAtYield: number | undefined;
+        let checksAtCancellation: number | undefined;
+        const cancelled = new Error('indexed glob cancelled');
         let abort: Promise<void> | undefined;
         const trace = traceInventory(found, (array) => {
-          if (array === pass && ++reads === 300)
-            abort = setImmediate().then(() => controller.abort(new Error('indexed glob cancelled')));
+          if (array === pass) reads++;
         });
         const selection = jest.fn(), unlink = jest.spyOn(fs, 'unlinkSync');
         await expect(collectWorkGarbage(trace.inventory, { mode: 'delete', ...oldBefore }, context({
-          progress: { ...trace.progress, phase(phase) {
-            trace.progress.phase(phase);
-            if (phase === 'selection') selection();
-          } },
-          assertCollecting: () => controller.signal.throwIfAborted(),
-        }))).rejects.toThrow('indexed glob cancelled');
+          progress: { ...trace.progress,
+            phase(phase) {
+              trace.progress.phase(phase);
+              if (phase === 'selection') selection();
+            },
+            referenceVisits() {
+              if (reads < 300 || abort) return;
+              checksAtYield = checks;
+              abort = setImmediate().then(() => controller.abort(cancelled));
+            },
+          },
+          assertCollecting: () => {
+            checks++;
+            if (controller.signal.aborted) checksAtCancellation = checks;
+            controller.signal.throwIfAborted();
+          },
+        }))).rejects.toBe(cancelled);
         await abort;
+        expect(checksAtYield).toBeDefined();
+        expect(checksAtCancellation).toBe(checksAtYield! + 1);
+        expect(workGcFailureResponse({ mode: 'delete' }, cancelled, 'collection_failed', true, 'not_resumed'))
+          .toMatchObject({ disposition: 'refused', reason: 'cancelled', restoration: 'not_resumed', result: null, failure: null });
         expect(reads).toBeGreaterThanOrEqual(300);
         expect(reads).toBeLessThan(900);
         expect(selection).not.toHaveBeenCalled();

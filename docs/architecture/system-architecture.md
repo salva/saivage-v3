@@ -866,16 +866,35 @@ for overlap with the lexical inventory root. A disjoint scope contributes no
 visits. The root or an ancestor makes both full arrays available to the scans, as
 does any overlapping scope whose spelling differs from its normalized absolute
 native path. Otherwise, an inner scope contributes only its observed directory
-spans, if any. GC merges overlapping spans without changing the original relative
-match bases. The matcher excludes exact scope-string equality; a differently
-spelled path can still match at an empty relative name.
-GC first looks for a candidate not already protected by the resolver, strictly
-older than the cutoff if supplied, that matches directly or through a matching
-ancestor. Without such a candidate, GC skips the count. Otherwise it counts
-distinct matching entry paths across all effective scopes, including matches that
-are recent or already protected. Both scans run cooperative checkpoints on
-visited items only. Zero matches add nothing; at 51 distinct matches GC discards
-the entire glob contribution before marking. For 1–50 matches, GC applies the
+spans, if any. GC merges overlapping spans without changing the original match
+bases. `globSpans` explicitly distinguishes the full-range case from narrow spans,
+which keep the existing relative-path matching.
+
+For full ranges, the usefulness probe and entry count share a prepared matcher.
+For normalized absolute scopes, it checks a separator-bounded native prefix and
+passes the suffix as the relative name to `normalizeRel()` before matching.
+Other scope spellings keep their original containment and relative-path
+semantics, without replacing lexical scopes with resolved aliases. Exact
+scope-string equality is still excluded; a differently spelled path can still
+match at an empty relative name.
+
+The probe stops at the first regular-file candidate not already protected by the
+resolver, strictly older than `before` if supplied, that matches directly or
+through a native ancestor. In a full-range probe, each file's exact protection
+mark and direct match remain independent checks. The probe lazily reuses only
+the last native parent's protection and ancestor-match results. These results
+reset on a change of parent and do not carry over to another glob. A full-range
+miss still visits every candidate: the number of visits is linear in the
+candidate count.
+
+Without a useful candidate, GC skips counting, so newer matches alone do not
+gain protection from the glob. With a useful candidate, GC separately counts
+distinct matching paths in the observed file-and-directory entries across all
+effective scopes, including recent and already protected matches. Recent
+matches can therefore receive marks even though they could not open the count.
+Both scans run cooperative checkpoints on visited items only. Zero matches add
+nothing; at 51 distinct matches GC discards the entire glob contribution before
+marking. For 1–50 matches, GC applies the
 existing mark rules, including administrative-root filtering for content marks;
 a marked directory protects its subtree. A complete search receipt contributes
 independent address suggestions as received; it does not feed that count.

@@ -521,7 +521,7 @@ class WorkReferences {
     return this.scopes(this.literalPaths(value, bases, required, true), required);
   }
 
-  private globSpans(scopes: readonly string[]): { candidates: Span[]; entries: Span[] } {
+  private globSpans(scopes: readonly string[]): { full: boolean; candidates: Span[]; entries: Span[] } {
     const candidates: Span[] = [];
     const entries: Span[] = [];
     for (const scope of scopes) {
@@ -530,6 +530,7 @@ class WorkReferences {
       // A noncanonical spelling can match an equal native path outside directory bounds.
       if (inner ? scope === this.root || resolve(scope) !== scope : within(scope, this.root)) {
         return {
+          full: true,
           candidates: [[0, this.inventory.candidates.length]],
           entries: [[0, this.inventory.entries.length]],
         };
@@ -540,7 +541,52 @@ class WorkReferences {
       candidates.push(subtree.candidates);
       entries.push(subtree.entries);
     }
-    return { candidates, entries };
+    return { full: false, candidates, entries };
+  }
+
+  private wideGlobPredicates(scopes: readonly string[], matcher: RegExp) {
+    const names = scopes.map((scope) => {
+      if (!isAbsolute(scope) || resolve(scope) !== scope)
+        return (entry: string) =>
+          entry !== scope && within(scope, entry) ? relative(scope, entry) : undefined;
+      const prefix = scope.endsWith(sep) ? scope : scope + sep;
+      return (entry: string) =>
+        entry !== scope && entry.startsWith(prefix) ? entry.slice(prefix.length) : undefined;
+    });
+    const matches = (name: string) => matcher.test(normalizeRel(name));
+    const matchesEntry = (entry: string) =>
+      names.some((name) => {
+        const rel = name(entry);
+        return rel !== undefined && matches(rel);
+      });
+    const matchesAncestor = (parent: string) =>
+      names.some((name) => {
+        for (let entry = parent; ; entry = dirname(entry)) {
+          const rel = name(entry);
+          if (rel === undefined) return false;
+          if (matches(rel)) return true;
+        }
+      });
+
+    // Only the current native parent's facts are reusable; the file's own mark
+    // and direct match are independent. No marks are published during the probe.
+    let lastParent: string | undefined;
+    let protectedParent: boolean | undefined;
+    let matchingParent: boolean | undefined;
+    const usefulCandidate = (candidate: Candidate) => {
+      const path = this.root + sep + candidate.path;
+      const parent = dirname(path);
+      if (parent !== lastParent) {
+        lastParent = parent;
+        protectedParent = matchingParent = undefined;
+      }
+      return (
+        !this.paths.has(path) &&
+        !(protectedParent ??= this.protects(parent)) &&
+        (matchesEntry(path) || (matchingParent ??= matchesAncestor(parent)))
+      );
+    };
+    return { usefulCandidate, matchesEntry };
   }
 
   private async glob(
@@ -614,21 +660,29 @@ class WorkReferences {
     const matches = (scope: string, entry: string) =>
       entry !== scope && within(scope, entry) && matcher.test(normalizeRel(relative(scope, entry)));
     const spans = this.globSpans(scopes);
+    const { usefulCandidate, matchesEntry } = spans.full
+      ? this.wideGlobPredicates(scopes, matcher)
+      : {
+          usefulCandidate: (candidate: Candidate) => {
+            const path = join(this.root, candidate.path);
+            return (
+              !this.protects(path) &&
+              scopes.some((scope) => {
+                for (let entry = path; entry !== scope && within(scope, entry); entry = dirname(entry))
+                  if (matches(scope, entry)) return true;
+                return false;
+              })
+            );
+          },
+          matchesEntry: (entry: string) => scopes.some((scope) => matches(scope, entry)),
+        };
     let useful = false;
     probe: for (const [start, end] of coalescedSpans(spans.candidates)) {
       for (let i = start; i < end; i++) {
         const candidate = this.inventory.candidates[i]!;
         await this.visit();
         if (this.before !== undefined && candidate.mtimeMs >= this.before) continue;
-        const path = join(this.root, candidate.path);
-        if (
-          !this.protects(path) &&
-          scopes.some((scope) => {
-            for (let entry = path; entry !== scope && within(scope, entry); entry = dirname(entry))
-              if (matches(scope, entry)) return true;
-            return false;
-          })
-        ) {
+        if (usefulCandidate(candidate)) {
           useful = true;
           break probe;
         }
@@ -640,7 +694,7 @@ class WorkReferences {
       for (let i = start; i < end; i++) {
         const entry = this.inventory.entries[i]!;
         await this.visit();
-        if (scopes.some((scope) => matches(scope, entry))) {
+        if (matchesEntry(entry)) {
           matched.add(entry);
           if (matched.size === 51) return;
         }

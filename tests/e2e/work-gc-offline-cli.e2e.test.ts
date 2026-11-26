@@ -108,6 +108,54 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
   expect(readCurrentConversationSegment(root, session)).toEqual(segment);
 }, 45_000);
 
+it('wide offline glob counts newer entries only after an old match opens the count', async () => {
+  const root = fixture(), before = '2026-10-24T00:00:20.000Z';
+  const old = work(root, 'cards/project/tmp/gc08-old.bin', 'OLD');
+  const fresh = work(root, 'cards/project/tmp/gc08-new.bin', 'FRESH');
+  const control = work(root, 'cards/project/tmp/control', 'DROP');
+  const early = new Date('2026-10-24T00:00:10.000Z');
+  const late = new Date('2026-10-24T00:00:30.000Z');
+  for (const path of [old, control]) utimesSync(path, early, early);
+  utimesSync(fresh, late, late);
+  const expectBytes = (controlExists: boolean) => {
+    expect(readFileSync(old, 'utf8')).toBe('OLD');
+    expect(readFileSync(fresh, 'utf8')).toBe('FRESH');
+    if (controlExists) expect(readFileSync(control, 'utf8')).toBe('DROP');
+    else expect(existsSync(control)).toBe(false);
+  };
+  const completed = (run: Awaited<ReturnType<typeof cli>>) => {
+    expect(run).toMatchObject({ code: 0, lockPresentAtResponse: false });
+    expect(run.output).toContain('to confirm:');
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+    const response = WorkGcResponseSchema.parse(run.response);
+    expect(response).toMatchObject({ disposition: 'completed', reason: 'completed', restoration: 'not_resumed', failure: null });
+    expect(response.result).toMatchObject({ observed_count: 3, observed_logical_bytes: 12, first_global_protection: null });
+    return response.result!;
+  };
+  expect(completed(await cli(root, { before }))).toMatchObject({
+    mode: 'dry_run', retained: { recent: 1, protected: 0, stale: 0, opaque: 0, target: 0 },
+    would_delete_count: 2, would_delete_logical_bytes: 7, deleted_count: 0, deleted_logical_bytes: 0,
+    expected_accounted_logical_bytes_remaining: 5,
+  });
+  expectBytes(true);
+
+  appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(
+    'agent:analyst:global', randomUUID(), '{"pattern":"project:///**/gc08-*.bin"}',
+    { kind: 'unavailable', reason: 'not_recorded' },
+  ));
+  const retained = { protected: 2, recent: 0, stale: 0, opaque: 0, target: 0 };
+  expect(completed(await cli(root, { before }))).toMatchObject({
+    mode: 'dry_run', retained, expected_accounted_logical_bytes_remaining: 8,
+    would_delete_count: 1, would_delete_logical_bytes: 4, deleted_count: 0, deleted_logical_bytes: 0,
+  });
+  expectBytes(true);
+  expect(completed(await cli(root, { before, delete: true }))).toMatchObject({
+    mode: 'delete', retained, expected_accounted_logical_bytes_remaining: 8,
+    would_delete_count: 0, would_delete_logical_bytes: 0, deleted_count: 1, deleted_logical_bytes: 4,
+  });
+  expectBytes(false);
+}, 45_000);
+
 it('offline required reference refusal is safe and terminal after lifecycle release', async () => {
   const root = fixture(), sentinel = 'PRIVATE-offline-global-source';
   const candidate = work(root, `cards/project/tmp/${sentinel}`);
