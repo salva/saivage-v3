@@ -754,6 +754,8 @@ class WorkReferences {
       )
         tokens.add(quoted);
     };
+    let cursor = 0;
+    const parts: string[] = [];
     for (const match of [
       ...text.matchAll(
         /`([^`\r\n]+)`|"(?:\\.|[^"\\])*"|\[[^\]\r\n]*\]\(<([^>\r\n]*)>\)|\[[^\]\r\n]*\]\(([^\r\n]+?)\)/gu,
@@ -772,10 +774,13 @@ class WorkReferences {
           match[3] === undefined ? undefined : /^<([^<>]*)>$/u.exec(quoted)?.[1];
         addQuoted(angleDestination ?? quoted);
       }
-      text =
-        text.slice(0, match.index) +
-        ' '.repeat(match[0].length) +
-        text.slice(match.index! + match[0].length);
+      const start = match.index!;
+      parts.push(text.slice(cursor, start), ' '.repeat(match[0].length));
+      cursor = start + match[0].length;
+    }
+    if (cursor !== 0) {
+      parts.push(text.slice(cursor));
+      text = parts.join('');
     }
     const wordBefore = (index: number): boolean =>
       /[\p{L}\p{N}_]$/u.test(text.slice(Math.max(0, index - 2), index));

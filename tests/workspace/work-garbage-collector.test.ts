@@ -1901,6 +1901,22 @@ describe('work GC two-phase selection', () => {
     expect(files.map(path => readFileSync(path))).toEqual(bytes);
   });
 
+  it('protects mixed quoted record paths without retaining the Markdown label locator', async () => {
+    const root = fixture();
+    const inline = work(root, 'cards/project/tmp/inline 🚲 code.txt');
+    const quoted = work(root, 'cards/project/tmp/double quoted.txt');
+    const destination = work(root, 'cards/project/tmp/Markdown destination.txt');
+    const tail = work(root, 'cards/project/tmp/single quoted tail.txt');
+    const decoy = work(root, 'cards/project/tmp/label-only.txt');
+    const control = work(root, 'cards/project/tmp/control.txt');
+    baseline(root, [
+      `🚀 Keep \`${inline}\`${JSON.stringify(quoted)}`,
+      `Use [label tmp:///project/label-only.txt only](<${destination}>) and then '${tail}'.`,
+    ].join('\n'));
+    await parity(root, [inline, quoted, destination, tail, decoy, control],
+      [inline, quoted, destination, tail]);
+  });
+
   it('protects an exact structured newline-bearing path independently of quotation inference', async () => {
     const root = fixture();
     const selected = work(root, 'cards/project/tmp/line\nbreak.txt');
