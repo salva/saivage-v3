@@ -6,7 +6,7 @@ import {
   appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setImmediate } from 'node:timers/promises';
 import type { CardExecutionStart } from '../../src/persistence/card-execution-log.js';
@@ -574,6 +574,102 @@ describe('work GC two-phase selection', () => {
     expect(paths.map(dirname).every(existsSync)).toBe(true);
     expect(await canonicalBytes(root)).toEqual(bytes);
   }
+
+  describe('GC-05 disjoint scope pruning', () => {
+    it('walks no additional candidates for distinct disjoint structured patterns', async () => {
+      const root = fs.realpathSync(fixture());
+      for (let i = 0; i < 4; i++) {
+        work(root, `cards/project/tmp/old-${i}.dat`);
+        work(root, `tmp/stash/old-${i}.dat`);
+      }
+      const patterns = [
+        { directory: join(root, '.saivage/work-other'), pattern: 'old-*.dat' },
+        { directory: join(root, 'docs'), pattern: 'notes-*.md' },
+        { directory: join(root, 'reports'), pattern: 'result-?.json' },
+      ];
+      for (const { directory } of patterns) mkdirSync(directory);
+
+      const found = await inventory(root);
+      let visits = 0;
+      const candidates = new Proxy(found.candidates, {
+        get(target, key, receiver) {
+          if (key !== Symbol.iterator) return Reflect.get(target, key, receiver);
+          return function* () {
+            for (const candidate of target) {
+              visits++;
+              yield candidate;
+            }
+          };
+        },
+      });
+      const preview = () => collectWorkGarbage({ ...found, candidates }, { mode: 'dry_run' }, context());
+      const withoutPatterns = await preview();
+      const withoutPatternsVisits = visits;
+      expect(withoutPatternsVisits).toBeGreaterThan(0);
+      expect(withoutPatterns).toMatchObject({
+        observed_count: 8, would_delete_count: 8, retained: { protected: 0 }, first_global_protection: null,
+      });
+
+      baseline(root, JSON.stringify(patterns));
+      visits = 0;
+      expect(await preview()).toEqual(withoutPatterns);
+      expect(visits).toBe(withoutPatternsVisits);
+    });
+
+    async function globOnlyRetention(
+      root: string, selected: string, controls: readonly string[], directory: string, pattern: string,
+    ) {
+      const paths = [selected, ...controls];
+      const unmarked = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
+      expect(unmarked).toMatchObject({
+        observed_count: paths.length, would_delete_count: paths.length,
+        retained: { protected: 0 }, first_global_protection: null,
+      });
+      baseline(root, JSON.stringify({ directory, pattern }));
+      await parity(root, paths, [selected]);
+    }
+
+    it('retains a match when only the lexical scope overlaps an alias-spelled inventory', async () => {
+      const root = fs.realpathSync(fixture()), alias = `${root}-alias`;
+      symlinkSync(root, alias, 'dir');
+      roots.push(alias);
+      const selected = work(alias, 'cards/project/tmp/gc05-scope/gc05-picked-card.dat');
+      const control = work(alias, 'cards/project/tmp/gc05-scope/gc05-other-card.dat');
+      const lexicalWork = join(alias, '.saivage/work'), directory = dirname(selected);
+      const resolved = fs.realpathSync(directory);
+      expect((await inventory(alias)).projectRoot).toBe(alias);
+      expect(relative(lexicalWork, directory)).toBe(join('cards', 'project', 'tmp', 'gc05-scope'));
+      expect(resolved).toBe(join(root, '.saivage/work/cards/project/tmp/gc05-scope'));
+      expect(relative(lexicalWork, resolved).split(sep)[0]).toBe('..');
+      expect(relative(resolved, lexicalWork).split(sep)[0]).toBe('..');
+      await globOnlyRetention(alias, selected, [control], directory, 'gc05-picked-*.dat');
+    });
+
+    it('retains a match when a fixed prefix under an outside directory resolves into work', async () => {
+      const root = fs.realpathSync(fixture()), w = join(root, '.saivage/work');
+      const selected = work(root, 'tmp/stash/gc05-scope/gc05-picked-stash.dat');
+      const sibling = work(root, 'tmp/stash/gc05-scope/gc05-other-stash.dat');
+      const card = work(root, 'cards/project/tmp/gc05-picked-card.dat');
+      const directory = join(root, 'gc05-outside'), prefix = join(directory, 'inward');
+      mkdirSync(directory);
+      symlinkSync(dirname(selected), prefix, 'dir');
+      expect(relative(w, prefix).split(sep)[0]).toBe('..');
+      expect(relative(prefix, w).split(sep)[0]).toBe('..');
+      expect(fs.realpathSync(prefix)).toBe(dirname(selected));
+      await globOnlyRetention(root, selected, [sibling, card], directory, 'inward/gc05-picked-*.dat');
+    });
+
+    it.each([
+      { scope: 'ancestor', directory: '.saivage', owner: 'cards/project/tmp', otherOwner: 'tmp/stash' },
+      { scope: 'work root', directory: '.saivage/work', owner: 'tmp/stash', otherOwner: 'cards/project/tmp' },
+    ])('retains a match below the $scope scope', async ({ directory, owner, otherOwner }) => {
+      const root = fs.realpathSync(fixture());
+      const selected = work(root, `${owner}/gc05-picked-file.dat`);
+      const sibling = work(root, `${owner}/gc05-other-file.dat`);
+      const other = work(root, `${otherOwner}/gc05-other-file.dat`);
+      await globOnlyRetention(root, selected, [sibling, other], join(root, directory), '**/gc05-picked-*.dat');
+    });
+  });
 
   const selections = ['call', 'receipt', 'both'] as const;
   const searchCarriers = ['whole locator', 'dot prefix', 'alias prefix', 'trailing separator', 'bad percent', 'filtered grep'] as const;

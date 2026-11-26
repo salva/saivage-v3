@@ -859,16 +859,23 @@ Extraction pairs a structured `directory`/`cwd` scope, or a bounded same-line qu
 `directory`/`pattern` group in prose, with its `pattern`, consumes that metadata once and
 resolves the scope through the same metadata-only resolution used by exact paths.
 The collector and project glob tools share `globToRegExp()` from
-`src/workspace/glob-matcher.ts`, not the same match inputs. GC resolves a fixed
-directory prefix and matches entries relative to the effective scope. Where
-the matcher could affect selection, it scans call-local entries with cooperative
-yields and counts distinct matches up to 51. Zero matches add nothing; 1–50 protect the
-matched entries; at 51 the whole matcher contribution is discarded. Matching
-precedes administrative-root filtering. A complete search receipt contributes
+`src/workspace/glob-matcher.ts`, not the same match inputs. GC resolves the effective
+scopes, including any fixed directory prefix, and builds the matcher before checking
+for overlap with the work root. A final lexical or resolved scope overlaps if
+either path contains the other by native path containment, including equality.
+If none overlaps, GC skips both scans. Otherwise it first looks for an unprotected
+candidate that is older than the cutoff (if supplied) and matches within a scope,
+either directly or through a matching ancestor. If it finds none, GC skips the
+full inventory count. Both scans yield cooperatively as they visit entries.
+The inventory scan counts
+distinct entries that match relative to an effective scope, up to 51. Zero matches
+add nothing; 1–50 protect the matched entries, including subtrees of matched
+directories; at 51 the whole matcher contribution is discarded. Matching precedes
+administrative-root filtering. A complete search receipt contributes
 independent address suggestions as received; it does not feed that count.
 Neither a receipt nor a directory scope supplies a blanket subtree mark.
-There is no second walk, outside-work enumeration, persistent cache or saved
-selection; newly appearing files are not collected.
+There is no second filesystem walk, outside-work enumeration, persistent cache
+or saved selection; newly appearing files are not collected.
 
 Explicit structured path fields pass their entire exact value to reference handling
 before prose extraction. Recognized `project`, `system`, `work`, `tmp` and `file`

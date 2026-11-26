@@ -557,6 +557,8 @@ class WorkReferences {
     const matcher = globToRegExp(pattern);
     const matches = (scope: string, entry: string) =>
       entry !== scope && within(scope, entry) && matcher.test(normalizeRel(relative(scope, entry)));
+    // Inventory paths are lexical descendants of the work root, even when it is alias-spelled.
+    if (!scopes.some((scope) => within(this.root, scope) || within(scope, this.root))) return;
     let useful = false;
     for (const candidate of this.candidates) {
       await this.visit();
