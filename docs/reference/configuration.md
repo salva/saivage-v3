@@ -348,11 +348,13 @@ is no offline status endpoint.
 
 Follow the
 [preview-first procedure](../runbook/work-gc.md); each delete computes a new selection.
-Protection follows current semantic roots, not historical provenance, without a new
-configuration option. GC consumes only necessary current retention projections, not a
-complete history audit. Current concrete references protect old files, but historical-only
-attachments can disappear. Card horizons and excluded shell sources affect eligibility;
-see the procedure for their limits and loss risks.
+Retention is policy, not a configuration option. GC consumes only necessary current
+retention projections, not a history audit. Advisory references can protect concrete
+files or subtrees in a specific card's work area; even a current exact URL to global
+stash or capture does not protect the bytes. Otherwise eligible files can be
+irreversibly deleted. Card horizons and operational, unfinished-execution and
+process-owner protections are separate. An unresolved required address refuses
+before selection. See the procedure for exact rules and loss risks.
 
 ### YAML keys
 

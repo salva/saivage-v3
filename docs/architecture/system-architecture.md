@@ -811,28 +811,29 @@ provenance and schema fields. Required JSON, selections, framing and association
 must decode; ordinary readers remain strict. Only unfinished execution
 artifact/capture selections contribute execution roots; authored-output provenance
 alone does not retain its producer's captures. Existing process and operational
-owners retain their protections. The canonical inspector supplies distinct content,
-conversation-reference and operational callbacks to the collector's shared resolver.
+owners retain their protections. `inspectWorkGcCanonicalState` selects what to
+project; `markCanonical` sends `content` and `conversation` to the collector's
+advisory resolver with the originating card ID or a global origin. Its
+`operational`, `dependencies` and `path` callbacks keep their existing
+execution/project bases or exact operational paths.
 Current conversation projections give producer-owned slots one meaning: content,
 whole address or scoped matcher. `readWorkGcConversation` and
 `inspectWorkGcCanonicalState` forward them without re-lexing consumed slots,
-joining calls to results or rerunning tool admission. At both lexical and
-resolved content mark points, an owner-local normalized-component predicate excludes
-administrative containers: the work root and its ancestors (including project and
-`.saivage`), work `cards`, valid card roots and their reserved `tmp`/`processes` roots, and global
-work `processes`, `tmp` and `tmp/stash`. Arbitrary card children such as `foo`,
-reserved-area children such as `tmp/foo`, stash artifacts and process-specific
-capture directories remain concrete file/subtree marks. This applies equally to
-structured and inferred content paths and known aliases without changing inventory
-eligibility. Operational callbacks and process-owner capture parents keep
-root-valued protection; commissioned Git source filters do not become
-whole-project dependencies. Alias resolution can still find a concrete target
-for an ignored lexical root. Current concrete references protect older files;
-administrative content mentions do not.
+joining calls to results or rerunning tool admission. The resolver, not the
+projection, supplies the card work root and `tmp` as implicit advisory bases,
+or no implicit base for a global origin. It admits exact lexical and resolved
+advisory paths by native components under `work/cards/<valid-card-id>`, mapping
+the actual work-tree spelling back to lexical inventory paths for an alias-spelled
+project root. An alias can name a concrete card target even when its lexical
+spelling is outside that tree. Only concrete descendants can be marked; the
+card root and its reserved `tmp`/`processes` roots are scope only. Global stash
+and capture URLs do not mark global bytes. Operational callbacks and process-owner
+capture parents retain their separate global and root-valued authority;
+commissioned Git source filters do not become whole-project dependencies.
 The minimum current compacted-genesis timestamp across unique configured card
 sessions is the card horizon; an empty set, empty session or ordinary genesis
-gives no horizon and protects that card's whole work area. Other cards' and global
-references can still be reached from that card. Eligibility uses mtime against the
+gives no horizon and protects that card's whole work area. Its content can still
+mark concrete paths in another specific card. Eligibility uses mtime against the
 horizon and optional cutoff, while ctime remains part of fresh identity checks.
 Unreached or tombstoned owners are opaque. Empty/recent inventory or genuine
 whole-work protection can skip remaining extraction; this is not an integrity pass.
@@ -843,8 +844,10 @@ may be deleted.
 The complete pure process-result validator and settlement projection live under
 `contracts/process-result-validation.ts` and `contracts/tool-result-projection.ts`;
 runtime composition keeps its existing semantics and shares that validator. Completed,
-fully inline process streams need not retain capture URLs. Historical-only attachments
-can disappear after explicit deletion without changing canonical history.
+fully inline process streams need not retain capture URLs. Projected URLs for
+running or incomplete streams do not by themselves keep global captures.
+Historical-only attachments and advisory-only global captures can disappear
+after explicit deletion without changing canonical history.
 Nested values and text tokens cooperatively yield every 256 visited items; individual
 file reads, JSON parsing and regex operations remain synchronous and indivisible.
 Call-local protection sets test candidate ancestors through the work root rather
@@ -861,16 +864,18 @@ Extraction pairs a structured `directory`/`cwd` scope, or a bounded same-line qu
 resolves the scope through the same metadata-only resolution used by exact paths.
 The collector and project glob tools share `globToRegExp()` from
 `src/workspace/glob-matcher.ts`, not the same match inputs. GC resolves the effective
-scopes, including any fixed directory prefix, and builds the matcher before checking
-for overlap with the lexical inventory root. A disjoint scope contributes no
-visits. The root or an ancestor makes both full arrays available to the scans, as
-does any overlapping scope whose spelling differs from its normalized absolute
-native path. Otherwise, an inner scope contributes only its observed directory
-spans, if any. GC merges overlapping spans without changing the original match
-bases. `globSpans` explicitly distinguishes the full-range case from narrow spans,
-which keep the existing relative-path matching.
+scopes by composing the fixed prefix with each bounded lexical and resolved base
+before checking specific-card containment for advisory matchers. The useful-file
+probe and distinct-entry count use only coalesced `inventory.subtrees` spans for
+those normalized inventory directories; a missing subtree contributes no range.
+Overlapping spans do not merge the matching bases: each relative name is checked
+against the applicable effective scopes, excluding the scope itself by path
+identity. Project-wide inventory is unchanged. Only operational matchers can take
+the full-range branch of `globSpans`: the work root, an ancestor, or an applicable
+overlapping non-normalized spelling can still require both full arrays.
 
-For full ranges, the usefulness probe and entry count share a prepared matcher.
+For operational full ranges, the usefulness probe and entry count share the
+prepared `wideGlobPredicates` matcher.
 For normalized absolute scopes, it checks a separator-bounded native prefix and
 passes the suffix as the relative name to `normalizeRel()` before matching.
 Other scope spellings keep their original containment and relative-path
@@ -890,14 +895,15 @@ candidate count.
 Without a useful candidate, GC skips counting, so newer matches alone do not
 gain protection from the glob. With a useful candidate, GC separately counts
 distinct matching paths in the observed file-and-directory entries across all
-effective scopes, including recent and already protected matches. Recent
-matches can therefore receive marks even though they could not open the count.
+effective scopes, including recent, already protected and administrative
+matches. Recent concrete matches can receive marks even though they could not
+open the count.
 Both scans run cooperative checkpoints on visited items only. Zero matches add
 nothing; at 51 distinct matches GC discards the entire glob contribution before
-marking. For 1–50 matches, GC applies the
-existing mark rules, including administrative-root filtering for content marks;
-a marked directory protects its subtree. A complete search receipt contributes
-independent address suggestions as received; it does not feed that count.
+marking. For 1–50 matches, GC applies the concrete in-card mark rule for advisory
+matches; a marked directory protects its subtree. Operational marks retain their
+existing authority. A complete search receipt contributes independent address
+suggestions as received; it does not feed that count.
 Neither a receipt nor a directory scope supplies a blanket subtree mark.
 There is no second filesystem walk, outside-work enumeration, persistent cache
 or saved selection; newly appearing files are not collected.
@@ -1526,7 +1532,8 @@ discards bodies by awaited cancellation. Only successful no-save text overflow c
 retain normalized raw source to exact stash and return certified redacted head/count/
 pointer under final-envelope budget. Binary/non-2xx/save paths fail max bytes.
 Webfetch itself performs no stash discovery/GC/retry; only explicit work GC may
-collect eligible unreferenced stashes. Write/edit admission distinguishes lexical tmp capability
+collect eligible stashes, even if a current `content_url` still names one.
+Write/edit admission distinguishes lexical tmp capability
 from normalized destination identity; a plain/system alias to protected .saivage
 does not acquire tmp authority. URLs redact userinfo/query/fragment before output.
 

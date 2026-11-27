@@ -169,13 +169,15 @@ offline migration requires an explicit identified-project request and its full g
 
 Preview [explicit work reclamation](docs/runbook/work-gc.md) before authorizing a
 separate, irreversible delete. GC uses current selections, not a history audit.
-Bounded concrete references and card compaction horizons protect work, but an
-unbounded content suggestion adds no protection. Needed old-mtime files can still
-be deleted, for example if mentioned only by basename, in excluded shell syntax
-or in history. Canonical history itself is unchanged. An unresolved required
-reference refuses before selection; operational roots or uncertain process
-ownership can still retain all work. Neither retention of every needed file nor
-any amount of reclamation is guaranteed. GC is not startup cleanup or repair.
+Advisory references can protect concrete files or subtrees in a specific card's
+work area. Even a current exact URL to global stash or a global capture does not
+keep the bytes; otherwise eligible files can be irreversibly deleted. Card
+compaction horizons and operational, unfinished-execution and process-owner
+protections apply independently. An unresolved required address refuses before
+selection. Needed old files mentioned only by basename in prose, in excluded
+shell syntax or in history can also disappear without changing canonical history.
+Neither retention of every needed file nor reclamation is guaranteed. GC is not
+startup cleanup or repair.
 Collection uses paused/stopped server maintenance or confirmed offline lifecycle
 exclusion. It has no elapsed deadline; cancellation is cooperative. Root package
 dependencies pin the Node-24-compatible direct Undici transport used only for GC.

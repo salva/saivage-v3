@@ -206,20 +206,16 @@ segment's owning effective summary, retained protected instruction contents and
 semantic source-row payloads; unfinished execution selections; and existing
 process-owner and operational protections. Historical content, internal observations
 and producer provenance alone do not retain attachments or authorize producer-history
-joins. Content-derived explicit/structured and inferred references protect concrete
-files or directory subtrees equally regardless of age, not administrative roots:
-`.saivage/work` and its ancestors (including the project root), work `cards`, a
-valid card's root or reserved `tmp`/`processes` roots, and global `processes`, `tmp`
-or `tmp/stash`.
-A purpose-named card child such as `foo`, reserved-area child such as `tmp/foo`,
-stash artifact or process-specific capture directory is concrete. Known resolved
-aliases follow the same rule. Operational inputs, unfinished execution selections
-and process-owner protections retain their existing root/file/subtree authority.
-An actual operational root or uncertain process owner can protect all work;
-content suggestions cannot. Ignored content-root mentions can
-make old work eligible despite intended blanket retention. Historical-only
-attachments may irreversibly disappear after separately authorized deletion;
-canonical histories remain unchanged.
+joins. Advisory references, whether explicit, structured or inferred, protect
+only concrete files or subtrees under `.saivage/work/cards/<valid-card-id>/`,
+regardless of age. A specific card's root and its reserved `tmp`/`processes`
+roots may scope matching but do not mark their subtrees. Purpose directories
+and specific descendants of the reserved roots can receive marks. Global stash
+and captures receive no advisory protection, even from current exact URLs or
+aliases; the URL can remain visible after the bytes are gone. Operational inputs,
+unfinished execution selections and process-owner protections retain their
+existing root/file/subtree authority. An actual operational root or uncertain
+process owner can protect all work; advisory references cannot.
 
 For each reached live card, use the minimum current effective compacted-genesis
 timestamp across the unique configured card-session agents selected by compiled
@@ -263,24 +259,26 @@ whole-value filenames and recognized argument and environment dependencies in
 their applicable execution bases. Commissioned Git source roots remain filter
 inputs, not exact directory selections that can blanket-protect work.
 
-Mark explicit and recognized inferred
-references from those roots, then recheck each exact candidate before unlink.
+Mark explicit and recognized inferred references from those roots, then recheck
+each exact candidate before unlink.
 Unknown ownership or surviving-writer footprint requires retention/refusal.
 Take exact addresses and pathname matchers from their owning source slots once,
-apart from independent content. Interpret whole native addresses literally, with
-project-relative tool paths based at the project root; logical record addresses do
-not name work. Decode exact locators once and keep decoded punctuation literal.
+apart from independent content. Interpret whole native addresses literally and
+decode exact locators once, keeping decoded punctuation literal. Logical record
+addresses do not name work. Apply the same advisory bases to conversation tool
+suggestions as to other content; GC interpretation does not change tool admission
+or project-relative tool execution paths.
 The pattern slot of a logical `record:///` glob call supplies neither a work
 matcher nor an exact mark; keep independent content. In structured content and
 filesystem glob calls, a whole canonical `cardwork` pattern is an exact address,
-independent of the search directory. Keep exact marks for explicit concrete grep paths and for glob
-search roots that are files; a glob directory supplies scope, not a subtree mark.
-An omitted path supplies no subtree mark. Grep's content regex is not a path
-reference, and `include` does not narrow an exact grep path mark. Apply the content
-root exclusions above to call and receipt marks. Calls, failed results and complete untagged displays
-provide bounded suggestions, not required addresses. Interpret displays as
-received, preserving bounded locator and applicable literal native meanings
-without guessing original bytes or reconstructing fragments.
+independent of the search directory. Apply the concrete in-card mark rule to
+explicit grep paths and glob search roots that are files; a glob directory
+supplies scope, not a subtree mark. An omitted path supplies no subtree mark.
+Grep's content regex is not a path reference, and `include` does not narrow an
+exact grep path mark. Calls, failed results and complete untagged displays give
+suggestions, not required addresses. Interpret displays as received, preserving
+bounded locator and applicable literal native meanings without guessing original
+bytes or reconstructing fragments.
 
 Require conversation addresses only from successful receipts with same-row
 `context_policy.settlement_origin: executed` and the `cardwork_url` write
@@ -294,34 +292,62 @@ Unbounded suggestions contribute no protection and cause no refusal. Keep
 independent bounded marks; do not infer a prefix, suffix or fallback base from an
 unresolved expression or explicit scope.
 
-Match recognized patterns (structured `pattern`, qualified wildcard paths and
-same-line quoted `directory`/`pattern` pairs) against ordinary inventory relative
-to the effective directory or cwd scope, including bounded lexical/resolved scopes,
-or under the standard fallback bases when no scope is given. GC can bound an
-advisory directory independently of tool admission. Resolve fixed prefixes before
-matching the remaining suffix. In owned native matchers, preserve percent and
-substitution-shaped bytes. For legacy
-inferred scoped wildcards, decode once before splitting and check the whole
-decoded expression for unresolved substitutions.
+Use only the originating card's native work root and its `tmp` as implicit
+advisory bases. Global sources have none; the `project` card is not a global
+source. An explicit native `.saivage/work/cards/<literal-valid-card-id>/` prefix,
+optionally preceded by `./`, uses the project root once. Do not reinterpret a
+rejected project-work expression as card-relative. Bounded absolute paths,
+supported locators, metadata-resolved aliases and parent components from an
+actual base can name another specific card, including from global content with
+an explicit anchor. Evaluate bounded lexical and resolved spellings separately;
+map the actual card tree back to the inventory when the project root is
+alias-spelled.
+
+For a relative structured matcher, use `directory` when supplied, otherwise
+`cwd`; for a relative exact structured address, use `cwd` independently of
+`directory`. For that input, do not fall back from an unresolved explicit
+scope or retry with implicit bases if resolution from `cwd` leaves the
+effective address or match scope outside a specific card. Resolve independently
+explicit addresses and patterns on their own bases, even for global sources.
+Keep the owning rules for conversation tool slots.
+
+For advisory patterns (structured `pattern`, qualified wildcard paths and
+same-line quoted `directory`/`pattern` pairs), compose the fixed directory prefix
+before the first wildcard against each applicable bounded lexical and resolved
+base. Resolve the effective directories and admit only inventoried subtrees in
+specific card areas. The fixed part must identify the card; a wildcard cannot
+select it. The remaining matcher suffix matches inventory names, not filesystem
+navigation. In owned native matchers, preserve percent and substitution-shaped
+bytes. For legacy inferred scoped wildcards, decode once before splitting and
+check the whole decoded expression for unresolved substitutions.
 For both candidate precheck and inventory count, match the remaining pattern
 against the name relative to the effective scope, normalizing `\` to `/` in both
 the pattern and relative name. This normalization does not apply to whole native
 addresses. After normalization, `globToRegExp` treats `*` and `?` as single-segment
 wildcards and whole-segment `**` as spanning levels; other characters are literal.
-Each entry counts once per
-glob; the scope directory itself and entries outside the scope do not count. Zero matches add
-nothing. One to fifty matches protect exactly those entries; a matched directory protects its
-subtree, and its descendants count only if they match the glob themselves. Fifty-one or more
-matches discard that glob's whole contribution, so none of its matches is protected, not even
-the first fifty. Independent exact references, operational dependencies, process-owner
-protections and other explicit roots still protect. A separately authorized delete
-can irreversibly remove needed work retained only by discarded heuristics, including
-bare filenames, naked wildcards and unbounded suggestions in content, calls,
-diagnostics or displays. Even a complete display can have lost original bytes to
-normalization, packing or redaction. A broad or missed match can also expose needed
-work; infer no lossless, error-probability or age-based guarantee. This exception
-does not weaken ordinary consumer validation, writer
-exclusion or candidate checks. Keep directories. Default/explicit dry-run uses
+For advisory globs, restrict visits in both the candidate precheck and entry
+count to the admitted inventoried subtree ranges, with no full-range fallback.
+Keep inventory project-wide and operational matching unchanged. Start counting
+only if a file candidate not already covered by resolver marks has mtime
+strictly below `before` when supplied and matches directly or through an
+ancestor within scope. Apply the card horizon at final selection, not during
+this precheck. Count distinct
+matching ordinary entries across effective scopes before deciding which can
+receive marks.
+Include matching recent, already protected and administrative entries, but not
+the scope directory itself or entries outside the scopes. Count a directory's
+descendants only if they themselves match. Zero matches add nothing. At one to
+fifty, mark only matches eligible for protection under the reference's own
+authority; a marked directory protects its subtree. At fifty-one or more, the
+glob contributes no marks. Independent protections still apply. A separately
+authorized delete can irreversibly remove needed work referenced only by
+historical content or excluded or discarded suggestions, including visible global
+URLs, bare filenames, naked wildcards and unbounded suggestions. Canonical
+histories remain unchanged. Even complete displays may lose original bytes to
+normalization, packing or redaction. A broad or missed match can also expose
+needed work; infer no lossless, error-probability or age-based guarantee. This
+exception does not weaken ordinary consumer validation, writer exclusion or
+candidate checks. Keep directories. Default/explicit dry-run uses
 the same selection without collector file effects; offline preview does publish/release the
 lifecycle lock and prints its result only after successful release. Delete is
 irreversible and has no lossless guarantee. GC has no elapsed deadline or duration

@@ -251,16 +251,17 @@ argv/env/artifacts are not secret-delivery channels. Full authoring belongs in
 
 ## Process state and missing output
 
-[Explicit work GC](./work-gc.md) protects selected unfinished captures and current
-work references in baseline0, current drafts, latest accepted content and current
-conversation segments, including effective summaries and protected instructions.
-Historical-only references do not protect attachments. Card compaction horizons can
-retain additional work, but old-mtime files or files referenced only by excluded
-shell syntax can be deleted.
-Directory and exact alias references can protect whole subtrees. Missing-file/404
-presentation is not permission to delete selected evidence. Unreferenced eligible
-stash/scratch may be collected; no source availability or lossless retention promise
-is added by GC, and canonical history/images are outside its deletion scope.
+[Explicit work GC](./work-gc.md) can protect concrete work in a specific card
+through current content. A running or partial stdout/stderr URL, or a current
+Webfetch stash URL, tells you where to look; it does not keep global bytes.
+Otherwise eligible global files can be deleted while their URLs still appear.
+A process owner or unfinished capture selection can protect a capture
+independently of the URL. Historical-only references do not protect attachments.
+Card compaction horizons can retain additional work, but needed files with old
+mtimes or only excluded shell references can be deleted. Missing-file/404
+presentation is not permission to delete selected evidence. GC does not promise
+source availability or lossless retention and does not delete canonical history
+or canonical images.
 
 Inspect actual process status/evidence, leader exit/error, stream open/EOF/closed,
 capture errors and returned canonical stdout/stderr URLs independently. Running

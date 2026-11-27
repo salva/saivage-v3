@@ -337,10 +337,14 @@ automatic-resume intent; Stop/close/restart cancels GC and defeats that restorat
 Stopped Start/mutation attempts are still busy; already paused/stopped never auto-resume.
 No transcript, execution-evidence or historical-selection semantics change.
 Canonical history remains unchanged, but historical-only work attachments may become
-unavailable irreversibly after explicit GC. A retained URL or producer identity does
-not promise retained bytes; current concrete explicit references still protect old files.
-Card compaction horizons can retain additional work, but needed old-mtime files or
-files referenced only by excluded shell syntax can disappear. No new UI control is added.
+unavailable irreversibly after explicit GC. Under the
+[work GC rules](../runbook/work-gc.md), advisory references can protect concrete
+work in a specific card. A displayed global stash or capture URL can outlive its
+bytes; protection there depends on an independent applicable selection or owner,
+not the displayed URL or producer identity. Card compaction horizons can retain
+additional work, but needed old-mtime files or files referenced only by excluded
+shell syntax can disappear. Actions and presentation are unchanged; no new UI
+control is added.
 
 Outstanding named-agent execution includes overload/backoff, not just wire
 consumption. Provider refresh shows advisory cooling/reason/deadline, not a send

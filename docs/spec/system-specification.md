@@ -214,31 +214,35 @@ Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary wo
 while execution continues. Online collection then holds/parks; offline collection
 uses the separately confirmed lifecycle exclusion. When retention marking is needed,
 it freshly consumes necessary canonical selections and marks explicit and recognized
-inferred references before checking each candidate at use. Current live card content, pending notification bodies, selected record
+inferred references before checking each candidate at use. Advisory sources are
+current live card content, pending notification bodies, selected record
 baseline/open draft/latest accepted content, current conversation effective summary,
-retained protected instruction contents and semantic source-row payloads protect work.
-Unfinished execution selections, retained process-owner captures, operational
-dependencies and exact aliases also protect work. Historical content, internal
+retained protected instruction contents and semantic source-row payloads.
+Unfinished execution selections, retained process-owner captures and operational
+dependencies protect work independently of content. Historical content, internal
 observations and producer provenance alone do not protect attachments. Invalid
 required evidence consumed by GC blocks collection; GC never repairs/truncates it. Unknown
 ownership or surviving writer effects cause retention/refusal, not guessed safety.
 Only eligible regular files under work without recognized protections can be removed;
 directories, publication temporaries and canonical/attic/backup data remain untouched.
-Content references, whether explicit/structured or inferred, protect concrete files
-or directory subtrees, not administrative containers. The work root and its
-ancestors, work `cards`, valid card roots and their reserved `tmp`/`processes` roots, and global
-work `processes`, `tmp` and `tmp/stash` roots add no content protection. A card
-child such as `foo`, `tmp/foo`, a stash artifact or process-specific capture
-directory remains concrete; known resolved aliases follow the same classification.
+Content references, whether explicit/structured or inferred, can protect concrete
+files or directory subtrees only within `.saivage/work/cards/<valid-card-id>/`.
+Card roots and their reserved `tmp`/`processes` roots can bound searches but do
+not blanket-retain their contents. Purpose directories such as `public`, `repos`
+and `foo`, and specific descendants of `tmp` or `processes`, are concrete.
+Global stash and capture artifacts receive no advisory protection, even from
+current exact URLs or aliases. A URL can outlive the referenced bytes.
 Operational inputs, unfinished selections and process-owner protections retain
 their existing authority, including root-valued references. Commissioned Git
 `source_roots` remain source filters, not unconditional directory selections.
 
-Filesystem tool inputs retain the meaning of their producer slots. GC takes
-whole native addresses literally (relative tool paths are project-relative);
+Filesystem tool inputs retain the meaning of their producer slots; GC does not
+rerun admission or change project-relative tool execution paths. For an advisory
+mark it interprets relative native addresses from those slots on the same bases
+as other content. A whole native address is literal, even with `*` or `?`;
 exact locators are decoded once, and logical record addresses do not select
-work files. An explicit filesystem `grep.path` protects a concrete file or
-subtree even if `include` or the content regex returns no matches. An omitted
+work files. An explicit filesystem `grep.path` can protect a concrete in-card
+file or subtree even if `include` or the content regex returns no matches. An omitted
 `grep.path` provides no mark and `grep.pattern` is not a path reference.
 `glob.directory` alone supplies no subtree mark; an explicit file there can
 protect that file. GC can bound an advisory directory independently of whether
@@ -263,21 +267,39 @@ Groups spanning lines or with ambiguous directories do not establish a pair.
 Non-filesystem URLs can carry independent references in decoded query values,
 not in their server pathnames.
 
-GC resolves a matcher's fixed directory prefix before matching the remaining
-suffix relative to each effective scope. A supplied directory (or structured
-`cwd` in its absence) is scope, not a subtree mark. With no supplied scope,
-generic content uses the project root for global sources, and the project root,
-card work root and card `tmp` for card sources; filesystem tool inputs use the
-project root as their base. In the `globToRegExp` dialect, `*` and `?` stay within a
-segment, a whole `**` segment crosses levels, and matching is case-sensitive
+The only implicit advisory native bases are the originating card's work root
+and its `tmp`. Global sources have none; the `project` card is a card, not a
+global source. An explicit native `.saivage/work/cards/<literal-valid-id>/…`
+prefix, optionally preceded by `./`, uses the project root exactly once.
+Bounded absolute paths, supported locators, aliases and parent components from
+an actual base may name another specific card; a rejected project-work expression
+does not fall back to card-relative inference.
+
+For a relative structured matcher, GC uses `directory` when supplied,
+otherwise `cwd`, and uses the implicit bases only if neither is supplied. A
+relative structured exact address uses `cwd` when supplied, independently of
+`directory`; otherwise it uses the implicit bases. When an explicit scope
+yields no bounded in-card target or match scope, that input contributes nothing.
+
+For a scoped matcher, GC composes the fixed directory prefix before the first
+wildcard against the bounded lexical and resolved bases, resolves
+the effective directories, and admits only specific-card scopes. The directory
+or `cwd` is not a subtree mark. An independently explicit pattern can name a
+card even without an implicit base. An unresolved explicit scope supplies no
+fallback, and a wildcard cannot select the card. The remaining suffix matches
+inventory names, not filesystem navigation. In the `globToRegExp` dialect,
+`*` and `?` stay within a segment, a whole `**` segment crosses levels, and matching is case-sensitive
 on normalized relative paths. Owned native matchers do not decode percent
 escapes or expand substitutions; legacy inferred scoped wildcard forms are
 decoded once.
 
-The cutoff counts distinct ordinary inventoried files and directories matching
-relative to the effective scopes, including empty directories but not the scope
-itself, symlinks, reserved temporary names or opaque entries. Zero matches add
-nothing; 1–50 protect the matches, with a matched concrete directory protecting
+The cutoff count starts only if a regular-file candidate is not already marked
+by the resolver, is strictly older than `before` if supplied, and matches
+directly or through a native ancestor. It counts distinct ordinary inventoried
+files and directories matching relative to the effective scopes, including recent,
+already protected and administrative children, but not the scope itself, symlinks,
+reserved temporary names or opaque entries. Zero matches add nothing; at 1–50,
+only concrete advisory matches receive marks, and a marked directory protects
 its subtree. At 51 or more, the matcher protects none of its matches. This count
 does not use tool output. Complete search receipt items can independently suggest
 concrete addresses as received, not a scope-wide mark. Byte slices are not paths,
@@ -297,8 +319,9 @@ cancellation, it reports `disposition: refused`, `reason: reference_scope_unreso
 and `result: null`, with only allowlisted failure metadata. Cancellation takes
 precedence in the terminal reason: if it wins, the response instead has
 `reason: cancelled` and `failure: null`. Either outcome records actual restoration.
-An absent suffix below a known ancestor is not by itself unresolved. This refusal
-is distinct from malformed required evidence and from completed global protection.
+An absent suffix below a known ancestor is not by itself unresolved. Required
+resolution is independent of marking and grants no extra retention scope. This
+refusal is distinct from malformed required evidence and from completed global protection.
 
 Prose inference can miss addresses, including newline-bearing filenames: decoded
 CR/LF quotations are inspected for nested references, not treated as one whole
@@ -329,9 +352,9 @@ fields in valid JSON need not refuse. Ordinary consumers remain strict.
 For each reached live card, the horizon is the minimum current compacted-genesis
 timestamp across unique configured card-session agents. An empty agent set, an
 established empty session or ordinary genesis gives no horizon and protects the
-whole card work area. That card's current content can still protect another card's
-or global work. Missing required selections refuse; optional absent Oversight
-remains legitimate. A card file is retained when its mtime is at or after `before`
+whole card work area. That card's current content can still protect concrete work
+in another specific card. Missing required selections refuse; optional absent
+Oversight remains legitimate. A card file is retained when its mtime is at or after `before`
 if supplied, at or after its horizon, or covered by a reference or other protection.
 Horizon/no-horizon retention counts as `retained.protected`.
 Omitting `before` removes only that cutoff. Global work follows its own cutoff and
@@ -360,11 +383,11 @@ Needed work referenced only from excluded shell syntax can be deleted.
 
 Empty or entirely recent inventory and genuine whole-work protection can skip
 remaining projection and extraction; a completed collection is not an integrity audit.
-Current concrete references protect old files regardless of age. Ignoring content
-administrative-root mentions can make old files eligible despite intended blanket
-retention. Separately authorized deletion may irreversibly remove historical-only
-attachments while canonical history
-bytes and selections remain unchanged; historical URLs need not keep resolving.
+Eligible concrete in-card references can protect files regardless of age. Ignoring
+administrative-root mentions and global artifact suggestions can make old files
+eligible despite intended retention. Separately authorized deletion may irreversibly
+remove historical-only attachments or advisory-only global artifacts while canonical
+history bytes and selections remain unchanged; retained URLs need not keep resolving.
 Call-local sets test candidate ancestors;
 they confer no later invocation authority. There is no GC elapsed deadline or
 duration knob: the call-owned CLI transport disables response header/body deadlines

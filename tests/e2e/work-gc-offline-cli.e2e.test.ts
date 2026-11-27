@@ -143,7 +143,7 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
   expect(readCurrentConversationSegment(root, session)).toEqual(segment);
 }, 45_000);
 
-it('wide offline glob counts newer entries only after an old match opens the count', async () => {
+it('ignores a global unscoped glob, then counts newer entries in an explicit card scope', async () => {
   const root = fixture(), before = '2026-10-24T00:00:20.000Z';
   const old = work(root, 'cards/project/tmp/gc08-old.bin', 'OLD');
   const fresh = work(root, 'cards/project/tmp/gc08-new.bin', 'FRESH');
@@ -167,15 +167,21 @@ it('wide offline glob counts newer entries only after an old match opens the cou
     expect(response.result).toMatchObject({ observed_count: 3, observed_logical_bytes: 12, first_global_protection: null });
     return response.result!;
   };
-  expect(completed(await cli(root, { before }))).toMatchObject({
+  const unscoped = {
     mode: 'dry_run', retained: { recent: 1, protected: 0, stale: 0, opaque: 0, target: 0 },
     would_delete_count: 2, would_delete_logical_bytes: 7, deleted_count: 0, deleted_logical_bytes: 0,
     expected_accounted_logical_bytes_remaining: 5,
-  });
+  };
+  expect(completed(await cli(root, { before }))).toMatchObject(unscoped);
   expectBytes(true);
 
   appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(
     'agent:analyst:global', randomUUID(), '{"pattern":"project:///**/gc08-*.bin"}',
+    { kind: 'unavailable', reason: 'not_recorded' },
+  ));
+  expect(completed(await cli(root, { before }))).toMatchObject(unscoped);
+  appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(
+    'agent:analyst:global', randomUUID(), '{"pattern":"./.saivage/work/cards/project/tmp/gc08-*.bin"}',
     { kind: 'unavailable', reason: 'not_recorded' },
   ));
   const retained = { protected: 2, recent: 0, stale: 0, opaque: 0, target: 0 };

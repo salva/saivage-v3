@@ -5,8 +5,9 @@ webfetch stashes under `.saivage/work/`. It is not startup cleanup, canonical-st
 repair, reset or migration. It never removes directories, publication temporaries,
 attic, backups or canonical history. Deletion is irreversible and not transactional;
 code rollback cannot recover files. Consider a separately prepared preserved backup
-before destructive use. Preview requires no backup. This operation does not
-replace the stopped/excluded/complete-backup gates for
+before destructive use. [Preview first](#preview-first-delete-separately); a later
+delete needs separate authorization and makes a fresh selection. Preview requires
+no backup. This operation does not replace the stopped/excluded/complete-backup gates for
 [offline operations](./state-adoption.md).
 
 Task-justified external command directories are outside `gc-work` coverage. Their
@@ -16,19 +17,20 @@ before disposal; this operation neither inventories nor collects those directori
 Retention follows current semantic use, not the union of historical references.
 After separately authorized deletion, historical-only attachments/captures may be
 irretrievably unavailable even though canonical card, record, conversation and
-execution histories remain unchanged. Current concrete references still protect
-equally old files or directory subtrees. Content mentions of administrative roots
-do not: the work root and its ancestors, work `cards`, valid card roots and their
-reserved `tmp`/`processes` roots, and global work `processes`, `tmp` and `tmp/stash`.
+execution histories remain unchanged. Current content can protect concrete files
+or directory subtrees in a specific card's work area, even if they are old.
+Mentions of the work root, its ancestors, `cards`, a card root or its reserved
+`tmp`/`processes` roots do not protect all files below them.
 For example, `.saivage/work/cards/card-n/tmp/` does not preserve its contents,
 but `.saivage/work/cards/card-n/tmp/foo` and `.saivage/work/cards/card-n/foo`
-protect that file or directory subtree. Stash artifacts and process-specific capture
-directories are also concrete. Known resolved aliases follow their target's rule.
-This applies to structured paths/URIs as well as prose: a root in a `path` or `cwd`
-field is not a concrete artifact. Previously blanket-protected old files (through
-administrative-root mentions or broad wildcards) can become eligible despite a human's
-intended blanket retention. Operational and unfinished-owner protections still
-cover their selected scopes, including genuine root dependencies. Commissioned
+can protect that file or subtree. A specific capture directory under a card's
+`processes` can also qualify. The rule applies to prose, structured paths and
+locators, including bounded alias interpretations. Even a current exact Webfetch
+`content_url` to global `tmp/stash`, or a running process's URL to a global
+capture, does not protect those bytes. Otherwise eligible files can be deleted
+while the URLs remain visible. Operational dependencies, unfinished execution
+selections and process owners independently protect their selected scopes,
+including applicable global files and roots. Commissioned
 Git source roots are filters, not blanket work protection: a commissioned `.`
 does not override the `.saivage` source exclusion. No reclamation or historical
 availability is promised.
@@ -39,11 +41,19 @@ In current content that GC uses, give the full locator of the needed file or
 concrete directory, for example
 `{"path":"work:///cards/card-n/tmp/foo/report.md"}`. In prose, delimit the
 complete locator with backticks, or use a complete slash-bearing native path
-such as `./report.md` from the applicable base. A filename such as `report.md`
-or a naked wildcard such as `*.md` is not a prose reference, even in quotes.
-A structured whole path field can carry a basename; scope metadata alone
-does not select a subtree. Prefer the exact locator when a relative path could
-resolve under several bases.
+such as `./logs/report.md`. In card content, GC tries that relative path under
+the originating card's work root and its `tmp`, and nowhere else implicitly.
+A filename such as `report.md` or a naked wildcard such as `*.md` is not a prose
+reference, even in quotes.
+A structured whole path field can carry a basename. An ordinary relative exact
+path uses `cwd` when supplied, regardless of `directory`, and does not fall
+back to the implicit bases if that `cwd` yields no bounded in-card target.
+Scope metadata alone does not select a subtree. Use a complete locator when
+the relative base is unclear. Global content has no implicit base, not even the
+`project` card. From either card or global content, an explicit native path
+like `./.saivage/work/cards/card-e/tmp/report.md` names that card using the project
+root. A supported exact locator, an absolute path or a bounded alias can also
+name a specific card other than the originating one.
 
 A whole canonical `cardwork:///card-n/public/case%3F.ts` names `case?.ts`,
 not its neighbors. In the same directory, `case%2A.ts` names `case*.ts` and
@@ -55,21 +65,42 @@ a trailing period in bare cardwork prose can be part of the filename. If a
 cardwork locator appears inside a URL query value, encode the inner `%` again:
 the inner `%3F` travels as `%253F` in that query.
 
-For a wildcard, pair `directory: "cardwork:///card-n/public"` with
-`pattern: "case?.ts"` in structured content. A slash-bearing wildcard path
-such as `reports/*.md` can also be inferred from prose. Without an explicit
-scope, global conversation content uses the project root; card content uses
-the project root, card work root and card `tmp`. GC resolves the fixed directory
-prefix and matches relative to the effective scope. `*` and `?` stay within a
-segment; a whole `**` segment crosses levels. Entries outside the scope and
-the scope itself do not count. Zero distinct matches add nothing; 1–50 protect
-just the matched entries, including a matched concrete directory's subtree.
-At 51 or more, the matcher protects none of its matches. An independent exact
-reference still protects its target.
+For a relative structured matcher, GC uses `directory` first, then `cwd` if
+`directory` is absent, then the implicit bases only if neither is supplied.
+An explicit scope that cannot yield a bounded in-card match scope does not
+fall back to the implicit bases. For example, pair `directory: "cardwork:///card-n/public"` with
+`pattern: "case?.ts"` in structured content. In card content, `directory: "logs"`
+with `pattern: "*.log"` searches the `logs` directories under the card work root
+and card `tmp`; prose `reports/*.md` likewise has card-local bases. Neither
+relative example has a base in global content. An explicit pattern such as
+`./.saivage/work/cards/card-e/tmp/*.log` can work from either source.
+`.saivage/work/cards/*/tmp/foo` and `work:///cards/**/foo` contribute nothing:
+the fixed prefix must reach a specific card before the first wildcard.
+GC resolves bounded lexical and alias spellings of an explicit scope with that
+fixed prefix; it does not substitute a card-local default for an unresolved
+directory. For example, an absolute alias to `cards/card-e/tmp/nested` paired
+with `../*.log` can match logs directly under that card's `tmp`.
 
-Tool calls and their results can contribute separately. A concrete explicit
-filesystem `grep.path` can protect a subtree even with a filename filter or
-empty results. An omitted `grep.path` adds no subtree mark. `glob.directory`
+`*` and `?` stay within a segment; a whole `**` segment crosses levels. Matching
+uses inventory names relative to the effective scope. GC starts counting if a
+candidate file matches directly or through an ancestor, is not already marked
+by the resolver, and is strictly older than `--before` if supplied. The card
+horizon applies during final selection, not when deciding whether to count:
+a file retained by its horizon can still open the count. GC counts distinct
+matches, including recent and already protected entries.
+Entries outside the scope and the scope itself do not count. Administrative
+children can count without protecting anything. For example, `*` scoped to a
+card root with 49 concrete children plus `tmp` counts 50: the concrete children
+are marked, but an unmatched file under `tmp` does not gain protection. With
+50 concrete children plus `tmp`, the count reaches 51 and the matcher marks
+nothing. Zero matches also add nothing. At 1–50 matches a marked concrete
+directory protects its subtree; an independent exact reference is unaffected
+by the matcher cutoff.
+
+Tool calls and their results can contribute separately under these advisory
+rules. They do not change project-relative tool execution. A concrete explicit
+in-card `grep.path` can protect a subtree even with a filename filter or empty
+results. An omitted `grep.path` adds no subtree mark. `glob.directory`
 supplies search scope, not subtree protection, though an explicit file there
 can itself be protected. GC's ability to bound an advisory directory does not
 mean the tool accepts it. Complete search-result paths are separate suggestions
@@ -171,7 +202,8 @@ Omitting both effect flags is exactly `--dry-run`. Combining `--dry-run` and
 be combined with `--delete`. Unknown options, invalid values and duplicate options
 fail. There is no saved selection, preview replay or confirmation token. A later
 delete always recomputes inventory, fresh references and final identity checks.
-A reference added since preview can protect a formerly eligible file.
+A qualifying in-card reference added since preview can protect a formerly
+eligible file.
 
 Neither preview nor an age cutoff proves selected files are unneeded. Prose
 inference can miss a space-containing path in programming-language quote syntax
@@ -179,11 +211,12 @@ or a filename with line breaks. Decoded CR/LF quotations are inspected for neste
 references rather than taken as one filename. Use a structured whole path or
 an exact locator instead. If losing a file would be unacceptable, preserve it
 separately before authorizing deletion. A delete can permanently remove needed
-work missed by inference, discarded at the match cutoff or known only through
-lossy output. There is no estimated error rate or rollback.
-This advice authorizes neither rewriting retained history nor a migration; adopting
-this isolated fix requires no conversion/reset on matching contracts. Source
-completion does not authorize any live operation.
+work missed by inference, discarded at the match cutoff, shown only in lossy
+output, or referenced only by a global stash or capture URL. There is no estimated
+error rate or rollback. This collection policy applies to a fresh invocation
+using the changed collector. It requires no conversion or reset on matching
+durable contracts. Source changes do not update an installed release or authorize
+any live operation.
 
 Without `--list-files`, the CLI delegates only through the verified live lifecycle
 lock's published endpoint/auth mode. Listing refuses a verified live owner before
@@ -445,8 +478,10 @@ precedence: if it wins, the response instead has `reason: cancelled` and
 `failure: null`. A cancelled response does not rule out an unresolved reference.
 The required address can be an operational dependency (for example, an unresolved
 alias for a compiled action's cwd) or the cardwork destination of a successful
-`write` or `webfetch` receipt tagged on that row as executed and as a cardwork
-destination. A missing suffix below a known ancestor
+`write` receipt (`data.target`) or workspace-file `webfetch` receipt (both
+`data.saved_as` and `data.write.data.target`), tagged on that row as executed
+and as a cardwork destination. Required resolution does not grant any additional
+marking authority. A missing suffix below a known ancestor
 is not itself unresolved. Unlike completed whole-work protection, this refusal
 has no accounting result. In both the refusal and cancellation outcomes,
 `restoration` reports what actually happened to execution. Failed calls and

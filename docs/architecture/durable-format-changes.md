@@ -379,6 +379,19 @@ authority-adoption installed applicability remains unknown. No deployment, live 
 migration or reset is authorized by this source change; whole-release adoption
 still follows the [separate gates](../runbook/state-adoption.md).
 
+GC-11, examined source baseline `8bd16f7080d74fe852a2e214fa156c7c220ea35a`,
+further narrows advisory work retention for fresh invocations of the changed
+collector. References can now mark only concrete work in a specific card;
+global stash and capture URLs no longer protect those bytes by themselves.
+`src/workspace/work-garbage-collector.ts` and the synthetic collector and
+offline CLI fixtures evidence the change. Canonical selection and projection,
+persisted grammar, layout and discriminators, and the API and UI contracts are
+unchanged. This policy alone needs no retained-state conversion, migration,
+reset or version bump. The earlier entries describe their own source boundaries;
+this is not evidence of installed adoption or an unreleased cutover.
+A separately authorized deletion may irreversibly remove otherwise eligible
+files. Reverting the collector cannot restore them.
+
 Configured direct-object authority cutover from source parent
 `e1307b9b12a43df80396747af18b33d49457191b`: accepted-record **5→6** adds
 `card-agent {agent,card_id}` factual origin, including framework draft close and

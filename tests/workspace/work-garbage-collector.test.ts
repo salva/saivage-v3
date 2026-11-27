@@ -10,7 +10,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setImmediate } from 'node:timers/promises';
 import type { CardExecutionStart } from '../../src/persistence/card-execution-log.js';
-import { agentMessageSchema, type RecordDefinition } from '../../src/schemas/index.js';
+import { agentMessageSchema, type ConversationSessionId, type RecordDefinition } from '../../src/schemas/index.js';
 import { cardConversationVersionFile, cardConversationVersionIndexFile, cardExecutionFile, cardRecordsRoot, cardRecordHeadFile } from '../../src/persistence/layout.js';
 import type { WorkGcCollectionContext } from '../../src/workspace/work-garbage-collector.js';
 import { WebfetchTextDataSchema } from '../../src/contracts/webfetch.js';
@@ -142,14 +142,14 @@ async function canonicalBytes(root: string): Promise<Map<string, Buffer>> {
   return bytes;
 }
 
-function toolExchange(tool: string, content: string, argumentsText = '{}') {
+function toolExchange(tool: string, content: string, argumentsText = '{}', sessionId: ConversationSessionId = 'agent:planner:project') {
   const policy = toolRowPolicies({ content, template: OPERATIONAL_RESULT_POLICY_TEMPLATE });
   const inputId = randomUUID(), callId = 'current-call';
   return [
-    agentMessageSchema.parse({ ...message(''), id: `${inputId}:tool-call:${callId}`, role: 'assistant', kind: 'tool_call',
+    agentMessageSchema.parse({ ...message(''), id: `${inputId}:tool-call:${callId}`, session_id: sessionId, role: 'assistant', kind: 'tool_call',
       tool, tool_call_id: callId, context_policy: policy.call,
       content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: tool, arguments: argumentsText } }] }) }),
-    agentMessageSchema.parse({ ...message(content), id: `${inputId}:tool-result:${callId}`, role: 'tool', kind: 'tool_result',
+    agentMessageSchema.parse({ ...message(content), id: `${inputId}:tool-result:${callId}`, session_id: sessionId, role: 'tool', kind: 'tool_result',
       tool, tool_call_id: callId, context_policy: policy.result }),
   ];
 }
@@ -280,12 +280,12 @@ describe('indexed glob passes', () => {
       const files = [...noise, ...siblings, exact, newer];
       const found = await inventory(root);
       const paths = found.candidates.map(item => join(w, item.path));
-      const inputs = { operationalPaths: [exact] };
-      const control = await preview(found, inputs);
-      const late = paths.filter(path => noise.includes(path)).at(-1)!;
-      baseline(root, JSON.stringify({ pattern: count === 1
+      const protection = { operationalInputs: { path: exact } };
+      const control = await preview(found, protection);
+      const late = paths.filter(path => dirname(path) === join(w, 'tmp/stash/unrelated')).at(-1)!;
+      const inputs = { operationalInputs: [{ path: exact }, { pattern: count === 1
         ? `project:///**/unrelated/${late.split(sep).at(-1)}`
-        : count === 0 ? 'project:///**/absent-*' : 'project:///**/hit-*' }));
+        : count === 0 ? 'project:///**/absent-*' : 'project:///**/hit-*' }] };
       const actual = await preview(found, inputs);
       const first = count === 1 ? paths.indexOf(late) : paths.findIndex(path => siblings.includes(path));
       const counted = new Set([...empties, ...siblings.map(dirname), exact, newer]);
@@ -311,10 +311,11 @@ describe('indexed glob passes', () => {
       const witness = useful ? [work(root, 'cards/project/tmp/d-open/hit-useful')] : [];
       const files = [...covered, ...open, exact, fresh, ...witness];
       const found = await inventory(root);
-      const inputs = { operationalPaths: [...new Set(covered.map(dirname)), exact] };
-      const control = await preview(found, inputs);
+      const pathsToKeep = [...new Set(covered.map(dirname)), exact];
+      const protection = { operationalInputs: { paths: pathsToKeep } };
+      const control = await preview(found, protection);
       // Check the second glob with the first glob's published mark already in place.
-      baseline(root, JSON.stringify([{ pattern: 'project:///**/hit-*' }, { pattern: 'work:///**/hit-*' }]));
+      const inputs = { operationalInputs: [{ paths: pathsToKeep }, { pattern: 'project:///**/hit-*' }, { pattern: 'work:///**/hit-*' }] };
       const actual = await preview(found, inputs);
       const paths = found.candidates.map(item => join(w, item.path));
       const all = indices(paths);
@@ -327,14 +328,42 @@ describe('indexed glob passes', () => {
       await expectSelection(found, files, [...protectedPaths, ...recent], inputs);
     });
 
-    it('opens a wide count through a matching ancestor absent from inventory without publishing a mark', async () => {
-      const root = fixture(), file = work(root, 'tmp/stash/child.bin');
+    it('does not read either inventory array for ancestor or pre-card wildcard scopes', async () => {
+      const root = fixture(), files = [
+        work(root, 'tmp/stash/child.bin'),
+        work(root, 'cards/project/tmp/child.bin'),
+      ];
       const found = await inventory(root), control = await preview(found);
-      baseline(root, JSON.stringify({ directory: root, pattern: '.saivage' }));
+      baseline(root, JSON.stringify([
+        { directory: root, pattern: '**/child.bin' },
+        { pattern: 'work:///cards/**/child.bin' },
+        { pattern: '.saivage/work/cards/*/tmp/child.bin' },
+        { pattern: '.saivage/work/*' },
+      ]));
       const actual = await preview(found);
-      expectVisits(actual, control, [0], indices(found.entries));
-      expectClassifications(actual.result, [], [], [file]);
-      await expectSelection(found, [file], []);
+      expectVisits(actual, control, [], []);
+      expectClassifications(actual.result, [], [], files);
+      await expectSelection(found, files, []);
+    });
+
+    it.each([49, 50])('counts %i concrete card children plus tmp without marking tmp', async count => {
+      const root = fixture(), w = workRoot(root), scope = join(w, 'cards/project');
+      const child = new CardService(root).create({ type: 'code', parent: 'project', title: 'Spans',
+        bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
+      const matches = Array.from({ length: count }, (_, i) => work(root, `cards/project/item-${i}/inside`));
+      const unmatched = work(root, 'cards/project/tmp/unmatched');
+      const noise = [work(root, `cards/${child.id}/item-0/inside`), work(root, 'tmp/stash/item-0/inside')];
+      const files = [...matches, unmatched, ...noise];
+      const found = await inventory(root), control = await preview(found);
+      baseline(root, JSON.stringify({ path: matches[0], directory: scope, pattern: '*' }));
+      const under = (path: string) => path === scope || path.startsWith(scope + sep);
+      const candidates = indices(found.candidates, item => under(join(w, item.path)));
+      const entries = indices(found.entries, under);
+      const witness = candidates.findIndex(i => join(w, found.candidates[i]!.path) !== matches[0]);
+      const last = entries.filter(i => dirname(found.entries[i]!) === scope).at(-1)!;
+      expectVisits(await preview(found), control, candidates.slice(0, witness + 1),
+        count === 49 ? entries : entries.filter(i => i <= last));
+      await expectSelection(found, files, count === 49 ? matches : [matches[0]!]);
     });
 
     it('bounds wide lexical overlap before native backslash normalization', async () => {
@@ -343,14 +372,14 @@ describe('indexed glob passes', () => {
       const alias = join(dirname(dirname(miss)), 'scope');
       symlinkSync(root, alias, 'dir');
       const found = await inventory(root), control = await preview(found);
-      baseline(root, JSON.stringify({ directory: alias, pattern: '*\\wrong.bin' }));
-      const actual = await preview(found);
+      const inputs = { operationalInputs: { directory: alias, pattern: '*\\wrong.bin' } };
+      const actual = await preview(found, inputs);
       expectVisits(actual, control, [0], []);
       expectClassifications(actual.result, [], [], [miss]);
-      await expectSelection(found, [miss], []);
+      await expectSelection(found, [miss], [], inputs);
     });
 
-    it.each(['owned native', 'card fallback'] as const)('preserves wide %s matching of native punctuation and deduplication', async source => {
+    it.each(['owned native', 'card fallback'] as const)('preserves %s matching of native punctuation and deduplication', async source => {
       const root = fixture();
       const files = Array.from({ length: 50 }, (_, i) =>
         work(root, `cards/project/tmp/name\\item%20-\${fixture}-${i}.bin`));
@@ -358,10 +387,10 @@ describe('indexed glob passes', () => {
       const found = await inventory(root);
       if (source === 'owned native') {
         appendConversationBatch({ projectRoot: root }, [toolExchange('glob', JSON.stringify({ success: true }), JSON.stringify({
-          directory: root, pattern: '**/item%20-${fixture}-*.bin',
+          directory: join(workRoot(root), 'cards/project'), pattern: '**/item%20-${fixture}-*.bin',
         }))[0]!]);
       } else {
-        // Project, card and card tmp all witness the same fifty entries.
+        // Card and card tmp both witness the same fifty entries.
         baseline(root, JSON.stringify({ pattern: '**/item%20-*.bin' }));
       }
       const actual = await preview(found);
@@ -462,14 +491,14 @@ describe('indexed glob passes', () => {
         }
         expect(control.result.would_delete_count).toBe(files.length + noise.length);
         expect(fs.realpathSync(doubled(path))).toBe(path);
-        baseline(root, JSON.stringify({ directory: doubled(path), pattern: '*' }));
+         const inputs = { operationalInputs: { directory: doubled(path), pattern: '*' } };
         // Independent legacy full-walk expectations: the equal file or first
         // direct child witnesses usefulness, then only matching entries count.
         const matches = new Set([path, ...files, ...observedOnly.map(name => join(path, name))]);
         const last = indices(found.entries, entry => matches.has(entry)).at(-1)!;
-        expectVisits(await preview(found), control, indices(found.candidates).slice(0, first + 1),
+         expectVisits(await preview(found, inputs), control, indices(found.candidates).slice(0, first + 1),
           discard ? indices(found.entries).slice(0, last + 1) : indices(found.entries));
-        await expectSelection(found, [...files, ...noise], discard ? [] : files, {}, observe);
+         await expectSelection(found, [...files, ...noise], discard ? [] : files, inputs, observe);
       });
 
     it.each(['inner only', 'double match', 'noncontiguous'] as const)(
@@ -537,21 +566,20 @@ describe('indexed glob passes', () => {
       await expectSelection(found, [...files, ...kept], kept);
     });
 
-    it.each(['root', 'ancestor', 'outside alias', 'project alias', 'wide project alias', 'trailing separator', 'fixed prefix', 'literal backslash'] as const)(
+    it.each(['root', 'ancestor', 'outside alias', 'project alias', 'actual path', 'trailing separator', 'fixed prefix', 'literal backslash'] as const)(
       'uses the correct index ranges for %s scopes and native names', async kind => {
         const base = fs.realpathSync(fixture());
-        const root = kind === 'project alias' || kind === 'wide project alias' ? `${base}-alias` : base;
+         const root = kind === 'project alias' || kind === 'actual path' ? `${base}-alias` : base;
         if (root !== base) {
           roots.push(root);
           symlinkSync(base, root, 'dir');
         }
         const noise = unrelated(root);
-        const selected = work(root, `tmp/stash/shard/${kind === 'literal backslash' ? 'a\\picked.dat' : 'picked.dat'}`);
-        const sibling = work(root, 'tmp/stash/shard/other.dat');
+         const selected = work(root, `cards/project/tmp/shard/${kind === 'literal backslash' ? 'a\\picked.dat' : 'picked.dat'}`);
+         const sibling = work(root, 'cards/project/tmp/shard/other.dat');
         const scope = dirname(selected), w = workRoot(root);
-        const broad = kind === 'root' || kind === 'ancestor' || kind === 'wide project alias';
-        const full = broad || kind === 'trailing separator';
-        let directory = kind === 'root' ? w : kind === 'ancestor' ? dirname(w) : kind === 'wide project alias' ? root : scope;
+         const broad = kind === 'root' || kind === 'ancestor';
+         let directory = kind === 'root' ? w : kind === 'ancestor' ? dirname(w) : kind === 'actual path' ? fs.realpathSync(scope) : scope;
         let pattern = broad ? '**/picked.dat' : kind === 'literal backslash' ? '**/picked.dat' : 'picked*.dat';
         if (kind === 'outside alias') {
           directory = join(base, 'inward');
@@ -563,13 +591,13 @@ describe('indexed glob passes', () => {
         }
         const found = await inventory(root), control = await preview(found);
         const paths = found.candidates.map(item => join(w, item.path));
-        const candidates = indices(paths, path => full || dirname(path) === scope);
-        const entries = indices(found.entries, path => full || path === scope || dirname(path) === scope);
+         const candidates = indices(paths, path => dirname(path) === scope);
+         const entries = indices(found.entries, path => path === scope || dirname(path) === scope);
         const first = candidates.indexOf(paths.indexOf(selected));
         expect(first).toBeGreaterThanOrEqual(0);
         baseline(root, JSON.stringify({ directory, pattern }));
-        expectVisits(await preview(found), control, candidates.slice(0, first + 1), entries);
-        await expectSelection(found, [selected, sibling, ...noise], [selected]);
+         expectVisits(await preview(found), control, broad ? [] : candidates.slice(0, first + 1), broad ? [] : entries);
+         await expectSelection(found, [selected, sibling, ...noise], broad ? [] : [selected]);
       });
 
     it.each([
@@ -582,7 +610,8 @@ describe('indexed glob passes', () => {
         const found = await inventory(root), controller = new AbortController(), directory = dirname(files[0]!);
         const firstInScope = found.candidates.find(item => dirname(join(workRoot(root), item.path)) === directory)!;
         const name = pass === 'entries' ? firstInScope.path.split(sep).at(-1)! : '*.no-match';
-        baseline(root, JSON.stringify(range === 'wide' ? { pattern: `project:///**/${name}` } : { directory, pattern: name }));
+         const inputs = range === 'wide' ? { operationalInputs: { pattern: `project:///**/${name}` } } : {};
+         if (range === 'narrow') baseline(root, JSON.stringify({ directory, pattern: name }));
         let reads = 0;
         let checks = 0;
         let checksAtYield: number | undefined;
@@ -593,7 +622,8 @@ describe('indexed glob passes', () => {
           if (array === pass) reads++;
         });
         const selection = jest.fn(), unlink = jest.spyOn(fs, 'unlinkSync');
-        await expect(collectWorkGarbage(trace.inventory, { mode: 'delete', ...oldBefore }, context({
+         await expect(collectWorkGarbage(trace.inventory, { mode: 'delete', ...oldBefore }, context({
+           ...inputs,
           progress: { ...trace.progress,
             phase(phase) {
               trace.progress.phase(phase);
@@ -908,7 +938,7 @@ describe('work GC two-phase selection', () => {
     expect(horizons.get('project')).toBe(early);
   });
 
-  it('keeps cross-card and global references from a wholly horizon-retained card', async () => {
+  it('keeps cross-card but not global references from a wholly horizon-retained card', async () => {
     const root = fixture(), cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
       created_by: 'analyst', depends_on: [] });
@@ -916,7 +946,76 @@ describe('work GC two-phase selection', () => {
       work(root, `cards/${child.id}/tmp/selected`), work(root, 'tmp/stash/selected'),
       work(root, `cards/${child.id}/tmp/control`)];
     baseline(root, JSON.stringify({ paths: [`work:///cards/${child.id}/tmp/selected`, 'work:///tmp/stash/selected'] }));
-    await parity(root, paths, paths.slice(0, 3));
+    await parity(root, paths, paths.slice(0, 2));
+  });
+
+  it('binds relative structured, prose and native addresses to their originating card', async () => {
+    const root = fixture(), cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Card origin',
+      bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
+    const write = (card: string, path: string) => work(root, `cards/${card}/${path}`);
+    const keep = [
+      write('project', 'logs/relative.log'), write('project', 'tmp/logs/relative.log'),
+      write('project', 'tmp/basename.txt'), write('project', 'tmp/jobs/cwd.log'),
+      write(child.id, 'tmp/logs/child.log'), write(child.id, 'tmp/global/explicit.log'),
+      write(child.id, 'tmp/cross/parent.log'), write(child.id, 'tmp/cross/fixed.log'),
+      write(child.id, 'tmp/global/match.dat'),
+      write('project', 'logs/scoped.dat'), write('project', 'tmp/logs/scoped.dat'),
+    ];
+    const discard = [
+      write(child.id, 'tmp/logs/relative.log'), write(child.id, 'tmp/basename.txt'),
+      write('project', 'tmp/logs/child.log'), write('project', 'tmp/prose-only.txt'),
+      write('project', 'tmp/jobs/escaped.log'), write('project', 'tmp/global/global.log'),
+      work(root, 'tmp/stash/global/global.log'), work(root, 'processes/proc-gc/stdout.log'),
+    ];
+    // The filesystem tool's project-relative alias is not a GC fallback.
+    symlinkSync(dirname(keep[4]!), join(root, 'logs'), 'dir');
+    symlinkSync(dirname(discard[6]!), join(root, 'stash-alias'), 'dir');
+    baseline(root, JSON.stringify([
+      'Keep ./logs/relative.log but not prose-only.txt',
+      { file: 'basename.txt' },
+      { directory: 'logs', pattern: 'scoped.*' },
+      { cwd: 'jobs', file: 'cwd.log' },
+      { cwd: root, path: './jobs/escaped.log', pattern: '**/escaped.log' },
+      { path: `../${child.id}/tmp/cross/parent.log` },
+      { path: `.saivage/work/cards/${child.id}/tmp/cross/fixed.log` },
+      { path: '.saivage/work/cards/not-a-card/../project/tmp/prose-only.txt' },
+      { file: `${root}/stash-alias/global.log` },
+      { path: 'work:///processes/proc-gc/stdout.log' },
+    ]));
+    appendConversationBatch({ projectRoot: root }, [{
+      ...toolExchange('read', '{"success":true}', '{"path":"logs/child.log"}')[0]!,
+      session_id: cardAgentSessionId('executor', child.id),
+    }]);
+    const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(
+      'agent:analyst:global', randomUUID(), JSON.stringify([
+        { path: 'global/global.log', pattern: '**/global.log' },
+        { path: `./.saivage/work/cards/${child.id}/tmp/global/explicit.log` },
+        { pattern: `work:///cards/${child.id}/tmp/global/*.dat` },
+      ]), { kind: 'unavailable', reason: 'not_recorded' },
+    ));
+    await parity(root, [...keep, ...discard], keep);
+  });
+
+  it('composes a relative fixed matcher prefix against the resolved explicit directory', async () => {
+    const root = fixture(), cards = new CardService(root);
+    for (let i = 0; i < 5; i++)
+      cards.create({ type: 'code', parent: 'project', title: `Alias ${i}`,
+        bootstrap_content: 'brief', created_by: 'analyst', depends_on: [] });
+    const selected = work(root, 'cards/card-e/tmp/match.log');
+    const unrelated = work(root, 'cards/project/tmp/match.log');
+    const fallback = work(root, 'cards/project/tmp/missing-scope.log');
+    const nested = join(dirname(selected), 'nested');
+    mkdirSync(nested);
+    const alias = join(root, 'outside-alias'), unresolved = join(root, 'missing-alias');
+    symlinkSync(nested, alias, 'dir');
+    symlinkSync(join(root, 'missing'), unresolved, 'dir');
+    baseline(root, JSON.stringify([
+      { directory: alias, pattern: '../*.log' },
+      { directory: unresolved, pattern: 'missing-scope.log' },
+    ]));
+    await parity(root, [selected, unrelated, fallback], [selected]);
   });
 
   it.each(['```BaSh extra\n./shell-only.txt\n```', '~~~zsh\n./shell-only.txt\n~~~',
@@ -1055,7 +1154,7 @@ describe('work GC two-phase selection', () => {
       baseline(root, JSON.stringify(patterns));
       expect(await preview()).toEqual({ result: withoutPatterns, reads: control });
       appendConversationBatch({ projectRoot: root }, [message(JSON.stringify({
-        directory: join(root, '.saivage/work/tmp/stash'), pattern: 'old-*.dat',
+        directory: join(root, '.saivage/work/cards/project/tmp'), pattern: 'old-*.dat',
       }))]);
       const overlapping = await preview();
       expect(overlapping.result).toMatchObject({ retained: { protected: 4 }, would_delete_count: 4 });
@@ -1065,6 +1164,7 @@ describe('work GC two-phase selection', () => {
 
     async function globOnlyRetention(
       root: string, selected: string, controls: readonly string[], directory: string, pattern: string,
+      keep = true,
     ) {
       const paths = [selected, ...controls];
       const unmarked = await collectWorkGarbage(await inventory(root), { mode: 'dry_run' }, context());
@@ -1073,7 +1173,7 @@ describe('work GC two-phase selection', () => {
         retained: { protected: 0 }, first_global_protection: null,
       });
       baseline(root, JSON.stringify({ directory, pattern }));
-      await parity(root, paths, [selected]);
+      await parity(root, paths, keep ? [selected] : []);
     }
 
     it('retains a match when only the lexical scope overlaps an alias-spelled inventory', async () => {
@@ -1094,27 +1194,30 @@ describe('work GC two-phase selection', () => {
 
     it('retains a match when a fixed prefix under an outside directory resolves into work', async () => {
       const root = fs.realpathSync(fixture()), w = join(root, '.saivage/work');
-      const selected = work(root, 'tmp/stash/gc05-scope/gc05-picked-stash.dat');
-      const sibling = work(root, 'tmp/stash/gc05-scope/gc05-other-stash.dat');
-      const card = work(root, 'cards/project/tmp/gc05-picked-card.dat');
+      const selected = work(root, 'cards/project/tmp/gc05-scope/gc05-picked-card.dat');
+      const sibling = work(root, 'cards/project/tmp/gc05-scope/gc05-other-card.dat');
+      const stash = work(root, 'tmp/stash/gc05-scope/gc05-picked-stash.dat');
       const directory = join(root, 'gc05-outside'), prefix = join(directory, 'inward');
       mkdirSync(directory);
       symlinkSync(dirname(selected), prefix, 'dir');
+      symlinkSync(dirname(stash), join(directory, 'stash'), 'dir');
+      baseline(root, JSON.stringify({ directory, pattern: 'stash/gc05-picked-*.dat' }));
       expect(relative(w, prefix).split(sep)[0]).toBe('..');
       expect(relative(prefix, w).split(sep)[0]).toBe('..');
       expect(fs.realpathSync(prefix)).toBe(dirname(selected));
-      await globOnlyRetention(root, selected, [sibling, card], directory, 'inward/gc05-picked-*.dat');
+      appendConversationBatch({ projectRoot: root }, [message(JSON.stringify({ directory, pattern: 'inward/gc05-picked-*.dat' }))]);
+      await parity(root, [selected, sibling, stash], [selected]);
     });
 
     it.each([
       { scope: 'ancestor', directory: '.saivage', owner: 'cards/project/tmp', otherOwner: 'tmp/stash' },
       { scope: 'work root', directory: '.saivage/work', owner: 'tmp/stash', otherOwner: 'cards/project/tmp' },
-    ])('retains a match below the $scope scope', async ({ directory, owner, otherOwner }) => {
+    ])('does not retain a match below the $scope scope', async ({ directory, owner, otherOwner }) => {
       const root = fs.realpathSync(fixture());
       const selected = work(root, `${owner}/gc05-picked-file.dat`);
       const sibling = work(root, `${owner}/gc05-other-file.dat`);
       const other = work(root, `${otherOwner}/gc05-other-file.dat`);
-      await globOnlyRetention(root, selected, [sibling, other], join(root, directory), '**/gc05-picked-*.dat');
+      await globOnlyRetention(root, selected, [sibling, other], join(root, directory), '**/gc05-picked-*.dat', false);
     });
   });
 
@@ -1243,12 +1346,12 @@ describe('work GC two-phase selection', () => {
     }
   });
 
-  it.each(selections)('preserves bound native write and Webfetch copies without using card bases (%s)', async keep => {
+  it.each(selections)('interprets bound native write and Webfetch copies at advisory card bases (%s)', async keep => {
     for (const tool of ['write', 'webfetch'] as const) {
       const root = fixture(), invoke = boundWorkspace(root);
       const path = 'reports/case${name}.ts';
       const selected = work(root, `cards/project/public/${path}`);
-      const wrongBase = work(root, `cards/project/tmp/${path}`);
+      const advisory = work(root, `cards/project/tmp/${path}`);
       const wildcardSibling = work(root, 'cards/project/public/reports/caseAnamets');
       const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('fixture'));
       const result = await invoke(tool, tool === 'write' ? { path, content: 'fixture' }
@@ -1259,7 +1362,7 @@ describe('work GC two-phase selection', () => {
         : { saved_as: path, write: { kind: 'workspace_file', data: tag } } });
       rmSync(join(root, 'reports'), { recursive: true });
       symlinkSync(dirname(selected), join(root, 'reports'), 'dir');
-      await parity(root, [selected, wrongBase, wildcardSibling], [selected]);
+      await parity(root, [selected, advisory, wildcardSibling], [advisory]);
     }
   });
 
@@ -1421,12 +1524,11 @@ describe('work GC two-phase selection', () => {
 
   it('marks only explicit content process cwd, including punctuation, not shell or admin roots', async () => {
     const root = fixture();
-    const inside = work(root, 'cards/project/tmp/jobs/${name}/inside');
+    const inside = work(root, 'cards/project/tmp/jobs/selected/inside');
     const elsewhere = work(root, 'cards/project/tmp/jobs/elsewhere/control');
     const shell = work(root, 'cards/project/tmp/shell');
     const path = 'jobs/${name}';
-    mkdirSync(join(root, 'jobs'), { recursive: true });
-    symlinkSync(dirname(inside), join(root, path), 'dir');
+    symlinkSync(dirname(inside), join(root, '.saivage/work/cards/project/tmp', path), 'dir');
     const command = 'echo tmp:///project/shell';
     const session = readCurrentConversationSegment(root, 'agent:planner:project')!;
     const file = cardConversationVersionFile(root, 'project', 'planner', session.entry.filename);
@@ -1637,8 +1739,7 @@ describe('work GC two-phase selection', () => {
       // Preserve the reported directory and pattern spellings, but constrain the fixture tree.
       appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:analyst:global', randomUUID(),
         'directory="work:///cards", pattern="**/*formation*.asm"', { kind: 'unavailable', reason: 'not_recorded' }));
-      // This third matching file is in the reported scope too.
-      await parity(root, [selected, selectedRoot, ...controls], [selected, selectedRoot, controls[2]!]);
+      await parity(root, [selected, selectedRoot, ...controls], []);
       return;
     }
     if (kind === 'tool arguments') appendConversationBatch({ projectRoot: root },
@@ -2039,14 +2140,13 @@ describe('work GC two-phase selection', () => {
     ].join('\n'), { kind: 'agent', agent: 'analyst' });
     const before = await canonicalBytes(root);
     const preview = await collectWorkGarbage(await inventory(root), { mode: 'dry_run', before: 2000 }, context());
-    expect(preview).toMatchObject({ observed_count: 13, would_delete_count: 6, deleted_count: 0,
-      retained: { protected: 6, recent: 1 } });
+    expect(preview).toMatchObject({ observed_count: 13, would_delete_count: 8, deleted_count: 0,
+      retained: { protected: 4, recent: 1 } });
     expect([...selected, ...garbage, recent].every(existsSync)).toBe(true);
     expect(await canonicalBytes(root)).toEqual(before);
     const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete', before: 2000 }, context());
     expect(deleted.deleted_count).toBe(preview.would_delete_count);
-    expect(garbage.every(path => !existsSync(path))).toBe(true);
-    expect([...selected, recent].every(existsSync)).toBe(true);
+    expect([...selected, ...garbage, recent].filter(existsSync)).toEqual([selected[0], selected[1], selected[2], selected[5], recent]);
     expect(garbage.map(dirname).every(existsSync)).toBe(true);
     expect(await canonicalBytes(root)).toEqual(before);
   });
@@ -2623,7 +2723,7 @@ describe('work GC two-phase selection', () => {
     expect([index, ...captures].every(existsSync)).toBe(true);
     expect(existsSync(garbage)).toBe(false);
   });
-  it('releases fully inline terminal captures like runtime while retaining typed webfetch/source query selections', async () => {
+  it('releases fully inline captures and advisory-only Webfetch stash, but retains in-card source and query selections', async () => {
     const root = fixture(), processId = 'proc-0123456789ab';
     const captures = ['stdout', 'stderr'].map(stream => work(root, `processes/${processId}/${stream}.log`, 'output'));
     const stash = work(root, 'tmp/stash/webfetch-1-0123456789abcdef.txt', 'downloaded');
@@ -2648,32 +2748,77 @@ describe('work GC two-phase selection', () => {
     const webfetch = WebfetchTextDataSchema.parse({ kind: 'text', redacted_url: 'https://example.invalid/page', status: 200, headers: {},
       head: 'down', head_utf8_bytes: 4, redacted_text_utf8_bytes: 10, fetched_text_utf8_bytes: 10,
       head_complete: false, fetch_truncated: false, content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' });
-    baseline(root, JSON.stringify({ webfetch, image: { source_path: 'tmp:///project/source%20image.png' },
+    appendConversationBatch({ projectRoot: root }, toolExchange('webfetch',
+      JSON.stringify({ success: true, data: webfetch })));
+    baseline(root, JSON.stringify({ image: { source_path: 'tmp:///project/source%20image.png' },
       endpoint: `https://example.invalid/api/files/image?path=${encodeURIComponent('tmp:///project/query-source.png')}` }));
-    const deleted = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(deleted.deleted_count).toBe(3);
-    expect(captures.every(path => !existsSync(path))).toBe(true);
-    expect([stash, image, querySource].every(existsSync)).toBe(true);
-    expect(existsSync(garbage)).toBe(false);
+    await parity(root, [...captures, stash, image, querySource, garbage], [image, querySource]);
   });
+
+  it.each(['write', 'webfetch saved_as', 'webfetch target'] as const)(
+    'refuses a malformed required global %s address that is ignored when advisory', async slot => {
+      const root = fixture(), candidate = work(root, 'cards/project/tmp/control');
+      const bad = 'cardwork:///project/public/%ZZ', good = publicUrl('missing');
+      const tag = { destination_kind: 'cardwork_url', target: slot === 'webfetch saved_as' ? good : bad };
+      const data = slot === 'write' ? tag : {
+        saved_as: slot === 'webfetch saved_as' ? bad : good,
+        write: { kind: 'workspace_file', data: tag },
+      };
+      const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
+      const session = 'agent:analyst:global';
+      const publish = (success: boolean) => appendConversationBatch({ projectRoot: root }, [
+        ...buildGlobalAgentIngressRows(session, randomUUID(), 'Fixture request', { kind: 'unavailable', reason: 'not_recorded' }),
+        ...toolExchange(slot === 'write' ? 'write' : 'webfetch',
+          JSON.stringify(success ? { success, data } : { success, error: 'Unavailable' }),
+          JSON.stringify(slot === 'write' ? { path: bad } : { save_as: bad }), session),
+      ]);
+      const found = await inventory(root);
+      publish(false);
+      expect(await collectWorkGarbage(found, { mode: 'dry_run' }, context())).toMatchObject({ would_delete_count: 1 });
+      publish(true);
+      await expect(collectWorkGarbage(found, { mode: 'delete' }, context())).rejects.toBeInstanceOf(WorkGcReferenceScopeError);
+      expect(existsSync(candidate)).toBe(true);
+    },
+  );
 
   it.each([
     ['running', true, true], ['exited', false, true], ['exited', true, false], ['exited', true, true],
-  ] as const)('collector stream liveness equals primary runtime projection: %s stdout=%s stderr=%s', async (status, stdout_complete, stderr_complete) => {
+  ] as const)(
+    'preserves canonical stream projection and separates advisory from owner retention: %s stdout=%s stderr=%s',
+    async (status, stdoutComplete, stderrComplete) => {
+      for (const area of ['card', 'global', 'global owned'] as const) {
+        await streamRetention(area, status, stdoutComplete, stderrComplete);
+      }
+    },
+  );
+
+  async function streamRetention(
+    area: 'card' | 'global' | 'global owned', status: 'running' | 'exited',
+    stdout_complete: boolean, stderr_complete: boolean,
+  ) {
     const root = fixture(), processId = 'proc-0123456789ab';
-    const captures = (['stdout', 'stderr'] as const).map(stream => work(root, `processes/${processId}/${stream}.log`, 'output'));
+    const card = area === 'card';
+    const session = card ? 'agent:planner:project' : 'agent:analyst:global';
+    const captureDir = `${card ? 'cards/project/' : ''}processes/${processId}`;
+    const captures = (['stdout', 'stderr'] as const).map(stream => work(root, `${captureDir}/${stream}.log`, 'output'));
+    const urls = ['stdout', 'stderr'].map(stream => `work:///${captureDir}/${stream}.log`);
     const content = JSON.stringify({ success: true, data: { process_id: processId, status, exit_code: status === 'running' ? null : 0,
       stdout: 'output', stderr: 'output', stdout_complete, stderr_complete, stdout_bytes: 6, stderr_bytes: 6,
-      stdout_url: `work:///processes/${processId}/stdout.log`, stderr_url: `work:///processes/${processId}/stderr.log` } });
-    const rows = toolExchange('run_command', content);
+      stdout_url: urls[0], stderr_url: urls[1] } });
+    const { buildGlobalAgentIngressRows } = await import('../../src/runtime/actors/conversation-session.js');
+    const rows = [
+      ...(card ? [] : buildGlobalAgentIngressRows(session, randomUUID(), 'Fixture request', { kind: 'unavailable', reason: 'not_recorded' })),
+      ...toolExchange('run_command', content, '{}', session),
+    ];
     appendConversationBatch({ projectRoot: root }, rows);
-    const primary = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: 'agent:planner:project', effectiveHistory: null, dynamicBlocks: [], uncoveredRows: rows }));
+    const primary = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: session, effectiveHistory: null, dynamicBlocks: [], uncoveredRows: rows }));
     const visible = JSON.stringify(primary);
-    const retained = [visible.includes('stdout_url'), visible.includes('stderr_url')];
-    const deletion = await collectWorkGarbage(await inventory(root), { mode: 'delete' }, context());
-    expect(deletion.deleted_count).toBe(retained.filter(value => !value).length);
-    expect(captures.map(existsSync)).toEqual(retained);
-  });
+    const projected = [status === 'running' || !stdout_complete, status === 'running' || !stderr_complete];
+    expect(urls.map(url => visible.includes(url))).toEqual(projected);
+    const owner = area === 'global owned';
+    await parity(root, captures, owner ? captures : card ? captures.filter((_, i) => projected[i]) : [],
+      owner ? { protection: { retainAll: false, capturePaths: [captures[0]!] } } : {});
+  }
 
   it('selects current typed result data/content and unmatched arguments without scanning call policy or row provenance', async () => {
     const root = fixture();

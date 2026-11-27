@@ -519,7 +519,23 @@ requirement warrants them.
 
 * **Work GC:** reference parsing may start with `tests/workspace/work-garbage-collector.test.ts`,
   `tests/persistence/work-gc-projections.test.ts` and
-  `tests/persistence/work-gc-import-closure.test.ts`. Projection, lifecycle or
+  `tests/persistence/work-gc-import-closure.test.ts`. Synthetic collector fixtures
+  compare preview and delete against exact survivors across linked cards and
+  global work, including an explicit cross-card prefix, a resolved directory
+  alias with `../*.log`, and an unresolved directory without fallback. They
+  distinguish advisory-only global stash and stream URLs from process-owner
+  protection and required receipt refusal. Retention-marking probes compare
+  reads of both inventory arrays against a no-matcher baseline: rejected
+  ancestor/pre-card patterns add no array reads, and admitted card and nested
+  scopes avoid unrelated indices. The 50/51 fixtures count administrative
+  children before marking and preserve independent exact marks; other fixtures
+  cover recent and already protected entries and duplicate matches across bases.
+  Wide operational matching has separate witnesses.
+  `tests/e2e/work-gc-offline-cli.e2e.test.ts` contrasts a global unscoped
+  matcher that changes nothing with an explicit card matcher that counts a
+  recent match once an old match opens the count. It checks fresh delete
+  survivors and lifecycle release before response on disposable fixtures.
+  Projection, lifecycle or
   stream changes can need storage and interfaces, `tests/boot/work-gc-fatal-child.test.ts`,
   application/CLI/contract/route suites and the `work-gc-running-cli`,
   `work-gc-offline-cli`, `work-gc-application-close` and `work-gc-throwing-fatal`
