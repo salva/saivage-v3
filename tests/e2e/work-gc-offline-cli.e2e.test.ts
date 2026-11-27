@@ -29,13 +29,23 @@ function fixture() {
 function work(root: string, path: string, content = 'fixture') {
   const full = join(root, '.saivage/work', path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, content); utimesSync(full, 1, 1); return full;
 }
-async function cli(root: string, options: { separate?: boolean; delete?: boolean; before?: string; minFileBytes?: number; phrase?: string; eof?: boolean; fault?: boolean; beforeAck?: () => void; onLock?: (pid: number) => void } = {}) {
+function cliCommand(entry: string, ...args: string[]) {
+  return [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), resolve(entry), ...args];
+}
+async function cli(root: string, options: {
+  separate?: boolean; full?: boolean; delete?: boolean; dryRun?: boolean; listFiles?: boolean;
+  before?: string; minFileBytes?: number; targetBytes?: number; phrase?: string; eof?: boolean;
+  fault?: 'release' | 'late-stderr'; beforeAck?: () => void; onLock?: (pid: number) => void;
+} = {}) {
   const entry = resolve(options.fault ? 'tests/fixtures/offline-gc-child.ts' : 'src/cli.ts');
-  const stdoutPath = join(root, 'gc-stdout.txt');
-  const args = options.fault ? [] : ['gc-work', ...(options.delete ? ['--delete'] : []),
+  const stdoutPath = options.full ? '/dev/full' : join(root, 'gc-stdout.txt');
+  const args = [options.fault ?? 'gc-work', ...(options.delete ? ['--delete'] : []),
+    ...(options.dryRun ? ['--dry-run'] : []), ...(options.listFiles ? ['--list-files'] : []),
     ...(options.before ? ['--before', options.before] : []),
-    ...(options.minFileBytes === undefined ? [] : ['--min-file-bytes', String(options.minFileBytes)])];
-  const command = [process.execPath, '--import', resolve('node_modules/tsx/dist/loader.mjs'), entry, ...args].map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ') + (options.separate ? ` > '${stdoutPath}'` : '');
+    ...(options.minFileBytes === undefined ? [] : ['--min-file-bytes', String(options.minFileBytes)]),
+    ...(options.targetBytes === undefined ? [] : ['--target-bytes', String(options.targetBytes)])];
+  const command = cliCommand(entry, ...args).map(s => `'${s.replaceAll("'", "'\\''")}'`).join(' ') +
+    (options.separate || options.full ? ` > '${stdoutPath}'` : '');
   const child = spawn('script', ['-qefc', command, '/dev/null'], { cwd: root, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', sent = false, lockObserved = false, lockPresentAtResponse: boolean | null = null;
   const watchdog = setTimeout(() => child.kill('SIGKILL'), 20_000);
@@ -56,8 +66,8 @@ async function cli(root: string, options: { separate?: boolean; delete?: boolean
   child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
   try {
     const code = await new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done); });
-    const stdout = options.separate ? readFileSync(stdoutPath, 'utf8') : output;
-    const row = stdout.split(/\r?\n/).find(line => line.startsWith('{"mode":'));
+    const stdout = options.full ? '' : options.separate ? readFileSync(stdoutPath, 'utf8') : output;
+    const row = (options.listFiles ? output : stdout).split(/\r?\n/).find(line => line.startsWith('{"mode":'));
     return { code, output, stdout, response: row ? JSON.parse(row) : null, lockObserved, lockPresentAtResponse };
   } finally { clearInterval(observe); clearTimeout(watchdog); }
 }
@@ -78,19 +88,44 @@ it('real offline preview and fresh delete preserve running/unmatched/native sele
     { row_id: randomUUID(), invocation_id: invocation, card_id: 'project', timestamp: '2026-10-27T00:00:00.000Z', kind: 'native_process_started', process_id: processId, allowed_exit_codes: [0], files: (['stdout', 'stderr'] as const).map(stream => ({ kind: 'capture', stream, path: `.saivage/work/cards/project/processes/${processId}/${stream}.log` })) },
   ]);
   const garbage = work(root, 'cards/project/tmp/unselected');
+  utimesSync(garbage, 2, 2);
+  const escaped = work(root, 'cards/project/tmp/with space\\line\n\r\u001b\u007f\u0085\u202e\u2028\u2029', 'second fixture');
   const small = work(root, 'cards/project/tmp/small', '123456');
   const selected = [index, ...captures, cardExecutionFile(root, 'project'), join(root, '.saivage/cards/project/card-head.json'), globalAgentConversationVersionIndexFile(root, 'analyst')].map(path => [path, readFileSync(path)] as const);
   const preview = await cli(root, { separate: true, minFileBytes: 7 });
   expect(preview).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed',
-    result: { observed_count: 5, observed_logical_bytes: 34, would_delete_count: 1, would_delete_logical_bytes: 7,
+    result: { observed_count: 6, observed_logical_bytes: 48, would_delete_count: 2, would_delete_logical_bytes: 21,
       retained: { protected: 3, below_min_file_bytes: 1 }, expected_accounted_logical_bytes_remaining: 27 } } });
   expect(existsSync(runtimeProcessLockFile(root))).toBe(false); expect(existsSync(garbage)).toBe(true);
+  const listed = await cli(root, {
+    separate: true, listFiles: true, dryRun: true, minFileBytes: 7,
+    before: '2026-10-24T00:00:20.000Z', targetBytes: 0,
+  });
+  expect(listed).toMatchObject({
+    code: 0, lockPresentAtResponse: false,
+    response: { disposition: 'completed', result: {
+      would_delete_count: 2, would_delete_logical_bytes: 21, deleted_count: 0, deleted_logical_bytes: 0,
+      retained: { protected: 3, below_min_file_bytes: 1 },
+    } },
+  });
+  expect(WorkGcResponseSchema.parse(listed.response).mode).toBe('dry_run');
+  expect(listed.stdout).toBe(
+    'cards/project/tmp/with space\\\\line\\u{a}\\u{d}\\u{1b}\\u{7f}\\u{85}\\u{202e}\\u{2028}\\u{2029}\n' +
+    'cards/project/tmp/unselected\n',
+  );
+  expect(listed.output).toContain('to confirm:');
+  expect(listed.output).toContain('GC selection elapsed_ms=');
+  expect(listed.output).not.toContain('cards/project/tmp/unselected');
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  expect(readFileSync(escaped, 'utf8')).toBe('second fixture');
+  for (const path of [garbage, index, ...captures]) expect(readFileSync(path, 'utf8')).toBe('fixture');
   expect(readFileSync(small, 'utf8')).toBe('123456');
   const deletion = await cli(root, { delete: true, separate: true, minFileBytes: 7 });
   expect(deletion).toMatchObject({ code: 0, response: { disposition: 'completed', restoration: 'not_resumed',
-    result: { deleted_count: 1, deleted_logical_bytes: 7, retained: { protected: 3, below_min_file_bytes: 1 },
+    result: { deleted_count: 2, deleted_logical_bytes: 21, retained: { protected: 3, below_min_file_bytes: 1 },
       expected_accounted_logical_bytes_remaining: 27 } } });
   expect(existsSync(garbage)).toBe(false);
+  expect(existsSync(escaped)).toBe(false);
   expect(readFileSync(small, 'utf8')).toBe('123456');
   expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   for (const result of [preview, deletion]) {
@@ -166,9 +201,10 @@ it('offline required reference refusal is safe and terminal after lifecycle rele
     provider: { kind: 'builtin', name: 'shell' }, binding: { kind: 'node', activation_id: randomUUID(), node_id: 'run', ordinal: 0 },
     output_source: 'command-stdout', artifact_paths: [sentinel], input: [], config: [],
     shell: { script: 'echo fixture', cwd: root, argv: [], env: {} } }]);
-  for (const deleteMode of [false, true]) {
-    const result = await cli(root, { delete: deleteMode });
+  for (const options of [{}, { delete: true }, { separate: true, listFiles: true }]) {
+    const result = await cli(root, options);
     expect(result).toMatchObject({ code: 1, lockPresentAtResponse: false });
+    if (options.listFiles) expect(result.stdout).toBe('');
     expect(WorkGcResponseSchema.parse(result.response)).toMatchObject({
       disposition: 'refused', reason: 'reference_scope_unresolved', restoration: 'not_resumed', result: null,
     });
@@ -291,10 +327,82 @@ it('missing required selected segment reports only safe ENOENT metadata after lo
   expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
 }, 30_000);
 
-it('real offline child release uncertainty exits fatally without response or prompt cleanup', async () => {
+it.each([false, true])('real offline child release uncertainty exits without delivery or prompt cleanup (list=%s)', async listFiles => {
   const root = fixture(); work(root, 'cards/project/tmp/unselected');
-  const result = await cli(root, { fault: true });
+  const result = await cli(root, { fault: 'release', separate: true, listFiles });
   expect(result.code).toBe(1); expect(result.response).toBeNull();
-  expect(result.output).toContain('RELEASE_UNCERTAIN'); expect(result.output).toContain('Fatal: PublicationOutcomeUnknownError');
+  expect(result.stdout).toBe('RELEASE_UNCERTAIN\n');
+  expect(result.output).toContain('Fatal: PublicationOutcomeUnknownError');
+  expect(result.output).not.toContain('{"mode":');
   expect(result.output).not.toContain('FORBIDDEN_'); expect(existsSync(runtimeProcessLockFile(root))).toBe(true);
+}, 30_000);
+
+it('successful empty list has empty stdout and a completed stderr response', async () => {
+  const root = fixture();
+  const result = await cli(root, { separate: true, listFiles: true });
+  expect(result).toMatchObject({
+    code: 0, stdout: '', lockPresentAtResponse: false,
+    response: { mode: 'dry_run', disposition: 'completed', result: { would_delete_count: 0 } },
+  });
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+}, 30_000);
+
+it('failed stdout delivery to /dev/full reports an incomplete list only after release', async () => {
+  const root = fixture();
+  const candidate = work(root, 'cards/project/tmp/not-delivered');
+  const result = await cli(root, { full: true, listFiles: true });
+  expect(result).toMatchObject({ code: 1, response: null });
+  expect(result.output).toContain('Incomplete GC file list: stdout write failed.');
+  expect(result.output).not.toContain('{"mode":');
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  expect(readFileSync(candidate, 'utf8')).toBe('fixture');
+}, 30_000);
+
+it('foreground keyboard Ctrl-C terminates list delivery before a blocked stdout pipe is drained', () => {
+  const root = fixture();
+  const page = spawnSync('getconf', ['PAGESIZE'], { encoding: 'utf8', timeout: 5_000 });
+  expect(page.status).toBe(0);
+  const capacity = Number(page.stdout.trim());
+  // Each escaped line fills a page. Reading only the first line frees a whole
+  // pipe buffer; later lines can then fill it again without any partial reads.
+  const lines = Array.from({ length: 12 }, (_, index) => {
+    const prefix = `cards/project/tmp/item-${String(index).padStart(2, '0')}/`;
+    let remaining = capacity - prefix.length - 1;
+    let name = prefix, expected = prefix;
+    while (remaining > 1000) {
+      name += '\n'.repeat(190) + '/';
+      expected += '\\u{a}'.repeat(190) + '/';
+      remaining -= 951;
+    }
+    name += '\n'.repeat(Math.floor(remaining / 5)) + 'x'.repeat(remaining % 5);
+    expected += '\\u{a}'.repeat(Math.floor(remaining / 5)) + 'x'.repeat(remaining % 5);
+    work(root, name);
+    return expected + '\n';
+  });
+  const expected = lines.join('');
+  const expectedPath = join(root, 'expected-list.txt');
+  writeFileSync(expectedPath, expected);
+  const run = spawnSync('python3', [
+    resolve('tests/fixtures/offline-gc-blocked-pipe.py'), runtimeProcessLockFile(root), expectedPath,
+    ...cliCommand('src/cli.ts', 'gc-work', '--list-files'),
+  ], { cwd: root, env: { ...process.env, NODE_ENV: 'test' }, encoding: 'utf8', timeout: 25_000 });
+  expect(run.error).toBeUndefined();
+  expect({ status: run.status, harnessError: run.status === 0 ? '' : run.stderr }).toEqual({ status: 0, harnessError: '' });
+  expect(run.stdout.startsWith(lines[0]!)).toBe(true);
+  expect(run.stdout.length).toBeLessThan(expected.length);
+  expect(expected.startsWith(run.stdout)).toBe(true);
+  expect(run.stderr).not.toContain('{"mode":');
+  expect(run.stdout).not.toContain('{"mode":');
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+}, 35_000);
+
+it('a late advisory stderr error during stdout delivery does not stop a completed list', async () => {
+  const root = fixture();
+  work(root, 'cards/project/tmp/first');
+  work(root, 'cards/project/tmp/second');
+  const result = await cli(root, { separate: true, listFiles: true, fault: 'late-stderr' });
+  expect(result.output).toContain('LATE_STDERR_ERROR_EMITTED');
+  expect(result.code).toBe(0);
+  expect(result.stdout).toBe('cards/project/tmp/first\ncards/project/tmp/second\n');
+  expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
 }, 30_000);

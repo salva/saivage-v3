@@ -279,7 +279,7 @@ release; this does not establish safe adoption of retained state.
 | `start` | `--project-root` → `SAIVAGE_PROJECT_ROOT` → cwd, canonicalized | `--config` → `SAIVAGE_CONFIG` → selected root's `.saivage/saivage.yaml` |
 | `init`, `reset`, `repair` | Exact cwd, canonicalized; no ancestor search | That root's `.saivage/saivage.yaml`, with the invoking process's interpolation environment; Start root/config selectors do not apply |
 | `status`, `pause`, `resume`, `stop`, `restart_server` | Nearest ancestor of cwd, including cwd, containing `.saivage/saivage.yaml` (`findProjectRoot`) | Only the selected project's verified live lock endpoint/auth; never endpoint rediscovery from YAML, flags, environment or defaults |
-| `gc-work` | Same ancestor search, canonicalized | Live: published endpoint/auth only. Missing lock only: interactive offline exclusion and that root's canonical YAML with process interpolation environment |
+| `gc-work` | Same ancestor search, canonicalized | Live: published endpoint/auth only, without `--list-files`. Missing lock only: interactive offline exclusion and that root's canonical YAML with process interpolation environment |
 
 Offline commands do not accept `--project-root` or `--config`. Init alone may
 materialize an absent canonical YAML from its selected profile. Identical YAML text
@@ -293,10 +293,13 @@ not offline runtime-state access.
 
 ### Explicit work GC inputs
 
-`saivage gc-work [--before <timestamp>] [--min-file-bytes <bytes>] [--target-bytes <bytes>] [--dry-run | --delete]`
+`saivage gc-work [--before <timestamp>] [--min-file-bytes <bytes>] [--target-bytes <bytes>] [--dry-run | --delete] [--list-files]`
 has no YAML settings, duration knob, scheduler or startup/environment aliases for its filters.
-Default and explicit dry-run select API mode `dry_run`; `--delete` selects `delete`.
-Both flags together are rejected before delegation. The strict
+Default and explicit dry-run select mode `dry_run`; `--delete` selects `delete`.
+`--list-files` takes no value, works with either dry-run form and all three filters,
+and refuses a verified live owner before HTTP delegation. Combining `--delete`
+with `--dry-run` or `--list-files` is rejected before delegation. Listing is a CLI
+output option, not an API input. The strict
 `POST /api/runtime/gc-work` body requires `mode` and accepts only three optional
 fields, independently or in combination:
 
@@ -323,11 +326,18 @@ POST HTTP 200 uses only `application/x-ndjson`: optional strict progress frames
 and EOF, each newline-terminated frame at most 16 KiB. The stream is no-store and
 nosniff. Complete terminal-plus-EOF is required; pre-admission 400/401/409 and
 ordinary pre-stream 500 remain JSON. Matching clients/server must ship together.
-CLI progress and offline disclosures/prompt use stderr; final stdout is one
-response JSON line after settlement and offline lock release. SIGINT/SIGTERM
-cancels the single online request or offline collection cooperatively. Dropped
-progress does not suppress final output; incomplete transport produces no final
-response and cannot certify deletion effects. Phases/count limits are in the runbook.
+CLI progress and offline disclosures/prompt use stderr. Normally stdout is one
+final response JSON line after settlement and, offline, lock release. For
+[`--list-files`](../runbook/work-gc.md#list-selected-files-offline), stdout instead
+contains only completed selection paths relative to `.saivage/work`, escaped,
+LF-terminated and in selection order (empty for zero). Delivery follows successful
+release and prompt/signal cleanup. Final response JSON is best effort on stderr,
+for completion only after checked stdout delivery. Incomplete delivery exits
+unsuccessfully without completion JSON and may leave a prefix. SIGINT/SIGTERM
+cancels the single online request or offline collection cooperatively; during list
+delivery it interrupts the process. Dropped progress alone does not suppress
+normal final output; incomplete online transport produces no final response and
+cannot certify deletion effects. Phases/count limits are in the runbook.
 
 `GET /api/runtime/gc-work/status` (`runtime.gcWorkStatus`) takes no inputs and
 needs no new YAML setting, environment variable or CLI flag. It uses the existing

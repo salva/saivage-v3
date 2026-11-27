@@ -52,8 +52,29 @@ function stderrProgress(): { observe: WorkGcProgressObserver; close(): void } {
   };
 }
 
+function writeSelectedPath(path: string): Promise<void> {
+  const line = path.replace(
+    /[\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,
+    (character) =>
+      character === '\\' ? '\\\\' : `\\u{${character.codePointAt(0)!.toString(16)}}`,
+  );
+  const stdout = process.stdout;
+  return new Promise((resolve, reject) => {
+    stdout.once('error', reject);
+    stdout.write(`${line}\n`, (error) => {
+      // The callback can precede the corresponding stream error event.
+      if (error) reject(error);
+      else {
+        stdout.removeListener('error', reject);
+        resolve();
+      }
+    });
+  });
+}
+
 export async function handleGcWork(
   request: WorkGcRequest,
+  listFiles: boolean,
   fatalPort: ApplicationFatalPort,
 ): Promise<void> {
   const selected = findProjectRoot();
@@ -61,6 +82,7 @@ export async function handleGcWork(
   const projectRoot = realpathSync(selected);
   const status = readRuntimeLockStatus(projectRoot);
   if (status.kind === 'live') {
+    if (listFiles) throw new Error('--list-files requires an offline GC preview.');
     if (status.record.control_endpoint === null)
       throw new Error('active lifecycle owner; runtime control unavailable');
     const controller = new AbortController();
@@ -108,6 +130,8 @@ export async function handleGcWork(
   const promptClosed = () =>
     controller.abort(new Error('Offline GC acknowledgement input closed.'));
   prompt.once('close', promptClosed);
+  const selectedDryRunPaths: string[] | undefined = listFiles ? [] : undefined;
+  let response: WorkGcResponse;
   try {
     console.error(
       'Offline GC requires the exact service stopped, restarts excluded, and no surviving managed or unrelated writers throughout this command. Unknown writer state must refuse. Delete is irreversible; mistaken exclusion can destroy needed data. Preview also publishes a lifecycle lock.',
@@ -127,7 +151,6 @@ export async function handleGcWork(
         ownedFatalPort.publicationOutcomeUnknown(error);
       throw error;
     }
-    let response: WorkGcResponse;
     const progress = createWorkGcProgress(progressSink.observe);
     let reason: WorkGcResponse['reason'] = 'operational_inputs_invalid';
     try {
@@ -151,6 +174,7 @@ export async function handleGcWork(
         },
         {
           progress,
+          selectedDryRunPaths,
           workflows: effective.workflows,
           ...workGcOperationalInputs(effective.config),
           protection: { retainAll: false, capturePaths: [] },
@@ -179,15 +203,31 @@ export async function handleGcWork(
         ownedFatalPort.publicationOutcomeUnknown(error);
       throw error;
     }
-    console.log(JSON.stringify(response));
-    if (response.disposition !== 'completed') process.exitCode = 1;
+    if (selectedDryRunPaths === undefined) {
+      console.log(JSON.stringify(response));
+      if (response.disposition !== 'completed') process.exitCode = 1;
+      return;
+    }
   } finally {
     if (!fatal) {
-      progressSink.close();
+      // Previously submitted advisory stderr writes may still emit errors during delivery.
+      if (!listFiles) progressSink.close();
       prompt.removeListener('close', promptClosed);
       prompt.close();
       process.removeListener('SIGINT', cancel);
       process.removeListener('SIGTERM', cancel);
     }
   }
+  if (response.disposition === 'completed') {
+    try {
+      for (const path of selectedDryRunPaths) await writeSelectedPath(path);
+    } catch {
+      console.error('Incomplete GC file list: stdout write failed.');
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    process.exitCode = 1;
+  }
+  console.error(JSON.stringify(response));
 }

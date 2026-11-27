@@ -66,6 +66,7 @@ interface WorkGcOptions {
 
 export interface WorkGcCollectionContext {
   readonly progress?: WorkGcProgressPort;
+  readonly selectedDryRunPaths?: string[];
   readonly workflows: Parameters<typeof inspectWorkGcCanonicalState>[1];
   /** Fresh, exact operational configuration selected by the running composition. No reload. */
   readonly operationalInputs: unknown;
@@ -1350,6 +1351,7 @@ export async function collectWorkGarbage(
       }
     }
     selectedCount++;
+    if (options.mode === 'dry_run') context.selectedDryRunPaths?.push(candidate.path);
     selectedBytes += candidate.size;
     classified?.();
   }

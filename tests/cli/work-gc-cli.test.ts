@@ -16,6 +16,10 @@ it('rejects conflicting effects and invalid existing filters', async () => {
     ['--before', '2026-02-30T12:00:00Z'], ['--before', '2026-10-24T12:00:00'],
     ['--target-bytes', '-1'], ['--target-bytes', '1e3'], ['--target-bytes', '9007199254740992'] ])
     await expect(run(['node', 'saivage', 'gc-work', ...args])).rejects.toThrow();
+  await expect(run(['node', 'saivage', 'gc-work', '--list-files', '--delete']))
+    .rejects.toThrow('--list-files and --delete are mutually exclusive');
+  await expect(run(['node', 'saivage', 'gc-work', '--list-files', '--list-files']))
+    .rejects.toThrow('--list-files may only be specified once');
 });
 it('GC refuses dead, malformed and indeterminate synthetic locks without request, rewrite or config fallback', async () => {
   const root = mkdtempSync(join(tmpdir(), 'gc-cli-lock-'));
@@ -70,7 +74,13 @@ it('default and explicit preview send the same strict mode only to the published
     const lock = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound' });
     try {
       await expect(run(['node', 'saivage', 'gc-work'])).rejects.toThrow('runtime control unavailable');
+      await expect(run(['node', 'saivage', 'gc-work', '--list-files'])).rejects.toThrow('requires an offline GC preview');
       publishRuntimeControlEndpoint(lock, { origin: `http://127.0.0.1:${address.port}`, auth: 'disabled' });
+      const fetch = jest.spyOn(globalThis, 'fetch');
+      try {
+        await expect(run(['node', 'saivage', 'gc-work', '--dry-run', '--list-files'])).rejects.toThrow('requires an offline GC preview');
+        expect(fetch).not.toHaveBeenCalled();
+      } finally { fetch.mockRestore(); }
       for (const [args, admissionError] of [
         [['--min-file-bytes'], /--min-file-bytes.*argument missing/],
         [['--min-file-bytes', '0', '--min-file-bytes', '1'], /--min-file-bytes may only be specified once/],

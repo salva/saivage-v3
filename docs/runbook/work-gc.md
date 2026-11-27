@@ -166,10 +166,12 @@ Unlabelled snippets are not classified as shell; their lexical references can st
 protect work. A file referenced only by excluded shell syntax can be deleted.
 
 Omitting both effect flags is exactly `--dry-run`. Combining `--dry-run` and
-`--delete` fails before a runtime request. Unknown options/invalid values fail;
-there is no saved selection, preview replay or confirmation token. The later delete
-always recomputes inventory, fresh references and final identity checks. A reference
-added since preview can protect a formerly eligible file.
+`--delete` fails before a runtime request. An offline preview can also
+[list the selected files](#list-selected-files-offline); `--list-files` cannot
+be combined with `--delete`. Unknown options, invalid values and duplicate options
+fail. There is no saved selection, preview replay or confirmation token. A later
+delete always recomputes inventory, fresh references and final identity checks.
+A reference added since preview can protect a formerly eligible file.
 
 Neither preview nor an age cutoff proves selected files are unneeded. Prose
 inference can miss a space-containing path in programming-language quote syntax
@@ -183,9 +185,11 @@ This advice authorizes neither rewriting retained history nor a migration; adopt
 this isolated fix requires no conversion/reset on matching contracts. Source
 completion does not authorize any live operation.
 
-The CLI delegates only through the verified live lifecycle lock's published
-endpoint/auth mode. Dead/malformed/indeterminate ownership or an unavailable
-control endpoint refuses. Only a missing lock selects the offline procedure below;
+Without `--list-files`, the CLI delegates only through the verified live lifecycle
+lock's published endpoint/auth mode. Listing refuses a verified live owner before
+any HTTP request, even if project execution is stopped. Dead/malformed/indeterminate
+ownership or, for delegation, an unavailable control endpoint refuses.
+Only a missing lock selects the offline procedure below;
 there is no fallback after delegation failure, endpoint rediscovery, lock
 takeover, automatic start or Run. Bearer mode uses the existing private
 `SAIVAGE_API_TOKEN` contract, never a URL token. See
@@ -256,10 +260,58 @@ lock is not proof of process containment; safety depends on maintained operator
 quiescence. Competing acquisition refuses, never reroutes. Preview also publishes
 and releases this lock, but performs no collector file effects. Offline GC has no
 status service. Its stderr progress is lossy; external process sampling cannot
-recover a checkpoint. Only its final stdout JSON line after successful lock release
-reports the outcome. Command death may leave an abandoned lock requiring the
+recover a checkpoint. The normal final response is one stdout JSON line after
+successful lock release; the listing mode below uses different streams.
+Command death while holding the lock may leave an abandoned lock requiring the
 separate manual procedure; never remove it automatically. Successful GC does not
 certify whole-project startup compatibility or authorize start/Run.
+
+### List selected files offline
+
+To see which files an offline preview selected, run `saivage gc-work --list-files`
+from the identified project root using the matching release. Dry-run is the
+default; explicit `--dry-run` and any combination of `--before`, `--min-file-bytes`
+and `--target-bytes` also work. The offline exclusion and exact terminal
+acknowledgement above still apply.
+
+To capture the list privately, set `private_dir` to an existing private directory
+outside the managed project and choose a fresh filename there. Redirect only
+stdout; leave stdin attached to the terminal and keep stderr visible or drained.
+
+```bash
+(umask 077; saivage gc-work --dry-run --list-files > "$private_dir/candidates.txt")
+```
+
+Treat the paths as private even when escaped. Do not forward the list to shared
+logs. Check the command's exit status, not whether the file exists or looks
+complete: redirection creates the file before GC runs.
+
+Stdout contains only the files selected for hypothetical removal, in selection
+order, one path relative to `.saivage/work` per LF-terminated line. Zero selected
+files means empty stdout. Ordinary characters and spaces stay as they are;
+literal backslashes are doubled. C0 and C1 controls (including DEL), Unicode
+format controls, and line and paragraph separators use visible `\u{hex}` escapes
+with lowercase hex digits (for example, `\u{a}` for a newline in a name).
+These are path strings, not file contents or shell arguments.
+
+The CLI starts the list only after completed selection, successful lock release
+and prompt/signal cleanup. It checks stdout one line at a time. Disclosures, the
+prompt and lossy progress stay on stderr. The CLI attempts to write the unchanged
+final response JSON to stderr. For a completed preview, it does so only after
+all stdout writes have succeeded. A noncompleted collection exits unsuccessfully
+and emits no names.
+If stdout delivery fails or is interrupted, the command exits unsuccessfully
+without completion JSON; already written bytes can remain as an incomplete
+prefix, even ending mid-line. Do not use such a prefix as a complete list.
+
+Exit zero establishes completed selection, successful lock release and successful
+writes to stdout. It does not prove stderr receipt, downstream consumption or
+durable capture. An unread stderr pipe can delay exit even after lock release
+and the last stdout line; handling a broken stderr pipe does not make stderr
+nonblocking or give delivery a time limit. Progress counts are transient
+observations, and the completed names describe only this preview. The list is
+not a delete input: a separately authorized delete makes a fresh selection, which
+may differ.
 
 ## What happens during either mode
 
@@ -318,14 +370,16 @@ still protect its own target.
 
 ## Results, cancellation and restoration
 
-Progress goes to **stderr**, as concise newline-delimited text; final **stdout**
-is exactly one JSON response line after successful settlement (offline: after
-lock release). Offline disclosure and the exact confirmation prompt also use stderr.
-For example, redirect stdout to a result file outside work while watching stderr.
+Progress goes to **stderr**, as concise newline-delimited text. Except in
+[`--list-files` mode](#list-selected-files-offline), final **stdout** is exactly
+one JSON response line after successful settlement (offline: after lock release).
+Offline disclosure and the exact confirmation prompt also use stderr. For example,
+redirect stdout to a result file outside work while watching stderr.
 Observations are transient, lossy and throttled: phase changes emit immediately,
 count updates at most once per second in existing work loops. There are no timers,
 heartbeats, percentages, ETA or known total-work denominators. Slow/broken stderr
-can drop observations without cancelling collection or suppressing final output.
+can drop observations. Dropping progress does not itself cancel collection or
+suppress the final response.
 
 POST progress frames and CLI stderr use `inventory`, online-only `settling`,
 `retention_marking`, and `selection`. Inventory is not a settled hold; settling
@@ -447,7 +501,8 @@ settlement defeats it. Public Start/Resume cannot release the hold. `not_resumed
 and `not_acquired` are not instructions to start a new Run: inspect current state.
 
 Requester disconnect or Stop cancels online GC; CLI SIGINT/SIGTERM forwards
-cancellation online and cancels cooperatively offline.
+cancellation online and cancels offline collection cooperatively. During offline
+list delivery, after release, SIGINT/SIGTERM instead interrupts the process.
 Cancellation stops waiting for accepted Analyst work, not that work itself; collection
 must actually settle before release. First failure ends the attempt, without retry,
 compensation or repeat unlink. Publication/deletion-durability uncertainty is fatal

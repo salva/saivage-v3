@@ -935,6 +935,8 @@ projection, inventory, candidate or publication failures.
 
 `POST /api/runtime/gc-work` is an operator-session operation; CLI delegation uses
 only the verified live lock endpoint/auth, with no fallback after delegation failure.
+The offline-only `--list-files` flag is not part of that request and refuses a
+verified live owner before any HTTP request.
 The application reserves its call-local completion task synchronously and attaches
 one fresh RAM status reader to each admitted online GC. Duplicates fail before
 stream headers without replacing that reader. Reservation is not the Supervisor
@@ -966,7 +968,8 @@ connection establishment, follows no redirects and retries nothing; other runtim
 requests keep their existing transport. Body transport failure differs from malformed
 frames. The dispatcher is destroyed on completion/failure; CLI SIGINT/SIGTERM
 forwards cancellation to the single request. Progress and offline prompt/disclosure
-use stderr, final stdout is one response JSON line after settlement/release.
+use stderr. Normal CLI stdout is one final response JSON line after
+settlement/release; offline file listing is the exception below.
 Default and explicit online preview require the same hold as deletion but no backup prerequisite
 or collector writes. Known effects and accounted estimates are bounded response
 data, not whole-work or physical-space guarantees. Deletion uncertainty reaches
@@ -980,12 +983,25 @@ response construction and the strict collector, not server/init/recovery infrast
 Empty process protections rely on that operator assertion, never inferred containment.
 Online comparison also includes compiled Git policy. Candidate/mark sets remain call-local;
 each effect requires fresh at-use checks under the applicable exclusion, never a saved
-selection. Offline signals abort cooperatively;
+selection. Signals during offline collection abort cooperatively;
 actual settlement and successful release precede result output. Lock release checks
 ownership before unlink, then performs unlink/open/fsync/close sequentially. Any error
 from unlink onward is publication uncertainty, dispatched immediately through existing
 fatal ports in app cleanup, async initializer, repair and offline GC, before later
 cleanup/output; no close follows failed fsync and no release retry is allowed.
+
+Only offline `--list-files` supplies a call-local array to the collector. The
+collector adds each dry-run path at the final selection count, not during
+inventory; progress, response and status remain path-free. The CLI owns escaping
+and checked, line-by-line stdout delivery of completed selections, only after
+successful release, prompt closure and removal of the collection signal handlers.
+Ordinary process signals can then interrupt delivery without holding GC open or
+retracting a written prefix. The CLI attempts the unchanged response JSON on
+stderr, for completion only after stdout succeeds. The advisory stderr error
+listener remains installed for list delivery and process exit; it can absorb
+late sink errors, not guarantee drainage. Neither the array nor transport output
+is a saved selection or part of the operator API. See
+[offline file listing](../runbook/work-gc.md#list-selected-files-offline).
 
 ### Structure and records
 

@@ -79,11 +79,14 @@ auth, response and schema failure have no fallback. Every existing lock blocks
 new lifecycle acquisition; no classification automatically removes/takes it over.
 Owners: `src/runtime/lock.ts` and `src/cli.ts`.
 
-`gc-work` uses these classifications separately: live delegates, including when project
-execution is stopped; only missing permits interactive offline bound-lock GC.
-Dead/malformed/indeterminate and live null endpoint refuse. No failed delegation
-falls back. See [work GC](./work-gc.md) for maintained writer exclusion, cooperative
-cancellation without an elapsed deadline and release-before-result semantics.
+`gc-work` uses these classifications separately. Without `--list-files`, a
+verified live owner with a published control endpoint delegates even when project
+execution is stopped. [`--list-files`](./work-gc.md#list-selected-files-offline)
+is offline-only and refuses a verified live owner before any HTTP request. Only
+missing permits interactive offline bound-lock GC. Dead/malformed/indeterminate
+and live null endpoint refuse. No failed delegation falls back. See
+[work GC](./work-gc.md) for maintained writer exclusion, cooperative cancellation
+without an elapsed deadline and release-before-result semantics.
 This exception does not change ordinary controls or authorize source commissioning.
 
 ### Abandoned locks

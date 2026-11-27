@@ -175,9 +175,24 @@ phase changes emit immediately, loop-driven count observations at most once per
 second. Inspection counters follow completed owner reads, candidate counts follow
 classification, and deletion counters follow known successes. Omission is not
 zero. No ETA, percentages, total-work denominators, heartbeat, completion phase or
-physical-space claim is made. CLI progress/prompt uses stderr; authoritative final
-stdout remains one response JSON line, offline only after lock release. Transport
-loss produces no manufactured final response and never authorizes replay.
+physical-space claim is made. CLI progress and offline disclosures/prompt use
+stderr. Normal final stdout is one response JSON line, offline only after lock
+release. Online transport loss produces no manufactured final response and never
+authorizes replay.
+
+The offline CLI alone accepts `--list-files` with default or explicit `--dry-run`
+and any existing filters, never with `--delete`. After successful lock release
+and prompt/signal cleanup, only a completed preview writes selected names to
+stdout: one `.saivage/work`-relative path per LF-terminated line in selection
+order, empty for zero. Literal backslashes are doubled; Unicode categories
+`Cc`, `Cf`, `Zl` and `Zp` use lowercase `\u{hex}` escapes. The unchanged response
+JSON is best effort on stderr, for completion only after checked stdout delivery.
+Noncompleted collection exits unsuccessfully without names; interrupted or failed
+list delivery exits unsuccessfully without completion JSON and may leave an
+incomplete prefix. Exit zero establishes completed selection, successful release
+and successful stdout writes, not stderr receipt, downstream consumption or durable
+capture. Names are not an API field or a saved selection for deletion. See the
+[offline listing procedure](../runbook/work-gc.md#list-selected-files-offline).
 
 Every POST progress snapshot, active GET status and non-null GC result requires nullable
 `first_global_protection`. A non-null value is exactly `{reason, source}` with no
@@ -191,8 +206,9 @@ candidates with null. Partial results/progress do not certify completion, and
 refusals with `result:null` gain no fabricated attribution. The fixed value contains
 no paths, identities, tokens, excerpts, object keys, config values or error text.
 It is sticky through throttled observations/phase changes and stored even without
-an observer. CLI stderr renders its reason/source explicitly, or
-`first_global_protection=null`; stdout remains one strict final response.
+an observer. CLI progress on stderr renders its reason/source explicitly, or
+`first_global_protection=null`; the final response schema is unchanged in either
+CLI output mode.
 
 Explicit [work GC](../runbook/work-gc.md) first inventories approved ordinary work
 while execution continues. Online collection then holds/parks; offline collection
@@ -294,7 +310,8 @@ checks still apply.
 Only a missing lifecycle lock selects offline CLI GC: exact interactive maintained
 writer-quiescence confirmation precedes existing bound lifecycle exclusion and
 generated reads. Dead/malformed/indeterminate owners refuse, and live delegation
-never falls back. Offline GC loads current inputs without server/init/recovery/Git
+never falls back. `--list-files` refuses a verified live owner before any HTTP
+request. Offline GC loads current inputs without server/init/recovery/Git
 commissioning, and preserves historical running/unmatched/native selections without
 settling them. Operator exclusion, not lock absence, covers external writers.
 Preview publishes/releases that lock but has no collector effects; offline results

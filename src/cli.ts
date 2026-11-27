@@ -87,7 +87,7 @@ type ParsedCommand =
   | { readonly command: 'init'; readonly inputs: InitInputs }
   | { readonly command: 'start'; readonly inputs: StartInputs }
   | { readonly command: 'repair'; readonly inputs: RepairInputs }
-  | { readonly command: 'gc-work'; readonly inputs: WorkGcRequest }
+  | { readonly command: 'gc-work'; readonly inputs: WorkGcRequest; readonly listFiles: boolean }
   | { readonly command: 'observed-collections'; readonly inputs: PrepareObservedCollectionsInputs }
   | {
       readonly command: Exclude<
@@ -115,9 +115,10 @@ Usage:
   saivage resume
   saivage stop
   saivage restart_server
-  saivage gc-work [--before <RFC3339-with-zone>] [--min-file-bytes <bytes>] [--target-bytes <bytes>] [--dry-run | --delete]
+  saivage gc-work [--before <RFC3339-with-zone>] [--min-file-bytes <bytes>] [--target-bytes <bytes>] [--dry-run | --delete] [--list-files]
       Preview first with --dry-run (also the default). A live server collects only
       while paused or stopped; busy mutations reject, Stop remains available.
+      --list-files prints selected paths on stdout for offline previews only.
       Without a lifecycle owner, interactive exact quiescence acknowledgement and
       bound lifecycle exclusion are required in both modes. No elapsed deadline;
       interrupt to cancel cooperatively. Lost response never authorizes retry.
@@ -193,11 +194,16 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
       'min-file-bytes': { type: 'string' },
       'dry-run': { type: 'boolean' },
       delete: { type: 'boolean' },
+      'list-files': { type: 'boolean' },
     });
     if (values['dry-run'] && values.delete)
       throw new Error('--dry-run and --delete are mutually exclusive.');
+    const listFiles = values['list-files'] === true;
+    if (listFiles && values.delete)
+      throw new Error('--list-files and --delete are mutually exclusive.');
     return {
       command,
+      listFiles,
       inputs: WorkGcRequestSchema.parse({
         mode: values.delete ? 'delete' : 'dry_run',
         before: values.before,
@@ -565,7 +571,7 @@ export async function run(args: string[]): Promise<void> {
   const parsed = parseCommand(args);
   switch (parsed.command) {
     case 'gc-work':
-      await handleGcWork(parsed.inputs, fatalPort);
+      await handleGcWork(parsed.inputs, parsed.listFiles, fatalPort);
       break;
     case 'observed-collections':
       prepareObservedCollections(parsed.inputs);

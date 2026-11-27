@@ -71,7 +71,7 @@ Run target-local commands from the exact project root with the identified releas
 | Start server | `saivage start --project-root <absolute-root> --config <absolute-yaml> --host <host> --port <port>` |
 | Read/control live runtime | `saivage status`, `pause`, `resume`, `stop` |
 | Confirm server restart | `saivage restart_server` (bearer mode only) |
-| Preview optional work reclamation | `saivage gc-work --dry-run` (review the [horizon and loss risks](./work-gc.md) before separately authorized `--delete`) |
+| Preview optional work reclamation | `saivage gc-work --dry-run`; to see names, use `saivage gc-work --list-files` with the [offline procedure](./work-gc.md#list-selected-files-offline). Review the [horizon and loss risks](./work-gc.md) before separately authorized `--delete`. |
 | Public health | `/health`, `/health/ready` |
 | Public web/docs | `/`, `/docs/` (`/docs` redirects) |
 | Selected default YAML | `.saivage/saivage.yaml` |
