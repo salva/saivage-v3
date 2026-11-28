@@ -981,6 +981,27 @@ describe('specialized production card-type flows', () => {
     const summaryCalls: LlmInvocationInput[] = [];
     const findings = 'Candidate A: release.cjs returns false, expected true per caller.txt (original release owner); encoding.cjs returns ascii, expected utf8 per caller.txt (original encoding owner). Reproduce with fixture.cjs release and fixture.cjs encoding: each actual assertion exits 1. Retain both counterexamples and publication prerequisite behavior as meaningful regression coverage. Release-dependent publication not evaluated: masked by release prerequisite, not a third defect. Arithmetic unchanged and accepted; independent broad arithmetic checks passed. Full combined acceptance gate outstanding; no assessor repair.';
     const summary = `Finite assignment only: release, encoding, dependent publication and arithmetic. ${findings}`;
+    const reviewRevision =
+      /^Previous process node: review\nAccepted outcome: revision_required\nSummary: [^\n]*\nRecords:\n- (record:\/\/\/review\.md\?card=project&v=\d+)$/mu;
+    const summaries = {
+      calls: summaryCalls,
+      get content() {
+        // The harness records the current request before asking for the scripted reply.
+        const source = summaryCalls.at(-1)?.providerConversation;
+        if (source?.sourceSessionId !== cardAgentSessionId('planner', 'project')) return summary;
+        for (const row of source.messages) {
+          if (
+            row.kind !== 'synthetic_context' ||
+            row.origin !== 'summary_material' ||
+            (!row.block_identity.includes(':[kind=new_source ') &&
+              !row.block_identity.endsWith(':[kind=inherited_history]'))
+          ) continue;
+          const revision = reviewRevision.exec(row.content);
+          if (revision) return `${summary}\n\n${revision[0]}`;
+        }
+        return summary;
+      },
+    };
     const command = (mode: string) =>
       `timeout -k 10s 15s ${JSON.stringify(process.execPath)} fixture.cjs ${mode}`;
     const status = (card: string, id: string, content: string) =>
@@ -1041,9 +1062,16 @@ describe('specialized production card-type flows', () => {
           expect(run.cards.read(reviewId)!.lifecycle.status).toBe('stopped');
         }
         if (parentCalls === 12) {
-          const transition = transitionRows(input).at(-1)!.content;
-          expect(transition).toContain('Previous process node: review\nAccepted outcome: revision_required');
-          expect(transition).toMatch(/record:\/\/\/review\.md\?card=project&v=\d+/u);
+          const historySummary = input.providerConversation.messages.find(
+            (row) => row.kind === 'synthetic_context' && row.origin === 'history_summary',
+          );
+          const revision =
+            reviewRevision.exec(transitionRows(input).at(-1)?.content ?? '') ??
+            reviewRevision.exec(historySummary?.content ?? '');
+          const review = run.cards.readRecordCurrent('project', 'review.md');
+          const acceptedUrl = review.kind === 'found' ? review.value.projection?.acceptedVersionUrl : null;
+          if (!acceptedUrl) throw new Error('Missing accepted project review.');
+          expect(revision?.[1]).toBe(acceptedUrl);
         }
         const action = actions[parentCalls - 1];
         if (!action) throw new Error(`Unexpected batch parent ${parentCalls}`);
@@ -1147,7 +1175,7 @@ describe('specialized production card-type flows', () => {
         }
       }
       return complete(action);
-    }, { calls: summaryCalls, content: summary }, 'Independently classify arithmetic coverage, then assess finite release, encoding and dependent publication semantics on the exact candidate named by parent. Release must be true, encoding utf8, publication requires both; arithmetic is 4. Original owners alone repair. Required final full gate covers all four; retain applicable unchanged evidence. No whole-product expansion.');
+    }, summaries, 'Independently classify arithmetic coverage, then assess finite release, encoding and dependent publication semantics on the exact candidate named by parent. Release must be true, encoding utf8, publication requires both; arithmetic is 4. Original owners alone repair. Required final full gate covers all four; retain applicable unchanged evidence. No whole-product expansion.');
     reviewId = run.child.id;
     for (const name of ['release', 'encoding']) {
       const owner = run.cards.create({ type: 'ops', parent: 'project', title: `${name} original owner`, bootstrap_content: `Deliver candidate A ${name}.cjs, then correct independently reported defects in that file when directed. Preserve other owners' files and arithmetic; focused author checks are not independent acceptance.`, created_by: 'planner', bootstrap_author: { kind: 'agent', agent: 'planner' }, depends_on: [] });
