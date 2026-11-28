@@ -539,14 +539,33 @@ uncertainty guidance described here is shared by the pair, not a claim about the
 other profiles or an update to installed materialized or
 custom hosts; adoption remains separate.
 
-In bundled `classic-typed`, the Planner records the outstanding independent
-decision in `status.md` before selecting `admit_review` and points to it in the
-result summary. For each child verdict it relies on, the Planner cites the exact
+In bundled `classic-typed`, the Planner assesses a child's returned result
+against that child's assignment. Applicable evidence, including independent
+findings on unchanged inputs, can be enough to continue ordinary planning.
+When a material intermediate question still needs an independent answer, the
+Planner can seek a focused non-author check on the relevant input and criterion
+through the responsible owner's authorized route. If no such route is available
+to the Planner, the gap stays open and goes to the responsible owner. A focused
+technical finding is evidence, not the Reviewer acceptance required for
+reviewed closure.
+
+The Planner selects `admit_review` for a judgment on the whole current project
+or goal only when the full accepted brief appears delivered, the subtree appears
+eligible for closure, and an applicable independent judgment is still needed.
+The runtime's existing DONE gate requires every descendant to be DONE or
+CANCELLED; it does not gate `admit_review`. The Planner uses current evidence,
+not a separate scan: a known STOPPED descendant, or any other known state
+outside DONE and CANCELLED, is a closure gap even if delivery appears complete.
+Readiness for judgment is not approval. The Planner records the outstanding
+decision in `status.md` and points to it in the result summary. For each child
+verdict it relies on, the Planner cites the exact
 immutable accepted review URL and identifies the portion it establishes, the
 applicable inputs or delivered candidate, and any material limits. The accepted
 edge gives the Reviewer the summary and an immutable pointer to the same card's
 accepted Planner `status.md`, not the record body. Descendant status and bootstrap
 pointers are separate context, not a recursive feed of child verdicts.
+On the goal's notification path back to completion, `handle-notifications`
+requires renewed `admit_review` even if the delivered context warrants no change.
 
 The Reviewer reads the cited evidence as needed and can credit applicable,
 bounded approval on unchanged inputs without repeating the child review or
@@ -938,10 +957,17 @@ In `classic-typed`, assessment reads actual applicable accepted records and
 substantive sources as needed and credits settled constituent acceptance on
 unchanged inputs without reopening it solely for a missing disposable log.
 Descendant DONE is a pointer, not a verdict; required deliverables, new findings,
-changed inputs and uncovered objectives remain real gaps. If reviewed closure is
-required and no applicable current-activation project review is promotable,
-assessment admits fresh review even if an earlier review of the unchanged objective
-still supports its merits. That does not reopen settled constituents.
+changed inputs and uncovered objectives remain real gaps. A known descendant
+state that precludes closure is a gap in `status.md`: assessment returns
+actionable work via `replan` or reports the precise blocker if no admissible
+path remains. It neither dispatches children nor seeks review to resolve that gap.
+If the objective appears fulfilled and the subtree appears eligible, assessment
+admits fresh review when reviewed closure is required but no applicable
+current-activation approval is promotable. An earlier review of the unchanged
+objective can still support its merits, and the need for fresh approval alone
+does not reopen settled constituents. Project plan and recover can still go
+directly to `admit_review` under the whole-card conditions; assessment is not a
+prerequisite.
 Reconciled continuing work calls for `replan`, not implementation or further
 readiness polishing inside assessment; no additional review is needed merely to
 return remaining work to planning. Typed research similarly submits evidence to
