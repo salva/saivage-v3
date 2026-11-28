@@ -530,7 +530,11 @@ class WorkReferences {
     return bounded;
   }
 
-  private suggestedScopes(value: string, bases: readonly string[], origin: ReferenceOrigin): string[] {
+  private suggestedScopes(
+    value: string,
+    bases: readonly string[],
+    origin: ReferenceOrigin,
+  ): string[] {
     const required = origin === 'operational';
     if (!cardworkScheme.test(value) && substitution.test(value)) {
       this.unresolved(required);
@@ -633,7 +637,8 @@ class WorkReferences {
       origin,
       source,
       input,
-      origin === 'operational' && directory === undefined &&
+      origin === 'operational' &&
+      directory === undefined &&
       (isAbsolute(input) || /^(?:project|system|work|tmp|file):/u.test(input))
         ? []
         : bases,
@@ -714,7 +719,11 @@ class WorkReferences {
             return (
               !this.protects(path) &&
               scopes.some((scope) => {
-                for (let entry = path; entry !== scope && within(scope, entry); entry = dirname(entry))
+                for (
+                  let entry = path;
+                  entry !== scope && within(scope, entry);
+                  entry = dirname(entry)
+                )
                   if (matches(scope, entry)) return true;
                 return false;
               })
@@ -796,7 +805,13 @@ class WorkReferences {
       (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(token) ||
         /^(?:project|system|work|tmp|file):/u.test(token))
     ) {
-      await this.glob(token, bases, origin, source, origin === 'content' ? directory ?? cwd : undefined);
+      await this.glob(
+        token,
+        bases,
+        origin,
+        source,
+        origin === 'content' ? (directory ?? cwd) : undefined,
+      );
       return;
     }
     if (
@@ -1068,14 +1083,7 @@ class WorkReferences {
         if (stat?.isFile()) this.mark(path, 'content', source);
       }
       if (!exact)
-        await this.glob(
-          reference.pattern,
-          bases,
-          'content',
-          source,
-          reference.directory,
-          true,
-        );
+        await this.glob(reference.pattern, bases, 'content', source, reference.directory, true);
     }
   }
 

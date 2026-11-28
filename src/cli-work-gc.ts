@@ -53,10 +53,8 @@ function stderrProgress(): { observe: WorkGcProgressObserver; close(): void } {
 }
 
 function writeSelectedPath(path: string): Promise<void> {
-  const line = path.replace(
-    /[\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,
-    (character) =>
-      character === '\\' ? '\\\\' : `\\u{${character.codePointAt(0)!.toString(16)}}`,
+  const line = path.replace(/[\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (character) =>
+    character === '\\' ? '\\\\' : `\\u{${character.codePointAt(0)!.toString(16)}}`,
   );
   const stdout = process.stdout;
   return new Promise((resolve, reject) => {
