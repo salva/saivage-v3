@@ -675,16 +675,37 @@ historical phase. Useful history and applicable settled evidence remain relevant
 but neither partial delivery nor a historical review satisfies a current required
 acceptance gate.
 
+The bundled `classic-typed` recovery message gives a Planner with immediate-child
+authority a choice to assess, not an automatic dispatch. Delivered context informs
+whether earlier priorities still hold. Before setting aside previously prioritized
+work, the guidance calls for considering whether the responsible immediate child
+can advance it under its accepted brief at its configured entry. STOPPED alone
+establishes neither a blocker nor safety to activate. A STOPPED child does not
+need `reopen_card`; a fresh activation is not a replay and still requires explicit
+`activate_card` under the existing role, node and admission rules. The message
+grants no child authority to a leaf, and a status change does not dispatch work.
+
 The same default guidance treats a child return as evidence, not a verdict on
-its ancestors. Each still-active Planner handles its own obligations through its
-immediate children where the node permits and both inputs and effects are
-independent of any uncertain operation and within existing authority. The
-uncertain operation and its resources remain untouched. The goal reports the
-cross-scope remainder, evidence, impact and
-needed decision or action; the root owns ordinary cross-scope strategy. When an
-unavailable input, authority, capability or decision leaves no admissible progress
-at the current node, the BLOCKED handback identifies that exact gap. FAILED
-instead denotes conclusive failure under the generated contract.
+its ancestors. Each still-active Planner reassesses its own obligations and acts
+through immediate children only where the node permits. An ordinary missing fact
+that matters to the next safe action or to acceptance can be resolved through a
+permitted source or the responsible owner. Alternatively, a route with independently
+authorized inputs and effects can advance the same accepted outcome. These are
+alternatives, not successive prerequisites, and an immaterial unknown need not be
+investigated. Resolving an ordinary missing fact is not resolving an uncertain
+external or native effect. Any route around such an effect must use inputs and
+effects independent of the uncertain operation and leave it and its resources
+untouched.
+
+Useful work on disjoint obligations can continue within existing authority, but it
+neither resolves the unknown nor discharges the original obligation. If no useful
+authorized path remains for that obligation, it stays outstanding, and the
+permitted record and result handoff identifies the exact gap, its evidence and
+impact, and the concrete input, decision, capability or authority needed.
+The goal reports cross-scope gaps; the root owns ordinary cross-scope strategy.
+When an unavailable input, authority, capability or decision leaves no admissible
+progress at the current node, the BLOCKED handback identifies that exact gap.
+FAILED instead denotes conclusive failure under the generated contract.
 
 At the root, `assess-completion` receives pending context after review and returns
 actionable remaining work to `plan` with `replan`; assessment does not dispatch
